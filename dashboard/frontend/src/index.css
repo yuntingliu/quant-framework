@@ -1,0 +1,551 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ── Light Mode: Warm paper + ink ─────────────────────────── */
+  :root {
+    --background: 40 20% 97%;
+    --foreground: 220 25% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 25% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 25% 12%;
+    --primary: 220 72% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 93%;
+    --secondary-foreground: 220 25% 12%;
+    --muted: 220 14% 93%;
+    --muted-foreground: 220 10% 50%;
+    --accent: 220 72% 45%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 88%;
+    --input: 220 13% 88%;
+    --ring: 220 72% 45%;
+    --radius: 0.375rem;
+    --chart-1: 220 72% 45%;
+    --chart-2: 160 55% 42%;
+    --chart-3: 32 85% 52%;
+    --chart-4: 270 55% 55%;
+    --chart-5: 350 70% 52%;
+    --shadow-soft-card: 0 1px 2px hsl(220 20% 70% / 0.18), 0 8px 24px -8px hsl(220 20% 55% / 0.22);
+  }
+
+  /* ── Dark Mode: Deep charcoal + amber accents ────────────── */
+  .dark {
+    --background: 225 20% 7%;
+    --foreground: 210 20% 90%;
+    --card: 225 18% 10%;
+    --card-foreground: 210 20% 90%;
+    --popover: 225 18% 12%;
+    --popover-foreground: 210 20% 90%;
+    --primary: 42 92% 62%;
+    --primary-foreground: 225 20% 7%;
+    --secondary: 225 14% 15%;
+    --secondary-foreground: 210 20% 90%;
+    --muted: 225 14% 15%;
+    --muted-foreground: 215 12% 55%;
+    --accent: 42 92% 62%;
+    --accent-foreground: 225 20% 7%;
+    --destructive: 0 65% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 225 14% 18%;
+    --input: 225 14% 18%;
+    --ring: 42 92% 62%;
+    --chart-1: 210 80% 58%;
+    --chart-2: 160 60% 50%;
+    --chart-3: 32 90% 58%;
+    --chart-4: 270 60% 62%;
+    --chart-5: 350 72% 58%;
+    --shadow-soft-card: 0 1px 2px hsl(225 30% 3% / 0.5), 0 10px 28px -10px hsl(225 30% 3% / 0.55);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+/* ── Financial Typography ──────────────────────────────────── */
+.font-tabular {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.text-profit {
+  color: oklch(0.72 0.18 152);
+}
+
+.text-loss {
+  color: oklch(0.62 0.22 27);
+}
+
+.text-neutral-signal {
+  color: hsl(var(--muted-foreground));
+}
+
+/* ── Signal Status Badges ──────────────────────────────────── */
+.signal-bullish {
+  background: oklch(0.72 0.18 152 / 0.12);
+  color: oklch(0.72 0.18 152);
+  border: 1px solid oklch(0.72 0.18 152 / 0.25);
+}
+
+.signal-bearish {
+  background: oklch(0.62 0.22 27 / 0.12);
+  color: oklch(0.62 0.22 27);
+  border: 1px solid oklch(0.62 0.22 27 / 0.25);
+}
+
+.signal-neutral {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--border));
+}
+
+/* ── Soft surface + focus glow (opt-in polish utilities) ───── */
+/* Frosted, softly shadowed surface. Reuses theme tokens — no palette
+   change. Apply to cockpit cards / elevated panels that want lift. */
+.surface-soft {
+  background: hsl(var(--card) / 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid hsl(var(--border) / 0.7);
+  box-shadow: var(--shadow-soft-card);
+}
+
+/* Subtle accent glow for focus/active affordances on inputs/buttons. */
+.ring-glow-primary {
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
+}
+.ring-glow-success {
+  box-shadow: 0 0 0 3px oklch(0.72 0.18 152 / 0.18);
+}
+.ring-glow-danger {
+  box-shadow: 0 0 0 3px hsl(var(--destructive) / 0.18);
+}
+
+/* ── Form controls (Input / Textarea / NativeSelect primitives) ─ */
+/* Shared base: border + bg + accent focus glow. Components add sizing
+   (h-8/px/text-xs) on top via Tailwind. Centralises the focus look. */
+.field-control {
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid hsl(var(--input));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.field-control::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+.field-control:focus-visible,
+.field-control:focus {
+  outline: none;
+  border-color: hsl(var(--primary) / 0.55);
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
+}
+.field-control:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.field-control.field-error {
+  border-color: hsl(var(--destructive) / 0.6);
+}
+.field-control.field-error:focus-visible,
+.field-control.field-error:focus {
+  border-color: hsl(var(--destructive) / 0.7);
+  box-shadow: 0 0 0 3px hsl(var(--destructive) / 0.18);
+}
+
+/* ── Tinted soft badges (border + 10–12% fill, theme-aware) ─── */
+.badge-success {
+  background: oklch(0.72 0.18 152 / 0.12);
+  color: oklch(0.72 0.18 152);
+  border-color: oklch(0.72 0.18 152 / 0.28);
+}
+.badge-warning {
+  background: oklch(0.79 0.15 78 / 0.14);
+  color: oklch(0.7 0.15 78);
+  border-color: oklch(0.79 0.15 78 / 0.3);
+}
+.badge-info {
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(var(--primary));
+  border-color: hsl(var(--primary) / 0.28);
+}
+.dark .badge-warning {
+  color: oklch(0.82 0.15 78);
+}
+
+/* ── Navigation ────────────────────────────────────────────── */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition: all 0.15s ease;
+  color: hsl(var(--muted-foreground));
+  position: relative;
+}
+
+.nav-item:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--secondary));
+}
+
+.nav-item.active {
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.08);
+}
+
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 25%;
+  bottom: 25%;
+  width: 2px;
+  background: hsl(var(--primary));
+  border-radius: 1px;
+}
+
+/* ── Cards: Subtle depth ───────────────────────────────────── */
+.dark .card-glow {
+  box-shadow:
+    0 0 0 1px hsl(var(--border)),
+    0 1px 3px 0 hsl(225 20% 4% / 0.5),
+    0 4px 16px -2px hsl(225 20% 4% / 0.3);
+}
+
+:root .card-glow {
+  box-shadow:
+    0 0 0 1px hsl(var(--border)),
+    0 1px 3px 0 hsl(220 20% 80% / 0.3),
+    0 4px 16px -2px hsl(220 20% 80% / 0.15);
+}
+
+/* ── Custom Scrollbar ──────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* ── Animations ────────────────────────────────────────────── */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.35s ease-out forwards;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-slide-in {
+  animation: slide-in-right 0.3s ease-out forwards;
+}
+
+/* ── Staggered entry for KPI grids ─────────────────────────── */
+.stagger-grid > * {
+  opacity: 0;
+  animation: fade-in-up 0.4s ease-out forwards;
+}
+.stagger-grid > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-grid > *:nth-child(2) { animation-delay: 50ms; }
+.stagger-grid > *:nth-child(3) { animation-delay: 100ms; }
+.stagger-grid > *:nth-child(4) { animation-delay: 150ms; }
+.stagger-grid > *:nth-child(5) { animation-delay: 200ms; }
+.stagger-grid > *:nth-child(6) { animation-delay: 250ms; }
+.stagger-grid > *:nth-child(7) { animation-delay: 300ms; }
+
+/* ── Price Flash Animations ───────────────────────────────── */
+@keyframes flash-gain {
+  0% { background-color: oklch(0.72 0.18 152 / 0.25); }
+  100% { background-color: transparent; }
+}
+
+@keyframes flash-loss {
+  0% { background-color: oklch(0.62 0.22 27 / 0.25); }
+  100% { background-color: transparent; }
+}
+
+.flash-gain {
+  animation: flash-gain 0.6s ease-out;
+}
+
+.flash-loss {
+  animation: flash-loss 0.6s ease-out;
+}
+
+/* ── Skeleton Loading Pulse ──────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 25%,
+    hsl(var(--muted-foreground) / 0.08) 50%,
+    hsl(var(--muted)) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius);
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Live indicator dot ────────────────────────────────────── */
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: oklch(0.72 0.18 152);
+  box-shadow: 0 0 6px oklch(0.72 0.18 152 / 0.5);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.live-dot-offline {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(var(--muted-foreground));
+}
+
+/* ── Card hover lift ──────────────────────────────────────── */
+.card-glow {
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.card-glow:hover {
+  transform: translateY(-1px);
+}
+
+.dark .card-glow:hover {
+  box-shadow:
+    0 0 0 1px hsl(var(--border)),
+    0 2px 6px 0 hsl(225 20% 4% / 0.6),
+    0 8px 24px -4px hsl(225 20% 4% / 0.4);
+}
+
+:root .card-glow:hover {
+  box-shadow:
+    0 0 0 1px hsl(var(--border)),
+    0 2px 6px 0 hsl(220 20% 80% / 0.4),
+    0 8px 24px -4px hsl(220 20% 80% / 0.2);
+}
+
+/* ── Input focus ring (financial precision) ───────────────── */
+input[type="number"]:focus {
+  outline: none;
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.15);
+}
+
+/* ── Recharts tooltip override for dark mode ──────────────── */
+.recharts-default-tooltip {
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: 0 4px 12px hsl(var(--background) / 0.5) !important;
+}
+
+/* ── Docked widget overflow guardrails ────────────────────── */
+.widget-frame {
+  container-type: inline-size;
+  max-width: 100%;
+}
+
+.dockview-theme-abyss,
+.dockview-theme-abyss * {
+  box-sizing: border-box;
+}
+
+.dockview-theme-abyss .dv-view,
+.dockview-theme-abyss .dv-groupview,
+.dockview-theme-abyss .dv-content-container {
+  min-width: 0;
+  min-height: 0;
+}
+
+.dockview-theme-abyss .dv-tabs-and-actions-container,
+.dockview-theme-abyss .dv-scrollable,
+.dockview-theme-abyss .dv-tabs-container,
+.dockview-theme-abyss .dv-tab,
+.dockview-theme-abyss .dv-default-tab,
+.dockview-theme-abyss .dv-default-tab-content {
+  min-width: 0;
+}
+
+.dockview-theme-abyss .dv-default-tab {
+  overflow: hidden;
+}
+
+.dockview-theme-abyss .dv-default-tab-content {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-panel {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chart-panel-lg {
+  height: clamp(240px, 42vh, 420px);
+}
+
+.chart-panel-sm {
+  height: clamp(150px, 28vh, 220px);
+}
+
+.kpi-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+@container (min-width: 520px) {
+  .kpi-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 980px) {
+  .kpi-summary-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.kpi-card {
+  container-type: inline-size;
+}
+
+.kpi-card-icon,
+.kpi-card-sparkline {
+  display: none;
+}
+
+@container (min-width: 230px) {
+  .kpi-card-icon {
+    display: block;
+  }
+}
+
+@container (min-width: 280px) {
+  .kpi-card-sparkline {
+    display: block;
+  }
+}
+
+.data-table-container,
+.watchlist-table-container {
+  container-type: inline-size;
+}
+
+.data-table-priority-medium,
+.data-table-priority-wide,
+.watchlist-col-medium,
+.watchlist-col-wide {
+  display: none;
+}
+
+@container (min-width: 460px) {
+  .watchlist-col-medium {
+    display: table-cell;
+  }
+}
+
+@container (min-width: 560px) {
+  .data-table-priority-medium {
+    display: table-cell;
+  }
+}
+
+@container (min-width: 680px) {
+  .watchlist-col-wide {
+    display: table-cell;
+  }
+}
+
+@container (min-width: 760px) {
+  .data-table-priority-wide {
+    display: table-cell;
+  }
+}
+
+/* ── Dockview theme: match our dark/light design tokens ───── */
+.dockview-theme-abyss {
+  --dv-background-color: hsl(var(--background));
+  --dv-paneview-header-border-color: hsl(var(--border));
+  --dv-tabs-and-actions-container-background-color: hsl(var(--card));
+  --dv-activegroup-visiblepanel-tab-background-color: hsl(var(--card));
+  --dv-activegroup-hiddenpanel-tab-background-color: hsl(var(--muted));
+  --dv-inactivegroup-visiblepanel-tab-background-color: hsl(var(--muted));
+  --dv-inactivegroup-hiddenpanel-tab-background-color: hsl(var(--muted));
+  --dv-tab-divider-color: hsl(var(--border));
+  --dv-activegroup-visiblepanel-tab-color: hsl(var(--foreground));
+  --dv-activegroup-hiddenpanel-tab-color: hsl(var(--muted-foreground));
+  --dv-inactivegroup-visiblepanel-tab-color: hsl(var(--muted-foreground));
+  --dv-inactivegroup-hiddenpanel-tab-color: hsl(var(--muted-foreground));
+  --dv-separator-border: hsl(var(--border));
+  --dv-group-view-background-color: hsl(var(--background));
+  height: 100%;
+}
+
+/* Hide lightweight-charts branding */
+[class*="tv-lightweight-charts"] a,
+[class*="tv-lightweight-charts"] [class*="watermark"],
+[class*="apply-common-tooltip"] a,
+a[href*="tradingview"],
+a[href*="TradingView"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  height: 0 !important;
+  width: 0 !important;
+  overflow: hidden !important;
+}
+

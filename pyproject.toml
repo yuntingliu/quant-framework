@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alphalab"
+version = "0.3.0"
+description = "AlphaLab barebone quant framework with pluggable data providers and a workstation shell"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "LYT"}]
+requires-python = ">=3.10"
+keywords = ["quantitative", "backtesting", "alpha", "factor", "portfolio"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "loguru>=0.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black",
+    "ruff",
+]
+dashboard = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "httpx>=0.24.0",
+]
+all = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "httpx>=0.24.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/LYT/quant-framework"
+Repository = "https://github.com/LYT/quant-framework"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["alphalab*", "dashboard*"]
+
+[tool.setuptools.package-data]
+"alphalab.strategies" = ["*.yaml"]
+"alphalab" = ["schema.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [
+    "artifacts",
+    "build",
+    "dist",
+    "data",
+    "logs",
+    "outputs",
+    "results",
+    "scratch",
+    "dashboard/frontend/node_modules",
+    "dashboard/frontend/dist",
+    "dashboard/frontend/dist-electron",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]

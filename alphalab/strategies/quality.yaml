@@ -1,0 +1,24 @@
+name: quality
+description: Generic quality template.
+universe:
+  pool: all
+selection:
+  n_stocks: 10
+  min_factor_coverage: 0.5
+portfolio:
+  max_weight: 0.10
+  rebalance_freq: monthly
+factors:
+  - name: roe
+    source: fundamental
+    direction: long
+    weight: 0.45
+  - name: gross_margin
+    source: fundamental
+    direction: long
+    weight: 0.30
+  - name: leverage
+    source: fundamental
+    direction: short
+    weight: 0.25
+
