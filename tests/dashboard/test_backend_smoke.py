@@ -10,14 +10,33 @@ from dashboard.backend.services import framework_service
 def test_backend_smoke_endpoints():
     client = TestClient(app)
     assert client.get("/").json()["status"] == "ok"
-    assert client.get("/api/data/providers").status_code == 200
+    providers = client.get("/api/data/providers")
+    assert providers.status_code == 200
+    assert providers.json()["symbol_count"] == 300
+    assert all(item["status"] == "ready" for item in providers.json()["datasets"].values())
+    manifest = client.get("/api/data/manifest")
+    assert manifest.status_code == 200
+    assert manifest.json()["realtime"] == "not_configured"
     strategies = client.get("/api/strategies")
     assert strategies.status_code == 200
     assert {item["id"] for item in strategies.json()} >= {"momentum", "balanced"}
     assert client.get("/api/system/logs").status_code == 200
 
 
-def test_backtest_endpoint_handles_empty_data(tmp_path, monkeypatch):
+def test_real_data_endpoints():
+    client = TestClient(app)
+    symbols = client.get("/api/data/market/symbols").json()["symbols"]
+    assert len(symbols) == 300
+    bars = client.get(f"/api/data/market/bars?symbol={symbols[0]}&start=2026-01-01")
+    assert bars.status_code == 200
+    assert bars.json()["rows"]
+    factors = client.get("/api/data/factors/returns")
+    assert factors.status_code == 200
+    assert factors.json()["names"] == ["MKT", "SMB", "HML", "MOM", "RMW", "rf"]
+    assert client.get("/api/data/market/bars?symbol=NOT-A-SYMBOL").status_code == 404
+
+
+def test_backtest_signal_and_paper_endpoints(tmp_path, monkeypatch):
     monkeypatch.setattr(framework_service, "ResultStore", lambda: ResultStore(tmp_path / "alphalab.db"))
 
     client = TestClient(app)
@@ -33,6 +52,24 @@ def test_backtest_endpoint_handles_empty_data(tmp_path, monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["strategy_id"] == "momentum"
-    assert payload["returns"] == []
-    assert payload["weights_count"] == 0
-    assert payload["metrics"]["n_periods"] == 0
+    assert payload["returns"]
+    assert payload["weights_count"] > 0
+    assert payload["metrics"]["n_periods"] > 0
+
+    detail = client.get(f"/api/backtests/{payload['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["returns"]
+    assert detail.json()["weights"]
+
+    signal = client.post("/api/signals/generate", json={"strategy_id": "balanced", "persist": True})
+    assert signal.status_code == 200
+    assert len(signal.json()["targets"]) == 10
+
+    symbol = next(iter(signal.json()["targets"]))
+    order = client.post(
+        "/api/paper/orders",
+        json={"symbol": symbol, "action": "buy", "quantity": 100},
+    )
+    assert order.status_code == 200
+    assert order.json()["status"] == "filled"
+    assert client.get("/api/paper/orders").json()

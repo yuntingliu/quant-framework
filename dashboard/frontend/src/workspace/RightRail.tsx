@@ -109,9 +109,7 @@ interface LatestBacktestSummary {
   } | null
 }
 
-interface BacktestListSummary {
-  backtests: LatestBacktestSummary[]
-}
+type BacktestListSummary = LatestBacktestSummary[]
 
 type RailTone = "ok" | "warn" | "danger" | "muted"
 type AgentIntent = "brief" | "draft" | "risk" | "next"
@@ -1371,7 +1369,7 @@ export function WorkspaceRightRail({
     dataStatus,
     copy,
   })
-  const latestBacktests = backtestList?.backtests ?? []
+  const latestBacktests = backtestList ?? []
 
   const panel = (
     <div className="flex h-full min-h-0 flex-col bg-card">

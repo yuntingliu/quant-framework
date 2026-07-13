@@ -38,6 +38,59 @@ export interface BacktestRunResult {
   weights_count: number
 }
 
+export interface DataManifest {
+  sample_start: string
+  cutoff_date: string
+  symbol_count: number
+  rows: Record<string, number>
+  realtime: string
+  caveat: string
+}
+
+export interface ProviderStatus {
+  providers: Record<string, string[]>
+  latest_date: string | null
+  sample_start: string | null
+  symbol_count: number
+  realtime: { status: string; source: string | null }
+  datasets: Record<string, { status: string; path: string; bytes: number; sha256?: string }>
+}
+
+export interface MarketBar {
+  date: string
+  symbol: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+  amount: number
+}
+
+export interface FactorReturnsPayload {
+  names: string[]
+  rows: Array<Record<string, string | number>>
+}
+
+export interface SignalResult {
+  id: string | null
+  strategy_id: string
+  signal_date: string
+  targets: Record<string, number>
+  diagnostics: Record<string, string | number | string[]>
+}
+
+export interface PaperOrder {
+  id: string
+  symbol: string
+  action: string
+  quantity: number
+  fill_price: number | ''
+  commission: number | ''
+  status: string
+  submitted_at: string
+}
+
 function electronBridge(): ElectronApiBridge | undefined {
   if (typeof window === "undefined") return undefined
   return (window as unknown as { api?: ElectronApiBridge }).api
@@ -105,73 +158,8 @@ function timeoutSignal(signal: AbortSignal | undefined, timeoutMs: number | unde
   }
 }
 
-function noConnectionStatus() {
-  return {
-    connected: false,
-    mode: "monitor",
-    account_id: null,
-    broker: null,
-    broker_label: "adapter disabled",
-    account_currency: null,
-    readonly: true,
-    supports_real_orders: false,
-    supports_paper_orders: true,
-    can_submit: false,
-    session_state: "disabled",
-  }
-}
-
-function bareboneFallback<T>(url: string, method: string): T | undefined {
-  const path = url.split("?")[0]
-  if (path === "/trading/status") return noConnectionStatus() as T
-  if (path === "/trading/asset") return { cash: 0, total_asset: 0, market_value: 0 } as T
-  if (path === "/data/status") {
-    return {
-      qmt: { latest_date: null, needs_update: false, provider_pending: true, live_connected: false },
-      rq: { latest_date: null, needs_update: false, provider_pending: true },
-      local: { latest_date: null, needs_update: false },
-      external: { connected: false, ready: false },
-    } as T
-  }
-  if (path === "/data/rq/connection") return { connected: false, mode: "disabled" } as T
-  if (path === "/agent/config") {
-    return { llm: { configured: false, available: false, provider: "none", model: null, mode: "barebone" } } as T
-  }
-  if (path === "/market/overview/index-board") {
-    return {
-      as_of: null,
-      ashare: { source: "unavailable", items: [] },
-      us: { source: "unavailable", items: [] },
-    } as T
-  }
-  if (path === "/market/overview/breadth") return { as_of: null, up: 0, down: 0, flat: 0, top_gainers: [], top_losers: [] } as T
-  if (path === "/market/overview/sectors") return { as_of: null, sectors: [] } as T
-  if (path === "/market/overview/money-flow") return { as_of: null, items: [], source: "unavailable" } as T
-  if (path.startsWith("/market/")) return {} as T
-  if (path.startsWith("/strategy-hub/overview")) return { strategies: [], count: 0, generated_at: new Date().toISOString() } as T
-  if (path.startsWith("/strategy-hub/")) return {} as T
-  if (path.startsWith("/backtest-jobs")) return { id: "disabled", status: "disabled", message: "Backtest job service is not bundled in barebone." } as T
-  if (path === "/backtest/run" && method === "POST") {
-    return { returns: [], metrics: {}, trades: [], weights: [] } as T
-  }
-  if (path.startsWith("/research/")) return { status: "disabled", items: [], message: "Research product service is not bundled in barebone." } as T
-  if (path.startsWith("/optimizer/")) return {} as T
-  if (path.startsWith("/risk/")) return {} as T
-  if (path.startsWith("/alerts/")) return { rules: [], events: [] } as T
-  if (path.startsWith("/workflows")) return { workflows: [], runs: [] } as T
-  if (path.startsWith("/data/sync/")) return { id: "disabled", status: "disabled", message: "External sync adapters are not bundled." } as T
-  if (path.startsWith("/data/external") || path.startsWith("/trading/external")) {
-    return { connected: false, ready: false, status: "disabled", message: "External adapter is not bundled in barebone." } as T
-  }
-  if (path.startsWith("/trading/")) {
-    return method === "GET" ? ([] as T) : ({ status: "disabled", message: "Live trading adapters are not bundled." } as T)
-  }
-  return undefined
-}
-
 async function fetchJSON<T>(url: string, options?: ApiRequestInit): Promise<T> {
   const { timeoutMs, signal, ...fetchOptions } = options ?? {}
-  const method = String(fetchOptions.method ?? "GET").toUpperCase()
   const requestSignal = timeoutSignal(signal ?? undefined, timeoutMs)
   try {
     const response = await fetch(`${getApiBase()}${url}`, {
@@ -180,10 +168,6 @@ async function fetchJSON<T>(url: string, options?: ApiRequestInit): Promise<T> {
       signal: requestSignal.signal,
     }).finally(requestSignal.cleanup)
     if (!response.ok) {
-      const fallback = bareboneFallback<T>(url, method)
-      if (fallback !== undefined && (response.status === 404 || response.status === 405 || response.status === 500)) {
-        return fallback
-      }
       const error = await response.json().catch(() => ({ detail: response.statusText }))
       const detail = error.detail ?? error.message
       if (typeof detail === "string") {
@@ -200,8 +184,6 @@ async function fetchJSON<T>(url: string, options?: ApiRequestInit): Promise<T> {
     }
     return response.json() as Promise<T>
   } catch (error) {
-    const fallback = bareboneFallback<T>(url, method)
-    if (fallback !== undefined) return fallback
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error(timeoutMs ? `API request timed out after ${timeoutMs}ms` : "API request was cancelled")
     }

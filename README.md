@@ -3,9 +3,9 @@
 AlphaLab Barebone is a small quant framework for developing factor research,
 portfolio signals, backtests, and workstation extensions.
 
-The repository is intentionally protocol-first. It ships the core abstractions
-and a generic local parquet layout, while real data vendors and broker adapters
-belong in separate extension packages or project-local modules.
+The repository is protocol-first and includes a compact real-data example so a
+fresh checkout can inspect data, run strategies, generate signals, and simulate
+orders without configuring a vendor connection.
 
 ## What Is Included
 
@@ -17,39 +17,44 @@ belong in separate extension packages or project-local modules.
 - `ResultStore` for local SQLite state.
 - Broker-neutral execution dataclasses plus paper trading helpers.
 - FastAPI + React/Electron Dockview workstation shell using the original
-  AlphaLab multi-mode GUI structure. Concrete vendor/broker panels are kept as
-  visible adapter slots and render disabled placeholders until plugins are
-  installed.
+  AlphaLab multi-mode GUI structure.
+- A tracked 300-stock, five-year historical sample with point-in-time
+  fundamentals, monthly factor returns, and six seeded backtests.
+- Paper-only signal and order APIs. Realtime feeds and real orders are not
+  configured.
 
 ## Quick Start
 
 ```powershell
 cd C:\Users\LYT\Documents\GitHub\quant-framework
-python -m pytest tests/contracts -q
+pip install -e ".[dev,dashboard]"
+python -m pytest tests -q
 python -c "import alphalab; print(alphalab.__version__)"
 ```
 
-Optional editable install:
-
-```powershell
-pip install -e ".[dev,dashboard]"
-```
-
-## Local Data Layout
+## Bundled Data
 
 The default engine reads a generic local layout under `data/`:
 
 ```text
 data/
   market/bars.parquet                 # date, symbol, open, high, low, close, volume, amount?
-  fundamentals/fundamentals.parquet   # quarter, symbol, ep, bp, roe, ...
+  fundamentals/fundamentals.parquet   # quarter, available_date, symbol, factors
   factors/factor_returns.parquet      # DatetimeIndex, one column per factor return
   app/alphalab.db                     # local SQLite state
+  manifest.json                       # provenance, coverage, hashes, caveats
 ```
 
-Generated data is ignored by git. To use a real data source, implement the
-provider protocols in `alphalab.dataio.providers.protocol` and register the
-adapter with `DataEngine`.
+The sample is real historical data for development demonstration, not an
+unbiased investable universe. Prices end on the manifest cutoff date and must
+not be presented as realtime. Immutable parquet hashes are checked by the API.
+
+Maintainers can rebuild the sample from the full local research workspace:
+
+```powershell
+python scripts\build_example_data.py `
+  --source-root C:\Users\LYT\Documents\GitHub\quant-framework-factors
+```
 
 ## Dashboard
 
@@ -61,10 +66,10 @@ npm --prefix dashboard/frontend run dev:web
 Open [http://localhost:5173](http://localhost:5173). API docs are available at
 [http://localhost:8000/docs](http://localhost:8000/docs).
 
-The GUI intentionally preserves the AlphaLab workstation layout, command
-palette, right rail, mode sidebar, and widget catalog. Legacy data/vendor/live
-trading panels do not connect to bundled implementations; they show
-`adapter disabled` placeholders and are activation points for later plugins.
+The GUI preserves the AlphaLab workstation layout, command palette, right rail,
+mode sidebar, and widget catalog. Its default Home, Data, Research, and Paper
+layouts use real backend contracts. Optional vendor and live-trading panels are
+disabled extension points.
 
 ## Validation
 

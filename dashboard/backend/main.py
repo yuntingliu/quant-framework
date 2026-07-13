@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from dashboard.backend.routers import backtests, data, strategies, system
+from dashboard.backend.routers import backtests, compat, data, paper, signals, strategies, system
 
 app = FastAPI(
     title="AlphaLab Barebone API",
@@ -28,7 +28,10 @@ app.add_middleware(
 app.include_router(data.router)
 app.include_router(strategies.router)
 app.include_router(backtests.router)
+app.include_router(signals.router)
+app.include_router(paper.router)
 app.include_router(system.router)
+app.include_router(compat.router)
 
 
 @app.get("/")

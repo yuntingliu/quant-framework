@@ -650,9 +650,11 @@ button {
 }
 
 .table {
+  display: block;
+  width: 100%;
   border: 1px solid #343842;
   border-radius: 6px;
-  overflow: hidden;
+  overflow-x: auto;
 }
 
 .table-row {
@@ -679,6 +681,16 @@ button {
   display: block;
   color: #8f99a6;
   margin-top: 3px;
+}
+
+.backtest-table-row {
+  grid-template-columns: minmax(90px, 1fr) 80px 70px 155px;
+  min-width: 430px;
+}
+
+.paper-table-row {
+  grid-template-columns: minmax(90px, 1fr) 60px 90px 80px 70px;
+  min-width: 430px;
 }
 
 .form-row {
@@ -708,6 +720,43 @@ button {
 .form-row button:disabled {
   cursor: default;
   opacity: 0.6;
+}
+
+.panel-heading select {
+  min-width: 150px;
+  border: 1px solid #343842;
+  border-radius: 6px;
+  background: #191b20;
+  color: #e9edf1;
+  padding: 7px 9px;
+}
+
+.compact-metrics {
+  margin-bottom: 10px;
+}
+
+.signal-controls {
+  grid-template-columns: minmax(180px, 1fr) 140px;
+}
+
+.signal-controls button,
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.paper-controls {
+  grid-template-columns: minmax(150px, 1fr) 100px 120px 100px 38px;
+}
+
+.paper-controls .icon-action {
+  display: inline-flex;
+  width: 38px;
+  align-items: center;
+  justify-content: center;
+  background: #22252c;
 }
 
 .error {
@@ -741,6 +790,9 @@ button {
 }
 
 @media (max-width: 760px) {
+  .alphalab-status-bar {
+    display: none;
+  }
   .app-shell {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto auto minmax(0, 1fr);
