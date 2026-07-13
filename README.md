@@ -49,6 +49,16 @@ The sample is real historical data for development demonstration, not an
 unbiased investable universe. Prices end on the manifest cutoff date and must
 not be presented as realtime. Immutable parquet hashes are checked by the API.
 
+## Optional RQ Configuration
+
+The framework reserves `RQ_USER`, `RQ_PASSWORD`, and `RQ_HOST` for an optional
+RQ data adapter. Put real values in the gitignored project `.env`; the tracked
+`.env.example` contains blank placeholders only. Network forwarding settings,
+machine details, and private keys are intentionally not part of this repository.
+
+The current barebone continues to run entirely from bundled historical data.
+Adding these variables alone does not enable a live provider or realtime feed.
+
 Maintainers can rebuild the sample from the full local research workspace:
 
 ```powershell

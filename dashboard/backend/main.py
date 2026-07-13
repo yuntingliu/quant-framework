@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from dashboard.backend.config import LOADED_ENV_FILES
 from dashboard.backend.routers import backtests, compat, data, paper, signals, strategies, system
 
 app = FastAPI(
@@ -11,6 +12,7 @@ app = FastAPI(
     description="Provider-first quant framework workstation API",
     version="0.3.0",
 )
+app.state.loaded_env_files = tuple(str(path) for path in LOADED_ENV_FILES)
 
 app.add_middleware(
     CORSMiddleware,
