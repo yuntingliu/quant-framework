@@ -14,6 +14,7 @@ from alphalab.dataio.providers.protocol import (
     to_long,
     to_wide,
 )
+from alphalab.dataio.providers.rq import RQDataClient, RQDataConfig, RQDataProvider
 
 __all__ = [
     "FactorProvider",
@@ -23,6 +24,9 @@ __all__ = [
     "LocalParquetMarketDataProvider",
     "MarketDataProvider",
     "RealtimeProvider",
+    "RQDataClient",
+    "RQDataConfig",
+    "RQDataProvider",
     "Tick",
     "to_long",
     "to_wide",

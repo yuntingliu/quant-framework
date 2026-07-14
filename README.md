@@ -49,15 +49,41 @@ The sample is real historical data for development demonstration, not an
 unbiased investable universe. Prices end on the manifest cutoff date and must
 not be presented as realtime. Immutable parquet hashes are checked by the API.
 
-## Optional RQ Configuration
+## RQ Information Provider
 
-The framework reserves `RQ_USER`, `RQ_PASSWORD`, and `RQ_HOST` for an optional
-RQ data adapter. Put real values in the gitignored project `.env`; the tracked
-`.env.example` contains blank placeholders only. Network forwarding settings,
-machine details, and private keys are intentionally not part of this repository.
+Install the optional RQ client and put the three connection values in the
+gitignored project `.env`:
 
-The current barebone continues to run entirely from bundled historical data.
-Adding these variables alone does not enable a live provider or realtime feed.
+```powershell
+pip install -e ".[rq]"
+```
+
+```dotenv
+RQ_USER=
+RQ_PASSWORD=
+RQ_HOST=
+```
+
+Then create an RQ-backed engine explicitly:
+
+```python
+from alphalab import create_rq_engine_from_env
+
+engine = create_rq_engine_from_env()
+bars = engine.get_bars(["000001.SZ"], "2025-01-01", "2025-01-31")
+fundamentals = engine.get_fundamentals(
+    ["000001.SZ"],
+    ["revenue", "net_profit"],
+    "2024q1",
+    "2024q4",
+    asof_date="2025-03-31",
+)
+```
+
+The provider connects only when data is first requested. It supports historical
+bars, A-share instrument information, and point-in-time financial statements.
+It does not provide realtime quotes or order execution. Network forwarding,
+machine details, and private keys are not part of this repository.
 
 Maintainers can rebuild the sample from the full local research workspace:
 

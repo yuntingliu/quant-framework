@@ -43,10 +43,14 @@ dashboard = [
     "uvicorn>=0.23.0",
     "httpx>=0.24.0",
 ]
+rq = [
+    "rqdatac>=3.4,<4",
+]
 all = [
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",
     "httpx>=0.24.0",
+    "rqdatac>=3.4,<4",
 ]
 
 [project.urls]

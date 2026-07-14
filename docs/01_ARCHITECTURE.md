@@ -1,8 +1,8 @@
 # AlphaLab Barebone Architecture
 
 AlphaLab Barebone is a framework core plus workstation shell and a compact real
-historical sample. Concrete vendor connections and live broker adapters remain
-extension points, not bundled product code.
+historical sample. RQData is available as an optional, environment-configured
+information provider. Live broker adapters remain extension points.
 
 ## Core Loop
 
@@ -17,6 +17,9 @@ The public Python facade is:
 from alphalab import (
     DataEngine,
     create_default_engine,
+    create_rq_engine_from_env,
+    RQDataConfig,
+    RQDataProvider,
     StrategyConfig,
     SignalEngine,
     run_backtest,
@@ -64,6 +67,10 @@ data/manifest.json
 `available_date <= asof_date` before returning rows, so historical signals only
 see statements available at the decision date. `manifest.json` owns sample
 coverage, provenance, adjustment policy, hashes, and research caveats.
+
+`create_rq_engine_from_env()` registers the optional `RQDataProvider` as both
+the market and fundamental source. It reads only `RQ_USER`, `RQ_PASSWORD`, and
+`RQ_HOST`, initializes lazily, and does not own realtime or execution behavior.
 
 ## Dashboard Contract
 

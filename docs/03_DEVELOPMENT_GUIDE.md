@@ -44,6 +44,17 @@ engine = DataEngine()
 engine.register_market("my_source", MyMarketProvider(), default=True)
 ```
 
+The maintained RQ information adapter is optional:
+
+```python
+from alphalab import create_rq_engine_from_env
+
+engine = create_rq_engine_from_env()
+```
+
+Its credentials stay in the ignored local `.env`; tests must inject a fake RQ
+module and must never require a live vendor connection.
+
 Dashboard vendor pages should stay present as GUI slots, but they must remain
 mapped to disabled placeholders until a separate adapter/plugin package owns the
 real connection.
