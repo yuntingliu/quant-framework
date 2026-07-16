@@ -1,0 +1,44 @@
+{
+  "toolName": "stop_alphalab_full_stack",
+  "description": "根据 .conexus/alphalab-runner/state.json 中的 PID 停止前后端服务进程树。",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "input": {
+    "projectRoot": "E:\\quant-framework"
+  },
+  "inputRefs": {},
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectRoot": {
+        "type": "string",
+        "default": "E:\\quant-framework"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "stopped": {
+        "type": "array"
+      },
+      "stateFile": {
+        "type": "string"
+      },
+      "message": {
+        "type": "string"
+      }
+    }
+  },
+  "output": null,
+  "code": "import { spawnSync } from 'node:child_process';\nimport fs from 'node:fs';\nimport path from 'node:path';\n\nfunction isWin() { return process.platform === 'win32'; }\n\nfunction pidsOnPort(port) {\n  if (!port) return [];\n  if (!isWin()) {\n    const r = spawnSync('sh', ['-lc', `lsof -ti tcp:${Number(port)} 2>/dev/null || true`], { encoding: 'utf8' });\n    return [...new Set((r.stdout || '').split(/\\s+/).map(x => Number(x)).filter(Boolean))];\n  }\n  const r = spawnSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8' });\n  const pids = [];\n  const portRe = new RegExp(`:${Number(port)}\\\\s+`, 'i');\n  for (const line of (r.stdout || '').split(/\\r?\\n/)) {\n    if (!/LISTENING/i.test(line)) continue;\n    if (!portRe.test(line)) continue;\n    const m = line.trim().match(/(\\d+)$/);\n    if (m) pids.push(Number(m[1]));\n  }\n  return [...new Set(pids)];\n}\n\nfunction killPid(pid) {\n  if (!pid) return { pid, skipped: true };\n  if (isWin()) {\n    const r = spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { encoding: 'utf8' });\n    return { pid, status: r.status, stdout: r.stdout, stderr: r.stderr, ok: r.status === 0 || /not found|没有找到|不存在/i.test(r.stderr || r.stdout || '') };\n  }\n  const r = spawnSync('kill', ['-TERM', String(pid)], { encoding: 'utf8' });\n  return { pid, status: r.status, stdout: r.stdout, stderr: r.stderr, ok: r.status === 0 };\n}\n\nexport async function run(input = {}) {\n  const projectRoot = input.projectRoot || 'E:\\\\quant-framework';\n  const stateFile = path.join(projectRoot, '.conexus', 'alphalab-runner', 'state.json');\n  let state = {};\n  if (fs.existsSync(stateFile)) state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));\n  const backendPort = Number(input.backendPort || state.backendPort || 8000);\n  const frontendPort = Number(input.frontendPort || state.frontendPort || 5173);\n  const pidSet = new Set([\n    state.frontendPid,\n    state.backendPid,\n    ...(Array.isArray(state.frontendPids) ? state.frontendPids : []),\n    ...(Array.isArray(state.backendPids) ? state.backendPids : []),\n    ...pidsOnPort(frontendPort),\n    ...pidsOnPort(backendPort),\n  ].map(Number).filter(Boolean));\n  const stopped = [...pidSet].map(killPid);\n  const ok = stopped.every(x => x.skipped || x.ok);\n  let archivedStateFile = stateFile;\n  if (fs.existsSync(stateFile)) {\n    archivedStateFile = stateFile.replace(/\\.json$/, `.stopped.${Date.now()}.json`);\n    fs.renameSync(stateFile, archivedStateFile);\n  }\n  return { ok, stopped, stateFile: archivedStateFile, ports: { backendPort, frontendPort }, message: ok ? 'Stopped AlphaLab services recorded on configured ports.' : 'Some processes may not have stopped; inspect result.' };\n}\n",
+  "timeoutMs": 30000,
+  "permissions": {
+    "filesystem": "read-write",
+    "shell": true
+  },
+  "sideEffects": "external"
+}

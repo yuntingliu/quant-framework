@@ -1,0 +1,128 @@
+{
+  "toolName": "start_alphalab_full_stack",
+  "description": "启动 AlphaLab 后端 FastAPI 与前端 Vite 开发服务器；必要时安装前端依赖，并写入 PID/日志状态。",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "input": {
+    "projectRoot": "E:\\quant-framework",
+    "backendPort": 8000,
+    "frontendPort": 5173,
+    "installDeps": true,
+    "openBrowser": false
+  },
+  "inputRefs": {},
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectRoot": {
+        "type": "string",
+        "default": "E:\\quant-framework"
+      },
+      "backendPort": {
+        "type": "number",
+        "default": 8000
+      },
+      "frontendPort": {
+        "type": "number",
+        "default": 5173
+      },
+      "installDeps": {
+        "type": "boolean",
+        "default": true
+      },
+      "openBrowser": {
+        "type": "boolean",
+        "default": false
+      },
+      "waitTimeoutMs": {
+        "type": "number",
+        "default": 60000
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "backendUrl": {
+        "type": "string"
+      },
+      "frontendUrl": {
+        "type": "string"
+      },
+      "backendPid": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "frontendPid": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "stateFile": {
+        "type": "string"
+      },
+      "logs": {
+        "type": "object"
+      },
+      "checks": {
+        "type": "object"
+      },
+      "message": {
+        "type": "string"
+      }
+    }
+  },
+  "output": {
+    "ok": true,
+    "message": "AlphaLab full stack is running.",
+    "backendUrl": "http://127.0.0.1:8000",
+    "frontendUrl": "http://localhost:5174",
+    "backendPid": 22312,
+    "frontendPid": 25496,
+    "backendPids": [
+      22312
+    ],
+    "frontendPids": [
+      10908
+    ],
+    "reused": {
+      "backend": true,
+      "frontend": false
+    },
+    "notes": [
+      "preferred port 5173 is occupied by another service; selected free port 5174"
+    ],
+    "stateFile": "E:\\quant-framework\\.conexus\\alphalab-runner\\state.json",
+    "logs": {
+      "backendLog": "E:\\quant-framework\\.conexus\\alphalab-runner\\backend.log",
+      "frontendLog": "E:\\quant-framework\\.conexus\\alphalab-runner\\frontend.log"
+    },
+    "checks": {
+      "backend": {
+        "ok": true,
+        "status": 200,
+        "text": "{\"status\":\"ok\",\"name\":\"AlphaLab Barebone API\"}"
+      },
+      "frontend": {
+        "ok": true,
+        "status": 200,
+        "contentType": "text/javascript",
+        "sample": "import { createHotContext as __vite__createHotContext } from \"/@vite/client\";import.meta.hot = __vite__createHotContext(\"/src/Workspace.tsx\");import __vite__cjsImport0_react_jsxDevRuntime from \"/node_"
+      }
+    }
+  },
+  "code": "import { spawn, spawnSync } from 'node:child_process';\nimport fs from 'node:fs';\nimport path from 'node:path';\n\nconst sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));\n\nfunction ensureDir(dir) { fs.mkdirSync(dir, { recursive: true }); }\nfunction isWin() { return process.platform === 'win32'; }\nfunction npmCmd() { return isWin() ? 'npm.cmd' : 'npm'; }\n\nfunction pidsOnPort(port) {\n  if (!port) return [];\n  if (!isWin()) {\n    const r = spawnSync('sh', ['-lc', `lsof -ti tcp:${Number(port)} 2>/dev/null || true`], { encoding: 'utf8' });\n    return [...new Set((r.stdout || '').split(/\\s+/).map(x => Number(x)).filter(Boolean))];\n  }\n  const r = spawnSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8' });\n  const pids = [];\n  const portRe = new RegExp(`:${Number(port)}\\\\s+`, 'i');\n  for (const line of (r.stdout || '').split(/\\r?\\n/)) {\n    if (!/LISTENING/i.test(line)) continue;\n    if (!portRe.test(line)) continue;\n    const m = line.trim().match(/(\\d+)$/);\n    if (m) pids.push(Number(m[1]));\n  }\n  return [...new Set(pids)];\n}\n\nasync function urlOk(url) {\n  try {\n    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });\n    return { ok: res.ok, status: res.status, text: await res.text().then(t => t.slice(0, 200)).catch(() => '') };\n  } catch (e) {\n    return { ok: false, error: e.message };\n  }\n}\n\nasync function isAlphaLabFrontend(baseUrl) {\n  try {\n    const res = await fetch(`${baseUrl}/src/Workspace.tsx`, { signal: AbortSignal.timeout(3000) });\n    const text = await res.text();\n    const ct = res.headers.get('content-type') || '';\n    const looksLikeJs = ct.includes('javascript') || ct.includes('ecmascript') || text.includes('import');\n    const notHtmlFallback = !text.trimStart().startsWith('<!DOCTYPE html>') && !text.trimStart().startsWith('<html');\n    const hasAlphaLabSignals = /AlphaLab|Workstation|Dockview|widget catalog|ModeSidebar|RightRail/i.test(text);\n    return { ok: Boolean(res.ok && looksLikeJs && notHtmlFallback && hasAlphaLabSignals), status: res.status, contentType: ct, sample: text.slice(0, 200) };\n  } catch (e) {\n    return { ok: false, error: e.message };\n  }\n}\n\nasync function waitFor(url, timeoutMs, checker = null) {\n  const started = Date.now();\n  let last = null;\n  while (Date.now() - started < timeoutMs) {\n    last = checker ? await checker(url) : await urlOk(url);\n    if (last.ok) return last;\n    await sleep(1000);\n  }\n  return last ?? { ok: false, error: 'not checked' };\n}\n\nfunction startDetached(command, args, cwd, logFile) {\n  const out = fs.openSync(logFile, 'a');\n  let actualCommand = command;\n  let actualArgs = args;\n  if (isWin() && /(?:^|\\\\\\\\|\\/)npm(?:\\.cmd)?$/i.test(command)) {\n    actualCommand = 'cmd.exe';\n    actualArgs = ['/d', '/s', '/c', 'npm', ...args];\n  }\n  const child = spawn(actualCommand, actualArgs, { cwd, detached: true, stdio: ['ignore', out, out], windowsHide: true, shell: false });\n  child.unref();\n  return child.pid;\n}\n\nfunction runChecked(command, args, cwd, timeoutMs) {\n  return spawnSync(command, args, { cwd, encoding: 'utf8', timeout: timeoutMs, shell: false });\n}\n\nasync function chooseFrontendPort(preferredPort) {\n  const preferredUrl = `http://localhost:${preferredPort}`;\n  const preferredHttp = await urlOk(preferredUrl);\n  if (!preferredHttp.ok) return { port: preferredPort, reused: false, reason: 'preferred port is free' };\n  const preferredAlpha = await isAlphaLabFrontend(preferredUrl);\n  if (preferredAlpha.ok) return { port: preferredPort, reused: true, reason: 'preferred port already runs AlphaLab frontend', alphaCheck: preferredAlpha };\n  for (let port = preferredPort + 1; port <= preferredPort + 30; port += 1) {\n    const probe = await urlOk(`http://localhost:${port}`);\n    if (!probe.ok) return { port, reused: false, reason: `preferred port ${preferredPort} is occupied by another service; selected free port ${port}`, occupiedCheck: preferredAlpha };\n    const alpha = await isAlphaLabFrontend(`http://localhost:${port}`);\n    if (alpha.ok) return { port, reused: true, reason: `found existing AlphaLab frontend on ${port}`, alphaCheck: alpha };\n  }\n  throw new Error(`No free frontend port found near ${preferredPort}`);\n}\n\nexport async function run(input = {}) {\n  const projectRoot = input.projectRoot || 'E:\\\\quant-framework';\n  const backendPort = Number(input.backendPort || 8000);\n  const preferredFrontendPort = Number(input.frontendPort || 5173);\n  const waitTimeoutMs = Number(input.waitTimeoutMs || 60000);\n  const backendUrl = `http://127.0.0.1:${backendPort}`;\n  const frontendDir = path.join(projectRoot, 'dashboard', 'frontend');\n  const conexusDir = path.join(projectRoot, '.conexus', 'alphalab-runner');\n  ensureDir(conexusDir);\n  const stateFile = path.join(conexusDir, 'state.json');\n  const backendLog = path.join(conexusDir, 'backend.log');\n  const frontendLog = path.join(conexusDir, 'frontend.log');\n\n  if (!fs.existsSync(path.join(projectRoot, 'pyproject.toml'))) throw new Error(`Project root not found or invalid: ${projectRoot}`);\n  if (!fs.existsSync(path.join(frontendDir, 'package.json'))) throw new Error(`Frontend package.json not found: ${frontendDir}`);\n\n  if (input.installDeps !== false && !fs.existsSync(path.join(frontendDir, 'node_modules'))) {\n    const install = runChecked(npmCmd(), ['ci', '--no-audit', '--no-fund'], frontendDir, 180000);\n    if (install.status !== 0) throw new Error(`npm ci failed (${install.status}): ${install.stderr || install.stdout}`);\n  }\n\n  let backendPid = null;\n  let frontendPid = null;\n  const reused = { backend: false, frontend: false };\n  const notes = [];\n\n  const preBackend = await urlOk(`${backendUrl}/`);\n  if (!preBackend.ok) {\n    backendPid = startDetached('python', ['-m', 'uvicorn', 'dashboard.backend.main:app', '--reload', '--host', '127.0.0.1', '--port', String(backendPort)], projectRoot, backendLog);\n  } else {\n    reused.backend = true;\n  }\n  const backendCheck = await waitFor(`${backendUrl}/`, Math.min(waitTimeoutMs, 60000));\n\n  const portChoice = await chooseFrontendPort(preferredFrontendPort);\n  const frontendPort = portChoice.port;\n  const frontendUrl = `http://localhost:${frontendPort}`;\n  notes.push(portChoice.reason);\n  if (portChoice.reused) {\n    reused.frontend = true;\n  } else {\n    fs.appendFileSync(frontendLog, `\\n\\n--- starting ${new Date().toISOString()} on port ${frontendPort} ---\\n`, 'utf8');\n    frontendPid = startDetached(npmCmd(), ['run', 'dev:web', '--', '--host', '127.0.0.1', '--port', String(frontendPort), '--strictPort'], frontendDir, frontendLog);\n  }\n  const frontendCheck = await waitFor(frontendUrl, Math.min(waitTimeoutMs, 60000), isAlphaLabFrontend);\n\n  const backendPids = pidsOnPort(backendPort);\n  const frontendPids = pidsOnPort(frontendPort);\n  if (!backendPid && backendPids.length) backendPid = backendPids[0];\n  if (!frontendPid && frontendPids.length) frontendPid = frontendPids[0];\n\n  if (input.openBrowser) {\n    try {\n      if (isWin()) spawn('cmd.exe', ['/c', 'start', '', frontendUrl], { detached: true, stdio: 'ignore' }).unref();\n      else spawn('open', [frontendUrl], { detached: true, stdio: 'ignore' }).unref();\n    } catch {}\n  }\n\n  const state = { projectRoot, backendPort, frontendPort, preferredFrontendPort, backendUrl, frontendUrl, backendPid, frontendPid, backendPids, frontendPids, reused, notes, backendLog, frontendLog, startedAt: new Date().toISOString() };\n  fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), 'utf8');\n  const ok = Boolean(backendCheck.ok && frontendCheck.ok);\n  return {\n    ok,\n    message: ok ? 'AlphaLab full stack is running.' : 'One or more services did not become healthy; inspect logs.',\n    backendUrl,\n    frontendUrl,\n    backendPid,\n    frontendPid,\n    backendPids,\n    frontendPids,\n    reused,\n    notes,\n    stateFile,\n    logs: { backendLog, frontendLog },\n    checks: { backend: backendCheck, frontend: frontendCheck }\n  };\n}\n",
+  "timeoutMs": 180000,
+  "permissions": {
+    "filesystem": "read-write",
+    "shell": true,
+    "network": "localhost"
+  },
+  "sideEffects": "external"
+}
