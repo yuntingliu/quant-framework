@@ -1,0 +1,89 @@
+{
+  "toolName": "verify_alphalab_full_stack",
+  "description": "检查 AlphaLab 后端根路径、OpenAPI 文档与前端 Vite 页面是否可访问。",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "input": {
+    "projectRoot": "E:\\quant-framework",
+    "backendPort": 8000,
+    "frontendPort": 5173
+  },
+  "inputRefs": {},
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectRoot": {
+        "type": "string",
+        "default": "E:\\quant-framework"
+      },
+      "backendPort": {
+        "type": "number",
+        "default": 8000
+      },
+      "frontendPort": {
+        "type": "number",
+        "default": 5173
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "backend": {
+        "type": "object"
+      },
+      "docs": {
+        "type": "object"
+      },
+      "frontend": {
+        "type": "object"
+      },
+      "urls": {
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "ok": true,
+    "urls": {
+      "backend": "http://127.0.0.1:8000/",
+      "docs": "http://127.0.0.1:8000/docs",
+      "frontend": "http://localhost:5174/",
+      "frontendSourceProbe": "http://localhost:5174/src/Workspace.tsx"
+    },
+    "backend": {
+      "ok": true,
+      "status": 200,
+      "contentType": "application/json",
+      "sample": "{\"status\":\"ok\",\"name\":\"AlphaLab Barebone API\"}"
+    },
+    "docs": {
+      "ok": true,
+      "status": 200,
+      "contentType": "text/html; charset=utf-8",
+      "sample": "\n    <!DOCTYPE html>\n    <html>\n    <head>\n    <link type=\"text/css\" rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css\">\n    <link rel=\"shortcut icon\" href=\"https://fastapi.tiangolo.com/img/favicon.png\">\n "
+    },
+    "frontend": {
+      "ok": true,
+      "status": 200,
+      "contentType": "text/html",
+      "sample": "<!doctype html>\r\n<html lang=\"zh-CN\" class=\"dark\">\r\n  <head>\n    <script type=\"module\">import { injectIntoGlobalHook } from \"/@react-refresh\";\ninjectIntoGlobalHook(window);\nwindow.$RefreshReg$ = () => {};\nwindow.$RefreshSig$ = () => (type) ="
+    },
+    "frontendSourceProbe": {
+      "ok": true,
+      "status": 200,
+      "contentType": "text/javascript",
+      "sample": "import { createHotContext as __vite__createHotContext } from \"/@vite/client\";import.meta.hot = __vite__createHotContext(\"/src/Workspace.tsx\");import __vite__cjsImport0_react_jsxDevRuntime from \"/node_modules/.vite/deps/react_jsx-dev-runtime"
+    },
+    "stateFile": "E:\\quant-framework\\.conexus\\alphalab-runner\\state.json"
+  },
+  "code": "import fs from 'node:fs';\nimport path from 'node:path';\n\nasync function check(url) {\n  try {\n    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });\n    const text = await res.text().catch(() => '');\n    return { ok: res.ok, status: res.status, contentType: res.headers.get('content-type') || '', sample: text.slice(0, 240) };\n  } catch (e) {\n    return { ok: false, error: e.message };\n  }\n}\n\nasync function checkAlphaFrontend(baseUrl) {\n  try {\n    const res = await fetch(`${baseUrl}/src/Workspace.tsx`, { signal: AbortSignal.timeout(5000) });\n    const text = await res.text().catch(() => '');\n    const contentType = res.headers.get('content-type') || '';\n    const ok = Boolean(res.ok && !text.trimStart().startsWith('<!DOCTYPE html>') && /AlphaLab|Workstation|Dockview|ModeSidebar|RightRail/i.test(text));\n    return { ok, status: res.status, contentType, sample: text.slice(0, 240) };\n  } catch (e) {\n    return { ok: false, error: e.message };\n  }\n}\n\nexport async function run(input = {}) {\n  const projectRoot = input.projectRoot || 'E:\\\\quant-framework';\n  const stateFile = path.join(projectRoot, '.conexus', 'alphalab-runner', 'state.json');\n  let state = {};\n  if (fs.existsSync(stateFile)) state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));\n  const backendPort = Number(input.backendPort || state.backendPort || 8000);\n  const frontendPort = Number(state.frontendPort || input.frontendPort || 5173);\n  const urls = {\n    backend: `http://127.0.0.1:${backendPort}/`,\n    docs: `http://127.0.0.1:${backendPort}/docs`,\n    frontend: `http://localhost:${frontendPort}/`,\n    frontendSourceProbe: `http://localhost:${frontendPort}/src/Workspace.tsx`\n  };\n  const backend = await check(urls.backend);\n  const docs = await check(urls.docs);\n  const frontend = await check(urls.frontend);\n  const frontendSourceProbe = await checkAlphaFrontend(`http://localhost:${frontendPort}`);\n  return { ok: Boolean(backend.ok && docs.ok && frontend.ok && frontendSourceProbe.ok), urls, backend, docs, frontend, frontendSourceProbe, stateFile };\n}\n",
+  "timeoutMs": 30000,
+  "permissions": {
+    "network": "localhost"
+  },
+  "sideEffects": "read"
+}

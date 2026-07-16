@@ -1,0 +1,46 @@
+{
+  "toolName": "validate_alphalab_project",
+  "description": "运行后端 contract 测试和前端 production build，确认框架代码与前后端构建可用。",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "input": {
+    "projectRoot": "E:\\quant-framework",
+    "runFrontendBuild": true
+  },
+  "inputRefs": {},
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectRoot": {
+        "type": "string",
+        "default": "E:\\quant-framework"
+      },
+      "runFrontendBuild": {
+        "type": "boolean",
+        "default": true
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "pytest": {
+        "type": "object"
+      },
+      "frontendBuild": {
+        "type": "object"
+      }
+    }
+  },
+  "output": null,
+  "code": "import { spawnSync } from 'node:child_process';\nimport path from 'node:path';\n\nfunction npmCmd() { return process.platform === 'win32' ? 'npm.cmd' : 'npm'; }\nfunction runCmd(command, args, cwd, timeout) {\n  const r = spawnSync(command, args, { cwd, encoding: 'utf8', timeout, shell: false });\n  return { command: [command, ...args].join(' '), status: r.status, stdout: r.stdout, stderr: r.stderr, timedOut: Boolean(r.error && /timed out/i.test(r.error.message)), ok: r.status === 0 };\n}\n\nexport async function run(input = {}) {\n  const projectRoot = input.projectRoot || 'E:\\\\quant-framework';\n  const pytest = runCmd('python', ['-m', 'pytest', 'tests/contracts', '-q'], projectRoot, 120000);\n  let frontendBuild = { skipped: true, ok: true };\n  if (input.runFrontendBuild !== false) {\n    frontendBuild = runCmd(npmCmd(), ['--prefix', 'dashboard/frontend', 'run', 'build'], projectRoot, 180000);\n  }\n  return { ok: Boolean(pytest.ok && frontendBuild.ok), pytest, frontendBuild };\n}\n",
+  "timeoutMs": 240000,
+  "permissions": {
+    "filesystem": "read",
+    "shell": true
+  },
+  "sideEffects": "read"
+}

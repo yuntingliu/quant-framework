@@ -1,0 +1,9 @@
+{
+  "summary": "AlphaLab 子 Harness 已扩展为全栈运行 + 量化研究流水线。研究流水线入口为 Quant Research Pipeline Entry Agent，按 DataEngine Fetch Data → compute_factor → SignalEngine Generate Weights → run_backtest → ResultStore Save Results 顺序调度五个 Tool，调用 E:\\quant-framework 现有 AlphaLab Python 模块，默认策略 alphalab/strategies/momentum.yaml，产物写入 data/app/pipeline_runs/<run_id> 并保存到 SQLite ResultStore。",
+  "template": {
+    "name": "AlphaLab Full-Stack Runner + Quant Research Pipeline",
+    "summary": "Runs AlphaLab full stack and provides a callable quant research pipeline: DataEngine fetch, factor compute, signal generation, backtest, and result storage.",
+    "description": "子 Harness：封装 E:\\quant-framework 的 AlphaLab 后端 FastAPI、前端 Vite 启停验证，以及 DataEngine → compute_factor → SignalEngine → run_backtest → ResultStore 的量化研究流水线。"
+  },
+  "entryNodeId": "agent-1783743037846-5"
+}

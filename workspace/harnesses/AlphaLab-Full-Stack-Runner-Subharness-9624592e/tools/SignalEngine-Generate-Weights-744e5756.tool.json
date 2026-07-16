@@ -1,0 +1,117 @@
+{
+  "toolName": "signal_engine_generate_weights",
+  "description": "量化研究流水线阶段 3：基于计算后的因子做截面排名、选股并生成目标权重。",
+  "runtime": "python",
+  "exposeAsTool": true,
+  "input": {},
+  "inputRefs": {
+    "factor_result": {
+      "nodeId": "tool-1783743037846-1",
+      "field": "output"
+    },
+    "data_result": {
+      "nodeId": "tool-1783743037846-0",
+      "field": "output"
+    }
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "factor_result": {
+        "type": "object"
+      },
+      "data_result": {
+        "type": "object"
+      },
+      "strategy_path": {
+        "type": "string"
+      },
+      "as_of_date": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "target_weights": {
+        "type": "object"
+      },
+      "selected_symbols": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "diagnostics": {
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "stage": "SignalEngine",
+    "run_id": "20260712_225223",
+    "run_dir": "E:\\quant-framework\\data\\app\\pipeline_runs\\20260712_225223",
+    "strategy_path": "E:\\quant-framework\\alphalab\\strategies\\momentum.yaml",
+    "as_of_date": "2026-07-10",
+    "target_weights": {
+      "TEST008": 0.1,
+      "TEST015": 0.1,
+      "TEST014": 0.1,
+      "TEST010": 0.1,
+      "TEST002": 0.1,
+      "TEST013": 0.1,
+      "TEST004": 0.1,
+      "TEST007": 0.1,
+      "TEST011": 0.1,
+      "TEST006": 0.1
+    },
+    "weights_path": "E:\\quant-framework\\data\\app\\pipeline_runs\\20260712_225223\\target_weights.json",
+    "selected_symbols": [
+      "TEST008",
+      "TEST015",
+      "TEST014",
+      "TEST010",
+      "TEST002",
+      "TEST013",
+      "TEST004",
+      "TEST007",
+      "TEST011",
+      "TEST006"
+    ],
+    "diagnostics": {
+      "strategy": "momentum",
+      "factor_columns_used": [
+        "momentum_20d",
+        "momentum_60d",
+        "volatility_20d"
+      ],
+      "score_count": 15,
+      "selected_count": 10,
+      "weight_sum": 1
+    },
+    "top_scores": {
+      "TEST008": 0.8500000000000001,
+      "TEST015": 0.8233333333333334,
+      "TEST014": 0.7866666666666668,
+      "TEST010": 0.75,
+      "TEST002": 0.72,
+      "TEST013": 0.6233333333333333,
+      "TEST004": 0.5766666666666667,
+      "TEST007": 0.5366666666666666,
+      "TEST011": 0.51,
+      "TEST006": 0.49333333333333335,
+      "TEST012": 0.42333333333333334,
+      "TEST001": 0.33,
+      "TEST003": 0.21666666666666667,
+      "TEST009": 0.11666666666666665,
+      "TEST005": 0.09333333333333334
+    }
+  },
+  "code": "from pathlib import Path\nimport json\nimport pandas as pd\n\nPROJECT = Path(r\"E:\\quant-framework\")\n\n\ndef _normalize_weights(weights: pd.Series, max_weight: float) -> dict:\n    if weights.empty:\n        return {}\n    clipped = weights.clip(lower=0.0, upper=max_weight)\n    total = float(clipped.sum())\n    if total <= 0:\n        return {}\n    normalized = clipped / total\n    if not normalized.empty and normalized.max() > max_weight + 1e-12:\n        normalized = normalized.clip(upper=max_weight)\n        normalized = normalized / normalized.sum()\n    return {str(symbol): float(weight) for symbol, weight in normalized.items() if weight > 1e-12}\n\n\ndef _read_factor_table(path: str) -> pd.DataFrame:\n    p = Path(path)\n    if not p.exists():\n        return pd.DataFrame()\n    rows = json.loads(p.read_text(encoding=\"utf-8\") or \"[]\")\n    df = pd.DataFrame(rows)\n    if df.empty or \"symbol\" not in df:\n        return pd.DataFrame()\n    return df.set_index(\"symbol\")\n\n\ndef run(input, context):\n    import sys\n    sys.path.insert(0, str(PROJECT))\n    from alphalab.strategy.config import StrategyConfig\n\n    factor_result = input.get(\"factor_result\") or {}\n    data_result = input.get(\"data_result\") or {}\n    strategy_path = Path(input.get(\"strategy_path\") or factor_result.get(\"strategy_path\") or data_result.get(\"strategy_path\") or PROJECT / \"alphalab\" / \"strategies\" / \"momentum.yaml\")\n    if not strategy_path.is_absolute():\n        strategy_path = PROJECT / strategy_path\n    cfg = StrategyConfig.from_yaml(strategy_path)\n    factors = _read_factor_table(factor_result.get(\"factors_path\", \"\"))\n\n    ranked_cols = []\n    for spec in cfg.factors:\n        if spec.name not in factors.columns:\n            continue\n        values = pd.to_numeric(factors[spec.name], errors=\"coerce\").dropna()\n        if values.empty:\n            continue\n        ranks = values.rank(pct=True)\n        if spec.direction == \"short\":\n            ranks = 1.0 - ranks\n        ranked_cols.append((ranks * spec.weight).rename(spec.name))\n\n    scores = pd.concat(ranked_cols, axis=1) if ranked_cols else pd.DataFrame()\n    if scores.empty:\n        weights = {}\n        composite = pd.Series(dtype=float)\n    else:\n        coverage = scores.notna().mean(axis=1)\n        scores = scores.loc[coverage >= cfg.selection.min_factor_coverage]\n        composite = scores.sum(axis=1).sort_values(ascending=False) if not scores.empty else pd.Series(dtype=float)\n        selected = composite.head(cfg.selection.n_stocks)\n        weights = _normalize_weights(pd.Series(1.0, index=selected.index, dtype=float), cfg.portfolio.max_weight)\n\n    run_dir = Path(factor_result.get(\"run_dir\") or data_result.get(\"run_dir\") or PROJECT / \"data\" / \"app\" / \"pipeline_runs\" / (factor_result.get(\"run_id\") or \"manual\"))\n    run_dir.mkdir(parents=True, exist_ok=True)\n    out_path = run_dir / \"target_weights.json\"\n    out_path.write_text(json.dumps(weights, ensure_ascii=False, indent=2), encoding=\"utf-8\")\n\n    as_of_date = input.get(\"as_of_date\") or (data_result.get(\"params\") or {}).get(\"as_of_date\")\n    return {\n        \"stage\": \"SignalEngine\",\n        \"run_id\": factor_result.get(\"run_id\") or data_result.get(\"run_id\"),\n        \"run_dir\": str(run_dir),\n        \"strategy_path\": str(strategy_path),\n        \"as_of_date\": as_of_date,\n        \"target_weights\": weights,\n        \"weights_path\": str(out_path),\n        \"selected_symbols\": list(weights.keys()),\n        \"diagnostics\": {\n            \"strategy\": cfg.name,\n            \"factor_columns_used\": [c.name for c in ranked_cols],\n            \"score_count\": int(len(composite)),\n            \"selected_count\": int(len(weights)),\n            \"weight_sum\": float(sum(weights.values())) if weights else 0.0,\n        },\n        \"top_scores\": composite.head(20).astype(float).to_dict() if not composite.empty else {},\n    }\n",
+  "timeoutMs": 120000,
+  "permissions": {
+    "filesystem": "read-write:E:\\quant-framework"
+  },
+  "sideEffects": "write"
+}
