@@ -157,6 +157,16 @@ class ResultStore:
             df = df.set_index("date")
         return df
 
+    def load_weights(self, backtest_id: str) -> pd.DataFrame:
+        df = pd.read_sql(
+            "SELECT date, symbol, weight FROM backtest_weights WHERE backtest_id = ? ORDER BY date, symbol",
+            self._conn,
+            params=(backtest_id,),
+        )
+        if not df.empty:
+            df["date"] = pd.to_datetime(df["date"])
+        return df
+
     def save_signal(
         self,
         strategy_id: str,
@@ -202,6 +212,47 @@ class ResultStore:
         ).fetchall()
         result["targets"] = {item["symbol"]: float(item["target_weight"]) for item in targets}
         return result
+
+    def save_paper_order(
+        self,
+        symbol: str,
+        action: str,
+        quantity: float,
+        price: float,
+        *,
+        signal_id: str | None = None,
+    ) -> str:
+        order_id = _uuid()
+
+        def work() -> None:
+            commission = float(quantity) * float(price) * 0.0003
+            self._conn.execute(
+                """INSERT INTO orders
+                   (id, signal_id, symbol, action, quantity, price, fill_price,
+                    fill_quantity, commission, status, broker, filled_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'filled', 'paper', datetime('now'))""",
+                (
+                    order_id,
+                    signal_id,
+                    str(symbol).upper(),
+                    action,
+                    float(quantity),
+                    float(price),
+                    float(price),
+                    float(quantity),
+                    commission,
+                ),
+            )
+
+        self._write(work)
+        return order_id
+
+    def list_orders(self, limit: int = 100) -> pd.DataFrame:
+        return pd.read_sql(
+            "SELECT * FROM orders ORDER BY submitted_at DESC LIMIT ?",
+            self._conn,
+            params=(limit,),
+        )
 
     def save_journal(
         self,

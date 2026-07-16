@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, ShieldCheck } from 'lucide-react'
 const checks = [
   ['Max position weight', '0.10 default cap'],
   ['Cost model', '20 bps template assumption'],
-  ['Data freshness', 'blocked until provider latest date exists'],
+  ['Data freshness', 'validated against the bundled manifest'],
   ['Live orders', 'disabled in barebone core'],
 ]
 

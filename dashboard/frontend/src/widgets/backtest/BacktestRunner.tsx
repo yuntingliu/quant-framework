@@ -1,19 +1,26 @@
 import { useEffect, useState } from 'react'
-import { apiGet, apiPost, type BacktestRunResult, type StrategyTemplate } from '../../lib/api'
+import { apiGet, apiPost, type BacktestRecord, type BacktestRunResult, type DataManifest, type StrategyTemplate } from '../../lib/api'
 
 export function BacktestRunnerWidget() {
   const [strategies, setStrategies] = useState<StrategyTemplate[]>([])
   const [strategyId, setStrategyId] = useState('momentum')
-  const [startDate, setStartDate] = useState('2020-01-01')
-  const [endDate, setEndDate] = useState('2024-12-31')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<BacktestRunResult | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    apiGet<StrategyTemplate[]>('/strategies').then((items) => {
+    Promise.all([
+      apiGet<StrategyTemplate[]>('/strategies'),
+      apiGet<DataManifest>('/data/manifest'),
+      apiGet<BacktestRecord[]>('/backtests?limit=1'),
+    ]).then(async ([items, manifest, records]) => {
       setStrategies(items)
+      setStartDate(manifest.sample_start)
+      setEndDate(manifest.cutoff_date)
       if (items[0]) setStrategyId(items[0].id)
+      if (records[0]) setResult(await apiGet<BacktestRunResult>(`/backtests/${records[0].id}`))
     }).catch((err: Error) => setError(err.message))
   }, [])
 
@@ -40,12 +47,12 @@ export function BacktestRunnerWidget() {
         </select>
         <input value={startDate} onChange={(event) => setStartDate(event.target.value)} />
         <input value={endDate} onChange={(event) => setEndDate(event.target.value)} />
-        <button type="button" onClick={run} disabled={running}>{running ? 'Running' : 'Run'}</button>
+        <button type="button" onClick={run} disabled={running || !startDate || !endDate}>{running ? 'Running' : 'Run'}</button>
       </div>
       {error && <p className="error">{error}</p>}
       {result && (
         <div className="metric-grid">
-          {Object.entries(result.metrics).map(([key, value]) => (
+          {Object.entries(result.metrics ?? {}).map(([key, value]) => (
             <div className="metric" key={key}>
               <span>{key}</span>
               <strong>{Number(value).toFixed(4)}</strong>
@@ -56,4 +63,3 @@ export function BacktestRunnerWidget() {
     </div>
   )
 }
-

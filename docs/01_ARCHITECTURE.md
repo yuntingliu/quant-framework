@@ -1,7 +1,8 @@
 # AlphaLab Barebone Architecture
 
-AlphaLab Barebone is a framework core plus workstation shell. Concrete data
-vendors and live broker adapters are extension points, not bundled product code.
+AlphaLab Barebone is a framework core plus workstation shell and a compact real
+historical sample. RQData is available as an optional, environment-configured
+information provider. Live broker adapters remain extension points.
 
 ## Core Loop
 
@@ -16,6 +17,9 @@ The public Python facade is:
 from alphalab import (
     DataEngine,
     create_default_engine,
+    create_rq_engine_from_env,
+    RQDataConfig,
+    RQDataProvider,
     StrategyConfig,
     SignalEngine,
     run_backtest,
@@ -55,23 +59,41 @@ The built-in local provider expects:
 data/market/bars.parquet
 data/fundamentals/fundamentals.parquet
 data/factors/factor_returns.parquet
+data/app/alphalab.db
+data/manifest.json
 ```
+
+`fundamentals.parquet` includes `available_date`. The local provider applies
+`available_date <= asof_date` before returning rows, so historical signals only
+see statements available at the decision date. `manifest.json` owns sample
+coverage, provenance, adjustment policy, hashes, and research caveats.
+
+`create_rq_engine_from_env()` registers the optional `RQDataProvider` as both
+the market and fundamental source. It reads only `RQ_USER`, `RQ_PASSWORD`, and
+`RQ_HOST`, initializes lazily, and does not own realtime or execution behavior.
 
 ## Dashboard Contract
 
 The barebone backend exposes:
 
 - `/api/data/providers`
+- `/api/data/manifest`
+- `/api/data/market/symbols`
+- `/api/data/market/bars`
+- `/api/data/factors/returns`
 - `/api/strategies`
 - `/api/strategies/{strategy_id}`
 - `/api/backtests`
 - `/api/backtests/run`
+- `/api/backtests/{backtest_id}`
+- `/api/signals/generate`
+- `/api/signals/latest`
+- `/api/paper/orders`
 - `/api/system/stats`
 - `/api/system/logs`
 
 The frontend deliberately keeps the original AlphaLab workstation shell:
 multi-mode sidebar, toolbar, command palette, right rail, saved layouts, and the
-large widget catalog. Widgets that require a concrete vendor, data product, or
-live broker adapter are registered to `AdapterDisabledWidget` in
-`dashboard/frontend/src/widgets/registry/components.tsx`. Core framework panels
-remain active against the barebone API.
+large widget catalog. Default layouts contain only real-data panels backed by
+the routes above. Widgets requiring a concrete vendor or live broker remain
+registered to `AdapterDisabledWidget` as optional extension slots.

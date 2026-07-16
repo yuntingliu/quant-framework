@@ -15,7 +15,12 @@ from alphalab.dataio.providers.local import (
     LocalParquetFundamentalProvider,
     LocalParquetMarketDataProvider,
 )
-from alphalab.dataio.providers.protocol import FactorProvider, FundamentalProvider, MarketDataProvider, to_wide
+from alphalab.dataio.providers.protocol import (
+    FactorProvider,
+    FundamentalProvider,
+    MarketDataProvider,
+    to_wide,
+)
 from alphalab.utils.paths import CACHE_DIR, DATA_DIR
 
 
@@ -235,3 +240,14 @@ def create_default_engine(data_dir: str | Path | None = None) -> DataEngine:
     engine.register_factor("local", LocalParquetFactorProvider(root / "factors"), default=True)
     return engine
 
+
+def create_rq_engine_from_env(cache: DataCache | None = None) -> DataEngine:
+    """Create an engine whose market and fundamental source is RQData."""
+
+    from alphalab.dataio.providers.rq import RQDataProvider
+
+    provider = RQDataProvider.from_env()
+    engine = DataEngine(cache=cache)
+    engine.register_market("rq", provider, default=True)
+    engine.register_fundamental("rq", provider, default=True)
+    return engine

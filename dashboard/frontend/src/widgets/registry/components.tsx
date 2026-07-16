@@ -8,11 +8,14 @@ import { BacktestRunnerWidget } from "../backtest/BacktestRunner"
 import { StrategyListWidget } from "../backtest/StrategyList"
 import { AdapterSlotsWidget } from "../data/AdapterSlots"
 import { DataCenterWidget } from "../data/DataCenter"
+import { FactorReturnsWidget } from "../data/FactorReturns"
 import { PaperExecutionDeskWidget } from "../execution/PaperExecutionDesk"
 import { RiskConsoleWidget } from "../execution/RiskConsole"
 import { WorkstationHomeWidget } from "../home/WorkstationHome"
+import { HistoricalMarketWidget } from "../market/HistoricalMarket"
 import { FactorLibraryWidget } from "../research/FactorLibrary"
 import { StrategyEditorWidget } from "../research/StrategyEditor"
+import { SignalDeskWidget } from "../research/SignalDesk"
 import { AdapterDisabledWidget } from "../system/AdapterDisabled"
 import { HelpWidget } from "../system/Help"
 import { LogWidget } from "../system/Log"
@@ -42,7 +45,9 @@ export const widgetComponents: Record<string, ComponentType> = {
 
   // Barebone-active panels.
   "home.index-board": WorkstationHomeWidget,
+  "market.history": HistoricalMarketWidget,
   "data.center": DataCenterWidget,
+  "data.factor-returns": FactorReturnsWidget,
   "data.freshness": AdapterSlotsWidget,
   "data.dolphindb": AdapterSlotsWidget,
   "strategies.hub": StrategyListWidget,
@@ -50,6 +55,7 @@ export const widgetComponents: Record<string, ComponentType> = {
   "backtest.runner": BacktestRunnerWidget,
   "backtest.strategies": StrategyListWidget,
   "strategy.editor": StrategyEditorWidget,
+  "research.signal-preview": SignalDeskWidget,
   "backtest.workbench": BacktestRunnerWidget,
   "market.factor-stats": FactorLibraryWidget,
   "trading.status": PaperExecutionDeskWidget,

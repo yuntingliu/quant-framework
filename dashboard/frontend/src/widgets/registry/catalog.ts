@@ -15,7 +15,10 @@ export interface WidgetMeta {
 
 export const widgetCatalog: WidgetMeta[] = [
   // Home (live market overview)
-  { id: "home.index-board", title: "指数行情", titleEn: "Index Board", category: "主页", categoryEn: "Home", description: "A股指数 + 外部市场占位", descriptionEn: "A-share indices plus external market slots" },
+  { id: "home.index-board", title: "工作站概览", titleEn: "Workstation Overview", category: "主页", categoryEn: "Home", description: "真实样本、策略与回测状态", descriptionEn: "Real sample, strategies, and backtest state" },
+  { id: "market.history", title: "历史行情", titleEn: "Historical Market", category: "主页", categoryEn: "Home", description: "随包复权日线与历史走势", descriptionEn: "Bundled adjusted daily bars" },
+  { id: "data.factor-returns", title: "因子收益", titleEn: "Factor Returns", category: "数据", categoryEn: "Data", description: "月度因子收益与累计曲线", descriptionEn: "Monthly factor return curves" },
+  { id: "research.signal-preview", title: "信号预览", titleEn: "Signal Preview", category: "策略回测", categoryEn: "Research", description: "生成并保存纸面目标权重", descriptionEn: "Generate and persist paper targets" },
   { id: "home.market-detail", title: "行情详情", titleEn: "Market Detail", category: "主页", categoryEn: "Home", description: "点击指数/个股查看真实K线", descriptionEn: "Click index/stock rows to inspect real K-lines" },
   { id: "home.breadth", title: "涨跌广度", titleEn: "Market Breadth", category: "主页", categoryEn: "Home", description: "涨跌家数 + 领涨领跌", descriptionEn: "Advance/decline counts and top movers" },
   { id: "home.sectors", title: "行业热力图", titleEn: "Sector Heatmap", category: "主页", categoryEn: "Home", description: "行业平均涨跌幅", descriptionEn: "Per-industry mean change %" },
@@ -66,7 +69,7 @@ export const widgetCatalog: WidgetMeta[] = [
   { id: "trading.order-book", title: "L2行情", titleEn: "Order Book", category: "实盘交易", categoryEn: "Trading", description: "五档买卖盘", descriptionEn: "Level 2 bid/ask book" },
   { id: "trading.history", title: "委托/成交", titleEn: "Orders/Fills", category: "实盘交易", categoryEn: "Trading", description: "今日委托记录", descriptionEn: "Today's orders and fills" },
   { id: "trading.chart", title: "K线图", titleEn: "Price Chart", category: "实盘交易", categoryEn: "Trading", description: "TradingView 专业K线", descriptionEn: "TradingView candlestick chart" },
-  { id: "trading.rebalance", title: "策略调仓驾驶舱", titleEn: "Rebalance Cockpit", category: "实盘交易", categoryEn: "Trading", description: "信号 -> 订单计划 -> 纸面执行", descriptionEn: "Signal, order plan, paper execution" },
+  { id: "trading.rebalance", title: "纸面执行", titleEn: "Paper Execution", category: "纸面交易", categoryEn: "Paper", description: "信号 -> 订单计划 -> 模拟成交", descriptionEn: "Signal, order plan, simulated fills" },
   { id: "trading.ashare.status", title: "QMT交易连接", titleEn: "QMT Trading Setup", category: "QMT交易", categoryEn: "QMT Trading", description: "纸面/QMT 连接 + 风控", descriptionEn: "Paper/QMT setup and risk" },
   { id: "trading.ashare.positions", title: "QMT持仓", titleEn: "QMT Positions", category: "QMT交易", categoryEn: "QMT Trading", description: "QMT/A股持仓列表", descriptionEn: "QMT/A-share positions" },
   { id: "trading.ashare.order-entry", title: "QMT下单", titleEn: "QMT Order Entry", category: "QMT交易", categoryEn: "QMT Trading", description: "A股预览 + 纸面/QMT执行", descriptionEn: "A-share preview and paper/QMT execution" },

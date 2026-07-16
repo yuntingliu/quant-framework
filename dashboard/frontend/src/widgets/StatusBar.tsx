@@ -18,6 +18,7 @@ interface TradingStatus {
   readonly?: boolean
   supports_real_orders?: boolean
   supports_paper_orders?: boolean
+  session_state?: string
 }
 
 interface AssetData {
@@ -55,27 +56,21 @@ export function StatusBar() {
     preview: t("status.preview"),
     execute: t("status.execute"),
   }
-  const hour = now.getHours()
-  const minute = now.getMinutes()
-  const weekday = now.getDay()
-  const isWeekday = weekday >= 1 && weekday <= 5
-  const isMarketOpen = isWeekday && (
-    (hour === 9 && minute >= 30) || (hour === 10) || (hour === 11 && minute <= 30) ||
-    (hour >= 13 && hour < 15)
-  )
   const connectionLabel = !connected
-    ? (language === "zh" ? "交易未连接" : "Trading Disconnected")
+    ? (status?.session_state === "not_configured"
+        ? (language === "zh" ? "历史数据 · 实时未配置" : "Historical data · realtime not configured")
+        : (language === "zh" ? "交易未连接" : "Trading Disconnected"))
     : broker === "paper"
         ? (language === "zh" ? "AlphaLab纸面交易" : "AlphaLab Paper")
         : `${language === "zh" ? "QMT已连接" : "QMT Connected"}${status?.broker_label ? ` · ${status.broker_label}` : ""}`
 
   return (
-    <div className="h-6 flex items-center gap-4 px-3 bg-card border-t border-border text-[10px] font-tabular shrink-0 select-none">
+    <div className="alphalab-status-bar h-6 flex items-center gap-4 px-3 bg-card border-t border-border text-[10px] font-tabular shrink-0 select-none">
       {/* Connection */}
       <div className="flex items-center gap-1.5">
         <div className={cn(
           "w-1.5 h-1.5 rounded-full",
-          connected ? "bg-green-500" : "bg-red-500"
+          connected ? "bg-green-500" : "bg-amber-500"
         )} />
         <span className="text-muted-foreground">
           {connectionLabel}
@@ -110,10 +105,8 @@ export function StatusBar() {
       </button>
 
       {/* Market state */}
-      <span className={cn(
-        isMarketOpen ? "text-green-400" : "text-muted-foreground"
-      )}>
-        {isMarketOpen ? t("status.marketOpen") : t("status.marketClosed")}
+      <span className="text-muted-foreground">
+        {language === "zh" ? "仅历史数据" : "Historical only"}
       </span>
 
       {/* Clock */}

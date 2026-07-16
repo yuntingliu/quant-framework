@@ -26,6 +26,7 @@ dependencies = [
     "numpy>=1.24.0",
     "scipy>=1.10.0",
     "pydantic>=2.0.0",
+    "pyarrow>=14.0.0",
     "pyyaml>=6.0",
     "loguru>=0.7.0",
 ]
@@ -42,10 +43,14 @@ dashboard = [
     "uvicorn>=0.23.0",
     "httpx>=0.24.0",
 ]
+rq = [
+    "rqdatac>=3.4,<4",
+]
 all = [
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",
     "httpx>=0.24.0",
+    "rqdatac>=3.4,<4",
 ]
 
 [project.urls]

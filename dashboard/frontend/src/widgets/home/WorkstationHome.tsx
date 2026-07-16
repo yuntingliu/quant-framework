@@ -1,11 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, Blocks, Database, FlaskConical, ShieldCheck } from 'lucide-react'
-import { apiGet, type BacktestRecord, type StrategyTemplate } from '../../lib/api'
-
-interface ProviderStatus {
-  providers: Record<string, string[]>
-  latest_date: string | null
-}
+import { apiGet, type BacktestRecord, type DataManifest, type ProviderStatus, type StrategyTemplate } from '../../lib/api'
 
 interface SystemStats {
   path: string
@@ -22,6 +17,7 @@ export function WorkstationHomeWidget() {
   const [strategies, setStrategies] = useState<StrategyTemplate[]>([])
   const [backtests, setBacktests] = useState<BacktestRecord[]>([])
   const [stats, setStats] = useState<SystemStats | null>(null)
+  const [manifest, setManifest] = useState<DataManifest | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -30,12 +26,14 @@ export function WorkstationHomeWidget() {
       apiGet<StrategyTemplate[]>('/strategies'),
       apiGet<BacktestRecord[]>('/backtests'),
       apiGet<SystemStats>('/system/stats'),
+      apiGet<DataManifest>('/data/manifest'),
     ])
-      .then(([providerRows, strategyRows, backtestRows, statRows]) => {
+      .then(([providerRows, strategyRows, backtestRows, statRows, manifestRow]) => {
         setProviders(providerRows)
         setStrategies(strategyRows)
         setBacktests(backtestRows)
         setStats(statRows)
+        setManifest(manifestRow)
       })
       .catch((err: Error) => setError(err.message))
   }, [])
@@ -50,9 +48,9 @@ export function WorkstationHomeWidget() {
       <div className="panel-heading">
         <div>
           <h2>AlphaLab Workstation</h2>
-          <p>Framework shell with provider slots, strategy templates, paper execution, and local result state.</p>
+          <p>Real historical sample, reproducible research loop, and paper-only execution.</p>
         </div>
-        <span className="status-pill neutral">barebone</span>
+        <span className="status-pill neutral">historical · realtime not configured</span>
       </div>
 
       {error && <p className="error">{error}</p>}
@@ -61,7 +59,7 @@ export function WorkstationHomeWidget() {
         <div className="metric metric-accent">
           <span><Database size={14} /> providers</span>
           <strong>{providerCount}</strong>
-          <small>latest: {providers?.latest_date ?? 'unavailable'}</small>
+          <small>{manifest?.symbol_count ?? 0} symbols · {providers?.latest_date ?? 'unavailable'}</small>
         </div>
         <div className="metric">
           <span><FlaskConical size={14} /> templates</span>
@@ -83,7 +81,7 @@ export function WorkstationHomeWidget() {
       <div className="lane-grid">
         <section className="lane">
           <div className="lane-title"><Database size={15} /> Data Layer</div>
-          <p>Protocol-first market, fundamental, factor, and realtime provider contracts.</p>
+          <p>Bundled adjusted daily bars, point-in-time fundamentals, and monthly factor returns.</p>
           <code>data/market/bars.parquet</code>
           <code>data/fundamentals/fundamentals.parquet</code>
         </section>
@@ -94,9 +92,9 @@ export function WorkstationHomeWidget() {
         </section>
         <section className="lane">
           <div className="lane-title"><Blocks size={15} /> Adapter Slots</div>
-          <p>External data and broker adapters are visible extension points, but no concrete connection is bundled.</p>
-          <code>MarketDataProvider</code>
-          <code>Broker-neutral execution contracts</code>
+          <p>Sample cutoff is explicit; live feeds and real-order adapters remain unconfigured.</p>
+          <code>{manifest?.sample_start ?? '-'} → {manifest?.cutoff_date ?? '-'}</code>
+          <code>{manifest?.caveat ?? 'Development demonstration only.'}</code>
         </section>
       </div>
     </div>

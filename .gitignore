@@ -34,6 +34,15 @@ dashboard/frontend/release/
 
 data/*
 !data/README.md
+!data/manifest.json
+!data/market/
+!data/market/bars.parquet
+!data/fundamentals/
+!data/fundamentals/fundamentals.parquet
+!data/factors/
+!data/factors/factor_returns.parquet
+!data/app/
+!data/app/alphalab.db
 logs/
 artifacts/
 outputs/

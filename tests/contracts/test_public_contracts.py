@@ -16,6 +16,9 @@ def test_public_facade_exports_core_loop():
     for name in [
         "DataEngine",
         "create_default_engine",
+        "create_rq_engine_from_env",
+        "RQDataConfig",
+        "RQDataProvider",
         "StrategyConfig",
         "SignalEngine",
         "run_backtest",

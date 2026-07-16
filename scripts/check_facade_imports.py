@@ -4,10 +4,12 @@ from __future__ import annotations
 import importlib
 import sys
 
-
 EXPECTED = [
     "DataEngine",
     "create_default_engine",
+    "create_rq_engine_from_env",
+    "RQDataConfig",
+    "RQDataProvider",
     "StrategyConfig",
     "SignalEngine",
     "run_backtest",

@@ -4,7 +4,7 @@ These providers are intentionally vendor-neutral. They read simple parquet files
 that an adapter, notebook, or test fixture can create:
 
 - market/bars.parquet: date, symbol, open, high, low, close, volume, amount?
-- fundamentals/fundamentals.parquet: quarter, symbol, field columns
+- fundamentals/fundamentals.parquet: quarter, available_date, symbol, field columns
 - factors/factor_returns.parquet: DatetimeIndex, one column per factor
 """
 from __future__ import annotations
@@ -121,13 +121,15 @@ class LocalParquetFundamentalProvider:
         if self._cache is not None:
             return self._cache
         if not self.path.exists():
-            self._cache = pd.DataFrame(columns=["quarter", "symbol"])
+            self._cache = pd.DataFrame(columns=["quarter", "available_date", "symbol"])
             return self._cache
         df = pd.read_parquet(self.path)
         if "quarter" not in df or "symbol" not in df:
             raise MissingDataError(f"Fundamental file must include quarter and symbol: {self.path}")
         df = df.copy()
         df["symbol"] = df["symbol"].astype(str).str.upper()
+        if "available_date" in df:
+            df["available_date"] = pd.to_datetime(df["available_date"], errors="coerce")
         self._cache = df.sort_values(["quarter", "symbol"]).reset_index(drop=True)
         return self._cache
 
@@ -146,15 +148,23 @@ class LocalParquetFundamentalProvider:
         missing = sorted(set(fields) - set(keep_fields))
         if missing and strict:
             raise MissingDataError(f"Missing fundamental fields: {missing}")
+        metadata = ["quarter", "symbol"]
+        if "available_date" in df:
+            metadata.insert(1, "available_date")
         if df.empty:
-            return pd.DataFrame(columns=["quarter", "symbol"] + keep_fields)
-        out = df.loc[
+            return pd.DataFrame(columns=metadata + keep_fields)
+        mask = (
             df["symbol"].isin(requested)
             & (df["quarter"].astype(str) >= start_quarter)
-            & (df["quarter"].astype(str) <= end_quarter),
-            ["quarter", "symbol"] + keep_fields,
-        ].copy()
-        return out.sort_values(["quarter", "symbol"]).reset_index(drop=True)
+            & (df["quarter"].astype(str) <= end_quarter)
+        )
+        if asof_date is not None and "available_date" in df:
+            mask &= df["available_date"].notna() & df["available_date"].le(pd.Timestamp(asof_date))
+        out = df.loc[mask, metadata + keep_fields].copy()
+        sort_columns = ["quarter", "symbol"]
+        if "available_date" in out:
+            sort_columns = ["available_date", "quarter", "symbol"]
+        return out.sort_values(sort_columns).reset_index(drop=True)
 
 
 class LocalParquetFactorProvider:
@@ -198,4 +208,3 @@ class LocalParquetFactorProvider:
         if "rf" not in df:
             return pd.Series(dtype=float, name="rf")
         return df.loc[(df.index >= pd.Timestamp(start)) & (df.index <= pd.Timestamp(end)), "rf"]
-

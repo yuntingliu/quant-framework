@@ -18,6 +18,22 @@ npm --prefix dashboard/frontend run dev:web
 
 ## Adding Data
 
+The repository ships a checked-in example bundle. Its immutable files and
+provenance are declared in `data/manifest.json`; runtime caches and any full
+vendor extracts remain ignored.
+
+Rebuild the maintained sample with:
+
+```powershell
+python scripts\build_example_data.py `
+  --source-root C:\Users\LYT\Documents\GitHub\quant-framework-factors
+```
+
+The builder reads the full workspace without modifying it, fixes the universe
+before the sample period, adjusts OHLC for corporate actions, uses first-release
+financial statements, seeds six backtests and signals, and writes only the
+canonical barebone files.
+
 Do not hard-code a vendor in the framework core. Create an adapter that
 implements the relevant provider protocol, then register it:
 
@@ -27,6 +43,17 @@ from alphalab import DataEngine
 engine = DataEngine()
 engine.register_market("my_source", MyMarketProvider(), default=True)
 ```
+
+The maintained RQ information adapter is optional:
+
+```python
+from alphalab import create_rq_engine_from_env
+
+engine = create_rq_engine_from_env()
+```
+
+Its credentials stay in the ignored local `.env`; tests must inject a fake RQ
+module and must never require a live vendor connection.
 
 Dashboard vendor pages should stay present as GUI slots, but they must remain
 mapped to disabled placeholders until a separate adapter/plugin package owns the
