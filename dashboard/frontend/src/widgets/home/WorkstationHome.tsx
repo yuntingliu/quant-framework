@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, Blocks, Database, FlaskConical, ShieldCheck } from 'lucide-react'
 import { apiGet, type BacktestRecord, type DataManifest, type ProviderStatus, type StrategyTemplate } from '../../lib/api'
+import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh'
 
 interface SystemStats {
   path: string
@@ -13,6 +14,7 @@ interface SystemStats {
 }
 
 export function WorkstationHomeWidget() {
+  const refreshRevision = useWorkspaceRefresh()
   const [providers, setProviders] = useState<ProviderStatus | null>(null)
   const [strategies, setStrategies] = useState<StrategyTemplate[]>([])
   const [backtests, setBacktests] = useState<BacktestRecord[]>([])
@@ -36,7 +38,7 @@ export function WorkstationHomeWidget() {
         setManifest(manifestRow)
       })
       .catch((err: Error) => setError(err.message))
-  }, [])
+  }, [refreshRevision])
 
   const providerCount = useMemo(
     () => Object.values(providers?.providers ?? {}).reduce((total, rows) => total + rows.length, 0),

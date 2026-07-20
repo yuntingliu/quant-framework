@@ -1,19 +1,30 @@
 import { useEffect, useState } from 'react'
 import { Play, Radio } from 'lucide-react'
 import { apiGet, apiPost, type SignalResult, type StrategyTemplate } from '../../lib/api'
+import { useWorkspace } from '../../contexts/WorkspaceContext'
+import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh'
 import { useDataProfile, type DataProfile } from '../../lib/data-profile'
 
 export function SignalDeskWidget() {
+  const refreshRevision = useWorkspaceRefresh()
+  const { selectedStrategy, setSelectedStrategy } = useWorkspace()
   const [strategies, setStrategies] = useState<StrategyTemplate[]>([])
-  const [strategyId, setStrategyId] = useState('balanced')
   const [signal, setSignal] = useState<SignalResult | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
   const [profile, chooseProfile] = useDataProfile()
 
   useEffect(() => {
-    apiGet<StrategyTemplate[]>('/strategies').then(setStrategies).catch((err: Error) => setError(err.message))
-  }, [])
+    apiGet<StrategyTemplate[]>('/strategies').then((items) => {
+      setStrategies(items)
+    }).catch((err: Error) => setError(err.message))
+  }, [refreshRevision])
+
+  useEffect(() => {
+    if (!selectedStrategy && strategies[0]) setSelectedStrategy(strategies[0].id)
+  }, [selectedStrategy, setSelectedStrategy, strategies])
+
+  const strategyId = selectedStrategy ?? strategies[0]?.id ?? ''
 
   async function generate() {
     setRunning(true)
@@ -35,7 +46,7 @@ export function SignalDeskWidget() {
           <option value="demo">Demo</option>
           <option value="runtime">Local RQ</option>
         </select>
-        <select value={strategyId} onChange={(event) => setStrategyId(event.target.value)}>{strategies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+        <select value={strategyId} onChange={(event) => setSelectedStrategy(event.target.value)}>{strategies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
         <button type="button" onClick={generate} disabled={running}><Play size={14} /> {running ? 'Generating' : 'Generate'}</button>
       </div>
       {error && <p className="error">{error}</p>}

@@ -1,0 +1,63 @@
+{
+  "objective": "test",
+  "toolNames": [
+    "ask_user",
+    "describe_node_type",
+    "ask_with_form",
+    "create_nodes",
+    "connect_nodes",
+    "delete_node",
+    "list_nodes",
+    "observe_nodes",
+    "update_nodes",
+    "generate_image",
+    "shell_exec",
+    "control_browser",
+    "run_node",
+    "save_harness",
+    "execute_sql",
+    "control_node_run",
+    "web_search",
+    "search_harness_library",
+    "complete"
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "content": "test"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_HTsefoT5tqDAxNk1aAjSgQhP",
+          "type": "function",
+          "function": {
+            "name": "complete",
+            "arguments": "{\"status\":\"done\",\"summary\":\"Test received. I’m online and ready to help.\",\"verification\":\"Confirmed the message was received and this Agent can respond.\",\"blocker\": \"None\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": "{\"success\":true,\"done\":true,\"status\":\"done\",\"summary\":\"Test received. I’m online and ready to help.\",\"verification\":\"Confirmed the message was received and this Agent can respond.\",\"blocker\":\"None\"}",
+      "tool_call_id": "call_HTsefoT5tqDAxNk1aAjSgQhP",
+      "name": "complete"
+    },
+    {
+      "role": "assistant",
+      "content": "Test received. I’m online and ready to help."
+    }
+  ],
+  "summary": "Test received. I’m online and ready to help.",
+  "completionGaps": [],
+  "toolCounts": {
+    "complete": 1
+  },
+  "_connectedNodeRevisions": {
+    "version": 1,
+    "entries": {}
+  }
+}

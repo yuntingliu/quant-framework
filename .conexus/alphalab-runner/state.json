@@ -1,0 +1,26 @@
+{
+  "projectRoot": "E:\\quant-framework",
+  "backendPort": 8000,
+  "frontendPort": 5174,
+  "preferredFrontendPort": 5173,
+  "backendUrl": "http://127.0.0.1:8000",
+  "frontendUrl": "http://localhost:5174",
+  "backendPid": 22312,
+  "frontendPid": 25496,
+  "backendPids": [
+    22312
+  ],
+  "frontendPids": [
+    10908
+  ],
+  "reused": {
+    "backend": true,
+    "frontend": false
+  },
+  "notes": [
+    "preferred port 5173 is occupied by another service; selected free port 5174"
+  ],
+  "backendLog": "E:\\quant-framework\\.conexus\\alphalab-runner\\backend.log",
+  "frontendLog": "E:\\quant-framework\\.conexus\\alphalab-runner\\frontend.log",
+  "startedAt": "2026-07-16T02:07:05.708Z"
+}

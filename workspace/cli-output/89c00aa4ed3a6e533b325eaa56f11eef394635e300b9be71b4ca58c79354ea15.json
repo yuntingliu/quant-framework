@@ -1,0 +1,4 @@
+{
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\r\n  File \"E:\\quant-framework\\.conexus\\generate_test_bars.py\", line 16, in <module>\r\n    ret = np.random.normal(drift, vol, len(dates))\r\n                                           ^^^^^\r\nNameError: name 'dates' is not defined. Did you mean: 'bytes'?"
+}

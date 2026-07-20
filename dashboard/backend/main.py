@@ -1,13 +1,17 @@
 """FastAPI app for the barebone workstation."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from dashboard.backend.config import LOADED_ENV_FILES
 from dashboard.backend.routers import (
     backtests,
     compat,
+    conexus,
     data,
     data_sync,
     paper,
@@ -44,6 +48,7 @@ app.include_router(signals.router)
 app.include_router(paper.router)
 app.include_router(system.router)
 app.include_router(compat.router)
+app.include_router(conexus.router)
 
 
 @app.get("/")
@@ -56,3 +61,8 @@ def clear_cache() -> dict:
     # Engines are short-lived in the barebone backend, so there is no global
     # process cache to clear yet. Keep the endpoint for frontend compatibility.
     return {"status": "ok"}
+
+
+FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+if FRONTEND_DIST.is_dir():
+    app.mount("/app", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

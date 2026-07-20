@@ -16,6 +16,7 @@ import { HistoricalMarketWidget } from "../market/HistoricalMarket"
 import { FactorLibraryWidget } from "../research/FactorLibrary"
 import { StrategyEditorWidget } from "../research/StrategyEditor"
 import { SignalDeskWidget } from "../research/SignalDesk"
+import { ResearchResultViewerWidget } from "../research/ResearchResultViewer"
 import { AdapterDisabledWidget } from "../system/AdapterDisabled"
 import { HelpWidget } from "../system/Help"
 import { LogWidget } from "../system/Log"
@@ -56,6 +57,7 @@ export const widgetComponents: Record<string, ComponentType> = {
   "backtest.strategies": StrategyListWidget,
   "strategy.editor": StrategyEditorWidget,
   "research.signal-preview": SignalDeskWidget,
+  "research.result-viewer": ResearchResultViewerWidget,
   "backtest.workbench": BacktestRunnerWidget,
   "market.factor-stats": FactorLibraryWidget,
   "trading.status": PaperExecutionDeskWidget,
@@ -67,7 +69,6 @@ export const widgetComponents: Record<string, ComponentType> = {
   "system.help": HelpWidget,
 
   // Common legacy aliases from saved AlphaLab layouts.
-  "research.ai-workflow": disabled("research.agent"),
   "trading.positions": disabled("trading.positions"),
   "trading.order-entry": disabled("trading.order-entry"),
   "trading.order-book": disabled("trading.order-book"),

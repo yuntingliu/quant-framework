@@ -1,0 +1,89 @@
+{
+  "id": "022d946f-0ee7-46a3-a0b8-f0dd1918b69f",
+  "slug": "alphalab-research-agent",
+  "version": 4,
+  "releaseChecksum": "7104c5c620d38c627edbed69c7fd64c311017e883d49688e14a097116d0f5716",
+  "billingPolicy": "consumer",
+  "subjectUserId": "7d079212-ce64-4b54-8936-79a5e5d5dd48",
+  "conversationId": "26eafe8e-388c-4e09-bf69-b406673f457f",
+  "agentNodeId": "alphalab-research-agent-v1",
+  "status": "cancelled",
+  "createdAt": "2026-07-20T11:31:00.062Z",
+  "accessTokenHash": "dec75a3ecc39a1b312709a3fd22deea301854faa179d82ec247ff7f7867b6fce",
+  "input": {
+    "context": {
+      "requestId": "1784547058562-oj6wbih0ctj",
+      "source": "agent-widget",
+      "activeMode": "research",
+      "selectedSymbol": "000002.SZ",
+      "selectedStrategy": "balanced",
+      "selectedBacktest": null,
+      "selectedDate": null,
+      "symbols": [
+        "000002.SZ"
+      ],
+      "workspaceCapabilities": {
+        "modes": [
+          "home",
+          "data",
+          "research",
+          "trading_a_share"
+        ],
+        "widgets": [
+          "home.index-board",
+          "market.history",
+          "data.center",
+          "data.factor-returns",
+          "strategies.hub",
+          "strategy.editor",
+          "backtest.explorer",
+          "backtest.workbench",
+          "research.signal-preview",
+          "research.agent",
+          "trading.rebalance",
+          "trading.alerts",
+          "system.log",
+          "system.help"
+        ],
+        "commandTypes": [
+          "switch_mode",
+          "open_widget",
+          "close_widget",
+          "set_focus",
+          "set_link_symbol",
+          "show_right_rail",
+          "refresh_data",
+          "save_layout",
+          "reset_layout"
+        ]
+      },
+      "lastWorkspaceCommandReceipts": []
+    },
+    "request": "能帮我展示下行情历史吗"
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "runId": "022d946f-0ee7-46a3-a0b8-f0dd1918b69f",
+      "at": "2026-07-20T11:31:00.064Z",
+      "type": "run.queued",
+      "status": "queued"
+    },
+    {
+      "sequence": 2,
+      "runId": "022d946f-0ee7-46a3-a0b8-f0dd1918b69f",
+      "at": "2026-07-20T11:31:00.065Z",
+      "type": "run.started",
+      "status": "running"
+    },
+    {
+      "sequence": 3,
+      "runId": "022d946f-0ee7-46a3-a0b8-f0dd1918b69f",
+      "at": "2026-07-20T11:31:00.548Z",
+      "type": "run.cancelled",
+      "status": "cancelled"
+    }
+  ],
+  "startedAt": "2026-07-20T11:31:00.065Z",
+  "completedAt": "2026-07-20T11:31:00.543Z"
+}

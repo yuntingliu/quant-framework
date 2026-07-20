@@ -49,27 +49,3 @@ def data_status() -> dict:
         "rq": get_health()["rq"],
         "realtime": {"connected": False, "status": "not_configured"},
     }
-
-
-@router.get("/agent/config")
-def agent_config() -> dict:
-    return {
-        "data_tools": {
-            "configured": True,
-            "available": True,
-            "status": "ready",
-            "count": 6,
-        },
-        "planner": {
-            "configured": False,
-            "available": False,
-            "status": "not_configured",
-        },
-        "llm": {
-            "configured": False,
-            "available": False,
-            "provider": "none",
-            "model": None,
-            "mode": "not_configured",
-        }
-    }

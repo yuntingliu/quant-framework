@@ -1,0 +1,96 @@
+{
+  "id": "653b4c07-e4df-4acc-b23d-93ae45368373",
+  "slug": "alphalab-research-agent",
+  "version": 2,
+  "releaseChecksum": "6f54559cb55f42a4578d37c4f8f88b3c716a50c25da55a851d87f00a69640139",
+  "billingPolicy": "consumer",
+  "subjectUserId": "7d079212-ce64-4b54-8936-79a5e5d5dd48",
+  "conversationId": "26eafe8e-388c-4e09-bf69-b406673f457f",
+  "agentNodeId": "alphalab-research-agent-v1",
+  "status": "completed",
+  "createdAt": "2026-07-20T05:10:40.400Z",
+  "accessTokenHash": "4ca8aad84354429b96fe73ed4696d0d7407b9b844c28e9997ce70f822ab7934f",
+  "input": {
+    "context": {
+      "idea": "能帮我做个新策略吗？\n\n请生成本地证据研究简报。\n标的: -\n策略: -\n回测: -\n数据状态: QMT 数据正常; RQ 数据正常",
+      "symbols": [],
+      "themes": [
+        "research_context"
+      ],
+      "draftStrategy": false,
+      "graphMode": false,
+      "includeMemory": true,
+      "reportLanguage": "zh",
+      "reviewRequired": false,
+      "runStrategyExperiment": false,
+      "source": "right-rail"
+    },
+    "request": "能帮我做个新策略吗？\n\n请生成本地证据研究简报。\n标的: -\n策略: -\n回测: -\n数据状态: QMT 数据正常; RQ 数据正常"
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "runId": "653b4c07-e4df-4acc-b23d-93ae45368373",
+      "at": "2026-07-20T05:10:40.402Z",
+      "type": "run.queued",
+      "status": "queued"
+    },
+    {
+      "sequence": 2,
+      "runId": "653b4c07-e4df-4acc-b23d-93ae45368373",
+      "at": "2026-07-20T05:10:40.403Z",
+      "type": "run.started",
+      "status": "running"
+    },
+    {
+      "sequence": 3,
+      "runId": "653b4c07-e4df-4acc-b23d-93ae45368373",
+      "at": "2026-07-20T05:11:41.336Z",
+      "type": "run.completed",
+      "status": "completed"
+    }
+  ],
+  "startedAt": "2026-07-20T05:10:40.403Z",
+  "summary": "{\"summary\":\"本地证据研究简报\\n\\n事实：\\n- 你要求做一个新策略并生成本地证据研究简报；当前未指定标的、策略或回测编号。\\n- 工作区最新读取显示：market、fundamental、factor、app 数据均为 ready；样本起点 2021-07-11，最新日期 2026-07-10；本地标的总数 300。\\n- 可用策略模板包括 balanced、growth、low_vol、momentum、quality、value。\\n- 近期已保存同区间回测中：\\n  - value：2021-07-11 至 2026-07-10，累计收益 38.47%，年化收益 6.73%，年化波动 22.79%，Sharpe 0.30，最大回撤 -34.84%，60 个收益期。\\n  - low_vol：同区间累计收益 21.22%，年化收益 3.92%，年化波动 16.93%，Sharpe 0.23，最大回撤 -29.28%，60 个收益期。\\n  - balanced：同区间累计收益 -32.58%，年化收益 -7.58%，Sharpe -0.37，最大回撤 -44.63%。\\n  - momentum：同区间累计收益 -5.69%，Sharpe -0.04，最大回撤 -54.65%。\\n  - quality：同区间累计收益 -57.53%，Sharpe -0.59，最大回撤 -56.92%。\\n\\n推断：\\n- 在当前本地证据里，单纯质量或动量暴露表现较弱；价值和低波动相对更稳，但 Sharpe 仍不高。\\n- 新策略不宜简单复用 balanced 的动量/价值/质量均衡权重，更适合先从“价值 + 低波动 + 质量/杠杆约束”出发。\\n\\n候选新策略草案：value_lowvol_quality\\n- 策略目标：在全市场 300 标的内，优先选择估值便宜、波动较低、盈利质量尚可且杠杆不过高的股票。\\n- 因子建议：\\n  - ep：多头方向，权重 0.30\\n  - bp：多头方向，权重 0.15\\n  - volatility_20d：空头方向，权重 0.35\\n  - roe：多头方向，权重 0.10\\n  - leverage：空头方向，权重 0.10\\n- 组合规则建议：月度调仓；选股 10 只；单票最大权重 10%；等权或约束等权；交易成本先按 20bps。\\n\\n数据缺口与风险：\\n- 以上不是新策略回测结果；我没有擅自运行新回测。\\n- 证据主要来自 2021-07-11 至 2026-07-10 的单一历史窗口，约 60 个收益期，样本偏短。\\n- 缺少基准对比、样本外检验、滚动窗口稳定性、换手率、容量、滑点、停牌/涨跌停处理说明。\\n- 使用已知回测表现来设计新策略有数据挖掘/过拟合风险。\\n- 基本面因子 ep、bp、roe、leverage 需要确认使用公告日/可得日，避免前视偏差。\\n\\n下一步：\\n如果你认可这个方向，可以继续说：“把 value_lowvol_quality 写成策略草案”或“运行这个新策略的回测”。只有你明确要求运行时，我才会执行回测。\"}",
+  "output": {
+    "summary": "{\"summary\":\"本地证据研究简报\\n\\n事实：\\n- 你要求做一个新策略并生成本地证据研究简报；当前未指定标的、策略或回测编号。\\n- 工作区最新读取显示：market、fundamental、factor、app 数据均为 ready；样本起点 2021-07-11，最新日期 2026-07-10；本地标的总数 300。\\n- 可用策略模板包括 balanced、growth、low_vol、momentum、quality、value。\\n- 近期已保存同区间回测中：\\n  - value：2021-07-11 至 2026-07-10，累计收益 38.47%，年化收益 6.73%，年化波动 22.79%，Sharpe 0.30，最大回撤 -34.84%，60 个收益期。\\n  - low_vol：同区间累计收益 21.22%，年化收益 3.92%，年化波动 16.93%，Sharpe 0.23，最大回撤 -29.28%，60 个收益期。\\n  - balanced：同区间累计收益 -32.58%，年化收益 -7.58%，Sharpe -0.37，最大回撤 -44.63%。\\n  - momentum：同区间累计收益 -5.69%，Sharpe -0.04，最大回撤 -54.65%。\\n  - quality：同区间累计收益 -57.53%，Sharpe -0.59，最大回撤 -56.92%。\\n\\n推断：\\n- 在当前本地证据里，单纯质量或动量暴露表现较弱；价值和低波动相对更稳，但 Sharpe 仍不高。\\n- 新策略不宜简单复用 balanced 的动量/价值/质量均衡权重，更适合先从“价值 + 低波动 + 质量/杠杆约束”出发。\\n\\n候选新策略草案：value_lowvol_quality\\n- 策略目标：在全市场 300 标的内，优先选择估值便宜、波动较低、盈利质量尚可且杠杆不过高的股票。\\n- 因子建议：\\n  - ep：多头方向，权重 0.30\\n  - bp：多头方向，权重 0.15\\n  - volatility_20d：空头方向，权重 0.35\\n  - roe：多头方向，权重 0.10\\n  - leverage：空头方向，权重 0.10\\n- 组合规则建议：月度调仓；选股 10 只；单票最大权重 10%；等权或约束等权；交易成本先按 20bps。\\n\\n数据缺口与风险：\\n- 以上不是新策略回测结果；我没有擅自运行新回测。\\n- 证据主要来自 2021-07-11 至 2026-07-10 的单一历史窗口，约 60 个收益期，样本偏短。\\n- 缺少基准对比、样本外检验、滚动窗口稳定性、换手率、容量、滑点、停牌/涨跌停处理说明。\\n- 使用已知回测表现来设计新策略有数据挖掘/过拟合风险。\\n- 基本面因子 ep、bp、roe、leverage 需要确认使用公告日/可得日，避免前视偏差。\\n\\n下一步：\\n如果你认可这个方向，可以继续说：“把 value_lowvol_quality 写成策略草案”或“运行这个新策略的回测”。只有你明确要求运行时，我才会执行回测。\"}"
+  },
+  "completedAt": "2026-07-20T05:11:41.334Z",
+  "artifacts": [
+    {
+      "id": "bcebcd81-4f05-4daf-a979-e9476955efb0",
+      "runId": "653b4c07-e4df-4acc-b23d-93ae45368373",
+      "title": "Decision Notebook",
+      "createdAt": "2026-07-20T05:11:41.334Z",
+      "producerNodeId": "alphalab-decision-notebook-v1",
+      "kind": "node",
+      "content": {
+        "node": {
+          "id": "alphalab-decision-notebook-v1",
+          "type": "custom",
+          "label": "Decision Notebook",
+          "description": "Structured output consumed by the AlphaLab right rail.",
+          "values": {
+            "customType": "alphalab_decision_notebook",
+            "content": "Structured decision notebook produced by the AlphaLab Research Agent.",
+            "data": {
+              "classification": "draft_strategy_research_brief",
+              "baseCase": "基于本地证据，近期已保存回测中 value 与 low_vol 在 2021-07-11 至 2026-07-10 区间为正收益；balanced、momentum、quality 表现较弱。新策略宜以价值/低波动为核心，少量加入质量过滤，避免直接复用表现较差的 balanced 权重。",
+              "riskCase": "样本仅约 60 个收益期，且来自同一 300 标的本地样本；无基准、无样本外、无滚动稳定性、无交易容量/滑点检验。用既有回测结果筛选新策略存在数据挖掘和过拟合风险；基本面字段需确认公告日/可得日，防止前视。",
+              "nextAction": "先起草 value_lowvol_quality 新策略：价值 45%、低波动 35%、质量/杠杆 20%，月度调仓、10只、单票上限10%、成本20bps；待用户确认后再编写/落地策略 YAML 或运行回测。",
+              "candidateExpressions": [
+                "ep long weight 0.30",
+                "bp long weight 0.15",
+                "volatility_20d short weight 0.35",
+                "roe long weight 0.10",
+                "leverage short weight 0.10",
+                "selection n_stocks 10 max_weight 0.10 rebalance monthly cost_bps 20"
+              ]
+            },
+            "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/data/Decision-Notebook.custom.json"
+          }
+        }
+      }
+    }
+  ]
+}

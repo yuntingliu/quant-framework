@@ -1,0 +1,42 @@
+{
+  "id": "b1ce5344-0237-440c-b454-9844577264a6",
+  "slug": "alphalab-research-agent",
+  "version": 2,
+  "releaseChecksum": "6f54559cb55f42a4578d37c4f8f88b3c716a50c25da55a851d87f00a69640139",
+  "billingPolicy": "consumer",
+  "subjectUserId": "7d079212-ce64-4b54-8936-79a5e5d5dd48",
+  "conversationId": "26eafe8e-388c-4e09-bf69-b406673f457f",
+  "agentNodeId": "alphalab-research-agent-v1",
+  "status": "cancelled",
+  "createdAt": "2026-07-20T04:04:32.997Z",
+  "accessTokenHash": "5b8709069f58a94f623cb3b36f818419fabdd28db371496cccde3705c57a27df",
+  "input": {
+    "context": {},
+    "request": "你能干什么"
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "runId": "b1ce5344-0237-440c-b454-9844577264a6",
+      "at": "2026-07-20T04:04:33.001Z",
+      "type": "run.queued",
+      "status": "queued"
+    },
+    {
+      "sequence": 2,
+      "runId": "b1ce5344-0237-440c-b454-9844577264a6",
+      "at": "2026-07-20T04:04:33.004Z",
+      "type": "run.started",
+      "status": "running"
+    },
+    {
+      "sequence": 3,
+      "runId": "b1ce5344-0237-440c-b454-9844577264a6",
+      "at": "2026-07-20T04:04:33.702Z",
+      "type": "run.cancelled",
+      "status": "cancelled"
+    }
+  ],
+  "startedAt": "2026-07-20T04:04:33.003Z",
+  "completedAt": "2026-07-20T04:04:33.696Z"
+}

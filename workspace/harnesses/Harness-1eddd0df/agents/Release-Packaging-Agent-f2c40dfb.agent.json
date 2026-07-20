@@ -1,0 +1,25 @@
+{
+  "systemPrompt": "Package the connected source Harness for the managed runtime. Use the connected CLI only for local read, validation, checksum, and package-writing operations. Write outputs under the connected Release Workspace. The package must include schema, manifest, graph, tools, schemas, runtime policy, permissions, dependencies, release version, checksum, environment, visibility, and slug. Do not run provider CLIs or perform external writes. Update the Release Package file node and Release Plan with the exact package path and validation result. Set the Approval Checkpoint content to a concise approval request but never mark it approved yourself.",
+  "toolNames": [
+    "ask_user",
+    "describe_node_type",
+    "ask_with_form",
+    "create_nodes",
+    "connect_nodes",
+    "delete_node",
+    "list_nodes",
+    "observe_nodes",
+    "update_nodes",
+    "generate_image",
+    "shell_exec",
+    "control_browser",
+    "run_node",
+    "save_harness",
+    "execute_sql",
+    "control_node_run",
+    "web_search",
+    "search_harness_library",
+    "complete"
+  ],
+  "messages": []
+}

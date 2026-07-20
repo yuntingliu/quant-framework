@@ -1,0 +1,228 @@
+{
+  "history": [
+    {
+      "id": "cmd-1783743201600-f7fn0c",
+      "command": "powershell -NoProfile -Command \"Set-Location 'E:\\quant-framework'; Write-Host 'SQLite files:'; Get-ChildItem -Recurse -File -Include *.db,*.sqlite,*.sqlite3 -ErrorAction SilentlyContinue | Select-Object FullName,Length,LastWriteTime | Format-Table -AutoSize\"",
+      "shell": "powershell",
+      "cwd": "E:\\quant-framework",
+      "stdout": "SQLite files:\n\nFullName                                Length LastWriteTime     \n--------                                ------ -------------     \nE:\\quant-framework\\data\\app\\alphalab.db  81920 2026/7/11 12:00:07",
+      "stderr": "",
+      "exitCode": 0,
+      "outputRef": {
+        "path": "workspace/cli-output/39dcd509ed5fa0cee19d8a8bb86368e89bee5d8e58de97f4ba2fe8fc5504ef00.json",
+        "stdoutChars": 212,
+        "stderrChars": 0
+      },
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    },
+    {
+      "id": "cmd-1783743208109-nr8zqs",
+      "command": "powershell -NoProfile -Command \"Set-Location 'E:\\quant-framework'; @'\nimport sqlite3, json, os\nfrom pathlib import Path\np=Path('data/app/alphalab.db')\ncon=sqlite3.connect(p)\ncon.row_factory=sqlite3.Row\ncur=con.cursor()\nprint('DB:', p.resolve())\nprint('Size bytes:', p.stat().st_size)\nprint('\\nTables:')\ntables=[r['name'] for r in cur.execute(\\\"select name from sqlite_master where type='table' order by name\\\")]\nfor t in tables:\n    try:\n        cnt=cur.execute(f'SELECT COUNT(*) AS c FROM \"{t}\"').fetchone()['c']\n    except Exception as e:\n        cnt=f'ERR {e}'\n    print(f'- {t}: {cnt} rows')\nprint('\\nSchemas and samples:')\nfor t in tables:\n    print('\\n###', t)\n    cols=cur.execute(f'PRAGMA table_info(\"{t}\")').fetchall()\n    print('columns:', ', '.join([c['name']+':' + c['type'] for c in cols]))\n    rows=cur.execute(f'SELECT * FROM \"{t}\" LIMIT 5').fetchall()\n    for row in rows:\n        d=dict(row)\n        # truncate long fields\n        for k,v in list(d.items()):\n            if isinstance(v, str) and len(v)>160:\n                d[k]=v[:157]+'...'\n        print(json.dumps(d, ensure_ascii=False, default=str))\ncon.close()\n'@ | python -\"",
+      "shell": "powershell",
+      "cwd": "E:\\quant-framework",
+      "stdout": "",
+      "stderr": "只应将 ScriptBlock 指定为 Command 参数值。",
+      "exitCode": 1,
+      "outputRef": {
+        "path": "workspace/cli-output/7fd7b260a8c2e9e5947a562195b751e1a68fe2f406ebda57662d51eb6593b98c.json",
+        "stdoutChars": 0,
+        "stderrChars": 32
+      },
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    },
+    {
+      "id": "cmd-1783743214229-ntnbe3",
+      "command": "$code = @'\nimport sqlite3, json\nfrom pathlib import Path\np=Path('data/app/alphalab.db')\ncon=sqlite3.connect(p)\ncon.row_factory=sqlite3.Row\ncur=con.cursor()\nprint('DB:', p.resolve())\nprint('Size bytes:', p.stat().st_size)\nprint('\\nTables:')\ntables=[r['name'] for r in cur.execute(\"select name from sqlite_master where type='table' order by name\")]\nfor t in tables:\n    try:\n        cnt=cur.execute('SELECT COUNT(*) AS c FROM \"%s\"' % t).fetchone()['c']\n    except Exception as e:\n        cnt='ERR '+str(e)\n    print(f'- {t}: {cnt} rows')\nprint('\\nSchemas and samples:')\nfor t in tables:\n    print('\\n###', t)\n    cols=cur.execute('PRAGMA table_info(\"%s\")' % t).fetchall()\n    print('columns:', ', '.join([c['name']+':' + c['type'] for c in cols]))\n    rows=cur.execute('SELECT * FROM \"%s\" LIMIT 5' % t).fetchall()\n    for row in rows:\n        d=dict(row)\n        for k,v in list(d.items()):\n            if isinstance(v, str) and len(v)>160:\n                d[k]=v[:157]+'...'\n        print(json.dumps(d, ensure_ascii=False, default=str))\ncon.close()\n'@\n$code | python -",
+      "shell": "powershell",
+      "cwd": "E:\\quant-framework",
+      "stdout": "",
+      "stderr": "  File \"<stdin>\", line 1\r\n    ﻿import sqlite3, json\r\n    ^\r\nSyntaxError: invalid non-printable character U+FEFF",
+      "exitCode": 1,
+      "outputRef": {
+        "path": "workspace/cli-output/ae013e89b5be7726f2c797502f5bf0debe6cab8799f846ac9098a44792a15f22.json",
+        "stdoutChars": 0,
+        "stderrChars": 111
+      },
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    },
+    {
+      "id": "cmd-1783743220712-g1y9a2",
+      "command": "$code = @'\nimport sqlite3, json\nfrom pathlib import Path\np=Path('data/app/alphalab.db')\ncon=sqlite3.connect(p)\ncon.row_factory=sqlite3.Row\ncur=con.cursor()\nprint('DB:', p.resolve())\nprint('Size bytes:', p.stat().st_size)\nprint('\\nTables:')\ntables=[r['name'] for r in cur.execute(\"select name from sqlite_master where type='table' order by name\")]\nfor t in tables:\n    try:\n        cnt=cur.execute('SELECT COUNT(*) AS c FROM \"%s\"' % t).fetchone()['c']\n    except Exception as e:\n        cnt='ERR '+str(e)\n    print(f'- {t}: {cnt} rows')\nprint('\\nSchemas and samples:')\nfor t in tables:\n    print('\\n###', t)\n    cols=cur.execute('PRAGMA table_info(\"%s\")' % t).fetchall()\n    print('columns:', ', '.join([c['name']+':' + c['type'] for c in cols]))\n    rows=cur.execute('SELECT * FROM \"%s\" LIMIT 5' % t).fetchall()\n    for row in rows:\n        d=dict(row)\n        for k,v in list(d.items()):\n            if isinstance(v, str) and len(v)>160:\n                d[k]=v[:157]+'...'\n        print(json.dumps(d, ensure_ascii=False, default=str))\ncon.close()\n'@\n$tmp = Join-Path $PWD '.conexus_db_inspect.py'\nNew-Item -ItemType Directory -Force .conexus | Out-Null\n[System.IO.File]::WriteAllText($tmp, $code, [System.Text.UTF8Encoding]::new($false))\npython $tmp",
+      "shell": "powershell",
+      "cwd": "E:\\quant-framework",
+      "stdout": "DB: E:\\quant-framework\\data\\app\\alphalab.db\nSize bytes: 81920\n\nTables:\n- backtest_returns: 0 rows\n- backtest_weights: 0 rows\n- backtests: 0 rows\n- journal: 0 rows\n- orders: 0 rows\n- signal_targets: 0 rows\n- signals: 0 rows\n- strategies: 0 rows\n\nSchemas and samples:\n\n### backtest_returns\ncolumns: backtest_id:TEXT, date:TEXT, strategy:REAL, benchmark:REAL\n\n### backtest_weights\ncolumns: backtest_id:TEXT, date:TEXT, symbol:TEXT, weight:REAL\n\n### backtests\ncolumns: id:TEXT, strategy_id:TEXT, config_yaml:TEXT, code_version:TEXT, start_date:TEXT, end_date:TEXT, run_at:TEXT, total_return:REAL, annual_return:REAL, annual_vol:REAL, sharpe:REAL, max_drawdown:REAL, n_periods:INTEGER, tags:TEXT, notes:TEXT\n\n### journal\ncolumns: id:TEXT, date:TEXT, strategy_id:TEXT, title:TEXT, content:TEXT, tags:TEXT, created_at:TEXT, updated_at:TEXT\n\n### orders\ncolumns: id:TEXT, signal_id:TEXT, symbol:TEXT, action:TEXT, quantity:REAL, price:REAL, fill_price:REAL, fill_quantity:REAL, commission:REAL, status:TEXT, broker_order_id:TEXT, broker:TEXT, submitted_at:TEXT, filled_at:TEXT\n\n### signal_targets\ncolumns: signal_id:TEXT, symbol:TEXT, target_weight:REAL, current_weight:REAL\n\n### signals\ncolumns: id:TEXT, strategy_id:TEXT, signal_date:TEXT, generated_at:TEXT, status:TEXT\n\n### strategies\ncolumns: id:TEXT, yaml_path:TEXT, description:TEXT, created_at:TEXT, updated_at:TEXT",
+      "stderr": "",
+      "exitCode": 0,
+      "outputRef": {
+        "path": "workspace/cli-output/78e1659e533ce78efd7ac79da9aebc4692b2e53a16f41df676d1a55bbe3f58b5.json",
+        "stdoutChars": 1364,
+        "stderrChars": 0
+      },
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    },
+    {
+      "id": "cmd-1783867804021-8874da",
+      "command": "Set-Location 'E:\\quant-framework'; Write-Host 'Data directory overview:'; if (Test-Path 'data') { Get-ChildItem -Recurse -File data -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'market|bars|parquet|csv|json|fundamental|universe' } | Select-Object FullName,Length,LastWriteTime | Format-Table -AutoSize } else { Write-Host 'data directory not found' }; Write-Host 'Expected market bars parquet:'; Test-Path 'data\\market\\bars.parquet'; if (Test-Path 'data\\market') { Get-ChildItem 'data\\market' -Force | Select-Object FullName,Length,LastWriteTime | Format-Table -AutoSize }",
+      "shell": "powershell",
+      "cwd": "E:\\quant-framework",
+      "stdout": "Data directory overview:\n\nFullName                                                                    Length LastWriteTime     \n--------                                                                    ------ -------------     \nE:\\quant-framework\\data\\app\\pipeline_runs\\20260712_224957\\bars.json              2 2026/7/12 22:49:57\nE:\\quant-framework\\data\\app\\pipeline_runs\\20260712_224957\\fundamentals.json      2 2026/7/12 22:49:57\n\n\nExpected market bars parquet:\nFalse",
+      "stderr": "",
+      "exitCode": 0,
+      "outputRef": {
+        "path": "workspace/cli-output/cd0b36fcc39a41228fda13f5e74b00d9be372e86bc4b3c8dd9f3e73c2b0cb82e.json",
+        "stdoutChars": 471,
+        "stderrChars": 0
+      },
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    },
+    {
+      "id": "cmd-1783867901324-r3j6sc",
+      "command": "Set-Location 'E:\\quant-framework'; rg -n \"bars\\.parquet|read_parquet|market|DataEngine|fundamentals\" alphalab tests -S",
+      "shell": "powershell",
+      "cwd": "E:\\quant-framework",
+      "stdout": "",
+      "stderr": "",
+      "exitCode": 1,
+      "outputRef": {
+        "path": "workspace/cli-output/a272df39879a637078952730002957e09aef980bf50b9203423f44255eab4086.json",
+        "stdoutChars": 0,
+        "stderrChars": 0
+      },
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    },
+    {
+      "id": "cmd-1783867905121-oqivmx",
+      "command": "Set-Location 'E:\\quant-framework'; Get-ChildItem -Recurse -File alphalab | Select-Object FullName | Format-Table -AutoSize; Write-Host '--- strategies ---'; Get-Content alphalab\\strategies\\momentum.yaml -ErrorAction SilentlyContinue",
+      "shell": "powershell",
+      "cwd": "E:\\quant-framework",
+      "stdout": "\nFullName                                                                         \n--------                                                                         \nE:\\quant-framework\\alphalab\\engine.py                                            \nE:\\quant-framework\\alphalab\\schema.sql                                           \nE:\\quant-framework\\alphalab\\store.py                                             \nE:\\quant-framework\\alphalab\\__init__.py                                          \nE:\\quant-framework\\alphalab\\analytics\\metrics.py                                 \nE:\\quant-framework\\alphalab\\analytics\\__init__.py                                \nE:\\quant-framework\\alphalab\\analytics\\__pycache__\\metrics.cpython-312.pyc        \nE:\\quant-framework\\alphalab\\analytics\\__pycache__\\__init__.cpython-312.pyc       \nE:\\quant-framework\\alphalab\\dataio\\engine.py                                     \nE:\\quant-framework\\alphalab\\dataio\\errors.py                                     \nE:\\quant-framework\\alphalab\\dataio\\io_utils.py                                   \nE:\\quant-framework\\alphalab\\dataio\\__init__.py                                   \nE:\\quant-framework\\alphalab\\dataio\\providers\\local.py                            \nE:\\quant-framework\\alphalab\\dataio\\providers\\protocol.py                         \nE:\\quant-framework\\alphalab\\dataio\\providers\\__init__.py                         \nE:\\quant-framework\\alphalab\\dataio\\providers\\__pycache__\\local.cpython-312.pyc   \nE:\\quant-framework\\alphalab\\dataio\\providers\\__pycache__\\protocol.cpython-312.pyc\nE:\\quant-framework\\alphalab\\dataio\\providers\\__pycache__\\__init__.cpython-312.pyc\nE:\\quant-framework\\alphalab\\dataio\\__pycache__\\engine.cpython-312.pyc            \nE:\\quant-framework\\alphalab\\dataio\\__pycache__\\errors.cpython-312.pyc            \nE:\\quant-framework\\alphalab\\dataio\\__pycache__\\io_utils.cpython-312.pyc          \nE:\\quant-framework\\alphalab\\dataio\\__pycache__\\__init__.cpython-312.pyc          \nE:\\quant-framework\\alphalab\\execution\\broker.py                                  \nE:\\quant-framework\\alphalab\\execution\\order.py                                   \nE:\\quant-framework\\alphalab\\execution\\order_logger.py                            \nE:\\quant-framework\\alphalab\\execution\\paper_trader.py                            \nE:\\quant-framework\\alphalab\\execution\\risk_guard.py                              \nE:\\quant-framework\\alphalab\\execution\\signal_executor.py                         \nE:\\quant-framework\\alphalab\\execution\\__init__.py                                \nE:\\quant-framework\\alphalab\\factors\\fundamental.py                               \nE:\\quant-framework\\alphalab\\factors\\registry.py                                  \nE:\\quant-framework\\alphalab\\factors\\technical.py                                 \nE:\\quant-framework\\alphalab\\factors\\__init__.py                                  \nE:\\quant-framework\\alphalab\\factors\\__pycache__\\fundamental.cpython-312.pyc      \nE:\\quant-framework\\alphalab\\factors\\__pycache__\\registry.cpython-312.pyc         \nE:\\quant-framework\\alphalab\\factors\\__pycache__\\technical.cpython-312.pyc        \nE:\\quant-framework\\alphalab\\factors\\__pycache__\\__init__.cpython-312.pyc         \nE:\\quant-framework\\alphalab\\portfolio\\__init__.py                                \nE:\\quant-framework\\alphalab\\risk\\drawdown.py                                     \nE:\\quant-framework\\alphalab\\risk\\__init__.py                                     \nE:\\quant-framework\\alphalab\\strategies\\balanced.yaml                             \nE:\\quant-framework\\alphalab\\strategies\\growth.yaml                               \nE:\\quant-framework\\alphalab\\strategies\\low_vol.yaml                              \nE:\\quant-framework\\alphalab\\strategies\\momentum.yaml                             \nE:\\quant-framework\\alphalab\\strategies\\quality.yaml                              \nE:\\quant-framework\\alphalab\\strategies\\value.yaml                                \nE:\\quant-framework\\alphalab\\strategies\\__init__.py                               \nE:\\quant-framework\\alphalab\\strategies\\__pycache__\\__init__.cpython-312.pyc      \nE:\\quant-framework\\alphalab\\strategy\\config.py                                   \nE:\\quant-framework\\alphalab\\strategy\\__init__.py                                 \nE:\\quant-framework\\alphalab\\strategy\\__pycache__\\config.cpython-312.pyc          \nE:\\quant-framework\\alphalab\\strategy\\__pycache__\\__init__.cpython-312.pyc        \nE:\\quant-framework\\alphalab\\utils\\paths.py                                       \nE:\\quant-framework\\alphalab\\utils\\__init__.py                                    \nE:\\quant-framework\\alphalab\\utils\\__pycache__\\paths.cpython-312.pyc              \nE:\\quant-framework\\alphalab\\utils\\__pycache__\\__init__.cpython-312.pyc           \nE:\\quant-framework\\alphalab\\__pycache__\\engine.cpython-312.pyc                   \nE:\\quant-framework\\alphalab\\__pycache__\\store.cpython-312.pyc                    \nE:\\quant-framework\\alphalab\\__pycache__\\__init__.cpython-312.pyc                 \n\n\n--- strategies ---\nname: momentum\ndescription: Generic price momentum template.\nuniverse:\n  pool: all\nselection:\n  n_stocks: 10\n  min_factor_coverage: 0.5\nportfolio:\n  max_weight: 0.10\n  rebalance_freq: monthly\nfactors:\n  - name: momentum_20d\n    source: technical\n    direction: long\n    weight: 0.55\n  - name: momentum_60d\n    source: technical\n    direction: long\n    weight: 0.30\n  - name: volatility_20d\n    source: technical\n    direction: short\n    weight: 0.15",
+      "stderr": "",
+      "exitCode": 0,
+      "outputRef": {
+        "path": "workspace/cli-output/5fa4d0c06fe5c4bca51c9395eb7b08eac2a6bb377cb8a1bee7c3e451a44c4b3f.json",
+        "stdoutChars": 5473,
+        "stderrChars": 0
+      },
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    },
+    {
+      "id": "cmd-1783867908391-5sw9n2",
+      "command": "Set-Location 'E:\\quant-framework'; Write-Host '--- local provider ---'; Get-Content alphalab\\dataio\\providers\\local.py; Write-Host '--- technical factors ---'; Get-Content alphalab\\factors\\technical.py; Write-Host '--- engine maybe backtest ---'; Get-Content alphalab\\engine.py",
+      "shell": "powershell",
+      "cwd": "E:\\quant-framework",
+      "stdout": "--- local provider ---\n\"\"\"Generic local parquet providers.\n\nThese providers are intentionally vendor-neutral. They read simple parquet files\nthat an adapter, notebook, or test fixture can create:\n\n- market/bars.parquet: date, symbol, open, high, low, close, volume, amount?\n- fundamentals/fundamentals.parquet: quarter, symbol, field columns\n- factors/factor_returns.parquet: DatetimeIndex, one column per factor\n\"\"\"\nfrom __future__ import annotations\n\nfrom pathlib import Path\nfrom typing import Optional\n\nimport pandas as pd\n\nfrom alphalab.dataio.errors import MissingDataError\nfrom alphalab.utils.paths import FACTOR_DIR, FUNDAMENTAL_DIR, MARKET_DIR\n\n\ndef _normal_symbols(symbols: list[str]) -> list[str]:\n    return [str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()]\n\n\nclass LocalParquetMarketDataProvider:\n    \"\"\"Market data provider backed by one long-table parquet file.\"\"\"\n\n    def __init__(self, market_dir: str | Path | None = None, file_name: str = \"bars.parquet\"):\n        self.market_dir = Path(market_dir) if market_dir is not None else MARKET_DIR\n        self.path = self.market_dir / file_name\n        self._cache: pd.DataFrame | None = None\n\n    def _load(self) -> pd.DataFrame:\n        if self._cache is not None:\n            return self._cache\n        if not self.path.exists():\n            self._cache = pd.DataFrame(columns=[\"date\", \"symbol\", \"close\"])\n            return self._cache\n        df = pd.read_parquet(self.path)\n        if \"date\" not in df or \"symbol\" not in df:\n            raise MissingDataError(f\"Market file must include date and symbol: {self.path}\")\n        df = df.copy()\n        df[\"date\"] = pd.to_datetime(df[\"date\"])\n        df[\"symbol\"] = df[\"symbol\"].astype(str).str.upper()\n        self._cache = df.sort_values([\"date\", \"symbol\"]).reset_index(drop=True)\n        return self._cache\n\n    def get_bars(\n        self,\n        symbols: list[str],\n        start: str,\n        end: str,\n        freq: str = \"1d\",\n        fields: Optional[list[str]] = None,\n    ) -> pd.DataFrame:\n        df = self._load()\n        if df.empty:\n            cols = [\"date\", \"symbol\"] + (fields or [\"open\", \"high\", \"low\", \"close\", \"volume\"])\n            return pd.DataFrame(columns=list(dict.fromkeys(cols)))\n        requested = set(_normal_symbols(symbols))\n        mask = (\n            df[\"symbol\"].isin(requested)\n            & (df[\"date\"] >= pd.Timestamp(start))\n            & (df[\"date\"] <= pd.Timestamp(end))\n        )\n        out = df.loc[mask].copy()\n        if fields:\n            keep = [\"date\", \"symbol\"] + [field for field in fields if field in out.columns]\n            out = out[keep]\n        if freq in {\"1w\", \"W\"} and not out.empty:\n            out = self._resample(out, \"W\")\n        elif freq in {\"1M\", \"M\", \"ME\"} and not out.empty:\n            out = self._resample(out, \"ME\")\n        return out.sort_values([\"date\", \"symbol\"]).reset_index(drop=True)\n\n    def get_symbols(self, universe: str = \"all\") -> list[str]:\n        df = self._load()\n        if df.empty:\n            return []\n        return sorted(df[\"symbol\"].dropna().astype(str).str.upper().unique().tolist())\n\n    def get_latest_date(self) -> str | None:\n        df = self._load()\n        if df.empty:\n            return None\n        return pd.Timestamp(df[\"date\"].max()).strftime(\"%Y-%m-%d\")\n\n    @staticmethod\n    def _resample(df: pd.DataFrame, rule: str) -> pd.DataFrame:\n        agg = {\n            \"open\": \"first\",\n            \"high\": \"max\",\n            \"low\": \"min\",\n            \"close\": \"last\",\n            \"volume\": \"sum\",\n            \"amount\": \"sum\",\n        }\n        existing = {key: value for key, value in agg.items() if key in df.columns}\n        return (\n            df.set_index(\"date\")\n            .groupby(\"symbol\", group_keys=False)\n            .resample(rule)\n            .agg(existing)\n            .reset_index()\n        )\n\n\nclass LocalParquetFundamentalProvider:\n    \"\"\"Fundamental provider backed by one long-table parquet file.\"\"\"\n\n    def __init__(\n    \n... [output stored externally] ...\ns = self._load_latest_fundamentals(symbols, fundamental_names, as_of_date)\n\n        for factor in config.factors:\n            if factor.source == \"technical\":\n                raw = technical.compute(factor.name, data_by_symbol)\n            else:\n                raw = fundamental.compute(factor.name, fundamentals)\n            ranked = self._rank_factor(raw.reindex(symbols), factor)\n            if not ranked.empty:\n                columns.append(ranked.rename(factor.name))\n        if not columns:\n            return pd.DataFrame()\n        return pd.concat(columns, axis=1)\n\n    def _load_latest_fundamentals(self, symbols: list[str], fields: list[str], as_of_date: str) -> pd.DataFrame:\n        year = pd.Timestamp(as_of_date).year\n        try:\n            return self._data.get_fundamentals(\n                symbols,\n                fields,\n                start_quarter=f\"{year - 3}q1\",\n                end_quarter=f\"{year}q4\",\n                asof_date=as_of_date,\n                strict=False,\n            )\n        except MissingDataError:\n            return pd.DataFrame(columns=[\"quarter\", \"symbol\", *fields])\n\n    @staticmethod\n    def _rank_factor(values: pd.Series, factor: FactorSpec) -> pd.Series:\n        values = pd.to_numeric(values, errors=\"coerce\").dropna()\n        if values.empty:\n            return pd.Series(dtype=float, name=factor.name)\n        ranks = values.rank(pct=True)\n        if factor.direction == \"short\":\n            ranks = 1.0 - ranks\n        return ranks * factor.weight\n\n\ndef run_backtest(\n    config: ConfigOrPath,\n    start_date: str,\n    end_date: str,\n    data_engine: DataEngine | None = None,\n    lookback_days: int = 120,\n) -> tuple[pd.Series, pd.DataFrame]:\n    \"\"\"Run a simple rebalance-to-next-period backtest.\n\n    Signal dates are period ends. Targets generated at each signal date are\n    applied to the next period return, avoiding same-period lookahead.\n    \"\"\"\n\n    cfg = _load_config(config)\n    engine = SignalEngine(data_engine or create_default_engine())\n    symbols = engine._resolve_symbols(cfg)\n    if not symbols:\n        return pd.Series(dtype=float, name=cfg.name), pd.DataFrame()\n\n    warmup_start = (pd.Timestamp(start_date) - pd.Timedelta(days=lookback_days * 2)).strftime(\"%Y-%m-%d\")\n    bars = engine._data.get_bars(symbols, warmup_start, end_date, strict=False, fields=[\"close\"])\n    if bars.empty:\n        return pd.Series(dtype=float, name=cfg.name), pd.DataFrame()\n    close = to_wide(bars, \"close\").sort_index()\n    if cfg.portfolio.rebalance_freq == \"weekly\":\n        prices = close.resample(\"W-FRI\").last().dropna(how=\"all\")\n    else:\n        prices = close.resample(\"ME\").last().dropna(how=\"all\")\n    period_returns = prices.pct_change(fill_method=None).shift(-1)\n    signal_dates = [date for date in prices.index if pd.Timestamp(start_date) <= date <= pd.Timestamp(end_date)]\n\n    returns: dict[pd.Timestamp, float] = {}\n    weights_by_date: dict[pd.Timestamp, dict[str, float]] = {}\n    previous: dict[str, float] = {}\n    cost_rate = cfg.execution.cost_bps / 10000.0\n    for signal_date in signal_dates:\n        weights = engine.generate_targets(cfg, signal_date.strftime(\"%Y-%m-%d\"), lookback_days=lookback_days, auto_latest=False)\n        if not weights:\n            weights = previous\n        weights_by_date[signal_date] = dict(weights)\n        next_ret = period_returns.loc[signal_date] if signal_date in period_returns.index else pd.Series(dtype=float)\n        gross = float(sum(float(weight) * float(next_ret.get(symbol, 0.0) or 0.0) for symbol, weight in weights.items()))\n        turnover = sum(abs(weights.get(symbol, 0.0) - previous.get(symbol, 0.0)) for symbol in set(weights) | set(previous)) / 2.0\n        returns[signal_date] = gross - turnover * cost_rate\n        previous = dict(weights)\n\n    returns_series = pd.Series(returns, name=cfg.name, dtype=float).dropna()\n    weights_df = pd.DataFrame.from_dict(weights_by_date, orient=\"index\").fillna(0.0).sort_index()\n    return returns_series, weights_df",
+      "stderr": "",
+      "exitCode": 0,
+      "outputRef": {
+        "path": "workspace/cli-output/9de964f1b805a98d8bc54caa5d73538e6442d868eae1fa7c74c1d37591eae2a1.json",
+        "stdoutChars": 20380,
+        "stderrChars": 0
+      },
+      "stdoutTruncated": true,
+      "stderrTruncated": false
+    },
+    {
+      "id": "cmd-1783867916764-5rzpem",
+      "command": "Set-Location 'E:\\quant-framework';\n$code = @'\nimport sys, subprocess, importlib.util\nfor pkg in [\"pandas\", \"numpy\", \"pyarrow\"]:\n    print(pkg, \"OK\" if importlib.util.find_spec(pkg) else \"MISSING\")\n'@\n$code | python -",
+      "shell": "powershell",
+      "cwd": "E:\\quant-framework",
+      "stdout": "",
+      "stderr": "  File \"<stdin>\", line 1\r\n    ﻿import sys, subprocess, importlib.util\r\n    ^\r\nSyntaxError: invalid non-printable character U+FEFF",
+      "exitCode": 1,
+      "outputRef": {
+        "path": "workspace/cli-output/831528ba0a3fad93efe1edc21d1f66a4cce08f3c5c264c88b0851e866818c354.json",
+        "stdoutChars": 0,
+        "stderrChars": 129
+      },
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    },
+    {
+      "id": "cmd-1783867926527-ycuyxo",
+      "command": "Set-Location 'E:\\quant-framework';\nNew-Item -ItemType Directory -Force 'data\\market' | Out-Null\nNew-Item -ItemType Directory -Force '.conexus' | Out-Null\n$code = @'\nimport numpy as np\nimport pandas as pd\nfrom pathlib import Path\n\nnp.random.seed(42)\nout = Path('data/market/bars.parquet')\nout.parent.mkdir(parents=True, exist_ok=True)\n\n# 约 18 个月工作日，覆盖默认回测/信号窗口至 2026-07-10\n dates = pd.bdate_range('2025-01-02', '2026-07-10')\nsymbols = [f'TEST{i:03d}' for i in range(1, 16)]\nrows = []\nfor idx, symbol in enumerate(symbols):\n    base = 20 + idx * 3.5\n    drift = 0.00015 + idx * 0.000035\n    vol = 0.012 + (idx % 5) * 0.002\n    ret = np.random.normal(drift, vol, len(dates))\n    # 制造不同动量层次，方便 momentum 策略选股\n    ret += np.linspace(-0.00005, 0.00025 + idx * 0.000015, len(dates))\n    close = base * np.cumprod(1 + ret)\n    open_ = close * (1 + np.random.normal(0, 0.003, len(dates)))\n    high = np.maximum(open_, close) * (1 + np.abs(np.random.normal(0.004, 0.002, len(dates))))\n    low = np.minimum(open_, close) * (1 - np.abs(np.random.normal(0.004, 0.002, len(dates))))\n    volume = np.random.randint(800_000, 5_000_000, len(dates)) * (1 + idx/30)\n    for d, o, h, l, c, v in zip(dates, open_, high, low, close, volume):\n        rows.append({\n            'date': d.strftime('%Y-%m-%d'),\n            'symbol': symbol,\n            'open': round(float(o), 4),\n            'high': round(float(h), 4),\n            'low': round(float(l), 4),\n            'close': round(float(c), 4),\n            'volume': int(v),\n        })\n\ndf = pd.DataFrame(rows)\ndf.to_parquet(out, index=False)\nprint('WROTE', out.resolve())\nprint('rows', len(df), 'symbols', df['symbol'].nunique(), 'start', df['date'].min(), 'end', df['date'].max())\nprint(df.head(5).to_string(index=False))\nprint(df.tail(5).to_string(index=False))\n'@\n$code = $code -replace \"`r\", \"\"\n$code = $code -replace \"\\n dates\", \"\\ndates\"\n$tmp = '.conexus\\generate_test_bars.py'\n[System.IO.File]::WriteAllText((Join-Path $PWD $tmp), $code, [System.Text.UTF8Encoding]::new($false))\npython $tmp",
+      "shell": "powershell",
+      "cwd": "E:\\quant-framework",
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\r\n  File \"E:\\quant-framework\\.conexus\\generate_test_bars.py\", line 16, in <module>\r\n    ret = np.random.normal(drift, vol, len(dates))\r\n                                           ^^^^^\r\nNameError: name 'dates' is not defined. Did you mean: 'bytes'?",
+      "exitCode": 1,
+      "outputRef": {
+        "path": "workspace/cli-output/89c00aa4ed3a6e533b325eaa56f11eef394635e300b9be71b4ca58c79354ea15.json",
+        "stdoutChars": 0,
+        "stderrChars": 282
+      },
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    },
+    {
+      "id": "cmd-1783867937362-9hmt3p",
+      "command": "Set-Location 'E:\\quant-framework';\n$code = @'\nimport numpy as np\nimport pandas as pd\nfrom pathlib import Path\n\nnp.random.seed(42)\nout = Path('data/market/bars.parquet')\nout.parent.mkdir(parents=True, exist_ok=True)\n\n# about 18 months of business days, covering default windows through 2026-07-10\ndates = pd.bdate_range('2025-01-02', '2026-07-10')\nsymbols = [f'TEST{i:03d}' for i in range(1, 16)]\nrows = []\nfor idx, symbol in enumerate(symbols):\n    base = 20 + idx * 3.5\n    drift = 0.00015 + idx * 0.000035\n    vol = 0.012 + (idx % 5) * 0.002\n    ret = np.random.normal(drift, vol, len(dates))\n    # create differentiated momentum tiers for strategy selection\n    ret = ret + np.linspace(-0.00005, 0.00025 + idx * 0.000015, len(dates))\n    close = base * np.cumprod(1 + ret)\n    open_ = close * (1 + np.random.normal(0, 0.003, len(dates)))\n    high = np.maximum(open_, close) * (1 + np.abs(np.random.normal(0.004, 0.002, len(dates))))\n    low = np.minimum(open_, close) * (1 - np.abs(np.random.normal(0.004, 0.002, len(dates))))\n    volume = np.random.randint(800_000, 5_000_000, len(dates)) * (1 + idx/30)\n    for d, o, h, l, c, v in zip(dates, open_, high, low, close, volume):\n        rows.append({\n            'date': d.strftime('%Y-%m-%d'),\n            'symbol': symbol,\n            'open': round(float(o), 4),\n            'high': round(float(h), 4),\n            'low': round(float(l), 4),\n            'close': round(float(c), 4),\n            'volume': int(v),\n        })\n\ndf = pd.DataFrame(rows)\ndf.to_parquet(out, index=False)\nprint('WROTE', out.resolve())\nprint('rows', len(df), 'symbols', df['symbol'].nunique(), 'start', df['date'].min(), 'end', df['date'].max())\nprint('HEAD')\nprint(df.head(5).to_string(index=False))\nprint('TAIL')\nprint(df.tail(5).to_string(index=False))\n'@\n$tmp = '.conexus\\generate_test_bars.py'\n[System.IO.File]::WriteAllText((Join-Path $PWD $tmp), $code, [System.Text.UTF8Encoding]::new($false))\npython $tmp",
+      "shell": "powershell",
+      "cwd": "E:\\quant-framework",
+      "stdout": "WROTE E:\\quant-framework\\data\\market\\bars.parquet\nrows 5955 symbols 15 start 2025-01-02 end 2026-07-10\nHEAD\n      date  symbol    open    high     low   close  volume\n2025-01-02 TEST001 20.2029 20.2401 20.0944 20.1212 3245840\n2025-01-03 TEST001 20.0830 20.2125 20.0268 20.0899 2179904\n2025-01-06 TEST001 20.3232 20.4029 20.1541 20.2480 4649033\n2025-01-07 TEST001 20.5215 20.7308 20.5048 20.6202 2237188\n2025-01-08 TEST001 20.5274 20.6478 20.4272 20.5644 2456321\nTAIL\n      date  symbol    open    high     low   close  volume\n2026-07-06 TEST015 92.2622 92.7173 91.3908 91.7012 2350724\n2026-07-07 TEST015 94.5726 94.6800 94.2457 94.4033 3129038\n2026-07-08 TEST015 94.3284 94.6703 93.8670 94.0559 3870787\n2026-07-09 TEST015 96.5087 97.3195 95.9049 96.5171 5575028\n2026-07-10 TEST015 95.2341 95.8205 94.9914 95.5216 6057082",
+      "stderr": "",
+      "exitCode": 0,
+      "outputRef": {
+        "path": "workspace/cli-output/3b1ddd8ace2ef886dafb9179789df4ab51f20c23f3d89a9604181883459b761f.json",
+        "stdoutChars": 820,
+        "stderrChars": 0
+      },
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    },
+    {
+      "id": "cmd-1783867990417-svi5bg",
+      "command": "Set-Location 'E:\\quant-framework';\n$path='alphalab\\engine.py'\n$txt=Get-Content $path -Raw\nif ($txt -notmatch 'resample\\(\"ME\"\\)') { Write-Host 'No ME resample found or already patched' } else {\n  Copy-Item $path \"$path.bak_conexus_me_patch\" -Force\n  $txt=$txt -replace 'resample\\(\"ME\"\\)', 'resample(\"M\")'\n  [System.IO.File]::WriteAllText((Join-Path $PWD $path), $txt, [System.Text.UTF8Encoding]::new($false))\n  Write-Host 'Patched engine.py: resample(\"ME\") -> resample(\"M\")'\n}\nSelect-String -Path $path -Pattern 'resample\\(\"M\"\\)|resample\\(\"ME\"\\)' -Context 1,1",
+      "shell": "powershell",
+      "cwd": "E:\\quant-framework",
+      "stdout": "Patched engine.py: resample(\"ME\") -> resample(\"M\")\n\n  alphalab\\engine.py:190:    else:\n> alphalab\\engine.py:191:        prices = close.resample(\"M\").last().dropna(how=\"all\")\n  alphalab\\engine.py:192:    period_returns = prices.pct_change(fill_method=None).shift(-1)",
+      "stderr": "",
+      "exitCode": 0,
+      "outputRef": {
+        "path": "workspace/cli-output/6d4b052244bc2098f7bfa0e0118fd721e1e938d369ae7c61456b442b13815c20.json",
+        "stdoutChars": 265,
+        "stderrChars": 0
+      },
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    },
+    {
+      "id": "cmd-1783868012592-o63vnw",
+      "command": "Set-Location 'E:\\quant-framework';\n$code = @'\nimport sqlite3, json\nfrom pathlib import Path\np=Path('data/app/alphalab.db')\ncon=sqlite3.connect(p)\ncon.row_factory=sqlite3.Row\ncur=con.cursor()\nprint('TABLE_COUNTS')\nfor t in ['strategies','signals','signal_targets','backtests','backtest_returns','backtest_weights','orders','journal']:\n    print(t, cur.execute(f'SELECT COUNT(*) c FROM {t}').fetchone()['c'])\nprint('BACKTESTS')\nfor r in cur.execute('SELECT id,strategy_id,start_date,end_date,total_return,annual_return,annual_vol,sharpe,max_drawdown,n_periods,tags,notes FROM backtests ORDER BY run_at DESC LIMIT 3'):\n    print(json.dumps(dict(r), ensure_ascii=False))\nprint('SIGNAL_TARGETS')\nfor r in cur.execute('SELECT signal_id,symbol,target_weight,current_weight FROM signal_targets ORDER BY symbol LIMIT 10'):\n    print(json.dumps(dict(r), ensure_ascii=False))\nprint('RETURNS')\nfor r in cur.execute('SELECT backtest_id,date,strategy,benchmark FROM backtest_returns ORDER BY date LIMIT 8'):\n    print(json.dumps(dict(r), ensure_ascii=False))\ncon.close()\n'@\n$tmp='.conexus\\inspect_after_pipeline.py'\n[System.IO.File]::WriteAllText((Join-Path $PWD $tmp), $code, [System.Text.UTF8Encoding]::new($false))\npython $tmp",
+      "shell": "powershell",
+      "cwd": "E:\\quant-framework",
+      "stdout": "TABLE_COUNTS\nstrategies 1\nsignals 1\nsignal_targets 10\nbacktests 1\nbacktest_returns 8\nbacktest_weights 80\norders 0\njournal 0\nBACKTESTS\n{\"id\": \"94b5949cd112\", \"strategy_id\": \"momentum_test_fixture\", \"start_date\": \"2025-11-12\", \"end_date\": \"2026-07-10\", \"total_return\": 0.12081555468287397, \"annual_return\": 0.18659147593430903, \"annual_vol\": 0.06327789373874355, \"sharpe\": 2.9487624336026768, \"max_drawdown\": -0.004236543840583029, \"n_periods\": 8, \"tags\": \"[\\\"pipeline\\\", \\\"test-data\\\"]\", \"notes\": \"使用 Conexus 生成的模拟 TEST001-TEST015 日线测试数据，仅用于功能测试，不代表真实行情。\"}\nSIGNAL_TARGETS\n{\"signal_id\": \"90d99db89513\", \"symbol\": \"TEST002\", \"target_weight\": 0.1, \"current_weight\": null}\n{\"signal_id\": \"90d99db89513\", \"symbol\": \"TEST004\", \"target_weight\": 0.1, \"current_weight\": null}\n{\"signal_id\": \"90d99db89513\", \"symbol\": \"TEST006\", \"target_weight\": 0.1, \"current_weight\": null}\n{\"signal_id\": \"90d99db89513\", \"symbol\": \"TEST007\", \"target_weight\": 0.1, \"current_weight\": null}\n{\"signal_id\": \"90d99db89513\", \"symbol\": \"TEST008\", \"target_weight\": 0.1, \"current_weight\": null}\n{\"signal_id\": \"90d99db89513\", \"symbol\": \"TEST010\", \"target_weight\": 0.1, \"current_weight\": null}\n{\"signal_id\": \"90d99db89513\", \"symbol\": \"TEST011\", \"target_weight\": 0.1, \"current_weight\": null}\n{\"signal_id\": \"90d99db89513\", \"symbol\": \"TEST013\", \"target_weight\": 0.1, \"current_weight\": null}\n{\"signal_id\": \"90d99db89513\", \"symbol\": \"TEST014\", \"target_weight\": 0.1, \"current_weight\": null}\n{\"signal_id\": \"90d99db89513\", \"symbol\": \"TEST015\", \"target_weight\": 0.1, \"current_weight\": null}\nRETURNS\n{\"backtest_id\": \"94b5949cd112\", \"date\": \"2025-11-30\", \"strategy\": 0.003335777204397418, \"benchmark\": null}\n{\"backtest_id\": \"94b5949cd112\", \"date\": \"2025-12-31\", \"strategy\": 0.013713047863275875, \"benchmark\": null}\n{\"backtest_id\": \"94b5949cd112\", \"date\": \"2026-01-31\", \"strategy\": 0.05821363849202124, \"benchmark\": null}\n{\"backtest_id\": \"94b5949cd112\", \"date\": \"2026-02-28\", \"strategy\": -0.00423654384058303, \"benchmark\": null}\n{\"backtest_id\": \"94b5949cd112\", \"date\": \"2026-03-31\", \"strategy\": 0.0023223656764362896, \"benchmark\": null}\n{\"backtest_id\": \"94b5949cd112\", \"date\": \"2026-04-30\", \"strategy\": 0.007824123576403145, \"benchmark\": null}\n{\"backtest_id\": \"94b5949cd112\", \"date\": \"2026-05-31\", \"strategy\": 0.02347067857070494, \"benchmark\": null}\n{\"backtest_id\": \"94b5949cd112\", \"date\": \"2026-06-30\", \"strategy\": 0.011522855041859738, \"benchmark\": null}",
+      "stderr": "",
+      "exitCode": 0,
+      "outputRef": {
+        "path": "workspace/cli-output/bb86fcd8a12afae8eb21acdefa635c6489c437165ccd6e8878282b0b8e0b84d8.json",
+        "stdoutChars": 2403,
+        "stderrChars": 0
+      },
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    },
+    {
+      "id": "cmd-1783868027892-094xtq",
+      "command": "Set-Location 'E:\\quant-framework';\nGet-Item 'data\\market\\bars.parquet','data\\app\\alphalab.db','data\\app\\pipeline_runs\\20260712_225223\\result_store_receipt.json' | Select-Object FullName,Length,LastWriteTime | Format-Table -AutoSize",
+      "shell": "powershell",
+      "cwd": "E:\\quant-framework",
+      "stdout": "\nFullName                                                                            Length LastWriteTime     \n--------                                                                            ------ -------------     \nE:\\quant-framework\\data\\market\\bars.parquet                                         231287 2026/7/12 22:52:17\nE:\\quant-framework\\data\\app\\alphalab.db                                              81920 2026/7/12 22:53:27\nE:\\quant-framework\\data\\app\\pipeline_runs\\20260712_225223\\result_store_receipt.json    672 2026/7/12 22:53:27",
+      "stderr": "",
+      "exitCode": 0,
+      "outputRef": {
+        "path": "workspace/cli-output/e7393ef1c65dde9fd8986f9544e151e73bb46c1a7d99e86857c7a6a7469601c6.json",
+        "stdoutChars": 550,
+        "stderrChars": 0
+      },
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    }
+  ]
+}
