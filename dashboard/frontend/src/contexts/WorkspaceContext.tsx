@@ -32,8 +32,6 @@ interface WorkspaceContextValue {
   setSelectedSymbol: (code: string | null) => void
   linkSymbols: Partial<Record<LinkGroup, string | null>>
   setLinkSymbol: (group: LinkGroup | null, symbol: string | null) => void
-  selectedIbkrContract: Record<string, unknown> | null
-  setSelectedIbkrContract: (contract: Record<string, unknown> | null) => void
   selectedOrderPrice: number | null
   setSelectedOrderPrice: (price: number | null) => void
   selectedOrderSide: "buy" | "sell" | null
@@ -70,7 +68,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [selectedStrategy, setSelectedStrategy] = useState<string | null>(null)
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
   const [linkSymbols, setLinkSymbols] = useState<Partial<Record<LinkGroup, string | null>>>({})
-  const [selectedIbkrContract, setSelectedIbkrContract] = useState<Record<string, unknown> | null>(null)
   const [selectedOrderPrice, setSelectedOrderPrice] = useState<number | null>(null)
   const [selectedOrderSide, setSelectedOrderSide] = useState<"buy" | "sell" | null>(null)
   const [selectedBacktest, setSelectedBacktest] = useState<string | null>(null)
@@ -96,14 +93,12 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           }
           setLinkSymbols((prev) => ({ ...prev, [group]: symbol }))
         }, []),
-        selectedIbkrContract,
         selectedOrderPrice,
         selectedOrderSide,
         selectedBacktest,
         selectedDate,
         setSelectedStrategy: useCallback((v) => setSelectedStrategy(v), []),
         setSelectedSymbol: useCallback((v) => setSelectedSymbol(v), []),
-        setSelectedIbkrContract: useCallback((v) => setSelectedIbkrContract(v), []),
         setSelectedOrderPrice: useCallback((v) => setSelectedOrderPrice(v), []),
         setSelectedOrderSide: useCallback((v) => setSelectedOrderSide(v), []),
         setSelectedBacktest: useCallback((v) => setSelectedBacktest(v), []),
@@ -125,14 +120,12 @@ export function useWorkspace(): WorkspaceContextValue {
       selectedSymbol: null,
       linkSymbols: {},
       setLinkSymbol: () => {},
-      selectedIbkrContract: null,
       selectedOrderPrice: null,
       selectedOrderSide: null,
       selectedBacktest: null,
       selectedDate: null,
       setSelectedStrategy: () => {},
       setSelectedSymbol: () => {},
-      setSelectedIbkrContract: () => {},
       setSelectedOrderPrice: () => {},
       setSelectedOrderSide: () => {},
       setSelectedBacktest: () => {},

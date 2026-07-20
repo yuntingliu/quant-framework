@@ -12,7 +12,7 @@ interface TradingStatus {
   connected: boolean
   mode: string
   account_id: string | null
-  broker?: "paper" | "qmt" | null
+  broker?: "paper" | null
   broker_label?: string
   account_currency?: string | null
   readonly?: boolean
@@ -62,7 +62,7 @@ export function StatusBar() {
         : (language === "zh" ? "交易未连接" : "Trading Disconnected"))
     : broker === "paper"
         ? (language === "zh" ? "AlphaLab纸面交易" : "AlphaLab Paper")
-        : `${language === "zh" ? "QMT已连接" : "QMT Connected"}${status?.broker_label ? ` · ${status.broker_label}` : ""}`
+        : `${language === "zh" ? "纸面交易已连接" : "Paper connected"}${status?.broker_label ? ` · ${status.broker_label}` : ""}`
 
   return (
     <div className="alphalab-status-bar h-6 flex items-center gap-4 px-3 bg-card border-t border-border text-[10px] font-tabular shrink-0 select-none">

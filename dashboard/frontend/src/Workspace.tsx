@@ -571,7 +571,7 @@ function WorkspaceInner() {
             rightRailCollapsed={rightRailCollapsed}
             onToggleRightRail={toggleRightRailCollapsed}
           />
-          {/* Launch auto-sync: non-blocking strip shown while syncing on startup */}
+          {/* Reserved for explicit, user-started data-operation notices. */}
           <LaunchSyncBanner />
           {/* Trading modes: amber top border as safety indicator */}
           <div className={cn("relative min-w-0 flex-1", activeMode.startsWith("trading_") && "border-t-2 border-amber-500/60")}>

@@ -32,14 +32,28 @@ def manifest() -> dict:
 
 
 @router.get("/market/symbols")
-def symbols() -> dict:
-    return {"symbols": market_symbols()}
+def symbols(profile: str = "demo") -> dict:
+    try:
+        return {"profile": profile, "symbols": market_symbols(profile)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except MissingDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/market/bars")
-def bars(symbol: str, start: str | None = None, end: str | None = None) -> dict:
+def bars(
+    symbol: str,
+    start: str | None = None,
+    end: str | None = None,
+    profile: str = "demo",
+) -> dict:
     try:
-        return {"symbol": symbol.upper(), "rows": market_bars(symbol, start, end)}
+        return {
+            "symbol": symbol.upper(),
+            "profile": profile,
+            "rows": market_bars(symbol, start, end, profile),
+        }
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="symbol not found") from exc
     except ValueError as exc:
@@ -53,10 +67,13 @@ def factors(
     names: list[str] | None = Query(default=None),
     start: str | None = None,
     end: str | None = None,
+    profile: str = "demo",
 ) -> dict:
     try:
-        return factor_returns(names, start, end)
+        return factor_returns(names, start, end, profile)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"factor not found: {exc}") from exc
     except MissingDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

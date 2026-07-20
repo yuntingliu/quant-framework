@@ -54,6 +54,73 @@ export interface ProviderStatus {
   symbol_count: number
   realtime: { status: string; source: string | null }
   datasets: Record<string, { status: string; path: string; bytes: number; sha256?: string }>
+  active_profile: "demo" | "runtime"
+  profiles: Record<string, {
+    status: string
+    latest_date: string | null
+    symbol_count: number
+    factor_returns: string
+  }>
+  runtime: RuntimeCatalog
+}
+
+export interface RuntimeDataset {
+  id: string
+  label: string
+  status: string
+  path: string
+  files: number
+  rows: number
+  bytes: number
+  date_start: string | null
+  date_end: string | null
+  symbol_count: number
+  error?: string | null
+}
+
+export interface RuntimeCatalog {
+  root: string
+  status: string
+  ready: number
+  total: number
+  configured: number
+  datasets: RuntimeDataset[]
+}
+
+export interface SyncJob {
+  id: string
+  source: string
+  status: string
+  progress: number
+  total: number
+  message?: string | null
+  error?: string | null
+  created_at: string
+}
+
+export interface SyncPlan {
+  source: string
+  symbol_count: number
+  requested_start: string
+  requested_end: string
+  estimated_batches: number
+  writes_are_local: boolean
+  steps: Array<Record<string, string | number | null>>
+}
+
+export interface DataSyncHealth {
+  status: string
+  runtime: RuntimeCatalog
+  rq: {
+    status: string
+    configured: boolean
+    missing: string[]
+    connected: boolean
+    last_error?: string | null
+  }
+  realtime: { status: string }
+  tools: { status: string; count: number }
+  planner: { status: string }
 }
 
 export interface MarketBar {

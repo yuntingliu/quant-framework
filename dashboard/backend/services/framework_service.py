@@ -7,9 +7,17 @@ from pathlib import Path
 
 import pandas as pd
 
-from alphalab import ResultStore, SignalEngine, StrategyConfig, create_default_engine, run_backtest
+from alphalab import (
+    ResultStore,
+    SignalEngine,
+    StrategyConfig,
+    create_default_engine,
+    create_runtime_engine,
+    run_backtest,
+)
 from alphalab.analytics import PerformanceMetrics
-from alphalab.dataio import MissingDataError
+from alphalab.dataio import DataEngine, MissingDataError
+from alphalab.dataio.catalog import DataCatalog
 from alphalab.strategies import list_strategy_files
 from alphalab.utils.paths import APP_DATA_DIR, DATA_DIR, FACTOR_DIR, FUNDAMENTAL_DIR, MARKET_DIR
 
@@ -47,8 +55,38 @@ def _dataset_status(path: Path, manifest: dict, key: str, *, mutable: bool = Fal
 def list_provider_status() -> dict:
     manifest = load_manifest()
     engine = create_default_engine()
+    runtime = DataCatalog().summary()
     return {
         "providers": engine.providers(),
+        "active_profile": "demo",
+        "profiles": {
+            "demo": {
+                "status": "ready",
+                "latest_date": engine.get_latest_date(),
+                "symbol_count": manifest.get("symbol_count", 0),
+                "factor_returns": "ready",
+            },
+            "runtime": {
+                "status": runtime["status"],
+                "latest_date": next(
+                    (
+                        item["date_end"]
+                        for item in runtime["datasets"]
+                        if item["id"] == "rq.bars"
+                    ),
+                    None,
+                ),
+                "symbol_count": next(
+                    (
+                        item["symbol_count"]
+                        for item in runtime["datasets"]
+                        if item["id"] == "rq.bars"
+                    ),
+                    0,
+                ),
+                "factor_returns": "not_configured",
+            },
+        },
         "latest_date": engine.get_latest_date(),
         "sample_start": manifest.get("sample_start"),
         "symbol_count": manifest.get("symbol_count", 0),
@@ -59,21 +97,48 @@ def list_provider_status() -> dict:
             "factors": _dataset_status(FACTOR_DIR / "factor_returns.parquet", manifest, "factors"),
             "app": _dataset_status(APP_DATA_DIR / "alphalab.db", manifest, "app", mutable=True),
         },
+        "runtime": runtime,
     }
 
 
-def market_symbols() -> list[str]:
-    return create_default_engine().get_symbols()
+def _engine(profile: str) -> DataEngine:
+    if profile == "demo":
+        return create_default_engine()
+    if profile == "runtime":
+        return create_runtime_engine()
+    raise ValueError("profile must be demo or runtime")
 
 
-def market_bars(symbol: str, start: str | None = None, end: str | None = None) -> list[dict]:
-    engine = create_default_engine()
+def _profile_range(profile: str) -> tuple[str, str]:
+    if profile == "demo":
+        manifest = load_manifest()
+        return manifest["sample_start"], manifest["cutoff_date"]
+    status = DataCatalog().status("rq.bars")
+    if status["status"] != "ready" or not status["date_start"] or not status["date_end"]:
+        raise MissingDataError("Runtime bars are not ready. Run an RQ data sync first.")
+    return status["date_start"], status["date_end"]
+
+
+def market_symbols(profile: str = "demo") -> list[str]:
+    symbols = _engine(profile).get_symbols()
+    if profile == "runtime" and not symbols:
+        raise MissingDataError("Runtime bars are not ready. Run an RQ data sync first.")
+    return symbols
+
+
+def market_bars(
+    symbol: str,
+    start: str | None = None,
+    end: str | None = None,
+    profile: str = "demo",
+) -> list[dict]:
+    engine = _engine(profile)
     normalized = symbol.strip().upper()
     if normalized not in engine.get_symbols():
         raise KeyError(normalized)
-    manifest = load_manifest()
-    start = start or manifest["sample_start"]
-    end = end or manifest["cutoff_date"]
+    profile_start, profile_end = _profile_range(profile)
+    start = start or profile_start
+    end = end or profile_end
     if pd.Timestamp(start) > pd.Timestamp(end):
         raise ValueError("start must be on or before end")
     frame = engine.get_bars([normalized], start, end, strict=True, use_cache=False)
@@ -81,7 +146,16 @@ def market_bars(symbol: str, start: str | None = None, end: str | None = None) -
     return frame.to_dict("records")
 
 
-def factor_returns(names: list[str] | None = None, start: str | None = None, end: str | None = None) -> dict:
+def factor_returns(
+    names: list[str] | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    profile: str = "demo",
+) -> dict:
+    if profile != "demo":
+        if profile != "runtime":
+            raise ValueError("profile must be demo or runtime")
+        raise MissingDataError("Runtime factor returns are not configured")
     path = FACTOR_DIR / "factor_returns.parquet"
     if not path.exists():
         raise MissingDataError(f"Factor return file is missing: {path}")
@@ -126,12 +200,22 @@ def get_strategy_template(strategy_id: str) -> dict | None:
     return None
 
 
-def run_strategy_backtest(strategy_id: str, start_date: str, end_date: str) -> dict:
+def run_strategy_backtest(
+    strategy_id: str,
+    start_date: str,
+    end_date: str,
+    profile: str = "demo",
+) -> dict:
     strategy = get_strategy_template(strategy_id)
     if strategy is None:
         raise KeyError(strategy_id)
     cfg = StrategyConfig.from_yaml(strategy["path"])
-    returns, weights = run_backtest(cfg, start_date, end_date)
+    returns, weights = run_backtest(
+        cfg,
+        start_date,
+        end_date,
+        data_engine=_engine(profile),
+    )
     metrics = PerformanceMetrics.summarize(returns)
     store = ResultStore()
     try:
@@ -150,6 +234,7 @@ def run_strategy_backtest(strategy_id: str, start_date: str, end_date: str) -> d
     return {
         "id": backtest_id,
         "strategy_id": cfg.name,
+        "profile": profile,
         "metrics": metrics,
         "returns": [
             {"date": str(date)[:10], "value": float(value)}
@@ -196,16 +281,21 @@ def get_backtest(backtest_id: str) -> dict | None:
     return record
 
 
-def generate_signal(strategy_id: str, as_of_date: str | None = None, persist: bool = True) -> dict:
+def generate_signal(
+    strategy_id: str,
+    as_of_date: str | None = None,
+    persist: bool = True,
+    profile: str = "demo",
+) -> dict:
     strategy = get_strategy_template(strategy_id)
     if strategy is None:
         raise KeyError(strategy_id)
-    manifest = load_manifest()
-    signal_date = as_of_date or manifest["cutoff_date"]
-    if pd.Timestamp(signal_date) > pd.Timestamp(manifest["cutoff_date"]):
-        signal_date = manifest["cutoff_date"]
+    _, profile_end = _profile_range(profile)
+    signal_date = as_of_date or profile_end
+    if pd.Timestamp(signal_date) > pd.Timestamp(profile_end):
+        signal_date = profile_end
     cfg = StrategyConfig.from_yaml(strategy["path"])
-    signal_engine = SignalEngine(create_default_engine())
+    signal_engine = SignalEngine(_engine(profile))
     targets = signal_engine.generate_targets(cfg, signal_date)
     signal_id = None
     if persist:
@@ -218,6 +308,7 @@ def generate_signal(strategy_id: str, as_of_date: str | None = None, persist: bo
     return {
         "id": signal_id,
         "strategy_id": cfg.name,
+        "profile": profile,
         "signal_date": signal_date,
         "targets": targets,
         "diagnostics": signal_engine.diagnostics,
