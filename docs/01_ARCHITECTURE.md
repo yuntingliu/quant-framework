@@ -45,6 +45,7 @@ from alphalab import (
 | `alphalab/execution/` | Broker-neutral contracts and paper execution helpers. |
 | `dashboard/` | FastAPI backend and original-style React/Electron Dockview workstation GUI. |
 | `dashboard/backend/routers/conexus.py` | Optional same-origin proxy for a separately hosted published Research Agent. |
+| `integrations/conexus/` | Reviewable optional Harness source; generated Canvas and publication state stay ignored. |
 
 ## Data Contract
 

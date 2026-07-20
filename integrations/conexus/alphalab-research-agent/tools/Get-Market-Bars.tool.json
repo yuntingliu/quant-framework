@@ -1,0 +1,22 @@
+{
+  "toolName": "alphalab_get_market_bars",
+  "description": "Read real historical bars available in AlphaLab for one symbol and optional date range.",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["symbol"],
+    "properties": {
+      "symbol": { "type": "string", "minLength": 1 },
+      "start": { "type": "string" },
+      "end": { "type": "string" },
+      "profile": { "type": "string", "enum": ["demo", "runtime"], "default": "demo" }
+    }
+  },
+  "outputSchema": { "type": "object" },
+  "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const profile = input.profile === 'runtime' ? 'runtime' : 'demo'\n  const params = new URLSearchParams({ symbol: String(input.symbol || '').trim(), profile })\n  if (!params.get('symbol')) throw new Error('symbol is required')\n  if (input.start) params.set('start', String(input.start))\n  if (input.end) params.set('end', String(input.end))\n  const response = await fetch(apiOrigin() + '/api/data/market/bars?' + params, { headers: { Accept: 'application/json' } })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+  "timeoutMs": 30000,
+  "permissions": { "network": "alphalab-api" },
+  "sideEffects": "read"
+}

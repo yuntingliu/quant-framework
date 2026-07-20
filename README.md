@@ -138,6 +138,9 @@ $env:CONEXUS_PUBLICATION_SLUG = "alphalab-research-agent"
 Without that service, the Research Agent panel reports `not_configured` while
 all deterministic Demo/DataIO/backtest/paper workflows remain available. See
 [`docs/04_CONEXUS_AGENT.md`](docs/04_CONEXUS_AGENT.md) for the optional contract.
+The sanitized, reviewable Harness source is included under
+[`integrations/conexus/alphalab-research-agent`](integrations/conexus/alphalab-research-agent);
+generated Canvas, publication, conversation, and run state remain ignored.
 
 Open [http://localhost:5173](http://localhost:5173). API docs are available at
 [http://localhost:8000/docs](http://localhost:8000/docs).

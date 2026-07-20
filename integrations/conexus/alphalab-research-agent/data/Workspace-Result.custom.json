@@ -1,0 +1,9 @@
+{
+  "customType": "alphalab_workspace_result",
+  "content": "Request-bound descriptor and optional interactive table attachment for the AlphaLab research document.",
+  "data": {
+    "version": 1,
+    "requestId": "",
+    "kind": "none"
+  }
+}

@@ -10,6 +10,27 @@ The React workstation does not import Conexus Canvas components or call
 Electron IPC. A missing Web Host is reported as `not_configured`; it does not
 affect Demo, RQ DataIO, deterministic research, backtests, or paper execution.
 
+## Portable Harness bundle
+
+The reviewed Harness definition is tracked under:
+
+```text
+integrations/conexus/alphalab-research-agent/
+```
+
+It contains the Agent prompt, typed context/result nodes, research document, and
+six AlphaLab API tools. Runtime and publication state remain local and ignored.
+After initializing Conexus for this repository, register and publish the bundle:
+
+```powershell
+node scripts/register_conexus_research_harness.mjs
+node scripts/publish_conexus_research_harness.mjs
+```
+
+Registration updates only the ignored `.conexus/canvas.json`. Publication
+writes only to ignored Conexus runtime state. The source bundle remains
+deterministic and reviewable in Git.
+
 ## Run locally
 
 Build the separately installed Conexus Web Host, then start AlphaLab and the
@@ -34,9 +55,11 @@ credentials are not copied into the Agent process.
 - AlphaLab proxy: `/api/conexus/*`
 - Default Conexus Web Host: `http://127.0.0.1:3000`
 - Default AlphaLab API visible to Tool nodes: `http://127.0.0.1:8000`
+- Portable Harness source: `integrations/conexus/alphalab-research-agent`
 
 Port 8000 is part of the local Harness contract; stop any unrelated service on
-that port before launching AlphaLab.
+that port before launching AlphaLab, or set `ALPHALAB_API_ORIGIN` for the
+Conexus process.
 
 The Research Harness cannot start/stop services, modify source code, execute an
 arbitrary shell, or place real orders. Those remain administrator-only tasks in
