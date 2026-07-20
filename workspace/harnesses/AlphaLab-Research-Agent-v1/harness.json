@@ -115,45 +115,8 @@
           "summary": { "type": "string" },
           "decisionNotebook": { "type": "object" },
           "workspaceDocument": { "type": "string" },
-          "workspaceResult": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["version", "requestId", "kind"],
-            "properties": {
-              "version": { "const": 1 },
-              "requestId": { "type": "string", "minLength": 1 },
-              "kind": { "enum": ["none", "document"] },
-              "title": { "type": "string", "minLength": 1, "maxLength": 200 },
-              "description": { "type": "string", "maxLength": 2000 },
-              "columns": {
-                "type": "array",
-                "maxItems": 30,
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["key", "label"],
-                  "properties": {
-                    "key": { "type": "string", "minLength": 1, "maxLength": 80 },
-                    "label": { "type": "string", "minLength": 1, "maxLength": 120 },
-                    "format": { "enum": ["text", "number", "percent", "date", "datetime"] }
-                  }
-                }
-              },
-              "rows": { "type": "array", "maxItems": 1000, "items": { "type": "object" } },
-              "sources": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 500 } },
-              "generatedAt": { "type": "string", "maxLength": 100 }
-            }
-          },
-          "workspaceCommands": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["version", "requestId", "commands"],
-            "properties": {
-              "version": { "const": 1 },
-              "requestId": { "type": "string", "minLength": 1 },
-              "commands": { "type": "array", "maxItems": 20, "items": { "type": "object" } }
-            }
-          }
+          "workspaceResult": { "type": "object" },
+          "workspaceCommands": { "type": "object" }
         }
       }
     },

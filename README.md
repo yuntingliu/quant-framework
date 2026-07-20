@@ -95,8 +95,8 @@ python scripts\build_example_data.py `
 ## Dashboard
 
 ```powershell
-python -m uvicorn dashboard.backend.main:app --reload --port 8000
-npm --prefix dashboard/frontend run dev:web
+cd E:\quant-framework
+powershell -ExecutionPolicy Bypass -File .\dashboard\start.ps1
 ```
 
 Open [http://localhost:5173](http://localhost:5173). API docs are available at
@@ -107,8 +107,10 @@ mode sidebar, and widget catalog. Its default Home, Data, Research, and Paper
 layouts use real backend contracts. Optional vendor and live-trading panels are
 disabled extension points.
 
-The AI Research Agent is backed by a published Conexus Harness. Build, publish,
-and local runtime instructions are in
+The AI Research Agent is backed by an isolated cloud Conexus Harness. The
+dashboard startup script also opens a restricted reverse SSH tunnel for the
+local AlphaLab data API; a local Conexus Web Host is not required. Architecture,
+deployment, and local-development instructions are in
 [`docs/04_CONEXUS_AGENT.md`](docs/04_CONEXUS_AGENT.md).
 It runs anonymously with publisher-funded model usage and keeps conversation
 history in the local browser/Electron profile.

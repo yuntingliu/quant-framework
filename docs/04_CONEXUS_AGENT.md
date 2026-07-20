@@ -3,7 +3,10 @@
 AlphaLab uses a published Conexus Harness as its only Agent execution boundary.
 The React workstation does not import Conexus Canvas components or call Electron
 IPC. FastAPI exposes a narrow same-origin proxy below `/api/conexus`, and the
-published release calls the stable AlphaLab API at `http://127.0.0.1:8000`.
+published release calls the stable AlphaLab API through an allowlisted
+`ALPHALAB_API_ORIGIN`. In the cloud container this points to the loopback end of
+a restricted SSH reverse tunnel, so the local database and RiceQuant connection
+do not need to be exposed publicly.
 
 ## Build and publish
 
@@ -32,19 +35,26 @@ The workstation therefore does not open a Conexus account gate: model calls use
 the Web Host's server-side `OPENROUTER_API_KEY`, while chat history remains in
 the local browser/Electron profile.
 
-## Run locally
+## Run the workstation
 
-Start AlphaLab on port 8000, then start the Conexus Web Host:
+The normal startup path uses the isolated cloud Web Host and starts the local
+backend, secure data tunnel, and frontend together:
 
 ```powershell
-python -m uvicorn dashboard.backend.main:app --host 127.0.0.1 --port 8000
-powershell -ExecutionPolicy Bypass -File scripts/start_conexus_web.ps1
-npm --prefix dashboard/frontend run dev:web
+cd E:\quant-framework
+powershell -ExecutionPolicy Bypass -File .\dashboard\start.ps1
 ```
 
-The publisher model key stays in `E:\Conexus\backend\.env` or the ignored
-AlphaLab `.env`. Never put provider keys or Web Host tokens in Canvas nodes,
-Harness files, or frontend storage.
+The cloud Web Host is available at
+`https://alphalab.43.154.239.41.nip.io`. Its publisher model key and Web Host
+token stay in the server-side `/opt/conexus/alphalab/.env`; neither credential
+is stored in AlphaLab, Canvas nodes, Harness files, or frontend storage. The
+dedicated tunnel key is stored outside the repository at
+`%USERPROFILE%\.ssh\alphalab_conexus_ed25519` and is restricted server-side to
+listen only on `127.0.0.1:18000`.
+
+For Conexus development only, `scripts/start_conexus_web.ps1` remains available
+as a local Web Host fallback.
 
 ## Contracts
 
@@ -52,11 +62,13 @@ Harness files, or frontend storage.
 - Harness node: `alphalab-research-harness-v1`
 - Published Agent: `alphalab-research-agent-v1`
 - AlphaLab proxy: `/api/conexus/*`
-- Default Conexus Web Host: `http://127.0.0.1:3000`
-- Default AlphaLab API visible to Tool nodes: `http://127.0.0.1:8000`
+- AlphaLab Conexus Web Host: `https://alphalab.43.154.239.41.nip.io`
+- Cloud Tool-to-AlphaLab endpoint: `http://127.0.0.1:18000`
+- Local AlphaLab API: `http://127.0.0.1:8000`
 
-Port 8000 is part of the local Harness contract; stop any unrelated service on
-that port before launching AlphaLab.
+Port 8000 remains part of the local AlphaLab contract. The tunnel forwards only
+the server loopback port 18000 to that local API; it does not publish port 8000
+on the Internet.
 
 The Research Harness cannot start/stop services, modify source code, execute an
 arbitrary shell, or place real orders. Those remain administrator-only tasks in
@@ -98,6 +110,12 @@ and other executable markup are rejected. When the descriptor also contains
 columns and rows, the panel adds a sortable/filterable data-table view and CSV
 export. Table attachments are limited to 30 columns and 1,000 rows; document
 and descriptor payloads are bounded before storage and rendering.
+
+`workspaceResult` and `workspaceCommands` are soft UI side channels: the hosted
+runtime requires JSON objects but does not fail the research answer when the
+Agent leaves either object empty. The frontend remains the security boundary
+for both contracts and ignores any object that does not contain a valid version,
+current request ID, result kind, or closed-allowlist command batch.
 
 Multiple result tabs and layout restoration are supported. Recent validated
 documents are retained in local storage subject to browser quota. Turns without
