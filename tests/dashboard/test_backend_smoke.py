@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from alphalab import ResultStore
 from fastapi.testclient import TestClient
 
+from alphalab import ResultStore
 from dashboard.backend.main import app
 from dashboard.backend.routers import conexus
 from dashboard.backend.services import framework_service
@@ -22,6 +22,13 @@ def test_backend_smoke_endpoints():
     assert strategies.status_code == 200
     assert {item["id"] for item in strategies.json()} >= {"momentum", "balanced"}
     assert client.get("/api/system/logs").status_code == 200
+    health = client.get("/api/data-sync/health")
+    assert health.status_code == 200
+    assert health.json()["tools"]["status"] == "ready"
+    assert health.json()["planner"]["status"] == "not_configured"
+    catalog = client.get("/api/data-sync/catalog")
+    assert catalog.status_code == 200
+    assert catalog.json()["datasets"]
 
 
 def test_real_data_endpoints():
@@ -35,6 +42,40 @@ def test_real_data_endpoints():
     assert factors.status_code == 200
     assert factors.json()["names"] == ["MKT", "SMB", "HML", "MOM", "RMW", "rf"]
     assert client.get("/api/data/market/bars?symbol=NOT-A-SYMBOL").status_code == 404
+    assert client.get("/api/data/market/symbols?profile=unknown").status_code == 422
+
+
+def test_data_sync_plan_and_submit_contract(monkeypatch):
+    client = TestClient(app)
+    plan = client.post(
+        "/api/data-sync/plan",
+        json={
+            "source": "rq",
+            "datasets": ["bars", "fundamentals"],
+            "symbols": ["000001.SZ"],
+            "start": "2024-01-01",
+            "end": "2025-01-01",
+        },
+    )
+    assert plan.status_code == 200
+    assert plan.json()["writes_are_local"] is True
+    assert plan.json()["symbol_count"] == 1
+
+    monkeypatch.setattr(
+        "dashboard.backend.services.data_sync_service.submit",
+        lambda request: {
+            "id": "job-1",
+            "source": "rq",
+            "status": "queued",
+            "request": request.model_dump(mode="json"),
+        },
+    )
+    submitted = client.post(
+        "/api/data-sync/jobs",
+        json={"source": "rq", "datasets": ["bars"], "symbols": ["000001.SZ"]},
+    )
+    assert submitted.status_code == 202
+    assert submitted.json()["status"] == "queued"
 
 
 def test_backtest_signal_and_paper_endpoints(tmp_path, monkeypatch):

@@ -76,7 +76,8 @@ interface DataSourceSummary {
 }
 
 interface DataStatusSummary {
-  qmt?: DataSourceSummary
+  demo?: DataSourceSummary
+  runtime?: DataSourceSummary
   rq?: DataSourceSummary
 }
 
@@ -402,7 +403,7 @@ function buildRailScore({
   dataStatus?: DataStatusSummary
   agentConfig?: ConexusStatus
 }) {
-  const dataReady = Boolean((dataStatus?.qmt || dataStatus?.rq) && !dataStatus?.qmt?.needs_update && !dataStatus?.rq?.needs_update)
+  const dataReady = Boolean(dataStatus?.demo && !dataStatus.demo.needs_update)
   const connectionReady = tradingStatus?.connected === true || activeMode === "home" || activeMode === "research" || activeMode === "data"
   const contextReady = Boolean(selectedSymbol || selectedStrategy || selectedBacktest)
   const researchReady = Boolean(selectedStrategy || selectedBacktest)
@@ -441,7 +442,7 @@ function taskStatusLabel({
   dataStatus?: DataStatusSummary
   copy: ReturnType<typeof rightRailCopy>
 }) {
-  if (dataStatus?.qmt?.needs_update || dataStatus?.rq?.needs_update) return copy.reviewNeeded
+  if (dataStatus?.runtime?.needs_update) return copy.reviewNeeded
   if (selectedBacktest) return copy.backtestReady
   if (selectedStrategy) return copy.draftReady
   return copy.noIdea
@@ -607,7 +608,7 @@ function RightRailContextPanel({
   const connected = tradingStatus?.connected === true
   const brokerLabel = tradingStatus?.broker_label ?? tradingStatus?.broker ?? t("rightRail.unknown")
   const currency = tradingStatus?.account_currency ? `${tradingStatus.account_currency} ` : ""
-  const dataNeedsUpdate = Boolean(dataStatus?.qmt?.needs_update || dataStatus?.rq?.needs_update)
+  const dataNeedsUpdate = Boolean(dataStatus?.runtime?.needs_update)
   const focusReady = Boolean(workspace.selectedSymbol || workspace.selectedStrategy || workspace.selectedBacktest)
 
   const selectBacktest = (item: LatestBacktestSummary) => {
@@ -713,8 +714,8 @@ function RightRailContextPanel({
             tone={asset?.total_asset ? "ok" : "muted"}
           />
         </div>
-        <DataSourceCard label={t("data.qmt")} source={dataStatus?.qmt} />
-        <DataSourceCard label={t("data.rq")} source={dataStatus?.rq} />
+        <DataSourceCard label={language === "zh" ? "示例数据" : "Demo data"} source={dataStatus?.demo} />
+        <DataSourceCard label={language === "zh" ? "本地 RQ" : "Local RQ"} source={dataStatus?.runtime} />
         {dataNeedsUpdate ? (
           <RailActionButton
             icon={Database}
@@ -785,7 +786,7 @@ function RightRailActivityPanel({
   const { language, t } = useLanguage()
   const copy = rightRailCopy(language)
   const connected = tradingStatus?.connected === true
-  const dataNeedsUpdate = Boolean(dataStatus?.qmt?.needs_update || dataStatus?.rq?.needs_update)
+  const dataNeedsUpdate = Boolean(dataStatus?.runtime?.needs_update || dataStatus?.rq?.needs_update)
   const agentReady = agentConfig?.available === true
   const tone = scoreTone(score)
 
@@ -1018,7 +1019,7 @@ export function WorkspaceRightRail({
     pushActivity(copy.widgetOpened, label, "ok", Plus)
   }, [copy.widgetOpened, onAddWidget, onOpenWidget, pushActivity])
 
-  const dataNeedsUpdate = Boolean(dataStatus?.qmt?.needs_update || dataStatus?.rq?.needs_update)
+  const dataNeedsUpdate = Boolean(dataStatus?.runtime?.needs_update || dataStatus?.rq?.needs_update)
   const headerTone = scoreTone(score)
   const taskStatus = taskStatusLabel({
     selectedStrategy: workspace.selectedStrategy,

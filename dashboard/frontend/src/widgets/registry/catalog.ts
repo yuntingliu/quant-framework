@@ -58,7 +58,7 @@ export const widgetCatalog: WidgetMeta[] = [
   // System
   { id: "system.log", title: "系统日志", titleEn: "System Log", category: "系统", categoryEn: "System", description: "实时日志流 (SSE)", descriptionEn: "Live log stream (SSE)" },
   { id: "system.help", title: "帮助文档", titleEn: "Help", category: "系统", categoryEn: "System", description: "教程、代码示例、快捷键", descriptionEn: "Tutorials, examples, shortcuts" },
-  { id: "data.center", title: "数据中心", titleEn: "Data Center", category: "系统", categoryEn: "System", description: "Local/QMT/RQ/插件状态、快照、更新", descriptionEn: "Local/QMT/RQ/plugin status, snapshots, updates" },
+  { id: "data.center", title: "数据中心", titleEn: "Data Center", category: "系统", categoryEn: "System", description: "示例与本地 RQ 数据状态、校验、更新", descriptionEn: "Demo and local RQ data status, validation, updates" },
   { id: "data.freshness", title: "数据状态", titleEn: "Data Status", category: "系统", categoryEn: "System", description: "QMT/RQ/AkShare 最新日期和更新提醒", descriptionEn: "QMT/RQ/AkShare latest dates and freshness badges" },
   { id: "data.dolphindb", title: "DolphinDB 工作台", titleEn: "DolphinDB Workbench", category: "系统", categoryEn: "System", description: "Level-2 连接、缓存、schema 和资金流样本", descriptionEn: "Level-2 connection, cache, schema, and money-flow samples" },
 

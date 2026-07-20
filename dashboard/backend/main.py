@@ -8,12 +8,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from dashboard.backend.config import LOADED_ENV_FILES
-from dashboard.backend.routers import backtests, compat, conexus, data, paper, signals, strategies, system
+from dashboard.backend.routers import (
+    backtests,
+    compat,
+    conexus,
+    data,
+    data_sync,
+    paper,
+    signals,
+    strategies,
+    system,
+)
 
 app = FastAPI(
     title="AlphaLab Barebone API",
     description="Provider-first quant framework workstation API",
-    version="0.3.0",
+    version="0.4.0",
 )
 app.state.loaded_env_files = tuple(str(path) for path in LOADED_ENV_FILES)
 
@@ -31,6 +41,7 @@ app.add_middleware(
 )
 
 app.include_router(data.router)
+app.include_router(data_sync.router)
 app.include_router(strategies.router)
 app.include_router(backtests.router)
 app.include_router(signals.router)

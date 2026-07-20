@@ -8,6 +8,7 @@ class SignalRequest(BaseModel):
     strategy_id: str
     as_of_date: str | None = None
     persist: bool = True
+    profile: str = "demo"
 
 
 class PaperOrderRequest(BaseModel):

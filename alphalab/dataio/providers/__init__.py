@@ -4,6 +4,8 @@ from alphalab.dataio.providers.local import (
     LocalParquetFactorProvider,
     LocalParquetFundamentalProvider,
     LocalParquetMarketDataProvider,
+    PartitionedParquetFundamentalProvider,
+    PartitionedParquetMarketDataProvider,
 )
 from alphalab.dataio.providers.protocol import (
     FactorProvider,
@@ -22,6 +24,8 @@ __all__ = [
     "LocalParquetFactorProvider",
     "LocalParquetFundamentalProvider",
     "LocalParquetMarketDataProvider",
+    "PartitionedParquetFundamentalProvider",
+    "PartitionedParquetMarketDataProvider",
     "MarketDataProvider",
     "RealtimeProvider",
     "RQDataClient",

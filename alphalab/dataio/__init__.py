@@ -5,6 +5,7 @@ from alphalab.dataio.engine import (
     DataEngine,
     create_default_engine,
     create_rq_engine_from_env,
+    create_runtime_engine,
 )
 from alphalab.dataio.errors import DataLoadError, DataValidationError, MissingDataError
 from alphalab.dataio.providers import (
@@ -14,6 +15,8 @@ from alphalab.dataio.providers import (
     LocalParquetFundamentalProvider,
     LocalParquetMarketDataProvider,
     MarketDataProvider,
+    PartitionedParquetFundamentalProvider,
+    PartitionedParquetMarketDataProvider,
     RealtimeProvider,
     RQDataClient,
     RQDataConfig,
@@ -33,6 +36,8 @@ __all__ = [
     "LocalParquetFactorProvider",
     "LocalParquetFundamentalProvider",
     "LocalParquetMarketDataProvider",
+    "PartitionedParquetFundamentalProvider",
+    "PartitionedParquetMarketDataProvider",
     "MarketDataProvider",
     "MissingDataError",
     "RealtimeProvider",
@@ -41,6 +46,7 @@ __all__ = [
     "RQDataProvider",
     "Tick",
     "create_default_engine",
+    "create_runtime_engine",
     "create_rq_engine_from_env",
     "to_long",
     "to_wide",

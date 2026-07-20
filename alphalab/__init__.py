@@ -8,7 +8,7 @@ Concrete broker adapters remain outside this barebone repository. RQData is an
 optional information provider configured from local environment values.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __author__ = "LYT"
 __name_cn__ = "AlphaLab Barebone"
 
@@ -19,6 +19,7 @@ from alphalab.dataio import (
     RQDataProvider,
     create_default_engine,
     create_rq_engine_from_env,
+    create_runtime_engine,
 )
 from alphalab.engine import SignalEngine, run_backtest
 from alphalab.factors.registry import compute_factor, get_factor, list_factors
@@ -28,6 +29,7 @@ from alphalab.strategy.config import FactorSpec, StrategyConfig, UniverseSpec
 __all__ = [
     "DataEngine",
     "create_default_engine",
+    "create_runtime_engine",
     "create_rq_engine_from_env",
     "RQDataConfig",
     "RQDataProvider",

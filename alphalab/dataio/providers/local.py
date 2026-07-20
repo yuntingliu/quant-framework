@@ -14,6 +14,7 @@ from typing import Optional
 
 import pandas as pd
 
+from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.errors import MissingDataError
 from alphalab.utils.paths import FACTOR_DIR, FUNDAMENTAL_DIR, MARKET_DIR
 
@@ -208,3 +209,59 @@ class LocalParquetFactorProvider:
         if "rf" not in df:
             return pd.Series(dtype=float, name="rf")
         return df.loc[(df.index >= pd.Timestamp(start)) & (df.index <= pd.Timestamp(end)), "rf"]
+
+
+class PartitionedParquetMarketDataProvider(LocalParquetMarketDataProvider):
+    """Market provider for ignored runtime partitions."""
+
+    def __init__(self, runtime_root: str | Path):
+        self.catalog = DataCatalog(runtime_root)
+        self.market_dir = self.catalog.path("rq.bars")
+        self.path = self.market_dir
+        self._cache: pd.DataFrame | None = None
+
+    def _load(self) -> pd.DataFrame:
+        if self._cache is not None:
+            return self._cache
+        files = self.catalog.files("rq.bars")
+        if not files:
+            self._cache = pd.DataFrame(columns=["date", "symbol", "close"])
+            return self._cache
+        frame = pd.concat((pd.read_parquet(path) for path in files), ignore_index=True)
+        frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+        frame["symbol"] = frame["symbol"].astype(str).str.upper()
+        self._cache = (
+            frame.dropna(subset=["date", "symbol"])
+            .drop_duplicates(["date", "symbol"], keep="last")
+            .sort_values(["date", "symbol"])
+            .reset_index(drop=True)
+        )
+        return self._cache
+
+
+class PartitionedParquetFundamentalProvider(LocalParquetFundamentalProvider):
+    """Fundamental provider for canonical runtime partitions."""
+
+    def __init__(self, runtime_root: str | Path):
+        self.catalog = DataCatalog(runtime_root)
+        self.fundamental_dir = self.catalog.path("canonical.fundamentals")
+        self.path = self.fundamental_dir
+        self._cache: pd.DataFrame | None = None
+
+    def _load(self) -> pd.DataFrame:
+        if self._cache is not None:
+            return self._cache
+        files = self.catalog.files("canonical.fundamentals")
+        if not files:
+            self._cache = pd.DataFrame(columns=["quarter", "available_date", "symbol"])
+            return self._cache
+        frame = pd.concat((pd.read_parquet(path) for path in files), ignore_index=True)
+        frame["available_date"] = pd.to_datetime(frame["available_date"], errors="coerce")
+        frame["symbol"] = frame["symbol"].astype(str).str.upper()
+        self._cache = (
+            frame.dropna(subset=["quarter", "available_date", "symbol"])
+            .drop_duplicates(["quarter", "symbol"], keep="last")
+            .sort_values(["available_date", "quarter", "symbol"])
+            .reset_index(drop=True)
+        )
+        return self._cache

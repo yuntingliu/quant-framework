@@ -14,6 +14,8 @@ from alphalab.dataio.providers.local import (
     LocalParquetFactorProvider,
     LocalParquetFundamentalProvider,
     LocalParquetMarketDataProvider,
+    PartitionedParquetFundamentalProvider,
+    PartitionedParquetMarketDataProvider,
 )
 from alphalab.dataio.providers.protocol import (
     FactorProvider,
@@ -21,7 +23,7 @@ from alphalab.dataio.providers.protocol import (
     MarketDataProvider,
     to_wide,
 )
-from alphalab.utils.paths import CACHE_DIR, DATA_DIR
+from alphalab.utils.paths import CACHE_DIR, DATA_DIR, RUNTIME_DIR
 
 
 class DataCache:
@@ -250,4 +252,22 @@ def create_rq_engine_from_env(cache: DataCache | None = None) -> DataEngine:
     engine = DataEngine(cache=cache)
     engine.register_market("rq", provider, default=True)
     engine.register_fundamental("rq", provider, default=True)
+    return engine
+
+
+def create_runtime_engine(runtime_dir: str | Path | None = None) -> DataEngine:
+    """Create an engine over ignored, partitioned runtime data."""
+
+    root = Path(runtime_dir) if runtime_dir is not None else RUNTIME_DIR
+    engine = DataEngine(cache=DataCache(root / "cache" / "engine"))
+    engine.register_market(
+        "runtime",
+        PartitionedParquetMarketDataProvider(root),
+        default=True,
+    )
+    engine.register_fundamental(
+        "runtime",
+        PartitionedParquetFundamentalProvider(root),
+        default=True,
+    )
     return engine

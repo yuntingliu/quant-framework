@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "alphalab"
-version = "0.3.0"
+version = "0.4.0"
 description = "AlphaLab barebone quant framework with pluggable data providers and a workstation shell"
 readme = "README.md"
 license = {text = "MIT"}
@@ -54,8 +54,11 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/LYT/quant-framework"
-Repository = "https://github.com/LYT/quant-framework"
+Homepage = "https://github.com/yuntingliu/quant-framework"
+Repository = "https://github.com/yuntingliu/quant-framework"
+
+[project.scripts]
+alphalab = "alphalab.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

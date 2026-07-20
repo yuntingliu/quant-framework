@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from dashboard.backend.services.data_sync_service import get_health
 from dashboard.backend.services.framework_service import list_provider_status
 
 router = APIRouter(prefix="/api", tags=["status"])
@@ -34,25 +35,17 @@ def trading_asset() -> dict:
 def data_status() -> dict:
     status = list_provider_status()
     return {
-        "qmt": {
+        "demo": {
             "latest_date": status["latest_date"],
             "needs_update": False,
             "provider_pending": False,
-            "live_connected": False,
             "stock_count": status["symbol_count"],
             "phase_label": "bundled historical sample",
         },
-        "rq": {
-            "latest_date": status["latest_date"],
-            "needs_update": False,
-            "provider_pending": False,
-            "phase_label": "bundled point-in-time fundamentals",
+        "runtime": {
+            **status["profiles"]["runtime"],
+            "needs_update": status["profiles"]["runtime"]["status"] != "ready",
         },
-        "local": {
-            "latest_date": status["latest_date"],
-            "needs_update": False,
-            "symbol_count": status["symbol_count"],
-            "status": "ready",
-        },
+        "rq": get_health()["rq"],
         "realtime": {"connected": False, "status": "not_configured"},
     }
