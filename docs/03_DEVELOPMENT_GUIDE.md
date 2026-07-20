@@ -16,11 +16,25 @@ python -m uvicorn dashboard.backend.main:app --reload --port 8000
 npm --prefix dashboard/frontend run dev:web
 ```
 
-## Adding Data
+## Runtime Data Workflow
 
 The repository ships a checked-in example bundle. Its immutable files and
-provenance are declared in `data/manifest.json`; runtime caches and any full
-vendor extracts remain ignored.
+provenance are declared in `data/manifest.json`. RQ downloads, runtime
+partitions, task records, quality reports, and caches remain ignored below
+`data/runtime/`.
+
+Use the same service through CLI or FastAPI. Always preview first:
+
+```powershell
+alphalab data plan rq
+alphalab data sync rq --datasets instruments,bars,fundamentals
+alphalab data validate
+```
+
+Sync code may write only through `RuntimeStore`; empty responses must never
+replace existing partitions. Provider-specific acquisition belongs in
+`rq_sync.py`, generic schemas and storage remain provider-neutral, and
+`available_date` must be enforced at historical query boundaries.
 
 Rebuild the maintained sample with:
 
@@ -54,6 +68,18 @@ engine = create_rq_engine_from_env()
 
 Its credentials stay in the ignored local `.env`; tests must inject a fake RQ
 module and must never require a live vendor connection.
+
+For repeatable research, sync first and use the partitioned engine:
+
+```python
+from alphalab import create_runtime_engine
+
+engine = create_runtime_engine()
+```
+
+The typed registry in `alphalab.tools` is the only agent-facing data surface.
+Tools return bounded rows, counts, statuses, and references rather than large
+serialized DataFrames. The LLM planner remains deliberately unconfigured.
 
 Dashboard vendor pages should stay present as GUI slots, but they must remain
 mapped to disabled placeholders until a separate adapter/plugin package owns the

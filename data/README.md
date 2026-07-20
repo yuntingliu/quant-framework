@@ -18,3 +18,8 @@ python scripts\build_example_data.py `
 
 Only the canonical files listed in `manifest.json` are tracked. Raw vendor
 files, credentials, caches, logs, and runtime artifacts remain excluded.
+
+RQ runtime downloads use `data/runtime/`. That directory contains partitioned
+parquet files plus `app/dataio.db` for checksums, watermarks, quality runs,
+sync jobs, and checkpoints. It is always ignored and must remain absent from
+`git ls-files`.

@@ -17,6 +17,7 @@ The public Python facade is:
 from alphalab import (
     DataEngine,
     create_default_engine,
+    create_runtime_engine,
     create_rq_engine_from_env,
     RQDataConfig,
     RQDataProvider,
@@ -34,7 +35,8 @@ from alphalab import (
 
 | Path | Owns |
 | --- | --- |
-| `alphalab/dataio/` | Provider protocols, `DataEngine`, generic local parquet providers. |
+| `alphalab/dataio/` | Provider protocols, `DataEngine`, runtime catalog/storage, RQ acquisition, sync jobs and quality checks. |
+| `alphalab/tools/` | Typed data tools for future agent orchestration; no LLM planner. |
 | `alphalab/factors/` | Generic technical/fundamental factor registry and formulas. |
 | `alphalab/strategy/` | YAML schema and validation. |
 | `alphalab/strategies/` | Generic built-in templates only. |
@@ -72,6 +74,10 @@ coverage, provenance, adjustment policy, hashes, and research caveats.
 the market and fundamental source. It reads only `RQ_USER`, `RQ_PASSWORD`, and
 `RQ_HOST`, initializes lazily, and does not own realtime or execution behavior.
 
+`create_runtime_engine()` reads only the ignored partitioned datasets below
+`data/runtime/`. Demo and runtime are explicit profiles and are never silently
+combined. Runtime factor returns are intentionally `not_configured`.
+
 ## Dashboard Contract
 
 The barebone backend exposes:
@@ -81,6 +87,11 @@ The barebone backend exposes:
 - `/api/data/market/symbols`
 - `/api/data/market/bars`
 - `/api/data/factors/returns`
+- `/api/data-sync/health`
+- `/api/data-sync/catalog`
+- `/api/data-sync/plan`
+- `/api/data-sync/jobs`
+- `/api/data-sync/validate`
 - `/api/strategies`
 - `/api/strategies/{strategy_id}`
 - `/api/backtests`
