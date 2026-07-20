@@ -190,7 +190,7 @@ class RQDataProvider:
                     start_quarter=start_quarter,
                     end_quarter=end_quarter,
                     date=asof_date,
-                    statements="latest",
+                    statements="all",
                     market="cn",
                 )
             except Exception as exc:
@@ -206,12 +206,13 @@ class RQDataProvider:
 
         if not frames:
             return _empty_fundamentals(requested)
-        return (
-            pd.concat(frames, ignore_index=True)
-            .sort_values(["available_date", "quarter", "symbol"])
-            .drop_duplicates(["quarter", "symbol"], keep="last")
-            .reset_index(drop=True)
-        )
+        combined = pd.concat(frames, ignore_index=True)
+        combined = combined.sort_values(
+            ["symbol", "quarter", "if_adjusted", "available_date"]
+        ).drop_duplicates(["quarter", "symbol"], keep="first")
+        return combined.sort_values(
+            ["available_date", "quarter", "symbol"]
+        ).reset_index(drop=True)
 
 
 def _normalize_bars(raw: Any, fields: list[str]) -> pd.DataFrame:
@@ -283,6 +284,11 @@ def _normalize_fundamentals(
                 else pd.NaT
             ),
             "symbol": frame[symbol_column].map(_from_rq_symbol),
+            "if_adjusted": (
+                pd.to_numeric(frame[columns["if_adjusted"]], errors="coerce").fillna(0)
+                if "if_adjusted" in columns
+                else 0
+            ),
         }
     )
     for name in available:
@@ -319,7 +325,9 @@ def _empty_bars(fields: list[str]) -> pd.DataFrame:
 
 
 def _empty_fundamentals(fields: list[str]) -> pd.DataFrame:
-    return pd.DataFrame(columns=["quarter", "available_date", "symbol", *fields])
+    return pd.DataFrame(
+        columns=["quarter", "available_date", "symbol", "if_adjusted", *fields]
+    )
 
 
 def _reset_index(frame: pd.DataFrame) -> pd.DataFrame:

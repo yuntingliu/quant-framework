@@ -6,6 +6,7 @@ paths into the relevant constructors.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 PACKAGE_DIR = Path(__file__).resolve().parents[1]
@@ -17,11 +18,20 @@ CACHE_DIR = DATA_DIR / "cache"
 MARKET_DIR = DATA_DIR / "market"
 FUNDAMENTAL_DIR = DATA_DIR / "fundamentals"
 FACTOR_DIR = DATA_DIR / "factors"
+RUNTIME_DIR = Path(os.environ.get("ALPHALAB_RUNTIME_DIR", DATA_DIR / "runtime")).expanduser()
+RUNTIME_APP_DIR = RUNTIME_DIR / "app"
 
 
 def ensure_local_dirs() -> None:
     """Create local runtime directories when the framework writes state."""
 
-    for path in (APP_DATA_DIR, CACHE_DIR, MARKET_DIR, FUNDAMENTAL_DIR, FACTOR_DIR):
+    for path in (
+        APP_DATA_DIR,
+        CACHE_DIR,
+        MARKET_DIR,
+        FUNDAMENTAL_DIR,
+        FACTOR_DIR,
+        RUNTIME_DIR,
+        RUNTIME_APP_DIR,
+    ):
         path.mkdir(parents=True, exist_ok=True)
-
