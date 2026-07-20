@@ -2,7 +2,10 @@
 from dashboard.backend.routers import (
     backtests,
     compat,
+    conexus,
     data,
+    data_sync,
+    market,
     paper,
     research,
     signals,
@@ -13,7 +16,10 @@ from dashboard.backend.routers import (
 __all__ = [
     "backtests",
     "compat",
+    "conexus",
     "data",
+    "data_sync",
+    "market",
     "paper",
     "research",
     "signals",

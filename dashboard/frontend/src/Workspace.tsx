@@ -8,6 +8,7 @@
  *   - Widget catalog dropdown for adding individual panels
  */
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   DockviewReact,
   type DockviewReadyEvent,
@@ -15,6 +16,7 @@ import {
   type IDockviewPanelProps,
 } from "dockview"
 import "dockview/dist/styles/dockview.css"
+import { toast } from "sonner"
 
 import { widgetComponents, widgetTitleById } from "@/widgets/registry"
 import { StatusBar } from "@/widgets/StatusBar"
@@ -22,6 +24,7 @@ import { LaunchSyncBanner } from "@/widgets/home/LaunchSyncBanner"
 import { layoutPresets, LAYOUT_VERSION, normalizeWorkspaceMode, type WorkspaceMode } from "@/layouts/presets"
 import { WorkspaceProvider, useWorkspace, type LinkGroup } from "@/contexts/WorkspaceContext"
 import { PanelContext } from "@/contexts/PanelContext"
+import { useAgentPrompt } from "@/contexts/AgentPromptContext"
 import { useTradingHotkeys } from "@/hooks/useTradingHotkeys"
 import { useAlertNotifications } from "@/lib/notifications"
 import { useLanguage } from "@/contexts/LanguageContext"
@@ -29,7 +32,14 @@ import { cn } from "@/lib/utils"
 import { ModeSidebar } from "@/workspace/ModeSidebar"
 import { WorkspaceRightRail } from "@/workspace/RightRail"
 import { WorkspaceToolbar } from "@/workspace/Toolbar"
+import {
+  WORKSPACE_COMMAND_EVENT,
+  type AgentWorkspaceCommand,
+  type AgentWorkspaceCommandEventDetail,
+  type AgentWorkspaceCommandReceipt,
+} from "@/workspace/agentCommands"
 import { MODE_CONFIG, WORKSPACE_MODES } from "@/workspace/modes"
+import type { AgentResearchResult } from "@/workspace/researchResults"
 import type { RightRailTab, WorkspaceTask } from "@/workspace/types"
 
 interface ElectronMenuApi {
@@ -48,6 +58,13 @@ interface PendingWidgetOpen {
   widgetId: string
   title?: string
   mode?: WorkspaceMode
+  panelId?: string
+  params?: Record<string, unknown>
+}
+
+interface WidgetPanelOptions {
+  panelId?: string
+  params?: Record<string, unknown>
 }
 
 interface OpenWidgetEventDetail {
@@ -63,6 +80,7 @@ interface OpenWidgetEventDetail {
 function PanelRenderer(props: IDockviewPanelProps) {
   const { t } = useLanguage()
   const componentId = props.params?.componentId as string
+  const panelParams = (props.params ?? {}) as Record<string, unknown>
   const [linkGroup, setLinkGroupState] = useState<LinkGroup | null>(
     (props.params?.linkGroup as LinkGroup | undefined) ?? null,
   )
@@ -80,7 +98,7 @@ function PanelRenderer(props: IDockviewPanelProps) {
     )
   }
   return (
-    <PanelContext.Provider value={{ panelId: props.api.id, componentId, linkGroup, setLinkGroup }}>
+    <PanelContext.Provider value={{ panelId: props.api.id, componentId, params: panelParams, linkGroup, setLinkGroup }}>
       <Component />
     </PanelContext.Provider>
   )
@@ -231,6 +249,8 @@ function findWidgetPanel(api: DockviewApi, componentId: string) {
 // ---------------------------------------------------------------------------
 
 function WorkspaceInner() {
+  const queryClient = useQueryClient()
+  const { registerResearchResult } = useAgentPrompt()
   const apiRef = useRef<DockviewApi | null>(null)
   const apiRefsRef = useRef<Partial<Record<WorkspaceMode, DockviewApi>>>({})
   const pendingWidgetOpenRef = useRef<PendingWidgetOpen | null>(null)
@@ -285,22 +305,34 @@ function WorkspaceInner() {
     }
   }, [language, setActiveMode])
 
-  const addWidgetToApi = useCallback((api: DockviewApi, rawWidgetId: string, title?: string) => {
+  const addWidgetToApi = useCallback((
+    api: DockviewApi,
+    rawWidgetId: string,
+    title?: string,
+    options?: WidgetPanelOptions,
+  ) => {
     // Legacy alias: the "AI 量化工作流" mock merged into the unified research agent.
     // Collapse any open/saved request for the old id onto the agent panel so a
     // stale layout never spawns a duplicate or blank tab.
     const widgetId = rawWidgetId === "research.ai-workflow" ? "research.agent" : rawWidgetId
-    const existing = findWidgetPanel(api, widgetId)
+    const panelId = options?.panelId ?? widgetId
+    const existing = options?.panelId
+      ? api.panels.find((panel) => panel.id === panelId)
+      : findWidgetPanel(api, widgetId)
     if (existing) {
       existing.api.setActive()
       existing.focus()
       return
     }
+    const referencePanel = api.activePanel ?? api.panels[0]
     api.addPanel({
-      id: widgetId,
+      id: panelId,
       component: "widget",
-      params: { componentId: widgetId },
+      params: { componentId: widgetId, ...(options?.params ?? {}) },
       title: widgetTitleById(widgetId, language, title),
+      position: referencePanel
+        ? { referencePanel, direction: "within" }
+        : undefined,
     })
   }, [language])
 
@@ -309,7 +341,12 @@ function WorkspaceInner() {
     addWidgetToApi(apiRef.current, widgetId, title)
   }, [addWidgetToApi])
 
-  const openWidget = useCallback((widgetId: string, title?: string, rawMode?: unknown) => {
+  const openWidget = useCallback((
+    widgetId: string,
+    title?: string,
+    rawMode?: unknown,
+    options?: WidgetPanelOptions,
+  ) => {
     const targetMode = rawMode ? normalizeWorkspaceMode(rawMode) : activeModeRef.current
     const targetApi = apiRefsRef.current[targetMode] ?? null
 
@@ -318,10 +355,10 @@ function WorkspaceInner() {
         switchMode(targetMode)
         requestAnimationFrame(() => {
           apiRef.current = targetApi
-          addWidgetToApi(targetApi, widgetId, title)
+          addWidgetToApi(targetApi, widgetId, title, options)
         })
       } else {
-        pendingWidgetOpenRef.current = { widgetId, title, mode: targetMode }
+        pendingWidgetOpenRef.current = { widgetId, title, mode: targetMode, ...options }
         switchMode(targetMode)
       }
       return
@@ -329,11 +366,11 @@ function WorkspaceInner() {
 
     if (targetApi) {
       apiRef.current = targetApi
-      addWidgetToApi(targetApi, widgetId, title)
+      addWidgetToApi(targetApi, widgetId, title, options)
       return
     }
 
-    pendingWidgetOpenRef.current = { widgetId, title, mode: targetMode }
+    pendingWidgetOpenRef.current = { widgetId, title, mode: targetMode, ...options }
   }, [addWidgetToApi, switchMode])
 
   const toggleSidebarCollapsed = useCallback(() => {
@@ -436,6 +473,126 @@ function WorkspaceInner() {
     }
   }, [language])
 
+  const executeWorkspaceCommand = useCallback((
+    command: AgentWorkspaceCommand,
+    researchResult?: AgentResearchResult,
+  ): Omit<AgentWorkspaceCommandReceipt, "index"> => {
+    switch (command.type) {
+      case "switch_mode":
+        switchMode(command.mode)
+        return { type: command.type, success: true, message: `已切换到 ${command.mode}` }
+      case "open_widget":
+        if (!widgetComponents[command.widgetId]) {
+          return { type: command.type, success: false, message: `未知组件：${command.widgetId}` }
+        }
+        openWidget(command.widgetId, command.title, command.mode)
+        return {
+          type: command.type,
+          success: true,
+          message: `已打开 ${widgetTitleById(command.widgetId, language)}`,
+        }
+      case "open_result": {
+        if (!researchResult || researchResult.id !== command.resultId) {
+          return { type: command.type, success: false, message: `未找到研究结果：${command.resultId}` }
+        }
+        registerResearchResult(researchResult)
+        const panelId = `research-result-${command.resultId.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+        openWidget(
+          "research.result-viewer",
+          command.title ?? researchResult.title,
+          command.mode ?? "research",
+          { panelId, params: { resultId: researchResult.id } },
+        )
+        return { type: command.type, success: true, message: `已打开研究结果：${researchResult.title}` }
+      }
+      case "close_widget": {
+        const targetMode = command.mode ?? activeModeRef.current
+        const api = apiRefsRef.current[targetMode]
+        const panel = api ? findWidgetPanel(api, command.widgetId) : undefined
+        if (!panel) {
+          return { type: command.type, success: false, message: `未找到组件：${command.widgetId}` }
+        }
+        panel.api.close()
+        return {
+          type: command.type,
+          success: true,
+          message: `已关闭 ${widgetTitleById(command.widgetId, language)}`,
+        }
+      }
+      case "set_focus": {
+        const changed: string[] = []
+        if (Object.prototype.hasOwnProperty.call(command, "symbol")) {
+          workspace.setSelectedSymbol(command.symbol ?? null)
+          changed.push(`标的 ${command.symbol ?? "已清除"}`)
+        }
+        if (Object.prototype.hasOwnProperty.call(command, "strategyId")) {
+          workspace.setSelectedStrategy(command.strategyId ?? null)
+          changed.push(`策略 ${command.strategyId ?? "已清除"}`)
+        }
+        if (Object.prototype.hasOwnProperty.call(command, "backtestId")) {
+          workspace.setSelectedBacktest(command.backtestId ?? null)
+          changed.push(`回测 ${command.backtestId ?? "已清除"}`)
+        }
+        if (Object.prototype.hasOwnProperty.call(command, "date")) {
+          workspace.setSelectedDate(command.date ?? null)
+          changed.push(`日期 ${command.date ?? "已清除"}`)
+        }
+        return { type: command.type, success: true, message: `已更新焦点：${changed.join("，")}` }
+      }
+      case "set_link_symbol":
+        workspace.setLinkSymbol(command.group, command.symbol)
+        return {
+          type: command.type,
+          success: true,
+          message: `联动组 ${command.group.toUpperCase()} 已更新`,
+        }
+      case "show_right_rail": {
+        if (command.tab) selectRightRailTab(command.tab)
+        const open = command.open ?? true
+        setRightRailCollapsed(!open)
+        try { localStorage.setItem(RIGHT_RAIL_COLLAPSED_KEY, String(!open)) } catch { /* ignore */ }
+        return {
+          type: command.type,
+          success: true,
+          message: open ? "已展开右侧栏" : "已收起右侧栏",
+        }
+      }
+      case "refresh_data":
+        void queryClient.invalidateQueries()
+        window.dispatchEvent(new CustomEvent("alphalab:refreshData"))
+        return { type: command.type, success: true, message: "已刷新工作台数据" }
+      case "save_layout": {
+        const targetMode = command.mode ?? activeModeRef.current
+        const api = apiRefsRef.current[targetMode]
+        if (!api) {
+          return { type: command.type, success: false, message: `${targetMode} 布局尚未挂载` }
+        }
+        saveLayout(api, targetMode)
+        return { type: command.type, success: true, message: `已保存 ${targetMode} 布局` }
+      }
+      case "reset_layout": {
+        const targetMode = command.mode ?? activeModeRef.current
+        localStorage.removeItem(layoutKey(targetMode))
+        const preset = layoutPresets[targetMode]
+        const api = apiRefsRef.current[targetMode]
+        if (preset && api) {
+          preset.apply(api)
+          relabelPanels(api, language)
+          saveLayout(api, targetMode)
+        }
+        return { type: command.type, success: true, message: `已重置 ${targetMode} 布局` }
+      }
+    }
+  }, [
+    language,
+    openWidget,
+    queryClient,
+    registerResearchResult,
+    selectRightRailTab,
+    switchMode,
+    workspace,
+  ])
+
   useEffect(() => {
     const api = apiRefsRef.current[activeMode]
     apiRef.current = api ?? null
@@ -456,7 +613,10 @@ function WorkspaceInner() {
       pendingWidgetOpenRef.current = null
       requestAnimationFrame(() => {
         if (mode === activeModeRef.current) apiRef.current = event.api
-        addWidgetToApi(event.api, pending.widgetId, pending.title)
+        addWidgetToApi(event.api, pending.widgetId, pending.title, {
+          panelId: pending.panelId,
+          params: pending.params,
+        })
       })
     }
     event.api.onDidLayoutChange(() => {
@@ -525,6 +685,40 @@ function WorkspaceInner() {
     window.addEventListener("alphalab:openTask", handler)
     return () => window.removeEventListener("alphalab:openTask", handler)
   }, [openTask])
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<AgentWorkspaceCommandEventDetail>).detail
+      if (!detail?.batch?.commands) return
+      detail.receipts = detail.batch.commands.map((command, index) => {
+        try {
+          return { index, ...executeWorkspaceCommand(command, detail.researchResult) }
+        } catch (error) {
+          return {
+            index,
+            type: command.type,
+            success: false,
+            message: error instanceof Error ? error.message : String(error),
+          }
+        }
+      })
+      const succeeded = detail.receipts.filter((receipt) => receipt.success).length
+      const failed = detail.receipts.length - succeeded
+      if (succeeded > 0) {
+        toast.success(`Agent 已执行 ${succeeded} 项工作台操作`, {
+          description: failed > 0
+            ? `${failed} 项操作未执行`
+            : detail.receipts.map((receipt) => receipt.message).join("；"),
+        })
+      } else if (failed > 0) {
+        toast.error("Agent 工作台操作未执行", {
+          description: detail.receipts.map((receipt) => receipt.message).join("；"),
+        })
+      }
+    }
+    window.addEventListener(WORKSPACE_COMMAND_EVENT, handler)
+    return () => window.removeEventListener(WORKSPACE_COMMAND_EVENT, handler)
+  }, [executeWorkspaceCommand])
 
   // Keyboard shortcuts: Ctrl+1/2/3/4 for mode switching (visible tabs only, so
   // the numbers line up with what the sidebar shows).

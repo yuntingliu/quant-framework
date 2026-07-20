@@ -124,6 +124,21 @@ python -m uvicorn dashboard.backend.main:app --reload --port 8000
 npm --prefix dashboard/frontend run dev:web
 ```
 
+### Optional Research Agent
+
+The framework does not require or bundle an LLM planner. If a separately
+installed Conexus Web Host exposes a compatible published Research Harness,
+its local origin and publication slug can be supplied as process variables:
+
+```powershell
+$env:CONEXUS_WEB_ORIGIN = "http://127.0.0.1:3000"
+$env:CONEXUS_PUBLICATION_SLUG = "alphalab-research-agent"
+```
+
+Without that service, the Research Agent panel reports `not_configured` while
+all deterministic Demo/DataIO/backtest/paper workflows remain available. See
+[`docs/04_CONEXUS_AGENT.md`](docs/04_CONEXUS_AGENT.md) for the optional contract.
+
 Open [http://localhost:5173](http://localhost:5173). API docs are available at
 [http://localhost:8000/docs](http://localhost:8000/docs).
 

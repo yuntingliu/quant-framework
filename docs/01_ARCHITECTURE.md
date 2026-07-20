@@ -44,6 +44,7 @@ from alphalab import (
 | `alphalab/store.py` | SQLite state for strategies, backtests, research runs, signals, paper accounts and journal. |
 | `alphalab/execution/` | Broker-neutral contracts and paper execution helpers. |
 | `dashboard/` | FastAPI backend and original-style React/Electron Dockview workstation GUI. |
+| `dashboard/backend/routers/conexus.py` | Optional same-origin proxy for a separately hosted published Research Agent. |
 
 ## Data Contract
 
@@ -112,6 +113,7 @@ The barebone backend exposes:
 - `/api/paper/rebalance/execute`
 - `/api/system/stats`
 - `/api/system/logs`
+- `/api/conexus/status` and `/api/conexus/*` when the optional Web Host is available
 
 The frontend deliberately keeps the original AlphaLab workstation shell:
 multi-mode sidebar, toolbar, command palette, right rail, saved layouts, and the
@@ -122,4 +124,5 @@ registered to `AdapterDisabledWidget` as optional extension slots.
 Research orchestration is deterministic and uses the existing framework
 services. It stops after paper risk preview. The LLM planner remains
 `not_configured`, and paper execution requires a separate explicit
-confirmation request.
+confirmation request. The optional Conexus panel is an external extension:
+missing Conexus state never changes the deterministic workflow or data profile.

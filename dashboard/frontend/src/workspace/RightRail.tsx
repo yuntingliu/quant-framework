@@ -28,6 +28,7 @@ import {
 } from "lucide-react"
 
 import { ScoreGauge } from "@/components/shared/ScoreGauge"
+import { useAgentPrompt } from "@/contexts/AgentPromptContext"
 import { useLanguage, type TranslationKey } from "@/contexts/LanguageContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
 import type { WorkspaceMode } from "@/layouts/presets"
@@ -1241,6 +1242,7 @@ export function WorkspaceRightRail({
   onOpenTask: (task: WorkspaceTask) => void
 }) {
   const workspace = useWorkspace()
+  const { stagePrompt, decisionNotebook: agentDecisionNotebook } = useAgentPrompt()
   const { activeMode } = workspace
   const { language, t } = useLanguage()
   const copy = rightRailCopy(language)
@@ -1313,6 +1315,16 @@ export function WorkspaceRightRail({
     return () => window.removeEventListener(DECISION_NOTEBOOK_EVENT, handler)
   }, [copy.latestNotebook, copy.noNotebook, pushActivity])
 
+  useEffect(() => {
+    if (!agentDecisionNotebook) return
+    pushActivity(
+      copy.latestNotebook,
+      agentDecisionNotebook.baseCase || agentDecisionNotebook.classification || copy.noNotebook,
+      "ok",
+      ClipboardList,
+    )
+  }, [agentDecisionNotebook, copy.latestNotebook, copy.noNotebook, pushActivity])
+
   const selectTab = (tab: RightRailTab) => {
     onSelectTab(tab)
     pushActivity(copy.tabChanged, t(RIGHT_RAIL_TABS.find((item) => item.id === tab)?.labelKey ?? "rightRail.context"), "muted", Activity)
@@ -1352,6 +1364,7 @@ export function WorkspaceRightRail({
       runStrategyExperiment: false,
       source: "right-rail",
     }
+    stagePrompt(prompt, { ...detail })
     ;(window as AgentPromptWindow).__alphalabPendingAgentPrompt = detail
     window.dispatchEvent(new CustomEvent<RightRailAgentPromptDetail>("alphalab:agentPrompt", { detail }))
     if (onOpenWidget) {
@@ -1360,7 +1373,7 @@ export function WorkspaceRightRail({
       onAddWidget("research.agent")
     }
     pushActivity(copy.agentInjected, prompt.split("\n")[0] || copy.draftEmpty, "ok", Send)
-  }, [copy.agentInjected, copy.draftEmpty, language, onAddWidget, onOpenWidget, pushActivity, workspace.selectedSymbol])
+  }, [copy.agentInjected, copy.draftEmpty, language, onAddWidget, onOpenWidget, pushActivity, stagePrompt, workspace.selectedSymbol])
 
   const dataNeedsUpdate = Boolean(dataStatus?.runtime?.needs_update)
   const headerTone = scoreTone(score)
@@ -1461,7 +1474,7 @@ export function WorkspaceRightRail({
             onIntentChange={setAgentIntent}
             dataStatus={dataStatus}
             agentConfig={agentConfig}
-            decisionNotebook={decisionNotebook}
+            decisionNotebook={agentDecisionNotebook ?? decisionNotebook}
             onSendPrompt={sendPromptToAgent}
             onOpenTask={onOpenTask}
           />

@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from alphalab import ResultStore
 from dashboard.backend.main import app
+from dashboard.backend.routers import conexus
 from dashboard.backend.services import framework_service, research_service
 
 
@@ -28,6 +29,21 @@ def test_backend_smoke_endpoints():
     catalog = client.get("/api/data-sync/catalog")
     assert catalog.status_code == 200
     assert catalog.json()["datasets"]
+
+
+def test_optional_conexus_status_contract(monkeypatch):
+    async def available(_path: str) -> dict:
+        return {"ok": True}
+
+    monkeypatch.setattr(conexus, "_fetch_json", available)
+    response = TestClient(app).get("/api/conexus/status")
+    assert response.status_code == 200
+    assert response.json() == {
+        "available": True,
+        "mode": "published_harness",
+        "publication": "alphalab-research-agent",
+    }
+    assert conexus._path_segment("../run/id") == "..%2Frun%2Fid"
 
 
 def test_real_data_endpoints():
