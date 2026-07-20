@@ -92,7 +92,7 @@ def test_runtime_store_deduplicates_and_rejects_empty_overwrite(tmp_path) -> Non
 def test_first_disclosure_and_canonical_fundamentals_are_point_in_time() -> None:
     income, balance, bars = _financial_frames()
     revision = income.iloc[[0]].copy()
-    revision["info_date"] = pd.to_datetime(["2025-01-01"])
+    revision["info_date"] = pd.Timestamp("2025-01-01")
     revision["if_adjusted"] = 1
     revision["net_profit_parent_company"] = 999
     income = pd.concat([income, revision], ignore_index=True)

@@ -20,7 +20,6 @@ import { cn } from "@/lib/utils"
 interface PanelContextValue {
   panelId: string
   componentId: string
-  params: Record<string, unknown>
   linkGroup: LinkGroup | null
   setLinkGroup: (group: LinkGroup | null) => void
 }

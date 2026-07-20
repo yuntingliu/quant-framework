@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { RollingLineChart } from '../../components/charts/RollingLineChart'
 import { apiGet, type FactorReturnsPayload } from '../../lib/api'
-import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh'
 
 export function FactorReturnsWidget() {
-  const refreshRevision = useWorkspaceRefresh()
   const [payload, setPayload] = useState<FactorReturnsPayload | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
     apiGet<FactorReturnsPayload>('/data/factors/returns').then(setPayload).catch((err: Error) => setError(err.message))
-  }, [refreshRevision])
+  }, [])
 
   const factors = (payload?.names ?? []).filter((name) => name !== 'rf')
   const chartData = useMemo(() => {

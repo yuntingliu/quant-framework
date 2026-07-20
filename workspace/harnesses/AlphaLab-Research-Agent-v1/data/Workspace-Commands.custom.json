@@ -1,9 +1,0 @@
-{
-  "customType": "alphalab_workspace_commands",
-  "content": "Validated commands for the AlphaLab frontend workspace command bus.",
-  "data": {
-    "version": 1,
-    "requestId": "",
-    "commands": []
-  }
-}

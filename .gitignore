@@ -53,3 +53,5 @@ codex_tmp/
 tmp_pytest/
 pytest-cache-files-*/
 
+.conexus/
+workspace/

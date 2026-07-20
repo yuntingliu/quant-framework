@@ -4,7 +4,6 @@ import { ErrorBoundary } from "./components/shared/ErrorBoundary"
 import { ThemeProvider } from "./contexts/ThemeContext"
 import { LanguageProvider } from "./contexts/LanguageContext"
 import { GlobalFilterProvider } from "./contexts/GlobalFilterContext"
-import { AgentPromptProvider } from "./contexts/AgentPromptContext"
 import { ConfirmProvider } from "./hooks/useConfirm"
 import Workspace from "./Workspace"
 
@@ -24,19 +23,17 @@ function App() {
         <LanguageProvider>
           <ThemeProvider defaultTheme="light">
             <GlobalFilterProvider>
-              <AgentPromptProvider>
-                <ConfirmProvider>
-                  <Toaster
-                    position="top-right"
-                    toastOptions={{
-                      className: "bg-card text-card-foreground border-border",
-                    }}
-                  />
-                  <div className="h-screen w-screen overflow-hidden">
-                    <Workspace />
-                  </div>
-                </ConfirmProvider>
-              </AgentPromptProvider>
+              <ConfirmProvider>
+                <Toaster
+                  position="top-right"
+                  toastOptions={{
+                    className: "bg-card text-card-foreground border-border",
+                  }}
+                />
+                <div className="h-screen w-screen overflow-hidden">
+                  <Workspace />
+                </div>
+              </ConfirmProvider>
             </GlobalFilterProvider>
           </ThemeProvider>
         </LanguageProvider>

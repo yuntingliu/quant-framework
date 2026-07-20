@@ -10,11 +10,9 @@ import {
   type SyncJob,
   type SyncPlan,
 } from '../../lib/api'
-import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh'
 import { useDataProfile, type DataProfile } from '../../lib/data-profile'
 
 export function DataCenterWidget() {
-  const refreshRevision = useWorkspaceRefresh()
   const [status, setStatus] = useState<ProviderStatus | null>(null)
   const [error, setError] = useState('')
   const [manifest, setManifest] = useState<DataManifest | null>(null)
@@ -50,7 +48,7 @@ export function DataCenterWidget() {
     void refresh()
     const timer = window.setInterval(() => { void refresh() }, 5000)
     return () => window.clearInterval(timer)
-  }, [refresh, refreshRevision])
+  }, [refresh])
 
   async function preview() {
     setBusy(true)

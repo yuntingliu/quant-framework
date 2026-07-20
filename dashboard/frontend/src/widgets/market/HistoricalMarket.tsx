@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BarChart3, CalendarDays } from 'lucide-react'
 import { RollingLineChart } from '../../components/charts/RollingLineChart'
-import { useLinkedSymbol } from '../../contexts/PanelContext'
 import { apiGet, type DataManifest, type MarketBar, type ProviderStatus } from '../../lib/api'
-import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh'
 import { useDataProfile, type DataProfile } from '../../lib/data-profile'
 
 export function HistoricalMarketWidget() {
-  const refreshRevision = useWorkspaceRefresh()
   const [symbols, setSymbols] = useState<string[]>([])
-  const { symbol: linkedSymbol, setSymbol } = useLinkedSymbol()
+  const [symbol, setSymbol] = useState('')
   const [manifest, setManifest] = useState<DataManifest | null>(null)
   const [rows, setRows] = useState<MarketBar[]>([])
   const [error, setError] = useState('')
@@ -20,22 +17,18 @@ export function HistoricalMarketWidget() {
     setError('')
     setRows([])
     setSymbols([])
+    setSymbol('')
     Promise.all([
       apiGet<{ symbols: string[] }>(`/data/market/symbols?profile=${profile}`),
       apiGet<DataManifest>('/data/manifest'),
       apiGet<ProviderStatus>('/data/providers'),
     ]).then(([symbolPayload, manifestPayload, statusPayload]) => {
       setSymbols(symbolPayload.symbols)
+      setSymbol(symbolPayload.symbols[0] ?? '')
       setManifest(manifestPayload)
       setProviderStatus(statusPayload)
     }).catch((err: Error) => setError(err.message))
-  }, [profile, refreshRevision])
-
-  useEffect(() => {
-    if ((!linkedSymbol || !symbols.includes(linkedSymbol)) && symbols[0]) setSymbol(symbols[0])
-  }, [linkedSymbol, setSymbol, symbols])
-
-  const symbol = linkedSymbol ?? symbols[0] ?? ''
+  }, [profile])
 
   useEffect(() => {
     if (!symbol || !manifest) return

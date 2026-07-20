@@ -1,4 +1,0 @@
-{
-  "stdout": "",
-  "stderr": "所在位置 C:\\Users\\windo\\AppData\\Local\\Temp\\conexus-shell\\1784184051036_7h50dx_user.ps1:1 字符: 26\r\n+ cd /d E:\\quant-framework && dir && (if exist package.json type packag ...\r\n+                          ~~\n标记“&&”不是此版本中的有效语句分隔符。\r\n\r\n所在位置 C:\\Users\\windo\\AppData\\Local\\Temp\\conexus-shell\\1784184051036_7h50dx_user.ps1:1 字符: 33\r\n+ cd /d E:\\quant-framework && dir && (if exist package.json type packag ...\r\n+                                 ~~\n标记“&&”不是此版本中的有效语句分隔符。\r\n\r\n所在位置 C:\\Users\\windo\\AppData\\Local\\Temp\\conexus-shell\\1784184051036_7h50dx_user.ps1:1 字符: 36\r\n+ ... :\\quant-framework && dir && (if exist package.json type package.json)\r\n+                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n只允许将表达式作为管道的第一个元素。"
-}

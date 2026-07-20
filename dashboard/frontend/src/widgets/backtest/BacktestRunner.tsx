@@ -1,22 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { apiGet, apiPost, type BacktestRecord, type BacktestRunResult, type DataManifest, type ProviderStatus, type RuntimeCatalog, type StrategyTemplate } from '../../lib/api'
-import { useWorkspace } from '../../contexts/WorkspaceContext'
-import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh'
 import { useDataProfile, type DataProfile } from '../../lib/data-profile'
 
 export function BacktestRunnerWidget() {
-  const refreshRevision = useWorkspaceRefresh()
-  const workspace = useWorkspace()
-  const initialWorkspaceRef = useRef({
-    selectedStrategy: workspace.selectedStrategy,
-    selectedBacktest: workspace.selectedBacktest,
-    selectedDate: workspace.selectedDate,
-  })
-  initialWorkspaceRef.current = {
-    selectedStrategy: workspace.selectedStrategy,
-    selectedBacktest: workspace.selectedBacktest,
-    selectedDate: workspace.selectedDate,
-  }
   const [strategies, setStrategies] = useState<StrategyTemplate[]>([])
   const [strategyId, setStrategyId] = useState('momentum')
   const [startDate, setStartDate] = useState('')
@@ -36,45 +22,23 @@ export function BacktestRunnerWidget() {
       apiGet<RuntimeCatalog>('/data-sync/catalog'),
       profile === 'demo' ? apiGet<BacktestRecord[]>('/backtests?limit=1') : Promise.resolve([]),
     ]).then(async ([items, manifest, providerStatus, catalog, records]) => {
-      const initialWorkspace = initialWorkspaceRef.current
       setStrategies(items)
       const runtimeBars = catalog.datasets.find((dataset) => dataset.id === 'rq.bars')
       if (profile === 'demo') {
         setStartDate(manifest.sample_start)
-        setEndDate(initialWorkspace.selectedDate ?? manifest.cutoff_date)
+        setEndDate(manifest.cutoff_date)
       } else if (providerStatus.profiles.runtime.status === 'ready' && runtimeBars) {
         setStartDate(runtimeBars.date_start ?? '')
-        setEndDate(initialWorkspace.selectedDate ?? runtimeBars.date_end ?? '')
+        setEndDate(runtimeBars.date_end ?? '')
       } else {
         setStartDate('')
         setEndDate('')
         setError('Runtime data is not ready. Open Data Center and complete an RQ sync.')
       }
-      const initialStrategy = initialWorkspace.selectedStrategy && items.some((item) => item.id === initialWorkspace.selectedStrategy)
-        ? initialWorkspace.selectedStrategy
-        : items[0]?.id
-      if (initialStrategy) setStrategyId(initialStrategy)
-      const initialBacktest = initialWorkspace.selectedBacktest ?? records[0]?.id
-      if (initialBacktest) setResult(await apiGet<BacktestRunResult>(`/backtests/${initialBacktest}`))
+      if (items[0]) setStrategyId(items[0].id)
+      if (records[0]) setResult(await apiGet<BacktestRunResult>(`/backtests/${records[0].id}`))
     }).catch((err: Error) => setError(err.message))
-  }, [profile, refreshRevision])
-
-  useEffect(() => {
-    if (workspace.selectedStrategy && strategies.some((item) => item.id === workspace.selectedStrategy)) {
-      setStrategyId(workspace.selectedStrategy)
-    }
-  }, [strategies, workspace.selectedStrategy])
-
-  useEffect(() => {
-    if (workspace.selectedDate) setEndDate(workspace.selectedDate)
-  }, [workspace.selectedDate])
-
-  useEffect(() => {
-    if (!workspace.selectedBacktest) return
-    apiGet<BacktestRunResult>(`/backtests/${workspace.selectedBacktest}`)
-      .then(setResult)
-      .catch((err: Error) => setError(err.message))
-  }, [workspace.selectedBacktest])
+  }, [profile])
 
   async function run() {
     setRunning(true)
@@ -83,8 +47,6 @@ export function BacktestRunnerWidget() {
     try {
       const response = await apiPost<BacktestRunResult>('/backtests/run', { strategy_id: strategyId, start_date: startDate, end_date: endDate, profile })
       setResult(response)
-      workspace.setSelectedStrategy(strategyId)
-      workspace.setSelectedBacktest(response.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -100,10 +62,7 @@ export function BacktestRunnerWidget() {
           <option value="demo">Demo</option>
           <option value="runtime">Local RQ</option>
         </select>
-        <select value={strategyId} onChange={(event) => {
-          setStrategyId(event.target.value)
-          workspace.setSelectedStrategy(event.target.value)
-        }}>
+        <select value={strategyId} onChange={(event) => setStrategyId(event.target.value)}>
           {strategies.map((strategy) => <option key={strategy.id} value={strategy.id}>{strategy.name}</option>)}
         </select>
         <input value={startDate} onChange={(event) => setStartDate(event.target.value)} />

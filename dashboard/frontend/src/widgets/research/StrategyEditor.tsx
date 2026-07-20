@@ -1,13 +1,10 @@
 import { useEffect, useState } from 'react'
 import { FileCode2 } from 'lucide-react'
 import { apiGet, type StrategyTemplate, type StrategyTemplateDetail } from '../../lib/api'
-import { useWorkspace } from '../../contexts/WorkspaceContext'
-import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh'
 
 export function StrategyEditorWidget() {
-  const refreshRevision = useWorkspaceRefresh()
-  const { selectedStrategy, setSelectedStrategy } = useWorkspace()
   const [strategies, setStrategies] = useState<StrategyTemplate[]>([])
+  const [strategyId, setStrategyId] = useState('momentum')
   const [detail, setDetail] = useState<StrategyTemplateDetail | null>(null)
   const [error, setError] = useState('')
 
@@ -15,15 +12,10 @@ export function StrategyEditorWidget() {
     apiGet<StrategyTemplate[]>('/strategies')
       .then((items) => {
         setStrategies(items)
+        if (items[0]) setStrategyId(items[0].id)
       })
       .catch((err: Error) => setError(err.message))
-  }, [refreshRevision])
-
-  useEffect(() => {
-    if (!selectedStrategy && strategies[0]) setSelectedStrategy(strategies[0].id)
-  }, [selectedStrategy, setSelectedStrategy, strategies])
-
-  const strategyId = selectedStrategy ?? strategies[0]?.id ?? ''
+  }, [])
 
   useEffect(() => {
     if (!strategyId) return
@@ -47,7 +39,7 @@ export function StrategyEditorWidget() {
               key={strategy.id}
               type="button"
               className={strategy.id === strategyId ? 'active' : ''}
-              onClick={() => setSelectedStrategy(strategy.id)}
+              onClick={() => setStrategyId(strategy.id)}
             >
               <strong>{strategy.name}</strong>
               <span>{strategy.factors.length} factors</span>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
   Activity,
@@ -7,13 +7,16 @@ import {
   Bot,
   ClipboardList,
   Database,
+  FileText,
   Gauge,
   Layers,
+  MessageSquareText,
   PanelRightClose,
   PanelRightOpen,
   PlayCircle,
   Plus,
   Search,
+  Send,
   ShieldCheck,
   SlidersHorizontal,
   Target,
@@ -25,17 +28,17 @@ import {
 } from "lucide-react"
 
 import { ScoreGauge } from "@/components/shared/ScoreGauge"
-import { useAgentPrompt, type AgentDecisionNotebook } from "@/contexts/AgentPromptContext"
 import { useLanguage, type TranslationKey } from "@/contexts/LanguageContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
 import type { WorkspaceMode } from "@/layouts/presets"
 import { api } from "@/lib/api"
-import type { ConexusStatus } from "@/lib/conexus/types"
 import { cn } from "@/lib/utils"
-import { ResearchAgentPanel } from "@/widgets/research/ResearchAgent"
 
 import { MODE_CONFIG } from "./modes"
 import type { RightRailTab, WorkspaceTask } from "./types"
+
+const DECISION_NOTEBOOK_STORAGE_KEY = "alphalab-agent-decision-notebook"
+const DECISION_NOTEBOOK_EVENT = "alphalab:decisionNotebook"
 
 interface TradingStatusSummary {
   connected?: boolean
@@ -81,6 +84,16 @@ interface DataStatusSummary {
   rq?: DataSourceSummary
 }
 
+interface AgentConfigSummary {
+  llm?: {
+    configured?: boolean
+    available?: boolean
+    provider?: string
+    model?: string | null
+    mode?: string
+  }
+}
+
 interface LatestBacktestSummary {
   id: string
   strategy_id?: string | null
@@ -100,6 +113,35 @@ interface LatestBacktestSummary {
 type BacktestListSummary = LatestBacktestSummary[]
 
 type RailTone = "ok" | "warn" | "danger" | "muted"
+type AgentIntent = "brief" | "draft" | "risk" | "next"
+
+interface RightRailAgentPromptDetail {
+  source: "right-rail"
+  idea: string
+  symbols: string[]
+  themes: string[]
+  draftStrategy: boolean
+  graphMode?: boolean
+  includeMemory?: boolean
+  planningMode?: "pipeline" | "agentic"
+  reportLanguage?: "auto" | "en" | "zh"
+  reviewRequired?: boolean
+  runStrategyExperiment?: boolean
+}
+
+type AgentPromptWindow = Window & {
+  __alphalabPendingAgentPrompt?: RightRailAgentPromptDetail
+}
+
+interface DecisionNotebookSnapshot {
+  runId?: string
+  updatedAt?: string
+  classification?: string
+  baseCase?: string
+  riskCase?: string
+  nextAction?: string
+  candidateExpressions?: string[]
+}
 
 interface RailActivityItem {
   id: string
@@ -110,6 +152,18 @@ interface RailActivityItem {
   icon: LucideIcon
 }
 
+function loadDecisionNotebookSnapshot(): DecisionNotebookSnapshot | null {
+  try {
+    const raw = localStorage.getItem(DECISION_NOTEBOOK_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
+    const snapshot = parsed as DecisionNotebookSnapshot
+    return snapshot.baseCase || snapshot.nextAction || snapshot.classification ? snapshot : null
+  } catch {
+    return null
+  }
+}
 // ---------------------------------------------------------------------------
 // Workspace commands
 // ---------------------------------------------------------------------------
@@ -128,8 +182,27 @@ const RIGHT_RAIL_TABS: Array<{ id: RightRailTab; icon: LucideIcon; labelKey: Tra
   { id: "activity", icon: Activity, labelKey: "rightRail.activity" },
 ]
 
-const RIGHT_RAIL_MIN_WIDTH = 320
-const RIGHT_RAIL_MAX_WIDTH = 720
+const AGENT_INTENTS: Array<{ id: AgentIntent; icon: LucideIcon }> = [
+  { id: "brief", icon: MessageSquareText },
+  { id: "draft", icon: FileText },
+  { id: "risk", icon: ShieldCheck },
+  { id: "next", icon: ClipboardList },
+]
+
+const AGENT_PROMPT_CHIPS: Record<"zh" | "en", Array<{ label: string; prompt: string; intent: AgentIntent }>> = {
+  zh: [
+    { label: "指数回撤恢复", prompt: "指数急跌后，历史同类大跌通常多久恢复？请区分回补前一日收盘价、恢复前高、10% 修正和 20% 熊市回撤。", intent: "brief" },
+    { label: "可回测 YAML 草案", prompt: "把当前研究上下文整理成可回测 YAML 草案，列出因子、股票池、再平衡和风险门禁。", intent: "draft" },
+    { label: "风险与数据需求", prompt: "检查这个策略假设的主要风险、数据依赖、泄漏风险和下一步验证动作。", intent: "risk" },
+    { label: "下一步清单", prompt: "基于当前上下文，生成 5 条最值得执行的 AlphaLab 研究下一步。", intent: "next" },
+  ],
+  en: [
+    { label: "Index drawdown recovery", prompt: "After a broad-index selloff, how long did similar historical drops take to recover? Separate prior-close recovery, prior-high recovery, 10% corrections, and 20% bear-market drawdowns.", intent: "brief" },
+    { label: "Backtestable YAML", prompt: "Turn the current research context into a backtestable YAML draft with factors, universe, rebalance, and risk gates.", intent: "draft" },
+    { label: "Risk and data needs", prompt: "Review the strategy hypothesis for risks, data dependencies, leakage risk, and the next validation actions.", intent: "risk" },
+    { label: "Next-step checklist", prompt: "Given the current context, create the five highest-value AlphaLab research next steps.", intent: "next" },
+  ],
+}
 
 const RIGHT_RAIL_COPY = {
   zh: {
@@ -151,10 +224,27 @@ const RIGHT_RAIL_COPY = {
     selectBacktest: "载入回测",
     inspect: "检查",
     openData: "数据中心",
+    openRunner: "运行回测",
     openStrategy: "策略配置",
     openWorkbench: "回测工作台",
+    openWorkflow: "AI 工作流",
+    openCommand: "搜索上下文",
+    sendContext: "发送给研究代理",
+    compose: "上下文 Prompt",
+    promptPreview: "发送预览",
+    includeSymbol: "标的",
+    includeStrategy: "策略",
+    includeBacktest: "回测",
+    includeData: "数据状态",
+    clearDraft: "清空草稿",
+    sentToAgent: "已发送到 AI 研究代理",
+    draftEmpty: "先写一点研究想法，或点击一个模板。",
     agentReady: "LLM 就绪",
     agentFallback: "本地/回退",
+    modeBrief: "简报",
+    modeDraft: "草案",
+    modeRisk: "风控",
+    modeNext: "下一步",
     activityTrail: "操作轨迹",
     gateBoard: "门禁板",
     noActivity: "暂无操作，先从 Context 或 Agent 里推进一步。",
@@ -167,16 +257,15 @@ const RIGHT_RAIL_COPY = {
     commandOpened: "打开命令面板",
     widgetOpened: "打开组件",
     backtestSelected: "已载入回测",
+    agentInjected: "Prompt 已注入研究代理",
     tabChanged: "切换右栏",
     latest: "最近",
     latestNotebook: "最近决策笔记",
-    noNotebook: "运行一次 Agent 后，这里会显示最近的决策笔记摘要。",
-    classification: "判断",
-    baseCase: "基础情景",
-    riskCase: "风险情景",
+    baseCase: "基础判断",
+    riskCase: "风险情形",
     nextAction: "下一步",
-    candidates: "候选表达式",
-    resizeRail: "拖动调整右栏宽度",
+    candidates: "候选表达",
+    noNotebook: "运行一次 Agent 后，这里会显示最近的决策笔记摘要。",
   },
   en: {
     score: "Readiness",
@@ -197,10 +286,27 @@ const RIGHT_RAIL_COPY = {
     selectBacktest: "Load backtest",
     inspect: "Inspect",
     openData: "Data Center",
+    openRunner: "Run Backtest",
     openStrategy: "Strategies",
     openWorkbench: "Workbench",
+    openWorkflow: "AI Workflow",
+    openCommand: "Search context",
+    sendContext: "Send to research agent",
+    compose: "Context Prompt",
+    promptPreview: "Send preview",
+    includeSymbol: "Symbol",
+    includeStrategy: "Strategy",
+    includeBacktest: "Backtest",
+    includeData: "Data status",
+    clearDraft: "Clear draft",
+    sentToAgent: "Sent to AI Research Agent",
+    draftEmpty: "Write a research idea, or pick a template.",
     agentReady: "LLM ready",
     agentFallback: "Local/fallback",
+    modeBrief: "Brief",
+    modeDraft: "Draft",
+    modeRisk: "Risk",
+    modeNext: "Next",
     activityTrail: "Activity trail",
     gateBoard: "Gate board",
     noActivity: "No actions yet. Advance from Context or Agent.",
@@ -213,16 +319,15 @@ const RIGHT_RAIL_COPY = {
     commandOpened: "Opened command palette",
     widgetOpened: "Opened widget",
     backtestSelected: "Loaded backtest",
+    agentInjected: "Prompt injected into research agent",
     tabChanged: "Switched rail tab",
     latest: "Latest",
     latestNotebook: "Latest decision notebook",
-    noNotebook: "Run the Agent once and the latest decision notebook summary appears here.",
-    classification: "Classification",
     baseCase: "Base case",
     riskCase: "Risk case",
     nextAction: "Next action",
-    candidates: "Candidate expressions",
-    resizeRail: "Drag to resize the right rail",
+    candidates: "Candidates",
+    noNotebook: "Run the Agent once and the latest decision notebook summary appears here.",
   },
 } as const
 
@@ -234,6 +339,25 @@ function formatCompactNumber(value?: number | null) {
 function formatDateLabel(value?: string | null) {
   if (!value) return "--"
   return value.length > 10 ? value.slice(0, 10) : value
+}
+
+function isCrashRecoveryPrompt(prompt: string) {
+  const text = prompt.toLowerCase()
+  return (
+    text.includes("spy") ||
+    text.includes("qqq") ||
+    text.includes("crash") ||
+    text.includes("drawdown") ||
+    text.includes("recovery") ||
+    text.includes("correction") ||
+    text.includes("bear market") ||
+    text.includes("大跌") ||
+    text.includes("急跌") ||
+    text.includes("回撤") ||
+    text.includes("修正") ||
+    text.includes("熊市") ||
+    text.includes("恢复")
+  )
 }
 
 function RailIconButton({
@@ -401,13 +525,13 @@ function buildRailScore({
   selectedBacktest: string | null
   tradingStatus?: TradingStatusSummary
   dataStatus?: DataStatusSummary
-  agentConfig?: ConexusStatus
+  agentConfig?: AgentConfigSummary
 }) {
   const dataReady = Boolean(dataStatus?.demo && !dataStatus.demo.needs_update)
   const connectionReady = tradingStatus?.connected === true || activeMode === "home" || activeMode === "research" || activeMode === "data"
   const contextReady = Boolean(selectedSymbol || selectedStrategy || selectedBacktest)
   const researchReady = Boolean(selectedStrategy || selectedBacktest)
-  const agentReady = agentConfig?.available === true
+  const agentReady = agentConfig?.llm?.available === true
   const paperSafe = !tradingStatus?.supports_real_orders
   let score = 20
   if (dataReady) score += 25
@@ -520,73 +644,58 @@ function FocusRow({
   )
 }
 
-function RailNotebookLine({ label, value }: { label: string; value?: string }) {
-  if (!value) return null
-  return (
-    <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-2 text-[10px] leading-4">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="break-words text-foreground">{value}</span>
-    </div>
-  )
-}
-
-function DecisionNotebookCard({ notebook }: { notebook: AgentDecisionNotebook | null }) {
-  const { language } = useLanguage()
+function buildContextPrompt({
+  language,
+  intent,
+  draft,
+  selectedSymbol,
+  selectedStrategy,
+  selectedBacktest,
+  dataStatus,
+}: {
+  language: "zh" | "en"
+  intent: AgentIntent
+  draft: string
+  selectedSymbol: string | null
+  selectedStrategy: string | null
+  selectedBacktest: string | null
+  dataStatus?: DataStatusSummary
+}) {
   const copy = rightRailCopy(language)
-  const updatedAt = notebook?.updatedAt ? new Date(notebook.updatedAt) : null
-  const updatedLabel = updatedAt && !Number.isNaN(updatedAt.getTime())
-    ? updatedAt.toLocaleString(language === "zh" ? "zh-CN" : "en-US", { dateStyle: "short", timeStyle: "short" })
-    : null
-
-  return (
-    <section className="space-y-2">
-      <div className="flex min-w-0 items-center gap-2 text-xs font-semibold text-foreground">
-        <ClipboardList className="h-4 w-4 shrink-0 text-primary" />
-        <span className="min-w-0 flex-1 truncate">{copy.latestNotebook}</span>
-        {updatedLabel ? <span className="shrink-0 text-[9px] font-normal text-muted-foreground">{updatedLabel}</span> : null}
-      </div>
-      <div className="rounded border border-border bg-background p-2.5">
-        {!notebook ? (
-          <p className="text-[10px] leading-4 text-muted-foreground">{copy.noNotebook}</p>
-        ) : (
-          <div className="space-y-2">
-            {notebook.classification ? (
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground">{copy.classification}</span>
-                <span className="min-w-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                  {notebook.classification}
-                </span>
-              </div>
-            ) : null}
-            <div className="space-y-1.5">
-              <RailNotebookLine label={copy.baseCase} value={notebook.baseCase} />
-              <RailNotebookLine label={copy.riskCase} value={notebook.riskCase} />
-              <RailNotebookLine label={copy.nextAction} value={notebook.nextAction} />
-            </div>
-            {notebook.candidateExpressions?.length ? (
-              <div className="border-t border-border pt-2">
-                <div className="mb-1 text-[10px] text-muted-foreground">{copy.candidates}</div>
-                <div className="flex flex-wrap gap-1">
-                  {notebook.candidateExpressions.map((expression) => (
-                    <span key={expression} className="max-w-full break-all rounded bg-muted px-1.5 py-0.5 font-mono text-[9px] text-foreground">
-                      {expression}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        )}
-      </div>
-    </section>
-  )
+  const intentLine = {
+    zh: {
+      brief: "请生成本地证据研究简报。",
+      draft: "请生成可回测策略 YAML 草案。",
+      risk: "请做风险、数据质量和泄漏检查。",
+      next: "请给出下一步执行清单。",
+    },
+    en: {
+      brief: "Generate a local evidence research brief.",
+      draft: "Generate a backtestable strategy YAML draft.",
+      risk: "Run risk, data quality, and leakage checks.",
+      next: "Create an execution-ready next-step checklist.",
+    },
+  }[language][intent]
+  const baseIdea = draft.trim()
+    || (language === "en"
+      ? "Review the current AlphaLab context."
+      : "请基于当前 AlphaLab 上下文生成研究简报。")
+  const lines = [
+    baseIdea,
+    "",
+    intentLine,
+    `${copy.includeSymbol}: ${selectedSymbol ?? "-"}`,
+    `${copy.includeStrategy}: ${selectedStrategy ?? "-"}`,
+    `${copy.includeBacktest}: ${selectedBacktest ?? "-"}`,
+    `${copy.includeData}: Demo ${dataStatus?.demo?.needs_update ? copy.dataWarn : copy.dataOk}; Runtime ${dataStatus?.runtime?.needs_update ? copy.dataWarn : copy.dataOk}`,
+  ]
+  return lines.join("\n")
 }
 
 function RightRailContextPanel({
   tradingStatus,
   asset,
   dataStatus,
-  decisionNotebook,
   latestBacktests,
   onAddWidget,
   onOpenTask,
@@ -595,7 +704,6 @@ function RightRailContextPanel({
   tradingStatus?: TradingStatusSummary
   asset?: TradingAssetSummary
   dataStatus?: DataStatusSummary
-  decisionNotebook: AgentDecisionNotebook | null
   latestBacktests: LatestBacktestSummary[]
   onAddWidget: (widgetId: string, label: string) => void
   onOpenTask: (task: WorkspaceTask) => void
@@ -662,8 +770,6 @@ function RightRailContextPanel({
           <div className="mt-1 text-[10px] leading-4 text-muted-foreground">{t(modeConfig.detailKey)}</div>
         </div>
       </section>
-
-      <DecisionNotebookCard notebook={decisionNotebook} />
 
       <section className="space-y-2">
         <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
@@ -769,6 +875,236 @@ function RightRailContextPanel({
   )
 }
 
+function RightRailAgentPanel({
+  draft,
+  onDraftChange,
+  intent,
+  onIntentChange,
+  dataStatus,
+  agentConfig,
+  decisionNotebook,
+  onSendPrompt,
+  onOpenTask,
+}: {
+  draft: string
+  onDraftChange: (value: string) => void
+  intent: AgentIntent
+  onIntentChange: (value: AgentIntent) => void
+  dataStatus?: DataStatusSummary
+  agentConfig?: AgentConfigSummary
+  decisionNotebook: DecisionNotebookSnapshot | null
+  onSendPrompt: (prompt: string, intent: AgentIntent) => void
+  onOpenTask: (task: WorkspaceTask) => void
+}) {
+  const workspace = useWorkspace()
+  const { language, t } = useLanguage()
+  const copy = rightRailCopy(language)
+  const [includeSymbol, setIncludeSymbol] = useState(true)
+  const [includeStrategy, setIncludeStrategy] = useState(true)
+  const [includeBacktest, setIncludeBacktest] = useState(true)
+  const [includeData, setIncludeData] = useState(true)
+  const preview = buildContextPrompt({
+    language,
+    intent,
+    draft,
+    selectedSymbol: includeSymbol ? workspace.selectedSymbol : null,
+    selectedStrategy: includeStrategy ? workspace.selectedStrategy : null,
+    selectedBacktest: includeBacktest ? workspace.selectedBacktest : null,
+    dataStatus: includeData ? dataStatus : undefined,
+  })
+  const agentReady = agentConfig?.llm?.available === true
+
+  return (
+    <div className="space-y-3">
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-2 text-xs font-semibold text-foreground">
+          <span className="flex min-w-0 items-center gap-2">
+            <Bot className="h-4 w-4 text-primary" />
+            <span>{copy.compose}</span>
+          </span>
+          <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px]", agentReady ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-muted text-muted-foreground")}>
+            {agentReady ? copy.agentReady : copy.agentFallback}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-4 gap-1">
+          {AGENT_INTENTS.map(({ id, icon: Icon }) => {
+            const label = {
+              brief: copy.modeBrief,
+              draft: copy.modeDraft,
+              risk: copy.modeRisk,
+              next: copy.modeNext,
+            }[id]
+            return (
+              <button
+                key={id}
+                className={cn(
+                  "flex min-h-8 min-w-0 items-center justify-center gap-1 rounded border px-1 text-[10px] transition-colors",
+                  intent === id
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                )}
+                onClick={() => onIntentChange(id)}
+                title={label}
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{label}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        <textarea
+          className="min-h-28 w-full resize-none rounded border border-border bg-background px-2 py-2 text-xs leading-5 text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/60"
+          value={draft}
+          onChange={(event) => onDraftChange(event.target.value)}
+          placeholder={t("rightRail.promptPlaceholder")}
+        />
+        <div className="flex flex-wrap gap-1.5">
+          {AGENT_PROMPT_CHIPS[language].map((chip) => (
+            <button
+              key={chip.label}
+              className="max-w-full rounded border border-border bg-background px-2 py-1 text-left text-[10px] leading-4 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+              onClick={() => {
+                onDraftChange(chip.prompt)
+                onIntentChange(chip.intent)
+              }}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="space-y-2">
+        <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+          <Layers className="h-4 w-4 text-primary" />
+          <span>{t("rightRail.currentContext")}</span>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          <ContextToggle label={copy.includeSymbol} checked={includeSymbol} onChange={setIncludeSymbol} />
+          <ContextToggle label={copy.includeStrategy} checked={includeStrategy} onChange={setIncludeStrategy} />
+          <ContextToggle label={copy.includeBacktest} checked={includeBacktest} onChange={setIncludeBacktest} />
+          <ContextToggle label={copy.includeData} checked={includeData} onChange={setIncludeData} />
+        </div>
+      </section>
+
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-2 text-xs font-semibold text-foreground">
+          <span className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-primary" />
+            <span>{copy.promptPreview}</span>
+          </span>
+          <button
+            className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+            onClick={() => onDraftChange("")}
+            title={copy.clearDraft}
+          >
+            {copy.clearDraft}
+          </button>
+        </div>
+        <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded border border-border bg-background p-2 text-[10px] leading-4 text-muted-foreground">
+          {preview}
+        </pre>
+      </section>
+
+      <div className="grid gap-2">
+        <button
+          className="flex min-h-9 w-full items-center justify-center gap-2 rounded border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/15"
+          onClick={() => onSendPrompt(preview, intent)}
+        >
+          <Send className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 truncate">{copy.sendContext}</span>
+        </button>
+        <button
+          className="flex min-h-9 w-full items-center justify-center gap-2 rounded border border-border bg-background px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+          onClick={() => onOpenTask("startResearch")}
+        >
+          <Workflow className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 truncate">{copy.openWorkflow}</span>
+        </button>
+      </div>
+
+      <section className="space-y-2 rounded border border-border bg-background p-2">
+        <div className="flex items-center justify-between gap-2 text-xs font-semibold text-foreground">
+          <span className="flex min-w-0 items-center gap-2">
+            <ClipboardList className="h-4 w-4 text-primary" />
+            <span className="truncate">{copy.latestNotebook}</span>
+          </span>
+          {decisionNotebook?.classification ? (
+            <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+              {decisionNotebook.classification}
+            </span>
+          ) : null}
+        </div>
+        {decisionNotebook ? (
+          <div className="space-y-2">
+            <RailNotebookLine label={copy.baseCase} value={decisionNotebook.baseCase} />
+            <RailNotebookLine label={copy.riskCase} value={decisionNotebook.riskCase} />
+            <RailNotebookLine label={copy.nextAction} value={decisionNotebook.nextAction} />
+            {decisionNotebook.candidateExpressions?.length ? (
+              <div>
+                <div className="mb-1 text-[10px] uppercase text-muted-foreground">{copy.candidates}</div>
+                <div className="flex flex-wrap gap-1">
+                  {decisionNotebook.candidateExpressions.slice(0, 5).map((item) => (
+                    <span key={item} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {decisionNotebook.updatedAt ? (
+              <div className="text-[10px] text-muted-foreground">{copy.latest}: {formatDateLabel(decisionNotebook.updatedAt)}</div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="text-[11px] leading-4 text-muted-foreground">{copy.noNotebook}</div>
+        )}
+      </section>
+
+      <div className="rounded border border-border bg-background p-2">
+        <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+          <ShieldCheck className="h-4 w-4 text-emerald-500" />
+          <span>{t("rightRail.v1Scope")}</span>
+        </div>
+        <p className="mt-1 text-[10px] leading-4 text-muted-foreground">{t("rightRail.noBackend")}</p>
+      </div>
+    </div>
+  )
+}
+
+function RailNotebookLine({ label, value }: { label: string; value?: string }) {
+  if (!value) return null
+  return (
+    <div>
+      <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
+      <div className="break-words text-[11px] leading-4 text-foreground">{value}</div>
+    </div>
+  )
+}
+
+function ContextToggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string
+  checked: boolean
+  onChange: (value: boolean) => void
+}) {
+  return (
+    <label className="flex min-w-0 items-center gap-1.5 rounded border border-border bg-background px-2 py-1.5 text-[10px] text-muted-foreground">
+      <input
+        className="h-3 w-3 shrink-0 accent-primary"
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="truncate">{label}</span>
+    </label>
+  )
+}
 
 function RightRailActivityPanel({
   tradingStatus,
@@ -781,13 +1117,13 @@ function RightRailActivityPanel({
   dataStatus?: DataStatusSummary
   activityItems: RailActivityItem[]
   score: number
-  agentConfig?: ConexusStatus
+  agentConfig?: AgentConfigSummary
 }) {
   const { language, t } = useLanguage()
   const copy = rightRailCopy(language)
   const connected = tradingStatus?.connected === true
-  const dataNeedsUpdate = Boolean(dataStatus?.runtime?.needs_update || dataStatus?.rq?.needs_update)
-  const agentReady = agentConfig?.available === true
+  const dataNeedsUpdate = Boolean(dataStatus?.runtime?.needs_update)
+  const agentReady = agentConfig?.llm?.available === true
   const tone = scoreTone(score)
 
   return (
@@ -888,22 +1224,18 @@ function RightRailActivityPanel({
 export function WorkspaceRightRail({
   collapsed,
   narrow,
-  width,
   activeTab,
   onSelectTab,
   onToggleCollapsed,
-  onWidthChange,
   onAddWidget,
   onOpenWidget,
   onOpenTask,
 }: {
   collapsed: boolean
   narrow: boolean
-  width: number
   activeTab: RightRailTab
   onSelectTab: (tab: RightRailTab) => void
   onToggleCollapsed: () => void
-  onWidthChange: (width: number) => void
   onAddWidget: (widgetId: string) => void
   onOpenWidget?: (widgetId: string, title?: string, targetMode?: WorkspaceMode) => void
   onOpenTask: (task: WorkspaceTask) => void
@@ -911,34 +1243,11 @@ export function WorkspaceRightRail({
   const workspace = useWorkspace()
   const { activeMode } = workspace
   const { language, t } = useLanguage()
-  const { decisionNotebook } = useAgentPrompt()
   const copy = rightRailCopy(language)
+  const [agentDraft, setAgentDraft] = useState("")
+  const [agentIntent, setAgentIntent] = useState<AgentIntent>("brief")
+  const [decisionNotebook, setDecisionNotebook] = useState<DecisionNotebookSnapshot | null>(() => loadDecisionNotebookSnapshot())
   const [activityItems, setActivityItems] = useState<RailActivityItem[]>([])
-
-  const startResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    const startX = event.clientX
-    const startWidth = event.currentTarget.parentElement?.getBoundingClientRect().width ?? width
-    const previousCursor = document.body.style.cursor
-    const previousUserSelect = document.body.style.userSelect
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-
-    const handleMove = (moveEvent: PointerEvent) => {
-      onWidthChange(startWidth + startX - moveEvent.clientX)
-    }
-    const finish = () => {
-      window.removeEventListener("pointermove", handleMove)
-      window.removeEventListener("pointerup", finish)
-      window.removeEventListener("pointercancel", finish)
-      document.body.style.cursor = previousCursor
-      document.body.style.userSelect = previousUserSelect
-    }
-
-    window.addEventListener("pointermove", handleMove)
-    window.addEventListener("pointerup", finish)
-    window.addEventListener("pointercancel", finish)
-  }, [onWidthChange, width])
   const { data: tradingStatus } = useQuery({
     queryKey: ["trading", "status"],
     queryFn: () => api.get<TradingStatusSummary>("/trading/status"),
@@ -957,10 +1266,9 @@ export function WorkspaceRightRail({
     refetchInterval: 15000,
   })
   const { data: agentConfig } = useQuery({
-    queryKey: ["conexus", "status"],
-    queryFn: () => api.get<ConexusStatus>("/conexus/status"),
+    queryKey: ["agent", "config"],
+    queryFn: () => api.get<AgentConfigSummary>("/agent/config"),
     staleTime: 60_000,
-    refetchInterval: 30_000,
   })
   const { data: backtestList } = useQuery({
     queryKey: ["v2", "backtests", "right-rail"],
@@ -994,14 +1302,16 @@ export function WorkspaceRightRail({
   }, [])
 
   useEffect(() => {
-    if (!decisionNotebook) return
-    pushActivity(
-      copy.latestNotebook,
-      decisionNotebook.baseCase || decisionNotebook.classification || copy.noNotebook,
-      "ok",
-      ClipboardList,
-    )
-  }, [copy.latestNotebook, copy.noNotebook, decisionNotebook, pushActivity])
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<DecisionNotebookSnapshot>).detail
+      if (detail && typeof detail === "object") {
+        setDecisionNotebook(detail)
+        pushActivity(copy.latestNotebook, detail.baseCase || detail.classification || copy.noNotebook, "ok", ClipboardList)
+      }
+    }
+    window.addEventListener(DECISION_NOTEBOOK_EVENT, handler)
+    return () => window.removeEventListener(DECISION_NOTEBOOK_EVENT, handler)
+  }, [copy.latestNotebook, copy.noNotebook, pushActivity])
 
   const selectTab = (tab: RightRailTab) => {
     onSelectTab(tab)
@@ -1019,7 +1329,40 @@ export function WorkspaceRightRail({
     pushActivity(copy.widgetOpened, label, "ok", Plus)
   }, [copy.widgetOpened, onAddWidget, onOpenWidget, pushActivity])
 
-  const dataNeedsUpdate = Boolean(dataStatus?.runtime?.needs_update || dataStatus?.rq?.needs_update)
+  const sendPromptToAgent = useCallback((prompt: string, intent: AgentIntent) => {
+    const crashRecovery = isCrashRecoveryPrompt(prompt)
+    const symbols = crashRecovery ? ["SPY", "QQQ"] : workspace.selectedSymbol ? [workspace.selectedSymbol] : []
+    const themes = crashRecovery
+      ? ["index_drawdown_recovery", "drawdown", "recovery"]
+      : intent === "risk"
+        ? ["risk_review"]
+        : intent === "draft"
+          ? ["strategy_draft"]
+          : ["research_context"]
+    const detail: RightRailAgentPromptDetail = {
+      idea: prompt,
+      symbols,
+      themes,
+      draftStrategy: !crashRecovery && intent === "draft",
+      graphMode: crashRecovery,
+      includeMemory: true,
+      planningMode: crashRecovery ? "agentic" : undefined,
+      reportLanguage: language,
+      reviewRequired: false,
+      runStrategyExperiment: false,
+      source: "right-rail",
+    }
+    ;(window as AgentPromptWindow).__alphalabPendingAgentPrompt = detail
+    window.dispatchEvent(new CustomEvent<RightRailAgentPromptDetail>("alphalab:agentPrompt", { detail }))
+    if (onOpenWidget) {
+      onOpenWidget("research.agent", undefined, "research")
+    } else {
+      onAddWidget("research.agent")
+    }
+    pushActivity(copy.agentInjected, prompt.split("\n")[0] || copy.draftEmpty, "ok", Send)
+  }, [copy.agentInjected, copy.draftEmpty, language, onAddWidget, onOpenWidget, pushActivity, workspace.selectedSymbol])
+
+  const dataNeedsUpdate = Boolean(dataStatus?.runtime?.needs_update)
   const headerTone = scoreTone(score)
   const taskStatus = taskStatusLabel({
     selectedStrategy: workspace.selectedStrategy,
@@ -1098,22 +1441,31 @@ export function WorkspaceRightRail({
         ))}
       </div>
 
-      <div className={cn("min-h-0 flex-1", activeTab === "agent" ? "overflow-hidden" : "overflow-auto p-3")}>
+      <div className="min-h-0 flex-1 overflow-auto p-3">
         {activeTab === "context" && (
           <RightRailContextPanel
             tradingStatus={tradingStatus}
             asset={asset}
             dataStatus={dataStatus}
-            decisionNotebook={decisionNotebook}
             latestBacktests={latestBacktests}
             onAddWidget={addWidgetWithActivity}
             onOpenTask={onOpenTask}
             onRecordActivity={pushActivity}
           />
         )}
-        <div className={cn("h-full min-h-0", activeTab !== "agent" && "hidden")}>
-          <ResearchAgentPanel />
-        </div>
+        {activeTab === "agent" && (
+          <RightRailAgentPanel
+            draft={agentDraft}
+            onDraftChange={setAgentDraft}
+            intent={agentIntent}
+            onIntentChange={setAgentIntent}
+            dataStatus={dataStatus}
+            agentConfig={agentConfig}
+            decisionNotebook={decisionNotebook}
+            onSendPrompt={sendPromptToAgent}
+            onOpenTask={onOpenTask}
+          />
+        )}
         {activeTab === "activity" && (
           <RightRailActivityPanel
             tradingStatus={tradingStatus}
@@ -1136,10 +1488,7 @@ export function WorkspaceRightRail({
           className="fixed inset-0 z-40 bg-background/70 backdrop-blur-sm md:hidden"
           onClick={onToggleCollapsed}
         />
-        <aside
-          className="fixed inset-y-0 right-0 z-50 max-w-[calc(100vw-24px)] border-l border-border shadow-xl md:hidden"
-          style={{ width }}
-        >
+        <aside className="fixed inset-y-0 right-0 z-50 w-[304px] max-w-[calc(100vw-24px)] border-l border-border shadow-xl md:hidden">
           {panel}
         </aside>
       </>
@@ -1166,7 +1515,7 @@ export function WorkspaceRightRail({
               key={id}
               icon={icon}
               active={activeTab === id}
-              tone={id === "context" ? (dataNeedsUpdate ? "warn" : "ok") : id === "agent" ? (agentConfig?.available ? "ok" : "muted") : headerTone}
+              tone={id === "context" ? (dataNeedsUpdate ? "warn" : "ok") : id === "agent" ? (agentConfig?.llm?.available ? "ok" : "muted") : headerTone}
               label={t(labelKey)}
               onClick={() => selectTab(id)}
             />
@@ -1179,34 +1528,7 @@ export function WorkspaceRightRail({
   }
 
   return (
-    <aside
-      className="relative hidden h-full min-h-0 shrink-0 border-l border-border md:block"
-      style={{ width, maxWidth: "58vw" }}
-    >
-      <div
-        role="separator"
-        aria-label={copy.resizeRail}
-        aria-orientation="vertical"
-        aria-valuemin={RIGHT_RAIL_MIN_WIDTH}
-        aria-valuemax={RIGHT_RAIL_MAX_WIDTH}
-        aria-valuenow={Math.round(width)}
-        tabIndex={0}
-        className="group absolute inset-y-0 left-0 z-20 hidden w-2 -translate-x-1/2 cursor-col-resize touch-none outline-none md:block"
-        onPointerDown={startResize}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowLeft") {
-            event.preventDefault()
-            onWidthChange(width + 16)
-          } else if (event.key === "ArrowRight") {
-            event.preventDefault()
-            onWidthChange(width - 16)
-          }
-        }}
-        title={copy.resizeRail}
-      >
-        <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors group-hover:bg-primary/60 group-focus:bg-primary" />
-        <span className="absolute left-1/2 top-1/2 h-10 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border transition-colors group-hover:bg-primary group-focus:bg-primary" />
-      </div>
+    <aside className="hidden h-full min-h-0 w-[304px] shrink-0 border-l border-border md:block">
       {panel}
     </aside>
   )

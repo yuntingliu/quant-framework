@@ -4,7 +4,6 @@ from fastapi.testclient import TestClient
 
 from alphalab import ResultStore
 from dashboard.backend.main import app
-from dashboard.backend.routers import conexus
 from dashboard.backend.services import framework_service
 
 
@@ -115,20 +114,3 @@ def test_backtest_signal_and_paper_endpoints(tmp_path, monkeypatch):
     assert order.status_code == 200
     assert order.json()["status"] == "filled"
     assert client.get("/api/paper/orders").json()
-
-
-def test_conexus_status_uses_published_harness_contract(monkeypatch):
-    async def fake_fetch(path: str) -> dict:
-        assert path == "/api/public/harnesses/alphalab-research-agent/descriptor"
-        return {
-            "slug": "alphalab-research-agent",
-            "title": "AlphaLab Research Agent",
-            "accessPolicy": "anonymous",
-            "billingPolicy": "publisher",
-        }
-
-    monkeypatch.setattr(conexus, "_fetch_json", fake_fetch)
-    response = TestClient(app).get("/api/conexus/status")
-
-    assert response.status_code == 200
-    assert response.json() == {"available": True}
