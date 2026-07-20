@@ -1,0 +1,83 @@
+{
+  "id": "db90c964-53a9-4fcf-b70a-24b5dae479a9",
+  "slug": "alphalab-research-agent",
+  "version": 2,
+  "releaseChecksum": "6f54559cb55f42a4578d37c4f8f88b3c716a50c25da55a851d87f00a69640139",
+  "billingPolicy": "consumer",
+  "subjectUserId": "7d079212-ce64-4b54-8936-79a5e5d5dd48",
+  "conversationId": "26eafe8e-388c-4e09-bf69-b406673f457f",
+  "agentNodeId": "alphalab-research-agent-v1",
+  "status": "completed",
+  "createdAt": "2026-07-20T04:04:33.931Z",
+  "accessTokenHash": "64f9fe3f795e444466b444920ce8f539c04a2678acc90fa72856fd4e766c28dc",
+  "input": {
+    "context": {},
+    "request": "你能干什么"
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "runId": "db90c964-53a9-4fcf-b70a-24b5dae479a9",
+      "at": "2026-07-20T04:04:33.933Z",
+      "type": "run.queued",
+      "status": "queued"
+    },
+    {
+      "sequence": 2,
+      "runId": "db90c964-53a9-4fcf-b70a-24b5dae479a9",
+      "at": "2026-07-20T04:04:33.934Z",
+      "type": "run.started",
+      "status": "running"
+    },
+    {
+      "sequence": 3,
+      "runId": "db90c964-53a9-4fcf-b70a-24b5dae479a9",
+      "at": "2026-07-20T04:05:14.240Z",
+      "type": "run.completed",
+      "status": "completed"
+    }
+  ],
+  "startedAt": "2026-07-20T04:04:33.934Z",
+  "summary": "我可以帮你做 AlphaLab 量化研究，主要包括：\n\n1. 读取工作区信息：数据源状态、可用标的、策略目录、近期回测。\n2. 查看策略：读取某个策略模板和 YAML 定义，解释策略逻辑。\n3. 查看行情：读取指定 symbol 的历史 bars，用于检查价格、区间和数据完整性。\n4. 分析回测：读取已保存回测，解释收益、回撤、Sharpe、权重、样本区间，并提示样本限制、过拟合和前视风险。\n5. 运行回测：只有你明确说“运行回测”并给出 strategy_id、开始日期、结束日期后，我才会执行并保存回测。\n6. 生成纸面信号：只有你明确要求后，我才会生成纸面信号；这不是实盘下单，也不会真实交易。\n\n事实：当前你只是询问能力，我没有运行回测、没有生成信号、没有下单。\n\n你可以直接说：\n- “查看有哪些策略”\n- “读取某个策略 xxx”\n- “查看 AAPL 2023 年行情”\n- “分析回测 backtest_id=xxx”\n- “运行策略 xxx 从 2020-01-01 到 2024-12-31 的回测”",
+  "output": {
+    "summary": "我可以帮你做 AlphaLab 量化研究，主要包括：\n\n1. 读取工作区信息：数据源状态、可用标的、策略目录、近期回测。\n2. 查看策略：读取某个策略模板和 YAML 定义，解释策略逻辑。\n3. 查看行情：读取指定 symbol 的历史 bars，用于检查价格、区间和数据完整性。\n4. 分析回测：读取已保存回测，解释收益、回撤、Sharpe、权重、样本区间，并提示样本限制、过拟合和前视风险。\n5. 运行回测：只有你明确说“运行回测”并给出 strategy_id、开始日期、结束日期后，我才会执行并保存回测。\n6. 生成纸面信号：只有你明确要求后，我才会生成纸面信号；这不是实盘下单，也不会真实交易。\n\n事实：当前你只是询问能力，我没有运行回测、没有生成信号、没有下单。\n\n你可以直接说：\n- “查看有哪些策略”\n- “读取某个策略 xxx”\n- “查看 AAPL 2023 年行情”\n- “分析回测 backtest_id=xxx”\n- “运行策略 xxx 从 2020-01-01 到 2024-12-31 的回测”"
+  },
+  "completedAt": "2026-07-20T04:05:14.239Z",
+  "artifacts": [
+    {
+      "id": "c3765ff3-896a-4fa2-98cb-548d12a77e60",
+      "runId": "db90c964-53a9-4fcf-b70a-24b5dae479a9",
+      "title": "Decision Notebook",
+      "createdAt": "2026-07-20T04:05:14.239Z",
+      "producerNodeId": "alphalab-decision-notebook-v1",
+      "kind": "node",
+      "content": {
+        "node": {
+          "id": "alphalab-decision-notebook-v1",
+          "type": "custom",
+          "label": "Decision Notebook",
+          "description": "Structured output consumed by the AlphaLab right rail.",
+          "values": {
+            "customType": "alphalab_decision_notebook",
+            "content": "Structured decision notebook produced by the AlphaLab Research Agent.",
+            "data": {
+              "classification": "capability_explanation",
+              "baseCase": "用户询问 AlphaLab Research Agent 能力；当前仅需说明可读取上下文、策略、行情、回测，并在明确授权后运行回测或生成纸面信号。",
+              "riskCase": "不得把纸面信号表述为真实交易；未获取最新服务端状态时，不声称当前可用标的、策略或提供商状态。",
+              "nextAction": "等待用户提供标的、策略、回测编号、日期区间，或明确要求运行回测/生成纸面信号。",
+              "candidateExpressions": [
+                "读取工作区状态、策略目录、标的目录、近期回测",
+                "查看某个策略模板及 YAML 定义",
+                "读取指定标的历史行情 bars",
+                "读取已保存回测并解释指标、区间、样本限制和风险",
+                "在用户明确要求后运行并保存回测",
+                "在用户明确要求后生成纸面信号（不是真实下单）"
+              ]
+            },
+            "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/data/Decision-Notebook.custom.json"
+          }
+        }
+      }
+    }
+  ]
+}

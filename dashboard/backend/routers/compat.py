@@ -56,16 +56,3 @@ def data_status() -> dict:
         },
         "realtime": {"connected": False, "status": "not_configured"},
     }
-
-
-@router.get("/agent/config")
-def agent_config() -> dict:
-    return {
-        "llm": {
-            "configured": False,
-            "available": False,
-            "provider": "none",
-            "model": None,
-            "mode": "not_configured",
-        }
-    }

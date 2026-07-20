@@ -1,7 +1,21 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { apiGet, apiPost, type BacktestRecord, type BacktestRunResult, type DataManifest, type StrategyTemplate } from '../../lib/api'
+import { useWorkspace } from '../../contexts/WorkspaceContext'
+import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh'
 
 export function BacktestRunnerWidget() {
+  const refreshRevision = useWorkspaceRefresh()
+  const workspace = useWorkspace()
+  const initialWorkspaceRef = useRef({
+    selectedStrategy: workspace.selectedStrategy,
+    selectedBacktest: workspace.selectedBacktest,
+    selectedDate: workspace.selectedDate,
+  })
+  initialWorkspaceRef.current = {
+    selectedStrategy: workspace.selectedStrategy,
+    selectedBacktest: workspace.selectedBacktest,
+    selectedDate: workspace.selectedDate,
+  }
   const [strategies, setStrategies] = useState<StrategyTemplate[]>([])
   const [strategyId, setStrategyId] = useState('momentum')
   const [startDate, setStartDate] = useState('')
@@ -16,13 +30,35 @@ export function BacktestRunnerWidget() {
       apiGet<DataManifest>('/data/manifest'),
       apiGet<BacktestRecord[]>('/backtests?limit=1'),
     ]).then(async ([items, manifest, records]) => {
+      const initialWorkspace = initialWorkspaceRef.current
       setStrategies(items)
       setStartDate(manifest.sample_start)
-      setEndDate(manifest.cutoff_date)
-      if (items[0]) setStrategyId(items[0].id)
-      if (records[0]) setResult(await apiGet<BacktestRunResult>(`/backtests/${records[0].id}`))
+      setEndDate(initialWorkspace.selectedDate ?? manifest.cutoff_date)
+      const initialStrategy = initialWorkspace.selectedStrategy && items.some((item) => item.id === initialWorkspace.selectedStrategy)
+        ? initialWorkspace.selectedStrategy
+        : items[0]?.id
+      if (initialStrategy) setStrategyId(initialStrategy)
+      const initialBacktest = initialWorkspace.selectedBacktest ?? records[0]?.id
+      if (initialBacktest) setResult(await apiGet<BacktestRunResult>(`/backtests/${initialBacktest}`))
     }).catch((err: Error) => setError(err.message))
-  }, [])
+  }, [refreshRevision])
+
+  useEffect(() => {
+    if (workspace.selectedStrategy && strategies.some((item) => item.id === workspace.selectedStrategy)) {
+      setStrategyId(workspace.selectedStrategy)
+    }
+  }, [strategies, workspace.selectedStrategy])
+
+  useEffect(() => {
+    if (workspace.selectedDate) setEndDate(workspace.selectedDate)
+  }, [workspace.selectedDate])
+
+  useEffect(() => {
+    if (!workspace.selectedBacktest) return
+    apiGet<BacktestRunResult>(`/backtests/${workspace.selectedBacktest}`)
+      .then(setResult)
+      .catch((err: Error) => setError(err.message))
+  }, [workspace.selectedBacktest])
 
   async function run() {
     setRunning(true)
@@ -31,6 +67,8 @@ export function BacktestRunnerWidget() {
     try {
       const response = await apiPost<BacktestRunResult>('/backtests/run', { strategy_id: strategyId, start_date: startDate, end_date: endDate })
       setResult(response)
+      workspace.setSelectedStrategy(strategyId)
+      workspace.setSelectedBacktest(response.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -42,7 +80,10 @@ export function BacktestRunnerWidget() {
     <div className="panel">
       <h2>Backtest Runner</h2>
       <div className="form-row">
-        <select value={strategyId} onChange={(event) => setStrategyId(event.target.value)}>
+        <select value={strategyId} onChange={(event) => {
+          setStrategyId(event.target.value)
+          workspace.setSelectedStrategy(event.target.value)
+        }}>
           {strategies.map((strategy) => <option key={strategy.id} value={strategy.id}>{strategy.name}</option>)}
         </select>
         <input value={startDate} onChange={(event) => setStartDate(event.target.value)} />

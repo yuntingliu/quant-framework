@@ -1,0 +1,74 @@
+{
+  "id": "7857858d-4349-4eb2-a068-78b49de63b78",
+  "slug": "alphalab-research-agent",
+  "version": 2,
+  "releaseChecksum": "6f54559cb55f42a4578d37c4f8f88b3c716a50c25da55a851d87f00a69640139",
+  "billingPolicy": "consumer",
+  "subjectUserId": "7d079212-ce64-4b54-8936-79a5e5d5dd48",
+  "conversationId": "26eafe8e-388c-4e09-bf69-b406673f457f",
+  "agentNodeId": "alphalab-research-agent-v1",
+  "status": "blocked",
+  "createdAt": "2026-07-20T04:05:33.027Z",
+  "accessTokenHash": "765046027cfa4b48ae10861114ab2995c7f11408b03ee43ce12eac1ad18f15da",
+  "input": {
+    "context": {},
+    "request": "现在有哪些策略？"
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "runId": "7857858d-4349-4eb2-a068-78b49de63b78",
+      "at": "2026-07-20T04:05:33.028Z",
+      "type": "run.queued",
+      "status": "queued"
+    },
+    {
+      "sequence": 2,
+      "runId": "7857858d-4349-4eb2-a068-78b49de63b78",
+      "at": "2026-07-20T04:05:33.029Z",
+      "type": "run.started",
+      "status": "running"
+    },
+    {
+      "sequence": 3,
+      "runId": "7857858d-4349-4eb2-a068-78b49de63b78",
+      "at": "2026-07-20T04:06:11.729Z",
+      "type": "run.blocked",
+      "status": "blocked"
+    }
+  ],
+  "startedAt": "2026-07-20T04:05:33.029Z",
+  "summary": "暂时无法列出当前策略。\n\n事实：已读取连接的 Workspace Context，但其中 data 为空；随后尝试调用 AlphaLab workspace context 工具获取最新策略目录，调用失败。\n\n阻塞原因：工具运行时报错：无法识别 “node” 命令，因此 alphalab_get_workspace_context 无法执行，也就无法读取当前 strategy catalog。\n\n需要的外部处理：请启用/修复工具运行环境中的 Node.js，或提供当前策略目录快照；之后我就可以列出可用策略。",
+  "output": {},
+  "completedAt": "2026-07-20T04:06:11.727Z",
+  "artifacts": [
+    {
+      "id": "6d8e01a8-5066-44b1-b252-d1c2035c87d4",
+      "runId": "7857858d-4349-4eb2-a068-78b49de63b78",
+      "title": "Decision Notebook",
+      "createdAt": "2026-07-20T04:06:11.727Z",
+      "producerNodeId": "alphalab-decision-notebook-v1",
+      "kind": "node",
+      "content": {
+        "node": {
+          "id": "alphalab-decision-notebook-v1",
+          "type": "custom",
+          "label": "Decision Notebook",
+          "description": "Structured output consumed by the AlphaLab right rail.",
+          "values": {
+            "customType": "alphalab_decision_notebook",
+            "content": "Structured decision notebook produced by the AlphaLab Research Agent.",
+            "data": {
+              "classification": "blocked_data_access",
+              "baseCase": "用户询问当前可用策略列表，需要读取 AlphaLab workspace strategy catalog。",
+              "riskCase": "当前连接的 Workspace Context 的 data 为空；调用 alphalab_get_workspace_context 失败，错误显示运行时无法识别 node，因此无法从服务端取得最新策略目录。",
+              "nextAction": "修复/启用工具运行时 node 或提供当前策略目录快照后，再重新查询策略列表。",
+              "candidateExpressions": []
+            },
+            "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/data/Decision-Notebook.custom.json"
+          }
+        }
+      }
+    }
+  ]
+}

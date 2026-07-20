@@ -1,0 +1,252 @@
+{
+  "id": "256d1c49-7737-45da-9786-430ea3631356",
+  "slug": "alphalab-research-agent",
+  "version": 9,
+  "releaseChecksum": "d6764167fe51e268ea888e5e82b838670cf635958dbaf2f00848bd53ffd6af35",
+  "billingPolicy": "publisher",
+  "status": "completed",
+  "createdAt": "2026-07-20T13:36:07.612Z",
+  "accessTokenHash": "9ad7ead0a3b793e777b9c9b0544d204bc19e22abc0862931cb718a08b3ab5851",
+  "input": {
+    "request": "匿名运行验收：请简短确认当前请求已通过匿名发布者付费模式运行；不要调用 AlphaLab 业务 API，不要生成独立报告，也不要执行工作台操作。",
+    "context": {
+      "contextScope": {
+        "includeStrategy": false,
+        "includeBacktest": false,
+        "includeSymbol": false,
+        "includeData": false
+      },
+      "workspaceCapabilities": {
+        "widgets": [
+          "research.result-viewer"
+        ],
+        "commandTypes": [
+          "open_result"
+        ],
+        "modes": [
+          "research"
+        ]
+      },
+      "requestId": "anonymous-e2e-1784554567028",
+      "researchIntent": "brief",
+      "source": "anonymous-e2e",
+      "activeMode": "research"
+    }
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "runId": "256d1c49-7737-45da-9786-430ea3631356",
+      "at": "2026-07-20T13:36:07.613Z",
+      "type": "run.queued",
+      "status": "queued"
+    },
+    {
+      "sequence": 2,
+      "runId": "256d1c49-7737-45da-9786-430ea3631356",
+      "at": "2026-07-20T13:36:07.616Z",
+      "type": "run.started",
+      "status": "running"
+    },
+    {
+      "sequence": 3,
+      "runId": "256d1c49-7737-45da-9786-430ea3631356",
+      "at": "2026-07-20T13:36:30.983Z",
+      "type": "run.tool_started",
+      "status": "running",
+      "tool": {
+        "callId": "chatcmpl-tool-f5af68909dbe4363bb93d2555440d717",
+        "name": "update_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1"
+      }
+    },
+    {
+      "sequence": 4,
+      "runId": "256d1c49-7737-45da-9786-430ea3631356",
+      "at": "2026-07-20T13:36:30.986Z",
+      "type": "run.tool_completed",
+      "status": "running",
+      "tool": {
+        "callId": "chatcmpl-tool-f5af68909dbe4363bb93d2555440d717",
+        "name": "update_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1",
+        "success": true
+      }
+    },
+    {
+      "sequence": 5,
+      "runId": "256d1c49-7737-45da-9786-430ea3631356",
+      "at": "2026-07-20T13:36:39.562Z",
+      "type": "run.completed",
+      "status": "completed"
+    }
+  ],
+  "startedAt": "2026-07-20T13:36:07.616Z",
+  "summary": "已确认当前请求通过匿名发布者付费模式运行。",
+  "output": {
+    "summary": "已确认当前请求通过匿名发布者付费模式运行。",
+    "decisionNotebook": {
+      "classification": "confirmed",
+      "baseCase": "已确认当前请求通过匿名发布者付费模式运行。",
+      "riskCase": "",
+      "nextAction": "",
+      "candidateExpressions": []
+    },
+    "workspaceDocument": "# AlphaLab Research Result\n\nNo workspace report was generated for the current request.\n",
+    "workspaceResult": {
+      "version": 1,
+      "requestId": "anonymous-e2e-1784554567028",
+      "kind": "none"
+    },
+    "workspaceCommands": {
+      "version": 1,
+      "requestId": "anonymous-e2e-1784554567028",
+      "commands": []
+    }
+  },
+  "completedAt": "2026-07-20T13:36:39.562Z",
+  "artifacts": [
+    {
+      "id": "cb9ab32c-7d38-47f5-af9e-f9c6e94564c1",
+      "runId": "256d1c49-7737-45da-9786-430ea3631356",
+      "title": "Decision notebook",
+      "createdAt": "2026-07-20T13:36:39.562Z",
+      "producerNodeId": "alphalab-decision-notebook-v1",
+      "outputKey": "decisionNotebook",
+      "kind": "json",
+      "content": {
+        "value": {
+          "classification": "confirmed",
+          "baseCase": "已确认当前请求通过匿名发布者付费模式运行。",
+          "riskCase": "",
+          "nextAction": "",
+          "candidateExpressions": []
+        }
+      }
+    },
+    {
+      "id": "a8ca7605-57ce-4103-93d2-7037ff6426f7",
+      "runId": "256d1c49-7737-45da-9786-430ea3631356",
+      "title": "Research result document",
+      "createdAt": "2026-07-20T13:36:39.562Z",
+      "producerNodeId": "alphalab-research-document-v1",
+      "outputKey": "workspaceDocument",
+      "kind": "document",
+      "content": {
+        "markdown": "# AlphaLab Research Result\n\nNo workspace report was generated for the current request.\n"
+      }
+    },
+    {
+      "id": "eab2c223-b4e4-4757-8a70-c48ab1c2dec8",
+      "runId": "256d1c49-7737-45da-9786-430ea3631356",
+      "title": "Workspace result",
+      "createdAt": "2026-07-20T13:36:39.562Z",
+      "producerNodeId": "alphalab-workspace-result-v1",
+      "outputKey": "workspaceResult",
+      "kind": "json",
+      "content": {
+        "value": {
+          "version": 1,
+          "requestId": "anonymous-e2e-1784554567028",
+          "kind": "none"
+        }
+      }
+    },
+    {
+      "id": "82531514-d069-44b1-ae5a-53b6d6ce7f8e",
+      "runId": "256d1c49-7737-45da-9786-430ea3631356",
+      "title": "Workspace commands",
+      "createdAt": "2026-07-20T13:36:39.562Z",
+      "producerNodeId": "alphalab-workspace-commands-v1",
+      "outputKey": "workspaceCommands",
+      "kind": "json",
+      "content": {
+        "value": {
+          "version": 1,
+          "requestId": "anonymous-e2e-1784554567028",
+          "commands": []
+        }
+      }
+    },
+    {
+      "id": "ab335a58-7d87-4dfc-a742-a5bb79adb823",
+      "runId": "256d1c49-7737-45da-9786-430ea3631356",
+      "title": "Decision Notebook",
+      "createdAt": "2026-07-20T13:36:39.562Z",
+      "producerNodeId": "alphalab-decision-notebook-v1",
+      "kind": "node",
+      "content": {
+        "node": {
+          "id": "alphalab-decision-notebook-v1",
+          "type": "custom",
+          "label": "Decision Notebook",
+          "description": "Structured output consumed by the AlphaLab right rail.",
+          "values": {
+            "customType": "alphalab_decision_notebook",
+            "content": "Structured decision notebook produced by the AlphaLab Research Agent.",
+            "data": {
+              "classification": "confirmed",
+              "baseCase": "已确认当前请求通过匿名发布者付费模式运行。",
+              "riskCase": "",
+              "nextAction": "",
+              "candidateExpressions": []
+            },
+            "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/data/Decision-Notebook.custom.json"
+          }
+        }
+      }
+    },
+    {
+      "id": "5d3922fa-9cb9-45cf-b6bc-a5ccf90ce771",
+      "runId": "256d1c49-7737-45da-9786-430ea3631356",
+      "title": "Workspace Result",
+      "createdAt": "2026-07-20T13:36:39.562Z",
+      "producerNodeId": "alphalab-workspace-result-v1",
+      "kind": "node",
+      "content": {
+        "node": {
+          "id": "alphalab-workspace-result-v1",
+          "type": "custom",
+          "label": "Workspace Result",
+          "description": "Request-bound descriptor and optional table attachment for the research document.",
+          "values": {
+            "customType": "alphalab_workspace_result",
+            "content": "Request-bound descriptor and optional interactive table attachment for the AlphaLab research document.",
+            "data": {
+              "version": 1,
+              "requestId": "anonymous-e2e-1784554567028",
+              "kind": "none"
+            },
+            "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/data/Workspace-Result.custom.json"
+          }
+        }
+      }
+    },
+    {
+      "id": "e5d35ee7-92d5-43b9-b91f-b3d47df04090",
+      "runId": "256d1c49-7737-45da-9786-430ea3631356",
+      "title": "Workspace Commands",
+      "createdAt": "2026-07-20T13:36:39.562Z",
+      "producerNodeId": "alphalab-workspace-commands-v1",
+      "kind": "node",
+      "content": {
+        "node": {
+          "id": "alphalab-workspace-commands-v1",
+          "type": "custom",
+          "label": "Workspace Commands",
+          "description": "Validated commands consumed by the AlphaLab frontend.",
+          "values": {
+            "customType": "alphalab_workspace_commands",
+            "content": "Validated commands for the AlphaLab frontend workspace command bus.",
+            "data": {
+              "version": 1,
+              "requestId": "anonymous-e2e-1784554567028",
+              "commands": []
+            },
+            "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/data/Workspace-Commands.custom.json"
+          }
+        }
+      }
+    }
+  ]
+}

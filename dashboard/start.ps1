@@ -1,6 +1,11 @@
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Python = (Get-Command python -ErrorAction SilentlyContinue).Source
+$ProjectPython = Join-Path $Root ".venv\Scripts\python.exe"
+$Python = if (Test-Path -LiteralPath $ProjectPython) {
+    $ProjectPython
+} else {
+    (Get-Command python -ErrorAction SilentlyContinue).Source
+}
 if (-not $Python) { $Python = "python" }
 
 Write-Host "Starting AlphaLab Barebone backend on http://127.0.0.1:8000" -ForegroundColor Cyan

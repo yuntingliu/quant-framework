@@ -1,0 +1,4 @@
+{
+  "stdout": "200\n<!DOCTYPE html>\n<html>\n  <head>\n    <script type=\"module\">import { injectIntoGlobalHook } from \"/@react-refresh\";\ninjectIntoGlobalHook(window);\nwindow.$RefreshReg$ = () => {};\nwindow.$RefreshSig$ = () => (type) => type;</script>\n\n    <script type=\"module\" src=\"/@vite/client\"></script>\n\n    <meta cha",
+  "stderr": ""
+}

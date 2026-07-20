@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { apiGet, type DataManifest, type ProviderStatus } from '../../lib/api'
+import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh'
 
 export function DataCenterWidget() {
+  const refreshRevision = useWorkspaceRefresh()
   const [status, setStatus] = useState<ProviderStatus | null>(null)
   const [error, setError] = useState('')
   const [manifest, setManifest] = useState<DataManifest | null>(null)
@@ -10,7 +12,7 @@ export function DataCenterWidget() {
     Promise.all([apiGet<ProviderStatus>('/data/providers'), apiGet<DataManifest>('/data/manifest')])
       .then(([providerStatus, dataManifest]) => { setStatus(providerStatus); setManifest(dataManifest) })
       .catch((err: Error) => setError(err.message))
-  }, [])
+  }, [refreshRevision])
 
   if (error) return <div className="panel"><h2>Data Providers</h2><p className="error">{error}</p></div>
   return (

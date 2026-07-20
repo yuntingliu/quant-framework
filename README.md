@@ -107,6 +107,12 @@ mode sidebar, and widget catalog. Its default Home, Data, Research, and Paper
 layouts use real backend contracts. Optional vendor and live-trading panels are
 disabled extension points.
 
+The AI Research Agent is backed by a published Conexus Harness. Build, publish,
+and local runtime instructions are in
+[`docs/04_CONEXUS_AGENT.md`](docs/04_CONEXUS_AGENT.md).
+It runs anonymously with publisher-funded model usage and keeps conversation
+history in the local browser/Electron profile.
+
 ## Validation
 
 ```powershell

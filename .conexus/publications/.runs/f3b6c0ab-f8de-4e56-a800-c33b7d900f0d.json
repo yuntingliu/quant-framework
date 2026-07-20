@@ -1,0 +1,86 @@
+{
+  "id": "f3b6c0ab-f8de-4e56-a800-c33b7d900f0d",
+  "slug": "alphalab-research-agent",
+  "version": 2,
+  "releaseChecksum": "6f54559cb55f42a4578d37c4f8f88b3c716a50c25da55a851d87f00a69640139",
+  "billingPolicy": "consumer",
+  "subjectUserId": "7d079212-ce64-4b54-8936-79a5e5d5dd48",
+  "conversationId": "26eafe8e-388c-4e09-bf69-b406673f457f",
+  "agentNodeId": "alphalab-research-agent-v1",
+  "status": "completed",
+  "createdAt": "2026-07-20T04:13:43.758Z",
+  "accessTokenHash": "e7acca532ad605f664b55802a511185bb60e755e22da6a75f7c49bc2784477ce",
+  "input": {
+    "context": {},
+    "request": "“运行 balanced 从 2021-07-11 到 2026-07-10 的回测”"
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "runId": "f3b6c0ab-f8de-4e56-a800-c33b7d900f0d",
+      "at": "2026-07-20T04:13:43.770Z",
+      "type": "run.queued",
+      "status": "queued"
+    },
+    {
+      "sequence": 2,
+      "runId": "f3b6c0ab-f8de-4e56-a800-c33b7d900f0d",
+      "at": "2026-07-20T04:13:43.771Z",
+      "type": "run.started",
+      "status": "running"
+    },
+    {
+      "sequence": 3,
+      "runId": "f3b6c0ab-f8de-4e56-a800-c33b7d900f0d",
+      "at": "2026-07-20T04:14:55.165Z",
+      "type": "run.completed",
+      "status": "completed"
+    }
+  ],
+  "startedAt": "2026-07-20T04:13:43.771Z",
+  "summary": "{\"summary\":\"已按你的明确请求运行 balanced 策略回测。\\n\\n事实：\\n- 策略：balanced\\n- 回测区间：2021-07-11 至 2026-07-10\\n- 回测 ID：aea348b0ac73\\n- 样本期数：60 个收益期（月度序列，最后一条收益为 2026-06-30）\\n- 权重记录数：600\\n\\n核心指标：\\n- 累计收益：-32.58%\\n- 年化收益：-7.58%\\n- 年化波动：20.64%\\n- Sharpe：-0.37\\n- 最大回撤：-44.63%\\n\\n推断：该区间内 balanced 策略表现较弱，收益为负且最大回撤较深；从风险调整后收益看，Sharpe 为负，说明该历史窗口下没有提供正的单位波动补偿。\\n\\n数据缺口与风险：以上仅为单一区间历史回测结果，不等于未来表现。仍需核查交易成本、滑点、调仓规则、基准比较、成分股幸存者偏差、因子发布日期/前视风险，以及是否存在参数过拟合。建议下一步读取该回测的完整权重与收益明细，并和 momentum、value、quality 或等权/指数基准做横向比较。\"}",
+  "output": {
+    "summary": "{\"summary\":\"已按你的明确请求运行 balanced 策略回测。\\n\\n事实：\\n- 策略：balanced\\n- 回测区间：2021-07-11 至 2026-07-10\\n- 回测 ID：aea348b0ac73\\n- 样本期数：60 个收益期（月度序列，最后一条收益为 2026-06-30）\\n- 权重记录数：600\\n\\n核心指标：\\n- 累计收益：-32.58%\\n- 年化收益：-7.58%\\n- 年化波动：20.64%\\n- Sharpe：-0.37\\n- 最大回撤：-44.63%\\n\\n推断：该区间内 balanced 策略表现较弱，收益为负且最大回撤较深；从风险调整后收益看，Sharpe 为负，说明该历史窗口下没有提供正的单位波动补偿。\\n\\n数据缺口与风险：以上仅为单一区间历史回测结果，不等于未来表现。仍需核查交易成本、滑点、调仓规则、基准比较、成分股幸存者偏差、因子发布日期/前视风险，以及是否存在参数过拟合。建议下一步读取该回测的完整权重与收益明细，并和 momentum、value、quality 或等权/指数基准做横向比较。\"}"
+  },
+  "completedAt": "2026-07-20T04:14:55.164Z",
+  "artifacts": [
+    {
+      "id": "00505bff-a041-4173-9810-2fa58753d9e1",
+      "runId": "f3b6c0ab-f8de-4e56-a800-c33b7d900f0d",
+      "title": "Decision Notebook",
+      "createdAt": "2026-07-20T04:14:55.164Z",
+      "producerNodeId": "alphalab-decision-notebook-v1",
+      "kind": "node",
+      "content": {
+        "node": {
+          "id": "alphalab-decision-notebook-v1",
+          "type": "custom",
+          "label": "Decision Notebook",
+          "description": "Structured output consumed by the AlphaLab right rail.",
+          "values": {
+            "customType": "alphalab_decision_notebook",
+            "content": "Structured decision notebook produced by the AlphaLab Research Agent.",
+            "data": {
+              "classification": "backtest_completed",
+              "baseCase": "balanced 策略在 2021-07-11 至 2026-07-10 区间完成回测，累计收益 -32.58%，年化收益 -7.58%，年化波动 20.64%，Sharpe -0.37，最大回撤 -44.63%，样本为 60 个（月度）收益期。",
+              "riskCase": "样本区间有限且覆盖单一历史窗口，结果为负且最大回撤较深；仍需检查交易成本、调仓约束、指数/等权基准、成分股 survivorship bias、因子发布日期与前视风险，以及参数过拟合风险。",
+              "nextAction": "建议读取回测 aea348b0ac73 的完整权重/收益明细，和基准策略或单因子策略做横向比较；如用于决策，应先做样本外与稳健性检验。",
+              "candidateExpressions": [
+                "strategy_id == 'balanced'",
+                "start_date == '2021-07-11'",
+                "end_date == '2026-07-10'",
+                "total_return == -0.3257797480897019",
+                "annual_return == -0.07581192865971598",
+                "annual_vol == 0.20640755400131605",
+                "sharpe == -0.3672924134318873",
+                "max_drawdown == -0.446337595800261",
+                "n_periods == 60"
+              ]
+            },
+            "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/data/Decision-Notebook.custom.json"
+          }
+        }
+      }
+    }
+  ]
+}

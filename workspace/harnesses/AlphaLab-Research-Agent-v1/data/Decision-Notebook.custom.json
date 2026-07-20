@@ -1,0 +1,11 @@
+{
+  "customType": "alphalab_decision_notebook",
+  "content": "Structured decision notebook produced by the AlphaLab Research Agent.",
+  "data": {
+    "classification": "pending",
+    "baseCase": "",
+    "riskCase": "",
+    "nextAction": "",
+    "candidateExpressions": []
+  }
+}

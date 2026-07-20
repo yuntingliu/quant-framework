@@ -1,14 +1,1 @@
-{
-  "customType": "deployment_receipt",
-  "content": "No release has been published.",
-  "data": {
-    "releaseId": "",
-    "releaseVersion": 0,
-    "status": "pending",
-    "webUrl": "",
-    "apiUrl": "",
-    "previousVersion": 0,
-    "verifiedAt": "",
-    "checks": []
-  }
-}
+{}

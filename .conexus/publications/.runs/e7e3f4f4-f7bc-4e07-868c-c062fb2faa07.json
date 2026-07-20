@@ -1,0 +1,293 @@
+{
+  "id": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+  "slug": "alphalab-research-agent",
+  "version": 4,
+  "releaseChecksum": "7104c5c620d38c627edbed69c7fd64c311017e883d49688e14a097116d0f5716",
+  "billingPolicy": "consumer",
+  "subjectUserId": "7d079212-ce64-4b54-8936-79a5e5d5dd48",
+  "conversationId": "26eafe8e-388c-4e09-bf69-b406673f457f",
+  "agentNodeId": "alphalab-research-agent-v1",
+  "status": "completed",
+  "createdAt": "2026-07-20T11:31:07.866Z",
+  "accessTokenHash": "69806ba472f84ee5ffb18408fcfee6a8a3a8bd22206104641c9c105e3c9e740c",
+  "input": {
+    "context": {
+      "requestId": "1784547067126-60tasj68as4",
+      "source": "agent-widget",
+      "activeMode": "research",
+      "selectedSymbol": "000002.SZ",
+      "selectedStrategy": "balanced",
+      "selectedBacktest": null,
+      "selectedDate": null,
+      "symbols": [
+        "000002.SZ"
+      ],
+      "workspaceCapabilities": {
+        "modes": [
+          "home",
+          "data",
+          "research",
+          "trading_a_share"
+        ],
+        "widgets": [
+          "home.index-board",
+          "market.history",
+          "data.center",
+          "data.factor-returns",
+          "strategies.hub",
+          "strategy.editor",
+          "backtest.explorer",
+          "backtest.workbench",
+          "research.signal-preview",
+          "research.agent",
+          "trading.rebalance",
+          "trading.alerts",
+          "system.log",
+          "system.help"
+        ],
+        "commandTypes": [
+          "switch_mode",
+          "open_widget",
+          "close_widget",
+          "set_focus",
+          "set_link_symbol",
+          "show_right_rail",
+          "refresh_data",
+          "save_layout",
+          "reset_layout"
+        ]
+      },
+      "lastWorkspaceCommandReceipts": []
+    },
+    "request": "能帮我展示下行情历史吗"
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "at": "2026-07-20T11:31:07.869Z",
+      "type": "run.queued",
+      "status": "queued"
+    },
+    {
+      "sequence": 2,
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "at": "2026-07-20T11:31:07.870Z",
+      "type": "run.started",
+      "status": "running"
+    },
+    {
+      "sequence": 3,
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "at": "2026-07-20T11:31:12.697Z",
+      "type": "run.tool_started",
+      "status": "running",
+      "tool": {
+        "callId": "call_mhHaUcirfbznXmQg3owSPoT7",
+        "name": "observe_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1"
+      }
+    },
+    {
+      "sequence": 4,
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "at": "2026-07-20T11:31:12.699Z",
+      "type": "run.tool_completed",
+      "status": "running",
+      "tool": {
+        "callId": "call_mhHaUcirfbznXmQg3owSPoT7",
+        "name": "observe_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1",
+        "success": true
+      }
+    },
+    {
+      "sequence": 5,
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "at": "2026-07-20T11:31:19.328Z",
+      "type": "run.tool_started",
+      "status": "running",
+      "tool": {
+        "callId": "call_kAZstPsLd00FtHTJX6VRhLnV",
+        "name": "observe_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1"
+      }
+    },
+    {
+      "sequence": 6,
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "at": "2026-07-20T11:31:19.329Z",
+      "type": "run.tool_completed",
+      "status": "running",
+      "tool": {
+        "callId": "call_kAZstPsLd00FtHTJX6VRhLnV",
+        "name": "observe_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1",
+        "success": true
+      }
+    },
+    {
+      "sequence": 7,
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "at": "2026-07-20T11:31:32.892Z",
+      "type": "run.tool_started",
+      "status": "running",
+      "tool": {
+        "callId": "call_otganho6L54lUE1wo1ngGBYq",
+        "name": "update_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1"
+      }
+    },
+    {
+      "sequence": 8,
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "at": "2026-07-20T11:31:32.894Z",
+      "type": "run.tool_completed",
+      "status": "running",
+      "tool": {
+        "callId": "call_otganho6L54lUE1wo1ngGBYq",
+        "name": "update_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1",
+        "success": false
+      }
+    },
+    {
+      "sequence": 9,
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "at": "2026-07-20T11:31:36.713Z",
+      "type": "run.tool_started",
+      "status": "running",
+      "tool": {
+        "callId": "call_nYQlBsSajsiiAwfIOKWeSCFE",
+        "name": "observe_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1"
+      }
+    },
+    {
+      "sequence": 10,
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "at": "2026-07-20T11:31:36.715Z",
+      "type": "run.tool_completed",
+      "status": "running",
+      "tool": {
+        "callId": "call_nYQlBsSajsiiAwfIOKWeSCFE",
+        "name": "observe_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1",
+        "success": true
+      }
+    },
+    {
+      "sequence": 11,
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "at": "2026-07-20T11:31:43.022Z",
+      "type": "run.tool_started",
+      "status": "running",
+      "tool": {
+        "callId": "call_9v8PZA5FxgUZqw3pkJMXj8No",
+        "name": "update_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1"
+      }
+    },
+    {
+      "sequence": 12,
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "at": "2026-07-20T11:31:43.025Z",
+      "type": "run.tool_completed",
+      "status": "running",
+      "tool": {
+        "callId": "call_9v8PZA5FxgUZqw3pkJMXj8No",
+        "name": "update_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1",
+        "success": true
+      }
+    },
+    {
+      "sequence": 13,
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "at": "2026-07-20T11:31:47.047Z",
+      "type": "run.completed",
+      "status": "completed"
+    }
+  ],
+  "startedAt": "2026-07-20T11:31:07.870Z",
+  "summary": "已为你请求打开行情历史视图。\n\n事实：\n- 当前选中标的：000002.SZ\n- 已向工作区写入前端命令：切换到 data 模式、设置焦点到 000002.SZ、打开 market.history 行情历史组件。\n\n说明：这表示我已发出展示请求；实际是否已经在界面上打开，需要以前端执行结果为准。",
+  "output": {
+    "summary": "已为你请求打开行情历史视图。\n\n事实：\n- 当前选中标的：000002.SZ\n- 已向工作区写入前端命令：切换到 data 模式、设置焦点到 000002.SZ、打开 market.history 行情历史组件。\n\n说明：这表示我已发出展示请求；实际是否已经在界面上打开，需要以前端执行结果为准。"
+  },
+  "completedAt": "2026-07-20T11:31:47.046Z",
+  "artifacts": [
+    {
+      "id": "303fc750-a733-44c9-a4c0-dcabf08498ae",
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "title": "Decision Notebook",
+      "createdAt": "2026-07-20T11:31:47.046Z",
+      "producerNodeId": "alphalab-decision-notebook-v1",
+      "kind": "node",
+      "content": {
+        "node": {
+          "id": "alphalab-decision-notebook-v1",
+          "type": "custom",
+          "label": "Decision Notebook",
+          "description": "Structured output consumed by the AlphaLab right rail.",
+          "values": {
+            "customType": "alphalab_decision_notebook",
+            "content": "Structured decision notebook produced by the AlphaLab Research Agent.",
+            "data": {
+              "classification": "workspace_navigation",
+              "baseCase": "为当前选中标的 000002.SZ 打开行情历史组件。",
+              "riskCase": "这只是向前端发送打开行情历史视图的命令；是否成功展示需以前端执行回执为准。若行情数据未加载，需要检查本地数据服务或切换标的。",
+              "nextAction": "在 data 模式打开 market.history，并将焦点设置为 000002.SZ。",
+              "candidateExpressions": [
+                "open market.history for 000002.SZ",
+                "set_focus symbol=000002.SZ",
+                "switch_mode data"
+              ]
+            },
+            "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/data/Decision-Notebook.custom.json"
+          }
+        }
+      }
+    },
+    {
+      "id": "df94153b-35b5-43b1-bf28-0aed12825e44",
+      "runId": "e7e3f4f4-f7bc-4e07-868c-c062fb2faa07",
+      "title": "Workspace Commands",
+      "createdAt": "2026-07-20T11:31:47.046Z",
+      "producerNodeId": "alphalab-workspace-commands-v1",
+      "kind": "node",
+      "content": {
+        "node": {
+          "id": "alphalab-workspace-commands-v1",
+          "type": "custom",
+          "label": "Workspace Commands",
+          "description": "Validated commands consumed by the AlphaLab frontend.",
+          "values": {
+            "customType": "alphalab_workspace_commands",
+            "content": "Validated commands for the AlphaLab frontend workspace command bus.",
+            "data": {
+              "version": 1,
+              "requestId": "1784547067126-60tasj68as4",
+              "commands": [
+                {
+                  "type": "switch_mode",
+                  "mode": "data"
+                },
+                {
+                  "type": "set_focus",
+                  "symbol": "000002.SZ"
+                },
+                {
+                  "type": "open_widget",
+                  "widgetId": "market.history",
+                  "mode": "data",
+                  "title": "000002.SZ 行情历史"
+                }
+              ]
+            },
+            "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/data/Workspace-Commands.custom.json"
+          }
+        }
+      }
+    }
+  ]
+}

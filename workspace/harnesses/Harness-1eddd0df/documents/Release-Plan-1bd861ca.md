@@ -1,1 +1,0 @@
-The coordinator will write readiness findings, required adapters, target URLs, migration impact, verification checks, and rollback steps here.

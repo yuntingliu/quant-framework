@@ -1,0 +1,4 @@
+{
+  "stdout": "\n\n    目录: E:\\quant-framework\\dashboard\\frontend\\src\\widgets\\registry\n\n\nMode                 LastWriteTime         Length Name                                                                 \n----                 -------------         ------ ----                                                                 \n-a----         2026/7/16     11:27          15378 catalog.ts                                                           \n-a----         2026/7/16     11:27           3846 components.tsx",
+  "stderr": "找不到路径“E:\\quant-framework\\dashboard\\frontend\\src\\widgets\\registry\\components.ts”，因为该路径不存在。"
+}

@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BarChart3, CalendarDays } from 'lucide-react'
 import { RollingLineChart } from '../../components/charts/RollingLineChart'
+import { useLinkedSymbol } from '../../contexts/PanelContext'
 import { apiGet, type DataManifest, type MarketBar } from '../../lib/api'
+import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh'
 
 export function HistoricalMarketWidget() {
+  const refreshRevision = useWorkspaceRefresh()
   const [symbols, setSymbols] = useState<string[]>([])
-  const [symbol, setSymbol] = useState('')
+  const { symbol: linkedSymbol, setSymbol } = useLinkedSymbol()
   const [manifest, setManifest] = useState<DataManifest | null>(null)
   const [rows, setRows] = useState<MarketBar[]>([])
   const [error, setError] = useState('')
@@ -16,10 +19,15 @@ export function HistoricalMarketWidget() {
       apiGet<DataManifest>('/data/manifest'),
     ]).then(([symbolPayload, manifestPayload]) => {
       setSymbols(symbolPayload.symbols)
-      setSymbol(symbolPayload.symbols[0] ?? '')
       setManifest(manifestPayload)
     }).catch((err: Error) => setError(err.message))
-  }, [])
+  }, [refreshRevision])
+
+  useEffect(() => {
+    if (!linkedSymbol && symbols[0]) setSymbol(symbols[0])
+  }, [linkedSymbol, setSymbol, symbols])
+
+  const symbol = linkedSymbol ?? symbols[0] ?? ''
 
   useEffect(() => {
     if (!symbol || !manifest) return

@@ -1,0 +1,448 @@
+{
+  "id": "5f5a276c-74f0-4203-a763-7d068ec74195",
+  "slug": "alphalab-research-agent",
+  "version": 7,
+  "releaseChecksum": "a62e7aa217bcfd577be22036e420c6a831e2519daf047e2eff28110b8c05beb1",
+  "billingPolicy": "consumer",
+  "subjectUserId": "7d079212-ce64-4b54-8936-79a5e5d5dd48",
+  "conversationId": "26eafe8e-388c-4e09-bf69-b406673f457f",
+  "agentNodeId": "alphalab-research-agent-v1",
+  "status": "completed",
+  "createdAt": "2026-07-20T13:09:09.493Z",
+  "accessTokenHash": "6a76c7043449feb9a03d4a5d3a39bbbd01de3a1e5ba0905e72c38e145f4dbaf8",
+  "input": {
+    "context": {
+      "requestId": "1784552948038-6ikcxfm6ry",
+      "source": "agent-widget",
+      "activeMode": "home",
+      "researchIntent": "brief",
+      "contextScope": {
+        "includeSymbol": true,
+        "includeStrategy": true,
+        "includeBacktest": true,
+        "includeData": true
+      },
+      "workspaceCapabilities": {
+        "modes": [
+          "home",
+          "data",
+          "research",
+          "trading_a_share"
+        ],
+        "widgets": [
+          "home.index-board",
+          "market.history",
+          "data.center",
+          "data.factor-returns",
+          "strategies.hub",
+          "strategy.editor",
+          "backtest.explorer",
+          "backtest.workbench",
+          "research.signal-preview",
+          "research.result-viewer",
+          "trading.rebalance",
+          "trading.alerts",
+          "system.log",
+          "system.help"
+        ],
+        "commandTypes": [
+          "switch_mode",
+          "open_widget",
+          "open_result",
+          "close_widget",
+          "set_focus",
+          "set_link_symbol",
+          "show_right_rail",
+          "refresh_data",
+          "save_layout",
+          "reset_layout"
+        ]
+      },
+      "lastWorkspaceCommandReceipts": [],
+      "selectedSymbol": "000002.SZ",
+      "symbols": [
+        "000002.SZ"
+      ],
+      "selectedStrategy": null,
+      "selectedBacktest": null,
+      "selectedDate": null,
+      "dataStatus": {
+        "qmt": {
+          "latest_date": "2026-07-10",
+          "needs_update": false,
+          "provider_pending": false,
+          "live_connected": false,
+          "stock_count": 300,
+          "phase_label": "bundled historical sample"
+        },
+        "rq": {
+          "latest_date": "2026-07-10",
+          "needs_update": false,
+          "provider_pending": false,
+          "phase_label": "bundled point-in-time fundamentals"
+        },
+        "local": {
+          "latest_date": "2026-07-10",
+          "needs_update": false,
+          "symbol_count": 300,
+          "status": "ready"
+        },
+        "realtime": {
+          "connected": false,
+          "status": "not_configured"
+        }
+      }
+    },
+    "request": "能帮我生成个报告吗"
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:09:09.495Z",
+      "type": "run.queued",
+      "status": "queued"
+    },
+    {
+      "sequence": 2,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:09:09.497Z",
+      "type": "run.started",
+      "status": "running"
+    },
+    {
+      "sequence": 3,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:09:15.837Z",
+      "type": "run.tool_started",
+      "status": "running",
+      "tool": {
+        "callId": "call_1UZSnPAGjfj7rKLMlOJ54tbJ",
+        "name": "observe_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1"
+      }
+    },
+    {
+      "sequence": 4,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:09:15.839Z",
+      "type": "run.tool_completed",
+      "status": "running",
+      "tool": {
+        "callId": "call_1UZSnPAGjfj7rKLMlOJ54tbJ",
+        "name": "observe_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1",
+        "success": true
+      }
+    },
+    {
+      "sequence": 5,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:09:21.525Z",
+      "type": "run.tool_started",
+      "status": "running",
+      "tool": {
+        "callId": "call_UrInk1holHcmA3QnfYiDHsvh",
+        "name": "alphalab_get_market_bars",
+        "ownerNodeId": "alphalab-research-agent-v1"
+      }
+    },
+    {
+      "sequence": 6,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:09:23.251Z",
+      "type": "run.tool_completed",
+      "status": "running",
+      "tool": {
+        "callId": "call_UrInk1holHcmA3QnfYiDHsvh",
+        "name": "alphalab_get_market_bars",
+        "ownerNodeId": "alphalab-research-agent-v1",
+        "success": true
+      }
+    },
+    {
+      "sequence": 7,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:09:34.166Z",
+      "type": "run.tool_started",
+      "status": "running",
+      "tool": {
+        "callId": "call_qgRBfMTRlLiIHabfOFUOlgt0",
+        "name": "list_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1"
+      }
+    },
+    {
+      "sequence": 8,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:09:34.169Z",
+      "type": "run.tool_completed",
+      "status": "running",
+      "tool": {
+        "callId": "call_qgRBfMTRlLiIHabfOFUOlgt0",
+        "name": "list_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1",
+        "success": true
+      }
+    },
+    {
+      "sequence": 9,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:09:39.892Z",
+      "type": "run.tool_started",
+      "status": "running",
+      "tool": {
+        "callId": "call_EOgPAcmDjkwbOvoEa2G7OyOb",
+        "name": "observe_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1"
+      }
+    },
+    {
+      "sequence": 10,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:09:39.894Z",
+      "type": "run.tool_completed",
+      "status": "running",
+      "tool": {
+        "callId": "call_EOgPAcmDjkwbOvoEa2G7OyOb",
+        "name": "observe_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1",
+        "success": true
+      }
+    },
+    {
+      "sequence": 11,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:10:23.276Z",
+      "type": "run.tool_started",
+      "status": "running",
+      "tool": {
+        "callId": "call_gNHIvtNvSsmHjVsLGQCgGJ3O",
+        "name": "update_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1"
+      }
+    },
+    {
+      "sequence": 12,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:10:23.277Z",
+      "type": "run.tool_completed",
+      "status": "running",
+      "tool": {
+        "callId": "call_gNHIvtNvSsmHjVsLGQCgGJ3O",
+        "name": "update_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1",
+        "success": false
+      }
+    },
+    {
+      "sequence": 13,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:10:45.199Z",
+      "type": "run.tool_started",
+      "status": "running",
+      "tool": {
+        "callId": "call_ZtnckhYSmPRaD5xcVg6SmSBD",
+        "name": "update_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1"
+      }
+    },
+    {
+      "sequence": 14,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:10:45.201Z",
+      "type": "run.tool_completed",
+      "status": "running",
+      "tool": {
+        "callId": "call_ZtnckhYSmPRaD5xcVg6SmSBD",
+        "name": "update_nodes",
+        "ownerNodeId": "alphalab-research-agent-v1",
+        "success": true
+      }
+    },
+    {
+      "sequence": 15,
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "at": "2026-07-20T13:10:52.375Z",
+      "type": "run.completed",
+      "status": "completed"
+    }
+  ],
+  "startedAt": "2026-07-20T13:09:09.497Z",
+  "summary": "已生成《000002.SZ 本地证据研究简报》，并请求在 research 模式打开报告。\n\n报告基于：\n- Workspace Context：当前选中标的 000002.SZ、QMT/RQ/local/realtime 数据状态；\n- AlphaLab Market Bars：000002.SZ 在 2025-07-10 至 2026-07-10 的日频行情。\n\n核心事实：\n- QMT/RQ 数据正常，本地数据 ready；实时行情未配置。\n- 000002.SZ 区间期初收盘价约 42.97，期末收盘价约 19.77。\n- 区间收盘价收益约 -53.99%。\n- 区间最高收盘价约 45.51，最低收盘价约 18.75，峰谷估算回撤约 -58.80%。\n\n推断：过去一年该标的价格趋势明显偏弱，7 月初虽有低位反弹，但仅凭价格序列不能确认趋势反转。\n\n数据缺口：未纳入基准、行业比较、财务/估值指标、公告事件、交易成本、复权校验与实时行情，因此不能作为投资建议或交易指令。",
+  "output": {
+    "summary": "已生成《000002.SZ 本地证据研究简报》，并请求在 research 模式打开报告。\n\n报告基于：\n- Workspace Context：当前选中标的 000002.SZ、QMT/RQ/local/realtime 数据状态；\n- AlphaLab Market Bars：000002.SZ 在 2025-07-10 至 2026-07-10 的日频行情。\n\n核心事实：\n- QMT/RQ 数据正常，本地数据 ready；实时行情未配置。\n- 000002.SZ 区间期初收盘价约 42.97，期末收盘价约 19.77。\n- 区间收盘价收益约 -53.99%。\n- 区间最高收盘价约 45.51，最低收盘价约 18.75，峰谷估算回撤约 -58.80%。\n\n推断：过去一年该标的价格趋势明显偏弱，7 月初虽有低位反弹，但仅凭价格序列不能确认趋势反转。\n\n数据缺口：未纳入基准、行业比较、财务/估值指标、公告事件、交易成本、复权校验与实时行情，因此不能作为投资建议或交易指令。"
+  },
+  "completedAt": "2026-07-20T13:10:52.373Z",
+  "artifacts": [
+    {
+      "id": "1d464ace-3df6-429a-9ff3-9934f73e4b8c",
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "title": "Decision Notebook",
+      "createdAt": "2026-07-20T13:10:52.373Z",
+      "producerNodeId": "alphalab-decision-notebook-v1",
+      "kind": "node",
+      "content": {
+        "node": {
+          "id": "alphalab-decision-notebook-v1",
+          "type": "custom",
+          "label": "Decision Notebook",
+          "description": "Structured output consumed by the AlphaLab right rail.",
+          "values": {
+            "customType": "alphalab_decision_notebook",
+            "content": "Structured decision notebook produced by the AlphaLab Research Agent.",
+            "data": {
+              "classification": "brief_report",
+              "baseCase": "基于当前工作区选择的 000002.SZ 与本地历史行情，过去一年价格显著下行；QMT/RQ 数据状态正常但实时行情未配置。",
+              "riskCase": "单一标的、单一年期窗口，且未接入实时行情；未结合财务公告、行业/指数基准、交易成本和停牌/复权校验，不能形成投资结论。",
+              "nextAction": "如需更完整研究，建议指定基准并补充财务/估值指标，或要求比较 000002.SZ 与行业/策略回测结果。",
+              "candidateExpressions": [
+                "close_return_1y = close[-1] / close[0] - 1",
+                "max_close_drawdown = min(close_after_peak / peak_close - 1)",
+                "volume_spike = volume / rolling_mean(volume,20)",
+                "trend_filter = close / rolling_mean(close,60) - 1"
+              ]
+            },
+            "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/data/Decision-Notebook.custom.json"
+          }
+        }
+      }
+    },
+    {
+      "id": "2c148120-032f-42a2-a389-06a45396f49c",
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "title": "Workspace Result",
+      "createdAt": "2026-07-20T13:10:52.373Z",
+      "producerNodeId": "alphalab-workspace-result-v1",
+      "kind": "node",
+      "content": {
+        "node": {
+          "id": "alphalab-workspace-result-v1",
+          "type": "custom",
+          "label": "Workspace Result",
+          "description": "Request-bound descriptor and optional table attachment for the research document.",
+          "values": {
+            "customType": "alphalab_workspace_result",
+            "content": "Request-bound descriptor and optional interactive table attachment for the AlphaLab research document.",
+            "data": {
+              "version": 1,
+              "requestId": "1784552948038-6ikcxfm6ry",
+              "kind": "document",
+              "title": "000002.SZ 本地证据研究简报",
+              "description": "基于工作区上下文与 2025-07-10 至 2026-07-10 历史行情生成的研究简报。",
+              "sources": [
+                "Workspace Context: selectedSymbol=000002.SZ, dataStatus(qmt/rq/local/realtime)",
+                "AlphaLab Market Bars: 000002.SZ, 2025-07-10 to 2026-07-10"
+              ],
+              "generatedAt": "2026-07-20T00:00:00Z",
+              "columns": [
+                {
+                  "key": "metric",
+                  "label": "指标",
+                  "format": "text"
+                },
+                {
+                  "key": "value",
+                  "label": "数值",
+                  "format": "text"
+                },
+                {
+                  "key": "note",
+                  "label": "说明",
+                  "format": "text"
+                }
+              ],
+              "rows": [
+                {
+                  "metric": "标的",
+                  "value": "000002.SZ",
+                  "note": "来自 Workspace Context 当前选中标的"
+                },
+                {
+                  "metric": "行情区间",
+                  "value": "2025-07-10 至 2026-07-10",
+                  "note": "来自 AlphaLab Market Bars"
+                },
+                {
+                  "metric": "期初收盘价",
+                  "value": "42.97",
+                  "note": "2025-07-10 close"
+                },
+                {
+                  "metric": "期末收盘价",
+                  "value": "19.77",
+                  "note": "2026-07-10 close"
+                },
+                {
+                  "metric": "区间价格收益",
+                  "value": "-53.99%",
+                  "note": "按收盘价粗略计算，未含分红/交易成本影响"
+                },
+                {
+                  "metric": "区间最高收盘价",
+                  "value": "45.51",
+                  "note": "2025-08-25 close"
+                },
+                {
+                  "metric": "区间最低收盘价",
+                  "value": "18.75",
+                  "note": "2026-06-25 close"
+                },
+                {
+                  "metric": "从最高收盘到最低收盘回撤",
+                  "value": "约 -58.80%",
+                  "note": "基于区间内收盘价峰谷估算"
+                }
+              ]
+            },
+            "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/data/Workspace-Result.custom.json"
+          }
+        }
+      }
+    },
+    {
+      "id": "627aabd4-10ae-4e46-897d-d26745809240",
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "title": "Workspace Commands",
+      "createdAt": "2026-07-20T13:10:52.373Z",
+      "producerNodeId": "alphalab-workspace-commands-v1",
+      "kind": "node",
+      "content": {
+        "node": {
+          "id": "alphalab-workspace-commands-v1",
+          "type": "custom",
+          "label": "Workspace Commands",
+          "description": "Validated commands consumed by the AlphaLab frontend.",
+          "values": {
+            "customType": "alphalab_workspace_commands",
+            "content": "Validated commands for the AlphaLab frontend workspace command bus.",
+            "data": {
+              "version": 1,
+              "requestId": "1784552948038-6ikcxfm6ry",
+              "commands": [
+                {
+                  "type": "open_result",
+                  "resultId": "1784552948038-6ikcxfm6ry",
+                  "mode": "research",
+                  "title": "000002.SZ 本地证据研究简报"
+                }
+              ]
+            },
+            "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/data/Workspace-Commands.custom.json"
+          }
+        }
+      }
+    },
+    {
+      "id": "50fa5233-403f-4634-ac09-5ea4b8dcdbb8",
+      "runId": "5f5a276c-74f0-4203-a763-7d068ec74195",
+      "title": "Research Result Document",
+      "createdAt": "2026-07-20T13:10:52.373Z",
+      "producerNodeId": "alphalab-research-document-v1",
+      "kind": "document",
+      "content": {
+        "markdown": "# 000002.SZ 本地证据研究简报\n\n## 1. 报告范围\n\n本报告根据本轮工作区上下文与 AlphaLab 本地历史行情生成，研究对象为当前选中标的 **000002.SZ**。本轮未选择策略，也未选择回测；我没有运行新的回测、没有生成纸面信号、也没有进行任何真实交易。\n\n## 2. 实际数据来源\n\n- **Workspace Context**：当前选中标的、数据状态、工作区能力。\n- **AlphaLab Market Bars**：`000002.SZ` 在 `2025-07-10` 至 `2026-07-10` 的日频 OHLCV 历史行情。\n\n## 3. 事实\n\n| 项目 | 结果 |\n|---|---:|\n| 当前选中标的 | 000002.SZ |\n| 行情样本区间 | 2025-07-10 至 2026-07-10 |\n| QMT 数据状态 | 正常；latest_date = 2026-07-10；needs_update = false |\n| RQ 数据状态 | 正常；latest_date = 2026-07-10；needs_update = false |\n| 本地数据状态 | ready；symbol_count = 300 |\n| 实时行情 | not_configured / connected = false |\n| 期初收盘价 | 42.97 |\n| 期末收盘价 | 19.77 |\n| 区间收盘价收益 | 约 -53.99% |\n| 区间最高收盘价 | 45.51（2025-08-25） |\n| 区间最低收盘价 | 18.75（2026-06-25） |\n| 最高收盘至最低收盘估算回撤 | 约 -58.80% |\n\n## 4. 初步解读（推断）\n\n- 在本地历史行情窗口内，`000002.SZ` 的价格趋势明显偏弱：从 2025-07-10 的收盘价 42.97 下行至 2026-07-10 的 19.77。\n- 2025 年 8 月下旬曾出现阶段性高点，随后进入较长下行阶段；到 2026 年 6 月下旬触及区间低位。\n- 2026-07-10 收盘价较 6 月低点有所反弹，但仍远低于样本期初与 2025 年 8 月高点，因此仅凭价格序列不能判断趋势已经反转。\n\n## 5. 数据缺口与限制\n\n- 本报告仅使用了单一标的一年左右日频行情，没有纳入行业指数、市场基准或同业比较。\n- 未读取或分析该公司的财务数据、估值指标、公告事件、股本变化、分红送转和复权细节。\n- 实时行情未配置，因此报告不包含实时盘口或最新盘中价格。\n- 未进行策略回测，未纳入交易成本、滑点、涨跌停、停牌、成交容量和换手约束。\n- 历史价格表现不代表未来收益；单一窗口分析存在样本选择偏差。\n\n## 6. 风险检查\n\n- **趋势风险**：过去一年收盘价跌幅较大，若基本面或行业周期未改善，趋势延续风险仍高。\n- **反弹误判风险**：低位反弹可能只是技术性修复，不能单独作为买入依据。\n- **数据风险**：需要确认价格是否为一致复权口径，并结合公告日/可得日数据避免前视偏差。\n- **流动性与交易风险**：虽然样本中存在成交额数据，但本报告尚未评估冲击成本与容量。\n\n## 7. 下一步建议\n\n1. 若你关注单票研究：补充读取 `000002.SZ` 更长历史区间，并加入财务/估值因子。\n2. 若你关注策略研究：将该标的放入 `value`、`low_vol` 或自定义因子框架中做横向比较。\n3. 若你关注风险控制：设置基准指数与止损/仓位规则，再评估回撤和波动。\n4. 若你希望继续工作区联动：可以让我打开行情历史、策略中心或回测工作台。\n\n## 8. 结论\n\n**事实结论**：本地数据可用，`000002.SZ` 在 2025-07-10 至 2026-07-10 的收盘价表现显著为负。\n\n**推断结论**：当前证据更支持“趋势偏弱、需要进一步验证基本面与相对价值”的谨慎判断，而不是直接形成做多或做空建议。\n\n**缺口结论**：在没有基准、财务、估值、行业比较和交易成本检验前，本报告不能作为投资建议或交易指令。"
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "toolName": "alphalab_get_workspace_context",
+  "description": "Read current AlphaLab provider status, symbol and strategy catalogs, and recent backtests through the stable FastAPI contract.",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "backtest_limit": { "type": "number", "minimum": 1, "maximum": 20, "default": 5 },
+      "symbol_limit": { "type": "number", "minimum": 1, "maximum": 100, "default": 30 }
+    }
+  },
+  "outputSchema": { "type": "object" },
+  "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function get(path) {\n  const response = await fetch(apiOrigin() + path, { headers: { Accept: 'application/json' } })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}\n\nasync function run(input) {\n  const backtestLimit = Math.max(1, Math.min(20, Number(input.backtest_limit || 5)))\n  const symbolLimit = Math.max(1, Math.min(100, Number(input.symbol_limit || 30)))\n  const [providers, symbolCatalog, strategies, backtests] = await Promise.all([\n    get('/api/data/providers'),\n    get('/api/data/market/symbols'),\n    get('/api/strategies'),\n    get('/api/backtests?limit=' + backtestLimit),\n  ])\n  const allSymbols = Array.isArray(symbolCatalog.symbols) ? symbolCatalog.symbols : []\n  return { providers, symbols: allSymbols.slice(0, symbolLimit), symbolCount: allSymbols.length, strategies, backtests, observedAt: new Date().toISOString() }\n}",
+  "timeoutMs": 30000,
+  "permissions": { "network": "alphalab-api" },
+  "sideEffects": "read"
+}

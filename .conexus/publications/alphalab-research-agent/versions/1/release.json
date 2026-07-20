@@ -1,0 +1,701 @@
+{
+  "schema": "conexus.harness.release",
+  "schemaVersion": 1,
+  "runtimeVersion": 1,
+  "manifest": {
+    "id": "alphalab.research-agent.v1",
+    "name": "AlphaLab Research Agent",
+    "summary": "Conversation-driven AlphaLab research workflow.",
+    "description": "Uses AlphaLab FastAPI tools and emits a structured decision notebook.",
+    "version": 1,
+    "entrypoint": "alphalab-research-agent-v1",
+    "inputs": [
+      {
+        "key": "request",
+        "label": "Research request",
+        "description": "The user's research question or requested AlphaLab action.",
+        "type": "text",
+        "required": true,
+        "nodeId": "alphalab-research-agent-v1",
+        "port": "task"
+      },
+      {
+        "key": "context",
+        "label": "Workspace context",
+        "description": "Selected symbol, strategy, backtest, intent, and data status from the AlphaLab workstation.",
+        "type": "json",
+        "required": false,
+        "defaultValue": {},
+        "nodeId": "alphalab-research-context-v1",
+        "port": "data"
+      }
+    ],
+    "outputs": [
+      {
+        "key": "summary",
+        "label": "Research answer",
+        "description": "Final Agent response.",
+        "type": "json",
+        "nodeId": "alphalab-research-agent-v1",
+        "port": "summary"
+      },
+      {
+        "key": "decisionNotebook",
+        "label": "Decision notebook",
+        "description": "Structured classification, base case, risk case, next action, and candidates.",
+        "type": "json",
+        "nodeId": "alphalab-decision-notebook-v1",
+        "port": "data"
+      }
+    ],
+    "permissions": [
+      {
+        "kind": "model",
+        "required": true
+      },
+      {
+        "kind": "network",
+        "required": true
+      },
+      {
+        "kind": "shell",
+        "required": true
+      }
+    ],
+    "dependencies": [
+      {
+        "kind": "model",
+        "name": "openrouter"
+      },
+      {
+        "kind": "runtime",
+        "name": "conexus.runtime.v1"
+      }
+    ],
+    "capabilities": [
+      "quant-research",
+      "backtest",
+      "paper-signal",
+      "decision-notebook"
+    ],
+    "triggers": [
+      "research",
+      "backtest",
+      "strategy risk",
+      "paper signal"
+    ],
+    "tags": [
+      "published-web",
+      "alphalab",
+      "quant",
+      "published-agent"
+    ]
+  },
+  "graph": {
+    "entrypoint": "alphalab-research-agent-v1",
+    "nodes": [
+      {
+        "id": "alphalab-research-agent-v1",
+        "type": "agent",
+        "data": {
+          "objective": "作为 AlphaLab 工作台的研究 Agent，基于真实 API 数据回答问题，并在用户明确要求时运行回测或生成纸面信号。",
+          "systemPrompt": "你是 AlphaLab Research Agent。每轮开始先用 observe_nodes 读取连接的 Workspace Context；只有需要最新服务端状态时才调用 alphalab_get_workspace_context。\n\n你可以读取策略、行情和回测详情。只有用户明确要求执行时，才能调用 alphalab_run_backtest 或 alphalab_generate_signal；用户只是讨论、评估或要求草案时，不得擅自运行。这里没有真实下单工具，不得声称已经交易。\n\n回答必须区分事实、推断和数据缺口。回测结果要报告区间、核心指标、样本限制与过拟合/前视风险。生成信号时必须称为纸面信号。\n\n完成前必须调用 update_nodes 更新 alphalab-decision-notebook-v1 的 data，字段至少包括 classification、baseCase、riskCase、nextAction、candidateExpressions。candidateExpressions 必须是字符串数组。然后用 complete 给出中文最终回答；如果用户使用英文，可跟随用户语言。",
+          "toolNames": [
+            "ask_user",
+            "list_nodes",
+            "observe_nodes",
+            "update_nodes",
+            "alphalab_get_workspace_context",
+            "alphalab_get_strategy",
+            "alphalab_get_market_bars",
+            "alphalab_get_backtest",
+            "alphalab_run_backtest",
+            "alphalab_generate_signal",
+            "complete"
+          ],
+          "label": "AlphaLab Research Agent",
+          "description": "Published entry Agent for AlphaLab research conversations.",
+          "showOnHarnessPreview": true,
+          "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/agents/AlphaLab-Research-Agent.agent.json"
+        },
+        "parentId": "alphalab-research-harness-v1"
+      },
+      {
+        "id": "alphalab-research-context-v1",
+        "type": "custom",
+        "data": {
+          "customType": "alphalab_workspace_context",
+          "content": "Structured context supplied by the AlphaLab workstation for the current turn.",
+          "data": {},
+          "label": "Workspace Context",
+          "description": "Structured context supplied by the AlphaLab workstation.",
+          "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/data/Workspace-Context.custom.json"
+        },
+        "parentId": "alphalab-research-harness-v1"
+      },
+      {
+        "id": "alphalab-decision-notebook-v1",
+        "type": "custom",
+        "data": {
+          "customType": "alphalab_decision_notebook",
+          "content": "Structured decision notebook produced by the AlphaLab Research Agent.",
+          "data": {
+            "classification": "pending",
+            "baseCase": "",
+            "riskCase": "",
+            "nextAction": "",
+            "candidateExpressions": []
+          },
+          "label": "Decision Notebook",
+          "description": "Structured output consumed by the AlphaLab right rail.",
+          "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/data/Decision-Notebook.custom.json"
+        },
+        "parentId": "alphalab-research-harness-v1"
+      },
+      {
+        "id": "alphalab-tool-workspace-context-v1",
+        "type": "tool",
+        "data": {
+          "toolName": "alphalab_get_workspace_context",
+          "description": "Read current AlphaLab provider status, strategy catalog, and recent backtests through the stable FastAPI contract.",
+          "runtime": "node",
+          "exposeAsTool": true,
+          "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "backtest_limit": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 20,
+                "default": 5
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          },
+          "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function get(path) {\n  const response = await fetch(apiOrigin() + path, { headers: { Accept: 'application/json' } })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}\n\nasync function run(input) {\n  const limit = Math.max(1, Math.min(20, Number(input.backtest_limit || 5)))\n  const [providers, strategies, backtests] = await Promise.all([\n    get('/api/data/providers'),\n    get('/api/strategies'),\n    get('/api/backtests?limit=' + limit),\n  ])\n  return { providers, strategies, backtests, observedAt: new Date().toISOString() }\n}",
+          "timeoutMs": 30000,
+          "permissions": {
+            "network": "alphalab-api"
+          },
+          "sideEffects": "read",
+          "label": "AlphaLab Workspace Context",
+          "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/tools/Get-Workspace-Context.tool.json"
+        },
+        "parentId": "alphalab-research-harness-v1"
+      },
+      {
+        "id": "alphalab-tool-strategy-v1",
+        "type": "tool",
+        "data": {
+          "toolName": "alphalab_get_strategy",
+          "description": "Read one AlphaLab strategy template and its YAML definition.",
+          "runtime": "node",
+          "exposeAsTool": true,
+          "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "strategy_id"
+            ],
+            "properties": {
+              "strategy_id": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          },
+          "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const id = encodeURIComponent(String(input.strategy_id || '').trim())\n  if (!id) throw new Error('strategy_id is required')\n  const response = await fetch(apiOrigin() + '/api/strategies/' + id, { headers: { Accept: 'application/json' } })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+          "timeoutMs": 30000,
+          "permissions": {
+            "network": "alphalab-api"
+          },
+          "sideEffects": "read",
+          "label": "AlphaLab Strategy",
+          "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/tools/Get-Strategy.tool.json"
+        },
+        "parentId": "alphalab-research-harness-v1"
+      },
+      {
+        "id": "alphalab-tool-market-bars-v1",
+        "type": "tool",
+        "data": {
+          "toolName": "alphalab_get_market_bars",
+          "description": "Read real historical bars available in AlphaLab for one symbol and optional date range.",
+          "runtime": "node",
+          "exposeAsTool": true,
+          "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "symbol"
+            ],
+            "properties": {
+              "symbol": {
+                "type": "string",
+                "minLength": 1
+              },
+              "start": {
+                "type": "string"
+              },
+              "end": {
+                "type": "string"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          },
+          "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const params = new URLSearchParams({ symbol: String(input.symbol || '').trim() })\n  if (!params.get('symbol')) throw new Error('symbol is required')\n  if (input.start) params.set('start', String(input.start))\n  if (input.end) params.set('end', String(input.end))\n  const response = await fetch(apiOrigin() + '/api/data/market/bars?' + params, { headers: { Accept: 'application/json' } })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+          "timeoutMs": 30000,
+          "permissions": {
+            "network": "alphalab-api"
+          },
+          "sideEffects": "read",
+          "label": "AlphaLab Market Bars",
+          "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/tools/Get-Market-Bars.tool.json"
+        },
+        "parentId": "alphalab-research-harness-v1"
+      },
+      {
+        "id": "alphalab-tool-backtest-v1",
+        "type": "tool",
+        "data": {
+          "toolName": "alphalab_get_backtest",
+          "description": "Read one persisted AlphaLab backtest including metrics, returns, and weights.",
+          "runtime": "node",
+          "exposeAsTool": true,
+          "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "backtest_id"
+            ],
+            "properties": {
+              "backtest_id": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          },
+          "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const id = encodeURIComponent(String(input.backtest_id || '').trim())\n  if (!id) throw new Error('backtest_id is required')\n  const response = await fetch(apiOrigin() + '/api/backtests/' + id, { headers: { Accept: 'application/json' } })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+          "timeoutMs": 30000,
+          "permissions": {
+            "network": "alphalab-api"
+          },
+          "sideEffects": "read",
+          "label": "AlphaLab Backtest",
+          "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/tools/Get-Backtest.tool.json"
+        },
+        "parentId": "alphalab-research-harness-v1"
+      },
+      {
+        "id": "alphalab-tool-run-backtest-v1",
+        "type": "tool",
+        "data": {
+          "toolName": "alphalab_run_backtest",
+          "description": "Run and persist an AlphaLab backtest. Call only after the user explicitly requests execution.",
+          "runtime": "node",
+          "exposeAsTool": true,
+          "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "strategy_id",
+              "start_date",
+              "end_date"
+            ],
+            "properties": {
+              "strategy_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "start_date": {
+                "type": "string",
+                "minLength": 10
+              },
+              "end_date": {
+                "type": "string",
+                "minLength": 10
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          },
+          "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const response = await fetch(apiOrigin() + '/api/backtests/run', {\n    method: 'POST',\n    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      strategy_id: String(input.strategy_id || '').trim(),\n      start_date: String(input.start_date || '').trim(),\n      end_date: String(input.end_date || '').trim(),\n    }),\n  })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+          "timeoutMs": 180000,
+          "permissions": {
+            "network": "alphalab-api"
+          },
+          "sideEffects": "write",
+          "label": "Run AlphaLab Backtest",
+          "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/tools/Run-Backtest.tool.json"
+        },
+        "parentId": "alphalab-research-harness-v1"
+      },
+      {
+        "id": "alphalab-tool-generate-signal-v1",
+        "type": "tool",
+        "data": {
+          "toolName": "alphalab_generate_signal",
+          "description": "Generate an AlphaLab paper signal and optionally persist it. This tool never places a real order.",
+          "runtime": "node",
+          "exposeAsTool": true,
+          "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "strategy_id"
+            ],
+            "properties": {
+              "strategy_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "as_of_date": {
+                "type": "string"
+              },
+              "persist": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          },
+          "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const response = await fetch(apiOrigin() + '/api/signals/generate', {\n    method: 'POST',\n    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      strategy_id: String(input.strategy_id || '').trim(),\n      as_of_date: input.as_of_date ? String(input.as_of_date) : null,\n      persist: input.persist !== false,\n    }),\n  })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+          "timeoutMs": 120000,
+          "permissions": {
+            "network": "alphalab-api"
+          },
+          "sideEffects": "write",
+          "label": "Generate AlphaLab Paper Signal",
+          "backingPath": "workspace/harnesses/AlphaLab-Research-Agent-v1/tools/Generate-Signal.tool.json"
+        },
+        "parentId": "alphalab-research-harness-v1"
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge-alphalab-research-v1-1",
+        "source": "alphalab-research-agent-v1",
+        "target": "alphalab-research-context-v1"
+      },
+      {
+        "id": "edge-alphalab-research-v1-2",
+        "source": "alphalab-research-agent-v1",
+        "target": "alphalab-decision-notebook-v1"
+      },
+      {
+        "id": "edge-alphalab-research-v1-3",
+        "source": "alphalab-research-agent-v1",
+        "target": "alphalab-tool-workspace-context-v1"
+      },
+      {
+        "id": "edge-alphalab-research-v1-4",
+        "source": "alphalab-research-agent-v1",
+        "target": "alphalab-tool-strategy-v1"
+      },
+      {
+        "id": "edge-alphalab-research-v1-5",
+        "source": "alphalab-research-agent-v1",
+        "target": "alphalab-tool-market-bars-v1"
+      },
+      {
+        "id": "edge-alphalab-research-v1-6",
+        "source": "alphalab-research-agent-v1",
+        "target": "alphalab-tool-backtest-v1"
+      },
+      {
+        "id": "edge-alphalab-research-v1-7",
+        "source": "alphalab-research-agent-v1",
+        "target": "alphalab-tool-run-backtest-v1"
+      },
+      {
+        "id": "edge-alphalab-research-v1-8",
+        "source": "alphalab-research-agent-v1",
+        "target": "alphalab-tool-generate-signal-v1"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "alphalab_get_workspace_context",
+      "description": "Read current AlphaLab provider status, strategy catalog, and recent backtests through the stable FastAPI contract.",
+      "runtime": "node",
+      "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function get(path) {\n  const response = await fetch(apiOrigin() + path, { headers: { Accept: 'application/json' } })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}\n\nasync function run(input) {\n  const limit = Math.max(1, Math.min(20, Number(input.backtest_limit || 5)))\n  const [providers, strategies, backtests] = await Promise.all([\n    get('/api/data/providers'),\n    get('/api/strategies'),\n    get('/api/backtests?limit=' + limit),\n  ])\n  return { providers, strategies, backtests, observedAt: new Date().toISOString() }\n}",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "backtest_limit": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 20,
+            "default": 5
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "exposeAsTool": true,
+      "nodeId": "alphalab-tool-workspace-context-v1"
+    },
+    {
+      "name": "alphalab_get_strategy",
+      "description": "Read one AlphaLab strategy template and its YAML definition.",
+      "runtime": "node",
+      "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const id = encodeURIComponent(String(input.strategy_id || '').trim())\n  if (!id) throw new Error('strategy_id is required')\n  const response = await fetch(apiOrigin() + '/api/strategies/' + id, { headers: { Accept: 'application/json' } })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "strategy_id"
+        ],
+        "properties": {
+          "strategy_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "exposeAsTool": true,
+      "nodeId": "alphalab-tool-strategy-v1"
+    },
+    {
+      "name": "alphalab_get_market_bars",
+      "description": "Read real historical bars available in AlphaLab for one symbol and optional date range.",
+      "runtime": "node",
+      "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const params = new URLSearchParams({ symbol: String(input.symbol || '').trim() })\n  if (!params.get('symbol')) throw new Error('symbol is required')\n  if (input.start) params.set('start', String(input.start))\n  if (input.end) params.set('end', String(input.end))\n  const response = await fetch(apiOrigin() + '/api/data/market/bars?' + params, { headers: { Accept: 'application/json' } })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "symbol"
+        ],
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "minLength": 1
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "exposeAsTool": true,
+      "nodeId": "alphalab-tool-market-bars-v1"
+    },
+    {
+      "name": "alphalab_get_backtest",
+      "description": "Read one persisted AlphaLab backtest including metrics, returns, and weights.",
+      "runtime": "node",
+      "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const id = encodeURIComponent(String(input.backtest_id || '').trim())\n  if (!id) throw new Error('backtest_id is required')\n  const response = await fetch(apiOrigin() + '/api/backtests/' + id, { headers: { Accept: 'application/json' } })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "backtest_id"
+        ],
+        "properties": {
+          "backtest_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "exposeAsTool": true,
+      "nodeId": "alphalab-tool-backtest-v1"
+    },
+    {
+      "name": "alphalab_run_backtest",
+      "description": "Run and persist an AlphaLab backtest. Call only after the user explicitly requests execution.",
+      "runtime": "node",
+      "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const response = await fetch(apiOrigin() + '/api/backtests/run', {\n    method: 'POST',\n    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      strategy_id: String(input.strategy_id || '').trim(),\n      start_date: String(input.start_date || '').trim(),\n      end_date: String(input.end_date || '').trim(),\n    }),\n  })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "strategy_id",
+          "start_date",
+          "end_date"
+        ],
+        "properties": {
+          "strategy_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "start_date": {
+            "type": "string",
+            "minLength": 10
+          },
+          "end_date": {
+            "type": "string",
+            "minLength": 10
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "exposeAsTool": true,
+      "nodeId": "alphalab-tool-run-backtest-v1"
+    },
+    {
+      "name": "alphalab_generate_signal",
+      "description": "Generate an AlphaLab paper signal and optionally persist it. This tool never places a real order.",
+      "runtime": "node",
+      "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const response = await fetch(apiOrigin() + '/api/signals/generate', {\n    method: 'POST',\n    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      strategy_id: String(input.strategy_id || '').trim(),\n      as_of_date: input.as_of_date ? String(input.as_of_date) : null,\n      persist: input.persist !== false,\n    }),\n  })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "strategy_id"
+        ],
+        "properties": {
+          "strategy_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "as_of_date": {
+            "type": "string"
+          },
+          "persist": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "exposeAsTool": true,
+      "nodeId": "alphalab-tool-generate-signal-v1"
+    }
+  ],
+  "schemas": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request"
+      ],
+      "properties": {
+        "request": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100000
+        },
+        "context": {
+          "type": "object"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "decisionNotebook"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "decisionNotebook": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "runtime": {
+    "policy": {
+      "maxAttempts": 1,
+      "allowParallel": false
+    },
+    "timeoutMs": 300000,
+    "isolation": "none"
+  },
+  "verification": {
+    "successCriteria": [
+      "The final answer is grounded in AlphaLab API results or clearly marked as a hypothesis.",
+      "Any backtest or signal action was explicitly requested by the user.",
+      "The decisionNotebook output is updated before completion."
+    ]
+  },
+  "requirements": [
+    {
+      "kind": "model",
+      "name": "openrouter"
+    },
+    {
+      "kind": "node",
+      "name": "agent"
+    },
+    {
+      "kind": "node",
+      "name": "custom"
+    },
+    {
+      "kind": "node",
+      "name": "tool"
+    },
+    {
+      "kind": "runtime",
+      "name": "conexus.runtime.v1"
+    },
+    {
+      "kind": "tool",
+      "name": "alphalab_generate_signal",
+      "version": "node"
+    },
+    {
+      "kind": "tool",
+      "name": "alphalab_get_backtest",
+      "version": "node"
+    },
+    {
+      "kind": "tool",
+      "name": "alphalab_get_market_bars",
+      "version": "node"
+    },
+    {
+      "kind": "tool",
+      "name": "alphalab_get_strategy",
+      "version": "node"
+    },
+    {
+      "kind": "tool",
+      "name": "alphalab_get_workspace_context",
+      "version": "node"
+    },
+    {
+      "kind": "tool",
+      "name": "alphalab_run_backtest",
+      "version": "node"
+    }
+  ]
+}
