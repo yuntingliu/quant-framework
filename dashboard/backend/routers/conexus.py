@@ -13,7 +13,6 @@ router = APIRouter(prefix="/api/conexus", tags=["conexus"])
 
 _DEFAULT_WEB_ORIGIN = "http://127.0.0.1:3000"
 _DEFAULT_PUBLICATION_SLUG = "alphalab-research-agent"
-_DEFAULT_AGENT_NODE_ID = "alphalab-research-agent-v1"
 _SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -24,10 +23,6 @@ def _web_origin() -> str:
 def _publication_slug() -> str:
     value = os.getenv("CONEXUS_PUBLICATION_SLUG", _DEFAULT_PUBLICATION_SLUG).strip().lower()
     return value if _SLUG.fullmatch(value) else _DEFAULT_PUBLICATION_SLUG
-
-
-def _agent_node_id() -> str:
-    return os.getenv("CONEXUS_AGENT_NODE_ID", _DEFAULT_AGENT_NODE_ID).strip() or _DEFAULT_AGENT_NODE_ID
 
 
 def _upstream_headers(request: Request, *, accept: str = "application/json") -> dict[str, str]:
@@ -73,20 +68,11 @@ async def _forward(request: Request, method: str, path: str) -> Response:
 async def conexus_status() -> dict:
     slug = _publication_slug()
     try:
-        descriptor = await _fetch_json(f"/api/public/harnesses/{quote(slug)}/descriptor")
-        return {
-            "available": True,
-            "webOrigin": _web_origin(),
-            "publicationSlug": slug,
-            "agentNodeId": _agent_node_id(),
-            "descriptor": descriptor,
-        }
+        await _fetch_json(f"/api/public/harnesses/{quote(slug)}/descriptor")
+        return {"available": True}
     except (httpx.HTTPError, ValueError) as error:
         return {
             "available": False,
-            "webOrigin": _web_origin(),
-            "publicationSlug": slug,
-            "agentNodeId": _agent_node_id(),
             "error": str(error),
         }
 

@@ -1,15 +1,5 @@
 export interface ConexusStatus {
   available: boolean
-  webOrigin: string
-  publicationSlug: string
-  agentNodeId: string
-  descriptor?: {
-    slug: string
-    title: string
-    summary?: string
-    accessPolicy: "anonymous" | "conexus_account"
-    billingPolicy: "publisher" | "consumer"
-  }
   error?: string
 }
 
@@ -23,16 +13,9 @@ export interface PublishedHarnessInput {
 }
 
 export interface PublishedHarnessManifest {
-  schema: string
-  version: number
-  slug: string
-  title: string
-  summary?: string
   accessPolicy: "anonymous" | "conexus_account"
   billingPolicy: "publisher" | "consumer"
   inputs: PublishedHarnessInput[]
-  outputs: Array<{ key: string; label: string; description: string; type: string }>
-  nodes: Array<{ id: string; type: string; label: string; description?: string }>
 }
 
 export type PublishedHarnessArtifact = {

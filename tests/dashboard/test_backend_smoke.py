@@ -90,8 +90,4 @@ def test_conexus_status_uses_published_harness_contract(monkeypatch):
     response = TestClient(app).get("/api/conexus/status")
 
     assert response.status_code == 200
-    assert response.json()["available"] is True
-    assert response.json()["publicationSlug"] == "alphalab-research-agent"
-    assert response.json()["agentNodeId"] == "alphalab-research-agent-v1"
-    assert response.json()["descriptor"]["accessPolicy"] == "anonymous"
-    assert response.json()["descriptor"]["billingPolicy"] == "publisher"
+    assert response.json() == {"available": True}
