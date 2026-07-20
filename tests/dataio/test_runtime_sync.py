@@ -227,6 +227,12 @@ class _FakeRQModule:
         values.update({field: [1.0] * len(index) for field in kwargs["fields"]})
         return pd.DataFrame(values, index=index)
 
+    def get_yield_curve(self, **kwargs):
+        assert kwargs["tenor"] == "1M"
+        assert kwargs["market"] == "cn"
+        index = pd.date_range(kwargs["start_date"], kwargs["end_date"], freq="B")
+        return pd.DataFrame({"1M": 2.4}, index=index.rename("date"))
+
 
 def test_rq_acquirer_enforces_stock_and_quarter_batch_limits() -> None:
     module = _FakeRQModule()
@@ -250,6 +256,21 @@ def test_rq_acquirer_enforces_stock_and_quarter_batch_limits() -> None:
     assert all(call["statements"] == "all" for call in module.financial_calls)
     assert "raw_close" in bars
     assert not financials.empty
+
+
+def test_rq_acquirer_normalizes_annual_yield_to_monthly_return() -> None:
+    module = _FakeRQModule()
+    client = RQDataClient(
+        RQDataConfig(user="demo", password="secret", host="example:16011"),
+        module=module,
+    )
+    curve = RQAcquirer(client, retries=1).risk_free_curve(
+        "2025-01-01",
+        "2025-01-10",
+    )
+
+    assert list(curve) == ["date", "rf"]
+    assert curve["rf"].iloc[0] == pytest.approx((1.024 ** (1 / 12)) - 1)
 
 
 def test_failed_sync_records_an_honest_error(tmp_path) -> None:

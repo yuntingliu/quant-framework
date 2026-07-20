@@ -69,6 +69,9 @@ export function WorkspaceToolbar({
     ;(acc[category] ??= []).push(w)
     return acc
   }, {})
+  for (const widgets of Object.values(categories)) {
+    widgets.sort((left, right) => Number(right.status === "active") - Number(left.status === "active"))
+  }
 
   return (
     <div ref={toolbarRef} className="relative z-30 h-10 flex min-w-0 shrink-0 items-center overflow-visible border-b border-border bg-card">
@@ -120,7 +123,12 @@ export function WorkspaceToolbar({
                       className="w-full text-left px-3 py-1.5 text-xs hover:bg-muted"
                       onClick={() => addWidget(w.id, widgetTitle(w, language))}
                     >
-                      {widgetTitle(w, language)}
+                      <span>{widgetTitle(w, language)}</span>
+                      {w.status === "not_configured" && (
+                        <span className="ml-1 text-[10px] text-muted-foreground">
+                          {language === "zh" ? "未配置" : "Not configured"}
+                        </span>
+                      )}
                       {widgetDescription(w, language) && (
                         <span className="text-muted-foreground ml-1">-- {widgetDescription(w, language)}</span>
                       )}

@@ -17,6 +17,8 @@ class PaperOrderRequest(BaseModel):
     quantity: float = Field(gt=0)
     price: float | None = Field(default=None, gt=0)
     signal_id: str | None = None
+    profile: str = "demo"
+    account_id: str = "paper"
 
     @field_validator("action")
     @classmethod
@@ -32,4 +34,51 @@ class PaperOrderRequest(BaseModel):
         normalized = value.strip().upper()
         if not normalized:
             raise ValueError("symbol is required")
+        return normalized
+
+    @field_validator("quantity")
+    @classmethod
+    def validate_board_lot(cls, value: float) -> float:
+        if abs(value / 100 - round(value / 100)) > 1e-9:
+            raise ValueError("quantity must use 100-share board lots")
+        return value
+
+    @field_validator("profile")
+    @classmethod
+    def validate_profile(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"demo", "runtime"}:
+            raise ValueError("profile must be demo or runtime")
+        return normalized
+
+    @field_validator("account_id")
+    @classmethod
+    def validate_account(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("account_id is required")
+        return normalized
+
+
+class PaperRebalanceRequest(BaseModel):
+    strategy_id: str | None = None
+    signal_id: str | None = None
+    profile: str = "demo"
+    account_id: str = "paper"
+    confirm: bool = False
+
+    @field_validator("profile")
+    @classmethod
+    def validate_profile(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"demo", "runtime"}:
+            raise ValueError("profile must be demo or runtime")
+        return normalized
+
+    @field_validator("account_id")
+    @classmethod
+    def validate_account(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("account_id is required")
         return normalized

@@ -12,6 +12,7 @@ import pandas as pd
 from pydantic import BaseModel, Field, field_validator
 
 from alphalab.dataio.errors import DataLoadError, MissingDataError
+from alphalab.dataio.factor_returns import build_factor_returns
 from alphalab.dataio.fundamentals import (
     BALANCE_FIELDS,
     INCOME_FIELDS,
@@ -23,14 +24,14 @@ from alphalab.dataio.runtime import OperationsStore, RuntimeStore
 from alphalab.dataio.symbols import canonical_a_share_symbol
 from alphalab.utils.paths import DATA_DIR, RUNTIME_DIR
 
-SyncDataset = Literal["instruments", "bars", "fundamentals"]
-_ALLOWED_DATASETS = {"instruments", "bars", "fundamentals"}
+SyncDataset = Literal["instruments", "bars", "fundamentals", "factors"]
+_ALLOWED_DATASETS = {"instruments", "bars", "fundamentals", "factors"}
 
 
 class SyncRequest(BaseModel):
     source: Literal["rq"] = "rq"
     datasets: list[SyncDataset] = Field(
-        default_factory=lambda: ["instruments", "bars", "fundamentals"]
+        default_factory=lambda: ["instruments", "bars", "fundamentals", "factors"]
     )
     symbols: list[str] | None = None
     start: str | None = None
@@ -134,6 +135,16 @@ def build_sync_plan(
                     "asof_date": end.strftime("%Y-%m-%d"),
                 },
             ]
+        )
+    if "factors" in request.datasets:
+        steps.append(
+            {
+                "dataset": "runtime.factor_returns",
+                "mode": "rebuild",
+                "start": start.strftime("%Y-%m-%d"),
+                "end": end.strftime("%Y-%m-%d"),
+                "risk_free_source": "rq_yield_curve_1m",
+            }
         )
     return {
         "source": "rq",
@@ -261,6 +272,37 @@ class RQSyncService:
                 progress = self._complete_step(
                     job_id,
                     "canonical.fundamentals",
+                    progress,
+                    total,
+                )
+
+            if "factors" in datasets:
+                self._check_cancel(job_id)
+                factor_step = _step(plan, "runtime.factor_returns")
+                try:
+                    factor_bars = self.store.read("rq.bars")
+                    factor_fundamentals = self.store.read("canonical.fundamentals")
+                except MissingDataError as exc:
+                    raise MissingDataError(
+                        "Runtime factors require bars and canonical fundamentals"
+                    ) from exc
+                risk_free = acquirer.risk_free_curve(
+                    factor_step["start"],
+                    factor_step["end"],
+                )
+                factors = build_factor_returns(
+                    factor_bars,
+                    factor_fundamentals,
+                    risk_free,
+                )
+                if factors.empty:
+                    raise MissingDataError(
+                        "Runtime factor construction produced no monthly observations"
+                    )
+                self.store.write("runtime.factor_returns", factors)
+                progress = self._complete_step(
+                    job_id,
+                    "runtime.factor_returns",
                     progress,
                     total,
                 )
@@ -399,6 +441,8 @@ def _estimate_batches(steps: list[dict], symbol_count: int) -> int:
             end_year, end_quarter = int(step["end_quarter"][:4]), int(step["end_quarter"][-1])
             quarters = (end_year - start_year) * 4 + end_quarter - start_quarter + 1
             total += stock_batches * max(1, (quarters + 49) // 50)
+        elif step["dataset"] == "runtime.factor_returns":
+            total += 2
         else:
             total += 1
     return total

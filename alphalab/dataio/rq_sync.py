@@ -178,6 +178,50 @@ class RQAcquirer:
             raise DataLoadError("RQData returned no PIT financial statements")
         return output
 
+    def risk_free_curve(self, start: str, end: str, tenor: str = "1M") -> pd.DataFrame:
+        """Fetch a China government yield tenor and normalize it to monthly return."""
+
+        rq = self.client.connect()
+        raw = self._retry(
+            lambda: rq.get_yield_curve(
+                start_date=start,
+                end_date=end,
+                tenor=tenor,
+                market="cn",
+            )
+        )
+        frame = _reset(pd.DataFrame(raw))
+        if frame.empty:
+            raise DataLoadError("RQData returned no risk-free yield curve")
+        columns = _columns(frame)
+        date_column = (
+            columns.get("date")
+            or columns.get("trade_date")
+            or columns.get("datetime")
+        )
+        value_column = columns.get(tenor.lower()) or columns.get("yield")
+        if date_column is None:
+            first = frame.columns[0]
+            if pd.api.types.is_datetime64_any_dtype(frame[first]):
+                date_column = first
+        if value_column is None:
+            candidates = [column for column in frame.columns if column != date_column]
+            if candidates:
+                value_column = candidates[0]
+        if date_column is None or value_column is None:
+            raise DataValidationError("RQ yield curve requires date and tenor values")
+        annual = pd.to_numeric(frame[value_column], errors="coerce")
+        if annual.dropna().abs().median() > 1.0:
+            annual = annual / 100.0
+        monthly = (1.0 + annual.clip(lower=-0.999999)) ** (1.0 / 12.0) - 1.0
+        output = pd.DataFrame(
+            {
+                "date": pd.to_datetime(frame[date_column], errors="coerce"),
+                "rf": monthly,
+            }
+        )
+        return output.dropna().drop_duplicates("date", keep="last").sort_values("date")
+
     def _retry(self, call: Callable[[], Any]) -> Any:
         last_error: Exception | None = None
         for attempt in range(self.retries):

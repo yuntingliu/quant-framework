@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BarChart3, CalendarDays } from 'lucide-react'
 import { RollingLineChart } from '../../components/charts/RollingLineChart'
+import { SymbolCombobox } from '../../components/shared/SymbolCombobox'
 import { apiGet, type DataManifest, type MarketBar, type ProviderStatus } from '../../lib/api'
 import { useDataProfile, type DataProfile } from '../../lib/data-profile'
 
@@ -53,9 +54,7 @@ export function HistoricalMarketWidget() {
             <option value="demo">Demo</option>
             <option value="runtime">Local RQ</option>
           </select>
-          <select value={symbol} onChange={(event) => setSymbol(event.target.value)}>
-            {symbols.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
+          <SymbolCombobox symbols={symbols} value={symbol} onChange={setSymbol} ariaLabel="Market symbol" />
         </div>
       </div>
       {error && <p className="error">{error}</p>}

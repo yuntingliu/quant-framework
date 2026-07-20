@@ -3,8 +3,10 @@
  */
 import type { ComponentType } from "react"
 
+import { BacktestCompareWidget } from "../backtest/BacktestCompare"
 import { BacktestExplorerWidget } from "../backtest/BacktestExplorer"
 import { BacktestRunnerWidget } from "../backtest/BacktestRunner"
+import { BacktestWorkbenchWidget } from "../backtest/BacktestWorkbench"
 import { StrategyListWidget } from "../backtest/StrategyList"
 import { AdapterSlotsWidget } from "../data/AdapterSlots"
 import { DataCenterWidget } from "../data/DataCenter"
@@ -13,7 +15,13 @@ import { PaperExecutionDeskWidget } from "../execution/PaperExecutionDesk"
 import { RiskConsoleWidget } from "../execution/RiskConsole"
 import { WorkstationHomeWidget } from "../home/WorkstationHome"
 import { HistoricalMarketWidget } from "../market/HistoricalMarket"
-import { FactorLibraryWidget } from "../research/FactorLibrary"
+import { AnnualReturnsWidget } from "../market/AnnualReturns"
+import { CorrelationMatrixWidget } from "../market/CorrelationMatrix"
+import { CumulativeReturnsWidget } from "../market/CumulativeReturns"
+import { DrawdownAnalysisWidget } from "../market/DrawdownAnalysis"
+import { FactorStatsWidget } from "../market/FactorStats"
+import { MarketKPIWidget } from "../market/MarketKPI"
+import { VolatilityAnalysisWidget } from "../market/VolatilityAnalysis"
 import { StrategyEditorWidget } from "../research/StrategyEditor"
 import { SignalDeskWidget } from "../research/SignalDesk"
 import { AdapterDisabledWidget } from "../system/AdapterDisabled"
@@ -56,8 +64,15 @@ export const widgetComponents: Record<string, ComponentType> = {
   "backtest.strategies": StrategyListWidget,
   "strategy.editor": StrategyEditorWidget,
   "research.signal-preview": SignalDeskWidget,
-  "backtest.workbench": BacktestRunnerWidget,
-  "market.factor-stats": FactorLibraryWidget,
+  "market.kpi": MarketKPIWidget,
+  "market.cumulative-returns": CumulativeReturnsWidget,
+  "market.factor-stats": FactorStatsWidget,
+  "market.drawdowns": DrawdownAnalysisWidget,
+  "market.annual-returns": AnnualReturnsWidget,
+  "market.volatility": VolatilityAnalysisWidget,
+  "market.correlation": CorrelationMatrixWidget,
+  "backtest.compare": BacktestCompareWidget,
+  "backtest.workbench": BacktestWorkbenchWidget,
   "trading.status": PaperExecutionDeskWidget,
   "trading.ashare.status": PaperExecutionDeskWidget,
   "trading.rebalance": PaperExecutionDeskWidget,

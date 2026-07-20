@@ -10,7 +10,9 @@ from dashboard.backend.routers import (
     compat,
     data,
     data_sync,
+    market,
     paper,
+    research,
     signals,
     strategies,
     system,
@@ -38,10 +40,12 @@ app.add_middleware(
 
 app.include_router(data.router)
 app.include_router(data_sync.router)
+app.include_router(market.router)
 app.include_router(strategies.router)
 app.include_router(backtests.router)
 app.include_router(signals.router)
 app.include_router(paper.router)
+app.include_router(research.router)
 app.include_router(system.router)
 app.include_router(compat.router)
 

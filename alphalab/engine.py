@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Union
 
-import numpy as np
 import pandas as pd
 
 from alphalab.dataio import DataEngine, MissingDataError, create_default_engine, to_wide
@@ -188,7 +187,7 @@ def run_backtest(
     if cfg.portfolio.rebalance_freq == "weekly":
         prices = close.resample("W-FRI").last().dropna(how="all")
     else:
-        prices = close.resample("M").last().dropna(how="all")
+        prices = close.resample("ME").last().dropna(how="all")
     period_returns = prices.pct_change(fill_method=None).shift(-1)
     signal_dates = [date for date in prices.index if pd.Timestamp(start_date) <= date <= pd.Timestamp(end_date)]
 
@@ -210,4 +209,3 @@ def run_backtest(
     returns_series = pd.Series(returns, name=cfg.name, dtype=float).dropna()
     weights_df = pd.DataFrame.from_dict(weights_by_date, orient="index").fillna(0.0).sort_index()
     return returns_series, weights_df
-

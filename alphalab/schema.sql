@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS backtest_weights (
 CREATE TABLE IF NOT EXISTS signals (
     id TEXT PRIMARY KEY,
     strategy_id TEXT REFERENCES strategies(id),
+    profile TEXT NOT NULL DEFAULT 'demo',
     signal_date TEXT NOT NULL,
     generated_at TEXT DEFAULT (datetime('now')),
     status TEXT DEFAULT 'pending'
@@ -67,6 +68,7 @@ CREATE TABLE IF NOT EXISTS signal_targets (
 
 CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
+    account_id TEXT DEFAULT 'paper',
     signal_id TEXT REFERENCES signals(id),
     symbol TEXT NOT NULL,
     action TEXT NOT NULL,
@@ -84,6 +86,84 @@ CREATE TABLE IF NOT EXISTS orders (
 
 CREATE INDEX IF NOT EXISTS idx_orders_signal ON orders(signal_id);
 CREATE INDEX IF NOT EXISTS idx_orders_symbol ON orders(symbol);
+
+CREATE TABLE IF NOT EXISTS paper_accounts (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    initial_cash REAL NOT NULL,
+    cash REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS paper_positions (
+    account_id TEXT NOT NULL REFERENCES paper_accounts(id) ON DELETE CASCADE,
+    symbol TEXT NOT NULL,
+    quantity REAL NOT NULL,
+    avg_cost REAL NOT NULL,
+    market_price REAL,
+    market_value REAL,
+    unrealized_pnl REAL,
+    price_date TEXT,
+    updated_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (account_id, symbol)
+) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS paper_fills (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES paper_accounts(id),
+    order_id TEXT NOT NULL REFERENCES orders(id),
+    symbol TEXT NOT NULL,
+    action TEXT NOT NULL,
+    quantity REAL NOT NULL,
+    price REAL NOT NULL,
+    commission REAL NOT NULL,
+    realized_pnl REAL NOT NULL DEFAULT 0,
+    filled_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_fills_account
+    ON paper_fills(account_id, filled_at DESC);
+
+CREATE TABLE IF NOT EXISTS paper_nav (
+    account_id TEXT NOT NULL REFERENCES paper_accounts(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    cash REAL NOT NULL,
+    market_value REAL NOT NULL,
+    equity REAL NOT NULL,
+    PRIMARY KEY (account_id, date)
+) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS research_runs (
+    id TEXT PRIMARY KEY,
+    strategy_id TEXT NOT NULL,
+    profile TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    status TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    result_json TEXT,
+    error TEXT,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    started_at TEXT,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_runs_created
+    ON research_runs(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS research_run_steps (
+    run_id TEXT NOT NULL REFERENCES research_runs(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    detail_json TEXT,
+    started_at TEXT,
+    finished_at TEXT,
+    PRIMARY KEY (run_id, name)
+) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS journal (
     id TEXT PRIMARY KEY,

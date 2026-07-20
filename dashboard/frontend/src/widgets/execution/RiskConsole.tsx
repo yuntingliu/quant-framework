@@ -1,28 +1,86 @@
-import { AlertTriangle, CheckCircle2, ShieldCheck } from 'lucide-react'
+import { useCallback, useEffect, useState } from "react"
+import { AlertTriangle, CheckCircle2, RefreshCw, ShieldCheck } from "lucide-react"
 
-const checks = [
-  ['Max position weight', '0.10 default cap'],
-  ['Cost model', '20 bps template assumption'],
-  ['Data freshness', 'validated against the bundled manifest'],
-  ['Live orders', 'disabled in barebone core'],
-]
+import {
+  api,
+  type PaperRebalancePreview,
+  type StrategyTemplate,
+} from "../../lib/api"
+import { useDataProfile } from "../../lib/data-profile"
 
 export function RiskConsoleWidget() {
+  const [profile] = useDataProfile()
+  const [strategies, setStrategies] = useState<StrategyTemplate[]>([])
+  const [strategyId, setStrategyId] = useState("balanced")
+  const [preview, setPreview] = useState<PaperRebalancePreview | null>(null)
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    api.get<StrategyTemplate[]>("/strategies")
+      .then((items) => {
+        setStrategies(items)
+        setStrategyId((current) => (
+          items.some((item) => item.id === current)
+            ? current
+            : items[0]?.id ?? ""
+        ))
+      })
+      .catch((loadError: Error) => setError(loadError.message))
+  }, [])
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    setError("")
+    try {
+      setPreview(await api.post<PaperRebalancePreview>("/paper/rebalance/preview", {
+        strategy_id: strategyId,
+        profile,
+        account_id: "paper",
+      }))
+    } catch (loadError) {
+      setPreview(null)
+      setError(loadError instanceof Error ? loadError.message : String(loadError))
+    } finally {
+      setLoading(false)
+    }
+  }, [profile, strategyId])
+
+  useEffect(() => {
+    if (strategyId) void refresh()
+  }, [refresh, strategyId])
+
   return (
     <div className="panel">
       <div className="panel-heading">
         <div>
           <h2>Risk Console</h2>
-          <p>Generic guardrails for strategy development before any execution adapter is installed.</p>
+          <p>Live checks against the selected signal and current paper account.</p>
         </div>
         <ShieldCheck size={18} />
       </div>
+      <div className="risk-toolbar">
+        <select value={strategyId} onChange={(event) => setStrategyId(event.target.value)}>
+          {strategies.map((strategy) => (
+            <option key={strategy.id} value={strategy.id}>{strategy.name}</option>
+          ))}
+        </select>
+        <span className={`research-status ${preview?.allowed ? "research_candidate" : "invalid"}`}>
+          {preview?.risk_status ?? profile}
+        </span>
+        <button type="button" className="icon-command" title="Refresh risk checks" onClick={refresh} disabled={loading}>
+          <RefreshCw aria-hidden="true" />
+        </button>
+      </div>
+      {error && <p className="error">{error}</p>}
       <div className="risk-list">
-        {checks.map(([name, detail], index) => (
-          <div className="risk-row" key={name}>
-            {index < 2 ? <CheckCircle2 size={16} className="ok" /> : <AlertTriangle size={16} className="warn" />}
-            <strong>{name}</strong>
-            <span>{detail}</span>
+        {(preview?.checks ?? []).map((check) => (
+          <div className="risk-row" key={check.name}>
+            {check.passed
+              ? <CheckCircle2 size={16} className="ok" />
+              : <AlertTriangle size={16} className="warn" />}
+            <strong>{check.name.replace(/_/g, " ")}</strong>
+            <span>{check.detail}</span>
           </div>
         ))}
       </div>

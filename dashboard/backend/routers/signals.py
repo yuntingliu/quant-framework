@@ -28,8 +28,10 @@ def generate(request: SignalRequest) -> dict:
 
 
 @router.get("/latest")
-def latest(strategy_id: str) -> dict:
-    item = latest_signal(strategy_id)
+def latest(strategy_id: str, profile: str = "demo") -> dict:
+    if profile not in {"demo", "runtime"}:
+        raise HTTPException(status_code=422, detail="profile must be demo or runtime")
+    item = latest_signal(strategy_id, profile)
     if item is None:
         raise HTTPException(status_code=404, detail="signal not found")
     return item

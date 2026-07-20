@@ -72,7 +72,6 @@ DATASET_SPECS: tuple[DatasetSpec, ...] = (
         ("date",),
         "date",
         "derived",
-        configured=False,
     ),
 )
 DATASETS = {spec.id: spec for spec in DATASET_SPECS}

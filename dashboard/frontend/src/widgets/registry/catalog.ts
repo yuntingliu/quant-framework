@@ -11,9 +11,12 @@ export interface WidgetMeta {
   categoryEn?: string
   description?: string
   descriptionEn?: string
+  status: WidgetStatus
 }
 
-export const widgetCatalog: WidgetMeta[] = [
+export type WidgetStatus = "active" | "not_configured"
+
+const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
   // Home (live market overview)
   { id: "home.index-board", title: "工作站概览", titleEn: "Workstation Overview", category: "主页", categoryEn: "Home", description: "真实样本、策略与回测状态", descriptionEn: "Real sample, strategies, and backtest state" },
   { id: "market.history", title: "历史行情", titleEn: "Historical Market", category: "主页", categoryEn: "Home", description: "随包复权日线与历史走势", descriptionEn: "Bundled adjusted daily bars" },
@@ -87,6 +90,37 @@ export const widgetCatalog: WidgetMeta[] = [
   { id: "trading.drift", title: "调仓漂移监控", titleEn: "Drift Monitor", category: "实盘交易", categoryEn: "Trading", description: "实时持仓 vs 信号目标权重，L1 漂移 + 预警联动", descriptionEn: "Live weights vs signal targets with L1 drift and alert integration" },
   { id: "trading.auto-trade", title: "自动交易盯盘", titleEn: "Auto-Trade Desk", category: "实盘交易", categoryEn: "Trading", description: "日内盯盘 + 自动下单：条件触发 / 定时执行信号，模拟→纸面→实盘，武装+死手开关", descriptionEn: "Intraday monitor + auto order placement: conditional triggers / scheduled signal execution, simulate→paper→live, with arm + dead-man's switch" },
 ]
+
+const activeWidgetIds = new Set([
+  "home.index-board",
+  "market.history",
+  "data.factor-returns",
+  "research.signal-preview",
+  "market.kpi",
+  "market.cumulative-returns",
+  "market.factor-stats",
+  "market.drawdowns",
+  "market.annual-returns",
+  "market.volatility",
+  "market.correlation",
+  "strategies.hub",
+  "backtest.explorer",
+  "strategy.editor",
+  "backtest.compare",
+  "backtest.workbench",
+  "system.log",
+  "system.help",
+  "data.center",
+  "trading.status",
+  "trading.rebalance",
+  "trading.alerts",
+  "trading.factor-exposure",
+])
+
+export const widgetCatalog: WidgetMeta[] = widgetDefinitions.map((widget) => ({
+  ...widget,
+  status: activeWidgetIds.has(widget.id) ? "active" : "not_configured",
+}))
 
 export function widgetTitle(widget: WidgetMeta, language: Language): string {
   return language === "en" ? widget.titleEn ?? widget.title : widget.title

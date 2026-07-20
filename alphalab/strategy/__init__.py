@@ -8,6 +8,7 @@ from alphalab.strategy.config import (
     StrategyConfig,
     UniverseSpec,
 )
+from alphalab.strategy.repository import StrategyDefinition, StrategyRepository
 
 __all__ = [
     "ExecutionSpec",
@@ -15,6 +16,7 @@ __all__ = [
     "PortfolioSpec",
     "SelectionSpec",
     "StrategyConfig",
+    "StrategyDefinition",
+    "StrategyRepository",
     "UniverseSpec",
 ]
-

@@ -21,7 +21,7 @@ function App() {
     <ErrorBoundary fallbackTitle="Application Error">
       <QueryClientProvider client={queryClient}>
         <LanguageProvider>
-          <ThemeProvider defaultTheme="light">
+          <ThemeProvider defaultTheme="dark">
             <GlobalFilterProvider>
               <ConfirmProvider>
                 <Toaster

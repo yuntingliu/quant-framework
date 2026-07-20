@@ -11,6 +11,19 @@ export interface StrategyTemplate {
   path: string
   factors: string[]
   warnings: string[]
+  built_in: boolean
+  editable: boolean
+  source: "built_in" | "local"
+  research_status?: "research_candidate" | "watch" | "weak" | "invalid"
+  latest_signal_date?: string
+  latest_backtest?: {
+    id: string
+    run_at: string
+    total_return: number | null
+    sharpe: number | null
+    max_drawdown: number | null
+    profile: "demo" | "runtime"
+  }
 }
 
 export interface StrategyTemplateDetail extends StrategyTemplate {
@@ -28,6 +41,7 @@ export interface BacktestRecord {
   sharpe: number | ''
   max_drawdown: number | ''
   run_at: string
+  profile: "demo" | "runtime"
 }
 
 export interface BacktestRunResult {
@@ -36,6 +50,102 @@ export interface BacktestRunResult {
   metrics: Record<string, number>
   returns: { date: string; value: number }[]
   weights_count: number
+}
+
+export interface BacktestHoldingSnapshot {
+  date: string
+  holdings_count: number
+  gross_exposure: number
+  concentration: number
+  max_weight: number
+  top_holdings: Array<{ symbol: string; weight: number }>
+}
+
+export interface BacktestAnalysis {
+  id: string
+  strategy_id: string
+  profile: "demo" | "runtime"
+  start_date: string
+  end_date: string
+  run_at: string
+  metrics: Record<string, number | null>
+  dates: string[]
+  returns: Array<number | null>
+  equity_curve: Array<number | null>
+  drawdown: Array<number | null>
+  turnover: Array<{ date: string; value: number }>
+  average_turnover: number | null
+  holdings: BacktestHoldingSnapshot[]
+}
+
+export interface BacktestComparison {
+  ids: string[]
+  dates: string[]
+  series: Record<string, Array<number | null>>
+  labels: Record<string, string>
+  metrics: Array<Record<string, string | number | null>>
+}
+
+export interface BacktestRobustness {
+  id: string
+  strategy_id: string
+  profile: "demo" | "runtime"
+  start_date: string
+  end_date: string
+  status: "research_candidate" | "watch" | "weak" | "invalid"
+  disclaimer: string
+  periods: number
+  benchmark_coverage: number
+  metrics: {
+    strategy: Record<string, number | null>
+    benchmark: Record<string, number | null>
+    excess: Record<string, number | null>
+  }
+  candidate_rules: Record<string, boolean>
+  checks: Array<{ name: string; passed: boolean; detail: string }>
+  annual: Array<{
+    year: number
+    strategy: number
+    benchmark: number
+    excess: number
+    periods: number
+    complete: boolean
+  }>
+  rolling: Record<string, Array<{
+    date: string
+    strategy: number
+    benchmark: number
+    excess: number
+  }>>
+  cost_sensitivity: Record<string, Record<string, number | null>>
+  turnover: { average: number | null; maximum: number | null }
+  portfolio: {
+    average_holdings: number | null
+    average_concentration: number | null
+    maximum_weight: number | null
+  }
+}
+
+export interface ResearchRun {
+  id: string
+  strategy_id: string
+  profile: "demo" | "runtime"
+  start_date: string
+  end_date: string
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted"
+  error?: string | null
+  result?: {
+    backtest_id: string
+    robustness_status: string
+    signal_id: string
+    preview_id: string
+    paper_execution: string
+  } | null
+  steps: Array<{
+    name: string
+    status: string
+    detail?: Record<string, unknown> | null
+  }>
 }
 
 export interface DataManifest {
@@ -142,6 +252,7 @@ export interface FactorReturnsPayload {
 export interface SignalResult {
   id: string | null
   strategy_id: string
+  profile: "demo" | "runtime"
   signal_date: string
   targets: Record<string, number>
   diagnostics: Record<string, string | number | string[]>
@@ -156,6 +267,75 @@ export interface PaperOrder {
   commission: number | ''
   status: string
   submitted_at: string
+}
+
+export interface PaperPosition {
+  account_id: string
+  symbol: string
+  quantity: number
+  avg_cost: number
+  market_price: number | ""
+  market_value: number | ""
+  unrealized_pnl: number | ""
+  price_date: string | ""
+}
+
+export interface PaperAccount {
+  id: string
+  name: string
+  initial_cash: number
+  cash: number
+  market_value: number
+  equity: number
+  total_return: number
+  realized_pnl: number
+  positions_count: number
+}
+
+export interface PaperAccountPayload {
+  account: PaperAccount
+  positions: PaperPosition[]
+  nav: Array<{
+    date: string
+    cash: number
+    market_value: number
+    equity: number
+  }>
+  profile: "demo" | "runtime"
+  price_date: string
+}
+
+export interface PaperRiskCheck {
+  name: string
+  passed: boolean
+  detail: string
+}
+
+export interface PaperRebalancePreview {
+  preview_id: string
+  account_id: string
+  signal_id: string
+  strategy_id: string
+  profile: "demo" | "runtime"
+  price_date: string
+  allowed: boolean
+  risk_status: "ready" | "blocked"
+  checks: PaperRiskCheck[]
+  account: PaperAccount
+  projected_cash: number
+  turnover: number
+  gross_target: number
+  maximum_target: number
+  orders: Array<{
+    symbol: string
+    action: "buy" | "sell"
+    quantity: number
+    price: number
+    notional: number
+    commission: number
+    target_weight: number
+  }>
+  disclaimer: string
 }
 
 function electronBridge(): ElectronApiBridge | undefined {
@@ -249,6 +429,7 @@ async function fetchJSON<T>(url: string, options?: ApiRequestInit): Promise<T> {
       }
       throw new Error(`API Error: ${response.status}`)
     }
+    if (response.status === 204) return undefined as T
     return response.json() as Promise<T>
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {

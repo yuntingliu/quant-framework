@@ -63,22 +63,30 @@ function WidgetInner({
 
   if (error) {
     return (
-      <div className="widget-frame flex h-full min-h-0 min-w-0 items-center justify-center overflow-hidden bg-card p-4">
-        <div className="flex max-w-xs min-w-0 flex-col items-center gap-2 text-center">
-          <EmptyState
-            title={t("common.loadFailed")}
-            description={error}
-            icon={AlertCircle}
-          />
-          {onRetry && (
-            <button
-              onClick={onRetry}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors mt-2"
-            >
-              <RefreshCw className="w-3 h-3" />
-              {t("common.retry")}
-            </button>
-          )}
+      <div className="widget-frame flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-card">
+        {!headerless && title && (
+          <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border px-3 py-1.5">
+            <span className="min-w-0 basis-32 flex-1 truncate text-sm font-medium text-foreground">{title}</span>
+            {actions && <div className="flex max-w-full flex-none items-center gap-1 overflow-x-auto">{actions}</div>}
+          </div>
+        )}
+        <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-auto p-4">
+          <div className="flex max-w-xs min-w-0 flex-col items-center gap-2 text-center">
+            <EmptyState
+              title={t("common.loadFailed")}
+              description={error}
+              icon={AlertCircle}
+            />
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="mt-2 flex items-center gap-1.5 rounded-md bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+              >
+                <RefreshCw className="h-3 w-3" />
+                {t("common.retry")}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     )

@@ -21,9 +21,13 @@ orders without configuring a vendor connection.
 - A tracked 300-stock, five-year historical sample with point-in-time
   fundamentals, monthly factor returns, and six seeded backtests.
 - An RQ-only runtime data control plane with partitioned parquet storage,
-  quality checks, job records, CLI commands, APIs, and typed data tools.
-- Paper-only signal and order APIs. Realtime feeds and real orders are not
-  configured.
+  PIT fundamentals, factor returns, quality checks, job records, CLI commands,
+  APIs, and typed data tools.
+- Same-universe benchmarks, cost sensitivity, rolling checks, and explicit
+  `research_candidate/watch/weak/invalid` research gates.
+- A deterministic data-to-paper research workflow with local cash, positions,
+  fills, NAV, and confirmed rebalance simulation. Realtime feeds and real
+  orders are not configured.
 
 ## Quick Start
 
@@ -72,7 +76,7 @@ request:
 ```powershell
 alphalab data status
 alphalab data plan rq
-alphalab data sync rq --datasets instruments,bars,fundamentals
+alphalab data sync rq --datasets instruments,bars,fundamentals,factors
 alphalab data validate
 alphalab data jobs
 ```
@@ -100,9 +104,11 @@ fundamentals = engine.get_fundamentals(
 `create_rq_engine_from_env()` remains available for one-off direct queries. The
 runtime synchronizer stores adjusted research OHLC with unadjusted `raw_close`,
 retains PIT statement revisions, and derives canonical fundamentals from first
-disclosures. It does not provide realtime quotes or order execution. Network
-forwarding, machine details, private keys, and downloaded vendor data are not
-part of this repository.
+disclosures. Runtime factors use the prior-month characteristics and subsequent
+monthly returns; the `rf` column comes from the RQ China 1M yield curve,
+converted from annual yield to monthly return. It does not provide realtime
+quotes or order execution. Network forwarding, machine details, private keys,
+and downloaded vendor data are not part of this repository.
 
 Maintainers can rebuild the sample from the full local research workspace:
 
@@ -127,6 +133,19 @@ layouts use real backend contracts. Optional vendor and live-trading panels are
 disabled extension points. Data Center exposes explicit Demo and Local RQ
 profiles, sync planning, background jobs, coverage, and validation. It never
 starts a heavy sync during application startup.
+
+Built-in strategy YAML is immutable. Clone a template in Strategy Editor to
+create a local version below ignored runtime data. Backtest Workbench can run a
+single backtest or the deterministic six-step research workflow:
+
+```text
+data status -> strategy validation -> backtest -> robustness gate
+            -> signal -> paper risk preview
+```
+
+The workflow never confirms paper fills and never submits a broker order.
+`research_candidate` means only that the configured research thresholds passed;
+it is not an approval for live trading.
 
 ## Validation
 

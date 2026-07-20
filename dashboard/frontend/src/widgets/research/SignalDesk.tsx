@@ -12,8 +12,26 @@ export function SignalDeskWidget() {
   const [profile, chooseProfile] = useDataProfile()
 
   useEffect(() => {
-    apiGet<StrategyTemplate[]>('/strategies').then(setStrategies).catch((err: Error) => setError(err.message))
+    apiGet<StrategyTemplate[]>('/strategies')
+      .then((items) => {
+        setStrategies(items)
+        setStrategyId((current) => (
+          items.some((item) => item.id === current)
+            ? current
+            : items[0]?.id ?? ""
+        ))
+      })
+      .catch((err: Error) => setError(err.message))
   }, [])
+
+  useEffect(() => {
+    if (!strategyId) return
+    setSignal(null)
+    setError('')
+    apiGet<SignalResult>(`/signals/latest?strategy_id=${encodeURIComponent(strategyId)}&profile=${profile}`)
+      .then(setSignal)
+      .catch(() => setSignal(null))
+  }, [profile, strategyId])
 
   async function generate() {
     setRunning(true)
@@ -39,6 +57,9 @@ export function SignalDeskWidget() {
         <button type="button" onClick={generate} disabled={running}><Play size={14} /> {running ? 'Generating' : 'Generate'}</button>
       </div>
       {error && <p className="error">{error}</p>}
+      {!signal && !error && (
+        <div className="panel-empty-state">No saved {profile} signal for this strategy.</div>
+      )}
       {signal && <>
         <div className="detail-strip"><span>{signal.strategy_id}</span><strong>{signal.signal_date}</strong></div>
         <div className="table"><div className="table-row table-head"><span>Symbol</span><span>Target</span></div>{Object.entries(signal.targets).map(([item, weight]) => <div className="table-row" key={item}><span>{item}</span><span>{(weight * 100).toFixed(2)}%</span></div>)}</div>

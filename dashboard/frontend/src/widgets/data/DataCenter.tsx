@@ -56,7 +56,7 @@ export function DataCenterWidget() {
     try {
       setPlan(await apiPost<SyncPlan>('/data-sync/plan', {
         source: 'rq',
-        datasets: ['instruments', 'bars', 'fundamentals'],
+        datasets: ['instruments', 'bars', 'fundamentals', 'factors'],
       }))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -72,7 +72,7 @@ export function DataCenterWidget() {
     try {
       await apiPost<SyncJob>('/data-sync/jobs', {
         source: 'rq',
-        datasets: ['instruments', 'bars', 'fundamentals'],
+        datasets: ['instruments', 'bars', 'fundamentals', 'factors'],
         start: plan.requested_start,
         end: plan.requested_end,
       })

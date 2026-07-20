@@ -36,8 +36,8 @@ def _add_sync_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("source", choices=["rq"])
     parser.add_argument(
         "--datasets",
-        default="instruments,bars,fundamentals",
-        help="Comma-separated: instruments,bars,fundamentals",
+        default="instruments,bars,fundamentals,factors",
+        help="Comma-separated: instruments,bars,fundamentals,factors",
     )
     parser.add_argument("--symbols", help="Comma-separated framework symbols")
     parser.add_argument("--start")
