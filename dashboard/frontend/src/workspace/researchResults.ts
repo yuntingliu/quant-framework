@@ -93,6 +93,34 @@ function parseTable(value: Record<string, unknown>): ResearchResultTable | null 
   return { columns, rows }
 }
 
+function markdownTableCell(value: ResearchResultCell, column: ResearchResultColumn): string {
+  if (value === null) return "--"
+  const displayed = column.format === "percent" && typeof value === "number"
+    ? `${value * 100}%`
+    : String(value)
+  return displayed.replace(/\|/g, "\\|").replace(/[\r\n]+/g, " ").slice(0, 240)
+}
+
+function tableFallbackMarkdown(
+  title: string,
+  description: string | undefined,
+  table: ResearchResultTable,
+): string {
+  const visibleRows = table.rows.slice(0, 100)
+  const lines = [
+    `# ${title}`,
+    ...(description ? ["", description] : []),
+    "",
+    `| ${table.columns.map((column) => column.label.replace(/\|/g, "\\|")).join(" | ")} |`,
+    `| ${table.columns.map(() => "---").join(" | ")} |`,
+    ...visibleRows.map((row) => `| ${table.columns.map((column) => markdownTableCell(row[column.key], column)).join(" | ")} |`),
+  ]
+  if (visibleRows.length < table.rows.length) {
+    lines.push("", `仅在文档预览中显示前 ${visibleRows.length} 行；完整 ${table.rows.length} 行请切换到“数据表”。`)
+  }
+  return lines.join("\n")
+}
+
 export function parseAgentResearchResult(
   value: unknown,
   metadata: ResearchResultMetadata = {},
@@ -101,13 +129,15 @@ export function parseAgentResearchResult(
   if (JSON.stringify(value).length > MAX_DESCRIPTOR_LENGTH) return null
   const requestId = text(value.requestId, 200)
   const title = text(value.title, 200)
-  const markdown = text(metadata.markdown ?? value.markdown, MAX_MARKDOWN_LENGTH)
-  if (!requestId || !title || !markdown) return null
+  if (!requestId || !title) return null
 
   const table = parseTable(value)
   if (table === null) return null
   const description = value.description === undefined ? undefined : text(value.description, 2_000)
   if (value.description !== undefined && description === undefined) return null
+  const markdown = text(metadata.markdown ?? value.markdown, MAX_MARKDOWN_LENGTH)
+    ?? (table ? tableFallbackMarkdown(title, description, table) : undefined)
+  if (!markdown) return null
   if (value.sources !== undefined && (!Array.isArray(value.sources) || value.sources.length > MAX_SOURCES)) return null
   const sources = (value.sources ?? []).map((source) => text(source, 500))
   if (sources.some((source) => source === undefined)) return null
