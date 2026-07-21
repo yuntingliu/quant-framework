@@ -32,7 +32,7 @@ Publication writes an immutable release below:
 
 The AlphaLab publication is deliberately `anonymous` with `publisher` billing.
 The workstation therefore does not open a Conexus account gate: model calls use
-the Web Host's server-side `OPENROUTER_API_KEY`, while chat history remains in
+the Web Host's server-side `OPENROUTER_API_KEY` with `moonshotai/kimi-k3`, while chat history remains in
 the local browser/Electron profile.
 
 ## Run the workstation
@@ -111,11 +111,13 @@ columns and rows, the panel adds a sortable/filterable data-table view and CSV
 export. Table attachments are limited to 30 columns and 1,000 rows; document
 and descriptor payloads are bounded before storage and rendering.
 
-`workspaceResult` and `workspaceCommands` are soft UI side channels: the hosted
-runtime requires JSON objects but does not fail the research answer when the
-Agent leaves either object empty. The frontend remains the security boundary
-for both contracts and ignores any object that does not contain a valid version,
-current request ID, result kind, or closed-allowlist command batch.
+The Agent submits `decisionNotebook`, `workspaceDocument`, `workspaceResult`,
+and `workspaceCommands` through one `commit_harness_outputs` call. The Hosted
+Runtime validates the complete declared output schema before changing any bound
+node, then commits all four values together. A malformed or incomplete result
+therefore leaves every previous output untouched and is returned to the Agent
+for correction. The frontend still validates request IDs and the closed command
+allowlist before applying any workspace action.
 
 Multiple result tabs and layout restoration are supported. Recent validated
 documents are retained in local storage subject to browser quota. Turns without
@@ -126,6 +128,11 @@ Anonymous run records remain protected by their per-run access tokens while the
 Web Host retains them. They are not used as the chat-history source. Clearing
 the browser/Electron site data removes local chats, result caches, and saved
 layouts without changing the published Harness.
+
+Agent execution has no host-imposed iteration, output-token, delegated-Agent
+depth, total Agent invocation, or default Harness deadline. It ends on
+`complete` or explicit cancellation; provider context windows, concurrency, and
+request-rate limits remain operational service boundaries.
 
 Supported frontend-only actions are mode switching, opening or closing a known
 widget, changing the selected symbol/strategy/backtest/date, setting a linked

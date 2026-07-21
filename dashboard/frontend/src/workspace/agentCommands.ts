@@ -42,6 +42,7 @@ export interface AgentWorkspaceCommandEventDetail {
   batch: AgentWorkspaceCommandBatch
   researchResult?: AgentResearchResult
   receipts: AgentWorkspaceCommandReceipt[]
+  receiptPromise?: Promise<AgentWorkspaceCommandReceipt[]>
 }
 
 const MODES = new Set<WorkspaceMode>(["home", "data", "research", "trading_a_share"])

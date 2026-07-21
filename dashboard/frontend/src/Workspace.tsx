@@ -354,12 +354,14 @@ function WorkspaceInner() {
       existing.focus()
       return
     }
-    api.addPanel({
+    const panel = api.addPanel({
       id: panelId,
       component: "widget",
       params: { componentId: widgetId, ...(options?.params ?? {}) },
       title: widgetTitleById(widgetId, language, title),
     })
+    panel.api.setActive()
+    panel.focus()
   }, [language])
 
   const addWidget = useCallback((widgetId: string, title?: string) => {
@@ -508,10 +510,10 @@ function WorkspaceInner() {
     }
   }, [language])
 
-  const executeWorkspaceCommand = useCallback((
+  const executeWorkspaceCommand = useCallback(async (
     command: AgentWorkspaceCommand,
     researchResult?: AgentResearchResult,
-  ): Omit<AgentWorkspaceCommandReceipt, "index"> => {
+  ): Promise<Omit<AgentWorkspaceCommandReceipt, "index">> => {
     switch (command.type) {
       case "switch_mode":
         switchMode(command.mode)
@@ -521,7 +523,16 @@ function WorkspaceInner() {
           return { type: command.type, success: false, message: `未知看板组件：${command.widgetId}` }
         }
         openWidget(command.widgetId, command.title, command.mode)
-        return { type: command.type, success: true, message: `已打开 ${widgetTitleById(command.widgetId, language)}` }
+        const targetMode = command.mode ?? activeModeRef.current
+        for (let frame = 0; frame < 30; frame += 1) {
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+          const targetApi = apiRefsRef.current[targetMode]
+          const panel = targetApi ? findWidgetPanel(targetApi, command.widgetId) : undefined
+          if (targetApi && panel && activeModeRef.current === targetMode && targetApi.activePanel?.id === panel.id) {
+            return { type: command.type, success: true, message: `已打开 ${widgetTitleById(command.widgetId, language)}` }
+          }
+        }
+        return { type: command.type, success: false, message: `组件未能挂载：${widgetTitleById(command.widgetId, language)}` }
       }
       case "open_result": {
         if (!researchResult || researchResult.id !== command.resultId) {
@@ -535,7 +546,15 @@ function WorkspaceInner() {
           command.mode ?? "research",
           { panelId, params: { resultId: researchResult.id } },
         )
-        return { type: command.type, success: true, message: `已打开研究结果：${researchResult.title}` }
+        const targetMode = command.mode ?? "research"
+        for (let frame = 0; frame < 30; frame += 1) {
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+          const targetApi = apiRefsRef.current[targetMode]
+          if (targetApi && activeModeRef.current === targetMode && targetApi.activePanel?.id === panelId) {
+            return { type: command.type, success: true, message: `已在 ${targetMode} 工作区激活研究结果：${researchResult.title}` }
+          }
+        }
+        return { type: command.type, success: false, message: `研究结果面板未能挂载：${researchResult.title}` }
       }
       case "close_widget": {
         const targetMode = command.mode ?? activeModeRef.current
@@ -699,27 +718,34 @@ function WorkspaceInner() {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<AgentWorkspaceCommandEventDetail>).detail
       if (!detail?.batch?.commands) return
-      detail.receipts = detail.batch.commands.map((command, index) => {
-        try {
-          return { index, ...executeWorkspaceCommand(command, detail.researchResult) }
-        } catch (error) {
-          return {
-            index,
-            type: command.type,
-            success: false,
-            message: error instanceof Error ? error.message : String(error),
+      detail.receiptPromise = (async () => {
+        const receipts: AgentWorkspaceCommandReceipt[] = []
+        for (let index = 0; index < detail.batch.commands.length; index += 1) {
+          const command = detail.batch.commands[index]
+          if (!command) continue
+          try {
+            receipts.push({ index, ...await executeWorkspaceCommand(command, detail.researchResult) })
+          } catch (error) {
+            receipts.push({
+              index,
+              type: command.type,
+              success: false,
+              message: error instanceof Error ? error.message : String(error),
+            })
           }
         }
-      })
-      const succeeded = detail.receipts.filter((receipt) => receipt.success).length
-      const failed = detail.receipts.length - succeeded
-      if (succeeded > 0) {
-        toast.success(`Agent 已执行 ${succeeded} 项工作台操作`, {
-          description: failed > 0 ? `${failed} 项操作未执行` : detail.receipts.map((receipt) => receipt.message).join("；"),
-        })
-      } else if (failed > 0) {
-        toast.error("Agent 工作台操作未执行", { description: detail.receipts.map((receipt) => receipt.message).join("；") })
-      }
+        detail.receipts = receipts
+        const succeeded = receipts.filter((receipt) => receipt.success).length
+        const failed = receipts.length - succeeded
+        if (succeeded > 0) {
+          toast.success(`Agent 已执行 ${succeeded} 项工作台操作`, {
+            description: failed > 0 ? `${failed} 项操作未执行` : receipts.map((receipt) => receipt.message).join("；"),
+          })
+        } else if (failed > 0) {
+          toast.error("Agent 工作台操作未执行", { description: receipts.map((receipt) => receipt.message).join("；") })
+        }
+        return receipts
+      })()
     }
     window.addEventListener(WORKSPACE_COMMAND_EVENT, handler)
     return () => window.removeEventListener(WORKSPACE_COMMAND_EVENT, handler)
