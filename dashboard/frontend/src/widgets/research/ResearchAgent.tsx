@@ -208,6 +208,8 @@ function Artifact({ artifact }: { artifact: PublishedHarnessArtifact }) {
     || artifact.producerNodeId === WORKSPACE_COMMANDS_NODE_ID
     || artifact.outputKey === "workspaceResult"
     || artifact.producerNodeId === WORKSPACE_RESULT_NODE_ID
+    || artifact.outputKey === "workspaceDocument"
+    || artifact.producerNodeId === WORKSPACE_DOCUMENT_NODE_ID
     || artifact.outputKey === "decisionNotebook"
     || artifact.producerNodeId === DECISION_NOTEBOOK_NODE_ID
   ) return null
@@ -290,12 +292,14 @@ export function ResearchAgentPanel() {
       const documentArtifact = runArtifacts.find((candidate) => workspaceDocumentFromArtifact(candidate) !== null)
       const descriptor = descriptorArtifact ? workspaceResultValueFromArtifact(descriptorArtifact) : undefined
       const markdown = documentArtifact ? workspaceDocumentFromArtifact(documentArtifact) : null
-      const parsedResult = descriptorArtifact && documentArtifact && markdown
+      const parsedResult = descriptorArtifact
         ? parseAgentResearchResult(descriptor, {
-            markdown,
+            ...(markdown !== null ? { markdown } : {}),
             runId: artifact.runId,
-            artifactId: documentArtifact.id,
-            updatedAt: documentArtifact.createdAt,
+            ...(documentArtifact ? {
+              artifactId: documentArtifact.id,
+              updatedAt: documentArtifact.createdAt,
+            } : {}),
           })
         : null
       const researchResult: AgentResearchResult | undefined = parsedResult?.requestId === batch.requestId ? parsedResult : undefined
