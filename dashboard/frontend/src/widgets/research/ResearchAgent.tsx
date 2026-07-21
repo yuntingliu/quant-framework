@@ -42,6 +42,15 @@ const WORKSPACE_COMMANDS_NODE_ID = "alphalab-workspace-commands-v1"
 const WORKSPACE_RESULT_NODE_ID = "alphalab-workspace-result-v1"
 const WORKSPACE_DOCUMENT_NODE_ID = "alphalab-research-document-v1"
 
+function customNodePayload(value: unknown, expectedType: string): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value
+  const record = value as Record<string, unknown>
+  const nested = record.data
+  return record.customType === expectedType && nested && typeof nested === "object" && !Array.isArray(nested)
+    ? nested
+    : value
+}
+
 interface AgentContextScope {
   includeSymbol: boolean
   includeStrategy: boolean
@@ -97,11 +106,12 @@ const WORKSPACE_CAPABILITIES = {
 
 function decisionNotebookFromArtifacts(artifacts: PublishedHarnessArtifact[]): AgentDecisionNotebook | null {
   for (const artifact of [...artifacts].reverse()) {
-    const value = artifact.kind === "json" && artifact.outputKey === "decisionNotebook"
+    const rawValue = artifact.kind === "json" && artifact.outputKey === "decisionNotebook"
       ? artifact.content.value
       : artifact.kind === "node" && artifact.producerNodeId === DECISION_NOTEBOOK_NODE_ID
         ? artifact.content.node.values.data
         : null
+    const value = customNodePayload(rawValue, "alphalab_decision_notebook")
     if (!value || typeof value !== "object" || Array.isArray(value)) continue
     const notebook = value as Record<string, unknown>
     if (
@@ -126,19 +136,22 @@ function decisionNotebookFromArtifacts(artifacts: PublishedHarnessArtifact[]): A
 }
 
 function workspaceCommandsFromArtifact(artifact: PublishedHarnessArtifact): unknown {
-  if (artifact.kind === "json" && artifact.outputKey === "workspaceCommands") return artifact.content.value
+  if (artifact.kind === "json" && artifact.outputKey === "workspaceCommands") {
+    return customNodePayload(artifact.content.value, "alphalab_workspace_commands")
+  }
   if (artifact.kind === "node" && artifact.producerNodeId === WORKSPACE_COMMANDS_NODE_ID) {
-    return artifact.content.node.values.data
+    return customNodePayload(artifact.content.node.values.data, "alphalab_workspace_commands")
   }
   return null
 }
 
 function workspaceResultValueFromArtifact(artifact: PublishedHarnessArtifact): unknown {
-  return artifact.kind === "json" && artifact.outputKey === "workspaceResult"
+  const value = artifact.kind === "json" && artifact.outputKey === "workspaceResult"
     ? artifact.content.value
     : artifact.kind === "node" && artifact.producerNodeId === WORKSPACE_RESULT_NODE_ID
       ? artifact.content.node.values.data
       : undefined
+  return customNodePayload(value, "alphalab_workspace_result")
 }
 
 function workspaceDocumentFromArtifact(artifact: PublishedHarnessArtifact): string | null {
