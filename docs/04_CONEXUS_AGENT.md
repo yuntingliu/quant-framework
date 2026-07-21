@@ -32,7 +32,7 @@ Publication writes an immutable release below:
 
 The AlphaLab publication is deliberately `anonymous` with `publisher` billing.
 The workstation therefore does not open a Conexus account gate: model calls use
-the Web Host's server-side `OPENROUTER_API_KEY` with `moonshotai/kimi-k3`, while chat history remains in
+the Web Host's server-side `OPENROUTER_API_KEY` with `openai/gpt-oss-120b`, while chat history remains in
 the local browser/Electron profile.
 
 ## Run the workstation
