@@ -54,12 +54,15 @@ type ElectronWindow = Window & {
   api?: ElectronMenuApi
 }
 
+type WorkspacePanel = ReturnType<DockviewApi["addPanel"]>
+
 interface PendingWidgetOpen {
   widgetId: string
   title?: string
   mode?: WorkspaceMode
   panelId?: string
   params?: Record<string, unknown>
+  resolve: (panel: WorkspacePanel | undefined) => void
 }
 
 interface WidgetPanelOptions {
@@ -119,6 +122,10 @@ const HIDDEN_MODES_KEY = "alphalab-hidden-modes"
 const SIDEBAR_COLLAPSED_KEY = "alphalab-sidebar-collapsed"
 const RIGHT_RAIL_COLLAPSED_KEY = "alphalab-right-sidebar-collapsed"
 const RIGHT_RAIL_TAB_KEY = "alphalab-right-sidebar-tab"
+const RIGHT_RAIL_WIDTH_KEY = "alphalab-right-sidebar-width"
+const DEFAULT_RIGHT_RAIL_WIDTH = 420
+const MIN_RIGHT_RAIL_WIDTH = 320
+const MAX_RIGHT_RAIL_WIDTH = 720
 interface OpenTaskEventDetail {
   task: WorkspaceTask
 }
@@ -166,6 +173,18 @@ function loadRightRailTab(): RightRailTab {
     // ignore
   }
   return "context"
+}
+
+function loadRightRailWidth(): number {
+  try {
+    const saved = Number(localStorage.getItem(RIGHT_RAIL_WIDTH_KEY))
+    if (Number.isFinite(saved) && saved > 0) {
+      return Math.min(MAX_RIGHT_RAIL_WIDTH, Math.max(MIN_RIGHT_RAIL_WIDTH, Math.round(saved)))
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_RIGHT_RAIL_WIDTH
 }
 
 function isViewportBelow(breakpoint: number): boolean {
@@ -244,6 +263,17 @@ function findWidgetPanel(api: DockviewApi, componentId: string) {
   })
 }
 
+const LEGACY_AGENT_WIDGET_IDS = new Set(["research.agent", "research.ai-workflow"])
+
+function removeLegacyAgentPanels(api: DockviewApi): boolean {
+  const panels = api.panels.filter((panel) => {
+    const params = panel.params as { componentId?: string } | undefined
+    return LEGACY_AGENT_WIDGET_IDS.has(params?.componentId ?? panel.id)
+  })
+  for (const panel of panels) panel.api.close()
+  return panels.length > 0
+}
+
 // ---------------------------------------------------------------------------
 // Workspace
 // ---------------------------------------------------------------------------
@@ -253,7 +283,7 @@ function WorkspaceInner() {
   const { registerResearchResult } = useAgentPrompt()
   const apiRef = useRef<DockviewApi | null>(null)
   const apiRefsRef = useRef<Partial<Record<WorkspaceMode, DockviewApi>>>({})
-  const pendingWidgetOpenRef = useRef<PendingWidgetOpen | null>(null)
+  const pendingWidgetOpenRef = useRef<PendingWidgetOpen[]>([])
   const workspace = useWorkspace()
   const { activeMode, setActiveMode } = workspace
   const { language } = useLanguage()
@@ -262,6 +292,7 @@ function WorkspaceInner() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed)
   const [rightRailCollapsed, setRightRailCollapsed] = useState(loadRightRailCollapsed)
   const [rightRailTab, setRightRailTab] = useState<RightRailTab>(loadRightRailTab)
+  const [rightRailWidth, setRightRailWidth] = useState(loadRightRailWidth)
   const [hiddenModes, setHiddenModes] = useState<Set<WorkspaceMode>>(loadHiddenModes)
   const compactViewport = useViewportBelow(1024)
   const narrowViewport = useViewportBelow(768)
@@ -305,16 +336,18 @@ function WorkspaceInner() {
     }
   }, [language, setActiveMode])
 
-  const addWidgetToApi = useCallback((
-    api: DockviewApi,
-    rawWidgetId: string,
-    title?: string,
-    options?: WidgetPanelOptions,
-  ) => {
-    // Legacy alias: the "AI 量化工作流" mock merged into the unified research agent.
-    // Collapse any open/saved request for the old id onto the agent panel so a
-    // stale layout never spawns a duplicate or blank tab.
-    const widgetId = rawWidgetId === "research.ai-workflow" ? "research.agent" : rawWidgetId
+  const openAgentRail = useCallback(() => {
+    setRightRailTab("agent")
+    setRightRailCollapsed(false)
+    try {
+      localStorage.setItem(RIGHT_RAIL_TAB_KEY, "agent")
+      localStorage.setItem(RIGHT_RAIL_COLLAPSED_KEY, "false")
+    } catch { /* ignore */ }
+  }, [])
+
+  const addWidgetToApi = useCallback((api: DockviewApi, rawWidgetId: string, title?: string, options?: WidgetPanelOptions) => {
+    if (LEGACY_AGENT_WIDGET_IDS.has(rawWidgetId)) return
+    const widgetId = rawWidgetId
     const panelId = options?.panelId ?? widgetId
     const existing = options?.panelId
       ? api.panels.find((panel) => panel.id === panelId)
@@ -322,58 +355,60 @@ function WorkspaceInner() {
     if (existing) {
       existing.api.setActive()
       existing.focus()
-      return
+      return existing
     }
-    const referencePanel = api.activePanel ?? api.panels[0]
     const panel = api.addPanel({
       id: panelId,
       component: "widget",
       params: { componentId: widgetId, ...(options?.params ?? {}) },
       title: widgetTitleById(widgetId, language, title),
-      position: referencePanel
-        ? { referencePanel, direction: "within" }
-        : undefined,
     })
     panel.api.setActive()
     panel.focus()
+    return panel
   }, [language])
 
   const addWidget = useCallback((widgetId: string, title?: string) => {
+    if (LEGACY_AGENT_WIDGET_IDS.has(widgetId)) {
+      openAgentRail()
+      return
+    }
     if (!apiRef.current) return
     addWidgetToApi(apiRef.current, widgetId, title)
-  }, [addWidgetToApi])
+  }, [addWidgetToApi, openAgentRail])
 
-  const openWidget = useCallback((
-    widgetId: string,
-    title?: string,
-    rawMode?: unknown,
-    options?: WidgetPanelOptions,
-  ) => {
+  const openWidget = useCallback((widgetId: string, title?: string, rawMode?: unknown, options?: WidgetPanelOptions): Promise<WorkspacePanel | undefined> => {
+    if (LEGACY_AGENT_WIDGET_IDS.has(widgetId)) {
+      openAgentRail()
+      return Promise.resolve(undefined)
+    }
     const targetMode = rawMode ? normalizeWorkspaceMode(rawMode) : activeModeRef.current
     const targetApi = apiRefsRef.current[targetMode] ?? null
 
-    if (targetMode !== activeModeRef.current) {
-      if (targetApi) {
-        switchMode(targetMode)
-        requestAnimationFrame(() => {
-          apiRef.current = targetApi
-          addWidgetToApi(targetApi, widgetId, title, options)
-        })
-      } else {
-        pendingWidgetOpenRef.current = { widgetId, title, mode: targetMode, ...options }
-        switchMode(targetMode)
+    return new Promise((resolve) => {
+      if (targetMode !== activeModeRef.current) {
+        if (targetApi) {
+          switchMode(targetMode)
+          requestAnimationFrame(() => {
+            apiRef.current = targetApi
+            resolve(addWidgetToApi(targetApi, widgetId, title, options))
+          })
+        } else {
+          pendingWidgetOpenRef.current.push({ widgetId, title, mode: targetMode, ...options, resolve })
+          switchMode(targetMode)
+        }
+        return
       }
-      return
-    }
 
-    if (targetApi) {
-      apiRef.current = targetApi
-      addWidgetToApi(targetApi, widgetId, title, options)
-      return
-    }
+      if (targetApi) {
+        apiRef.current = targetApi
+        resolve(addWidgetToApi(targetApi, widgetId, title, options))
+        return
+      }
 
-    pendingWidgetOpenRef.current = { widgetId, title, mode: targetMode, ...options }
-  }, [addWidgetToApi, switchMode])
+      pendingWidgetOpenRef.current.push({ widgetId, title, mode: targetMode, ...options, resolve })
+    })
+  }, [addWidgetToApi, openAgentRail, switchMode])
 
   const toggleSidebarCollapsed = useCallback(() => {
     setSidebarCollapsed((prev) => {
@@ -389,6 +424,12 @@ function WorkspaceInner() {
       try { localStorage.setItem(RIGHT_RAIL_COLLAPSED_KEY, String(next)) } catch { /* ignore */ }
       return next
     })
+  }, [])
+
+  const resizeRightRail = useCallback((width: number) => {
+    const next = Math.min(MAX_RIGHT_RAIL_WIDTH, Math.max(MIN_RIGHT_RAIL_WIDTH, Math.round(width)))
+    setRightRailWidth(next)
+    try { localStorage.setItem(RIGHT_RAIL_WIDTH_KEY, String(next)) } catch { /* ignore */ }
   }, [])
 
   const toggleModeHidden = useCallback((mode: WorkspaceMode) => {
@@ -444,7 +485,7 @@ function WorkspaceInner() {
     }
 
     if (task === "startResearch") {
-      openWidget("research.agent", undefined, "research")
+      openAgentRail()
       return
     }
 
@@ -455,7 +496,7 @@ function WorkspaceInner() {
 
     const evidenceWidget = workspace.selectedBacktest ? "backtest.workbench" : "backtest.explorer"
     openWidget(evidenceWidget, undefined, "research")
-  }, [language, openWidget, selectRightRailTab, switchMode, workspace.selectedBacktest])
+  }, [language, openAgentRail, openWidget, selectRightRailTab, switchMode, workspace.selectedBacktest])
 
   const saveCurrentLayout = useCallback(() => {
     const currentMode = activeModeRef.current
@@ -482,42 +523,37 @@ function WorkspaceInner() {
     switch (command.type) {
       case "switch_mode":
         switchMode(command.mode)
-        return { type: command.type, success: true, message: `已切换到 ${command.mode}` }
-      case "open_widget":
+        return { type: command.type, success: true, message: `已切换到 ${command.mode} 板块` }
+      case "open_widget": {
         if (!widgetComponents[command.widgetId]) {
-          return { type: command.type, success: false, message: `未知组件：${command.widgetId}` }
+          return { type: command.type, success: false, message: `未知看板组件：${command.widgetId}` }
         }
-        openWidget(command.widgetId, command.title, command.mode)
+        const openedPanel = await openWidget(command.widgetId, command.title, command.mode)
         const targetMode = command.mode ?? activeModeRef.current
-        for (let frame = 0; frame < 30; frame += 1) {
-          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-          const targetApi = apiRefsRef.current[targetMode]
-          const panel = targetApi ? findWidgetPanel(targetApi, command.widgetId) : undefined
-          if (targetApi && panel && activeModeRef.current === targetMode && targetApi.activePanel?.id === panel.id) {
-            return { type: command.type, success: true, message: `已打开 ${widgetTitleById(command.widgetId, language)}` }
-          }
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+        const targetApi = apiRefsRef.current[targetMode]
+        if (targetApi && openedPanel && activeModeRef.current === targetMode && targetApi.activePanel?.id === openedPanel.id) {
+          return { type: command.type, success: true, message: `已打开 ${widgetTitleById(command.widgetId, language)}` }
         }
         return { type: command.type, success: false, message: `组件未能挂载：${widgetTitleById(command.widgetId, language)}` }
       }
       case "open_result": {
         if (!researchResult || researchResult.id !== command.resultId) {
-          return { type: command.type, success: false, message: `未找到研究结果：${command.resultId}` }
+          return { type: command.type, success: false, message: `未找到本轮研究结果：${command.resultId}` }
         }
         registerResearchResult(researchResult)
         const panelId = `research-result-${command.resultId.replace(/[^a-zA-Z0-9_-]/g, "-")}`
-        openWidget(
+        const openedPanel = await openWidget(
           "research.result-viewer",
           command.title ?? researchResult.title,
           command.mode ?? "research",
           { panelId, params: { resultId: researchResult.id } },
         )
         const targetMode = command.mode ?? "research"
-        for (let frame = 0; frame < 30; frame += 1) {
-          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-          const targetApi = apiRefsRef.current[targetMode]
-          if (targetApi && activeModeRef.current === targetMode && targetApi.activePanel?.id === panelId) {
-            return { type: command.type, success: true, message: `已在 ${targetMode} 工作区激活研究结果：${researchResult.title}` }
-          }
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+        const targetApi = apiRefsRef.current[targetMode]
+        if (targetApi && openedPanel?.id === panelId && activeModeRef.current === targetMode && targetApi.activePanel?.id === panelId) {
+          return { type: command.type, success: true, message: `已在 ${targetMode} 工作区激活研究结果：${researchResult.title}` }
         }
         return { type: command.type, success: false, message: `研究结果面板未能挂载：${researchResult.title}` }
       }
@@ -525,15 +561,9 @@ function WorkspaceInner() {
         const targetMode = command.mode ?? activeModeRef.current
         const api = apiRefsRef.current[targetMode]
         const panel = api ? findWidgetPanel(api, command.widgetId) : undefined
-        if (!panel) {
-          return { type: command.type, success: false, message: `未找到组件：${command.widgetId}` }
-        }
+        if (!panel) return { type: command.type, success: false, message: `未找到已打开的组件：${command.widgetId}` }
         panel.api.close()
-        return {
-          type: command.type,
-          success: true,
-          message: `已关闭 ${widgetTitleById(command.widgetId, language)}`,
-        }
+        return { type: command.type, success: true, message: `已关闭 ${widgetTitleById(command.widgetId, language)}` }
       }
       case "set_focus": {
         const changed: string[] = []
@@ -557,21 +587,13 @@ function WorkspaceInner() {
       }
       case "set_link_symbol":
         workspace.setLinkSymbol(command.group, command.symbol)
-        return {
-          type: command.type,
-          success: true,
-          message: `联动组 ${command.group.toUpperCase()} 已更新`,
-        }
+        return { type: command.type, success: true, message: `联动组 ${command.group.toUpperCase()} 已设为 ${command.symbol ?? "空"}` }
       case "show_right_rail": {
         if (command.tab) selectRightRailTab(command.tab)
         const open = command.open ?? true
         setRightRailCollapsed(!open)
         try { localStorage.setItem(RIGHT_RAIL_COLLAPSED_KEY, String(!open)) } catch { /* ignore */ }
-        return {
-          type: command.type,
-          success: true,
-          message: open ? "已展开右侧栏" : "已收起右侧栏",
-        }
+        return { type: command.type, success: true, message: open ? "已展开右侧栏" : "已收起右侧栏" }
       }
       case "refresh_data":
         void queryClient.invalidateQueries()
@@ -580,9 +602,7 @@ function WorkspaceInner() {
       case "save_layout": {
         const targetMode = command.mode ?? activeModeRef.current
         const api = apiRefsRef.current[targetMode]
-        if (!api) {
-          return { type: command.type, success: false, message: `${targetMode} 布局尚未挂载` }
-        }
+        if (!api) return { type: command.type, success: false, message: `${targetMode} 布局尚未挂载` }
         saveLayout(api, targetMode)
         return { type: command.type, success: true, message: `已保存 ${targetMode} 布局` }
       }
@@ -599,15 +619,7 @@ function WorkspaceInner() {
         return { type: command.type, success: true, message: `已重置 ${targetMode} 布局` }
       }
     }
-  }, [
-    language,
-    openWidget,
-    queryClient,
-    registerResearchResult,
-    selectRightRailTab,
-    switchMode,
-    workspace,
-  ])
+  }, [language, openWidget, queryClient, registerResearchResult, selectRightRailTab, switchMode, workspace])
 
   useEffect(() => {
     const api = apiRefsRef.current[activeMode]
@@ -617,28 +629,29 @@ function WorkspaceInner() {
       api.layout(api.width, api.height, true)
       api.focus()
     })
-  }, [activeMode, compactViewport, narrowViewport, sidebarCollapsed, rightRailCollapsed])
+  }, [activeMode, compactViewport, narrowViewport, rightRailTab, rightRailWidth, sidebarCollapsed, rightRailCollapsed])
 
   const onReady = useCallback((mode: WorkspaceMode, event: DockviewReadyEvent) => {
     apiRefsRef.current[mode] = event.api
     if (mode === activeModeRef.current) apiRef.current = event.api
     applyMode(event.api, mode)
     relabelPanels(event.api, language)
-    const pending = pendingWidgetOpenRef.current
-    if (pending && (!pending.mode || pending.mode === mode)) {
-      pendingWidgetOpenRef.current = null
+    if (removeLegacyAgentPanels(event.api)) {
+      saveLayout(event.api, mode)
+      openAgentRail()
+    }
+    const pending = pendingWidgetOpenRef.current.filter((request) => !request.mode || request.mode === mode)
+    pendingWidgetOpenRef.current = pendingWidgetOpenRef.current.filter((request) => request.mode && request.mode !== mode)
+    for (const request of pending) {
       requestAnimationFrame(() => {
         if (mode === activeModeRef.current) apiRef.current = event.api
-        addWidgetToApi(event.api, pending.widgetId, pending.title, {
-          panelId: pending.panelId,
-          params: pending.params,
-        })
+        request.resolve(addWidgetToApi(event.api, request.widgetId, request.title, { panelId: request.panelId, params: request.params }))
       })
     }
     event.api.onDidLayoutChange(() => {
       saveLayout(event.api, mode)
     })
-  }, [addWidgetToApi, language])
+  }, [addWidgetToApi, language, openAgentRail])
 
   // Electron menu IPC events
   useEffect(() => {
@@ -811,9 +824,11 @@ function WorkspaceInner() {
         <WorkspaceRightRail
           collapsed={rightRailCollapsed}
           narrow={narrowViewport}
+          width={rightRailWidth}
           activeTab={rightRailTab}
           onSelectTab={selectRightRailTab}
           onToggleCollapsed={toggleRightRailCollapsed}
+          onWidthChange={resizeRightRail}
           onAddWidget={addWidget}
           onOpenWidget={openWidget}
           onOpenTask={openTask}
