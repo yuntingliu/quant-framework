@@ -1,60 +1,51 @@
-# Conexus Research Agent Integration
+# Optional Conexus Research Agent
 
-AlphaLab uses a published Conexus Harness as its only Agent execution boundary.
-The React workstation does not import Conexus Canvas components or call Electron
-IPC. FastAPI exposes a narrow same-origin proxy below `/api/conexus`, and the
-published release calls the stable AlphaLab API through an allowlisted
-`ALPHALAB_API_ORIGIN`. In the cloud container this points to the loopback end of
-a restricted SSH reverse tunnel, so the local database and RiceQuant connection
-do not need to be exposed publicly.
+The barebone framework runs without an LLM planner. When an independently
+configured Conexus Web Host publishes an AlphaLab-compatible Research Harness,
+the workstation can connect to it through the narrow same-origin
+`/api/conexus` proxy. Conexus Canvas state, publication records, model
+credentials, and local run history are deliberately not part of this repository.
 
-## Build and publish
+The React workstation does not import Conexus Canvas components or call
+Electron IPC. A missing Web Host is reported as `not_configured`; it does not
+affect Demo, RQ DataIO, deterministic research, backtests, or paper execution.
 
-From `E:\Conexus`:
+## Portable Harness bundle
 
-```powershell
-npm run build:web
-npm --prefix backend run build
+The reviewed Harness definition is tracked under:
+
+```text
+integrations/conexus/alphalab-research-agent/
 ```
 
-From `E:\quant-framework`:
+It contains the Agent prompt, typed context/result nodes, research document, and
+six AlphaLab API tools. Runtime and publication state remain local and ignored.
+After initializing Conexus for this repository, register and publish the bundle:
 
 ```powershell
-node scripts/install_conexus_research_harness.mjs
+node scripts/register_conexus_research_harness.mjs
 node scripts/publish_conexus_research_harness.mjs
 ```
 
-Publication writes an immutable release below:
+Registration updates only the ignored `.conexus/canvas.json`. Publication
+writes only to ignored Conexus runtime state. The source bundle remains
+deterministic and reviewable in Git.
 
-```text
-.conexus/publications/alphalab-research-agent/
-```
+## Run locally
 
-The AlphaLab publication is deliberately `anonymous` with `publisher` billing.
-The workstation therefore does not open a Conexus account gate: model calls use
-the Web Host's server-side `OPENROUTER_API_KEY` with `openai/gpt-oss-120b`, while chat history remains in
-the local browser/Electron profile.
-
-## Run the workstation
-
-The normal startup path uses the isolated cloud Web Host and starts the local
-backend, secure data tunnel, and frontend together:
+Build the separately installed Conexus Web Host, then start AlphaLab and the
+optional host. Set `CONEXUS_ROOT` or pass `-ConexusRoot` when Conexus is not a
+sibling directory:
 
 ```powershell
-cd E:\quant-framework
-powershell -ExecutionPolicy Bypass -File .\dashboard\start.ps1
+python -m uvicorn dashboard.backend.main:app --host 127.0.0.1 --port 8000
+powershell -ExecutionPolicy Bypass -File scripts/start_conexus_web.ps1 -ConexusRoot C:\path\to\Conexus
+npm --prefix dashboard/frontend run dev:web
 ```
 
-The cloud Web Host is available at
-`https://alphalab.43.154.239.41.nip.io`. Its publisher model key and Web Host
-token stay in the server-side `/opt/conexus/alphalab/.env`; neither credential
-is stored in AlphaLab, Canvas nodes, Harness files, or frontend storage. The
-dedicated tunnel key is stored outside the repository at
-`%USERPROFILE%\.ssh\alphalab_conexus_ed25519` and is restricted server-side to
-listen only on `127.0.0.1:18000`.
-
-For Conexus development only, `scripts/start_conexus_web.ps1` remains available
-as a local Web Host fallback.
+Model credentials stay only in the separate Conexus backend environment.
+`start_conexus_web.ps1` intentionally does not load AlphaLab's `.env`, so RQ
+credentials are not copied into the Agent process.
 
 ## Contracts
 
@@ -62,13 +53,13 @@ as a local Web Host fallback.
 - Harness node: `alphalab-research-harness-v1`
 - Published Agent: `alphalab-research-agent-v1`
 - AlphaLab proxy: `/api/conexus/*`
-- AlphaLab Conexus Web Host: `https://alphalab.43.154.239.41.nip.io`
-- Cloud Tool-to-AlphaLab endpoint: `http://127.0.0.1:18000`
-- Local AlphaLab API: `http://127.0.0.1:8000`
+- Default Conexus Web Host: `http://127.0.0.1:3000`
+- Default AlphaLab API visible to Tool nodes: `http://127.0.0.1:8000`
+- Portable Harness source: `integrations/conexus/alphalab-research-agent`
 
-Port 8000 remains part of the local AlphaLab contract. The tunnel forwards only
-the server loopback port 18000 to that local API; it does not publish port 8000
-on the Internet.
+Port 8000 is part of the local Harness contract; stop any unrelated service on
+that port before launching AlphaLab, or set `ALPHALAB_API_ORIGIN` for the
+Conexus process.
 
 The Research Harness cannot start/stop services, modify source code, execute an
 arbitrary shell, or place real orders. Those remain administrator-only tasks in
@@ -86,13 +77,10 @@ local conversations are retained under
 recent transcript as untrusted continuity context. Selecting New chat starts
 without that transcript.
 
-Context, Agent, and Activity share a 420px default right-rail width. On desktop,
-drag the rail's left edge to resize it between 320px and 720px; the selected
-width is stored in local storage. The Agent composer exposes `brief`, `draft`,
-`risk`, and `next` research intents plus explicit symbol, strategy, backtest,
-and data-status context switches. Those controls alter the Workspace Context
-sent to the Harness. The latest structured decision notebook is rendered in
-the Context tab.
+The right rail stages prompts into the Dockview Research Agent panel. The Agent
+composer exposes `brief`, `draft`, `risk`, and `next` intents plus explicit
+symbol, strategy, backtest, and data-status context switches. The latest
+structured decision notebook is reflected back into the right rail.
 
 ## Structured workspace results
 
@@ -140,3 +128,21 @@ symbol group, showing the right rail, refreshing dashboard data, and saving or
 resetting a layout. These commands cannot run a backtest, generate a signal, or
 place an order; those actions remain separate Harness tools with their existing
 explicit-user-request policy.
+
+## Optional cloud deployment
+
+The deployment assets under `deploy/conexus-cloud/` run a dedicated published
+Harness beside the local AlphaLab API. Keep service credentials in the
+server-side `.env`; they must not be copied into this repository or packaged in
+the Harness.
+
+When cloud Tool calls need local RQ data, start the reverse SSH tunnel
+explicitly in a separate terminal:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start_alphalab_conexus_tunnel.ps1
+```
+
+Set `CONEXUS_WEB_ORIGIN` in the local environment to the published HTTPS
+origin. The ordinary `dashboard/start.ps1` workflow remains local-only and does
+not open a tunnel automatically.

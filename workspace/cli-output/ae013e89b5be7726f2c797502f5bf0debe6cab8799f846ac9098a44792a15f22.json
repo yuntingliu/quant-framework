@@ -1,4 +1,0 @@
-{
-  "stdout": "",
-  "stderr": "  File \"<stdin>\", line 1\r\n    ﻿import sqlite3, json\r\n    ^\r\nSyntaxError: invalid non-printable character U+FEFF"
-}

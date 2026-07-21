@@ -1,4 +1,0 @@
-{
-  "stdout": "Patched engine.py: resample(\"ME\") -> resample(\"M\")\n\n  alphalab\\engine.py:190:    else:\n> alphalab\\engine.py:191:        prices = close.resample(\"M\").last().dropna(how=\"all\")\n  alphalab\\engine.py:192:    period_returns = prices.pct_change(fill_method=None).shift(-1)",
-  "stderr": ""
-}

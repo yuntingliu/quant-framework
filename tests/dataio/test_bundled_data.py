@@ -64,11 +64,8 @@ def test_seed_database_is_complete():
             )
         }
     assert counts["strategies"] == 6
-    # The bundled database may also contain persisted workstation runs. Verify
-    # that the complete six-strategy seed remains present without rejecting
-    # valid local research history committed alongside it.
-    assert counts["backtests"] >= 6
-    assert counts["backtest_returns"] >= counts["backtests"] * 60
-    assert counts["signals"] >= 6
-    assert counts["signal_targets"] >= counts["signals"] * 10
+    assert counts["backtests"] == 6
+    assert counts["backtest_returns"] == 360
+    assert counts["signals"] == 6
+    assert counts["signal_targets"] == 60
     assert counts["orders"] > 0

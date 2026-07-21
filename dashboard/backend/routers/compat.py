@@ -4,7 +4,10 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from dashboard.backend.services.data_sync_service import get_health
-from dashboard.backend.services.framework_service import list_provider_status
+from dashboard.backend.services.framework_service import (
+    list_provider_status,
+    paper_account_summary,
+)
 
 router = APIRouter(prefix="/api", tags=["status"])
 
@@ -14,7 +17,7 @@ def trading_status() -> dict:
     return {
         "connected": False,
         "mode": "paper",
-        "account_id": None,
+        "account_id": "paper",
         "broker": "paper",
         "broker_label": "local simulator",
         "account_currency": "CNY",
@@ -28,7 +31,12 @@ def trading_status() -> dict:
 
 @router.get("/trading/asset")
 def trading_asset() -> dict:
-    return {"cash": 1_000_000.0, "total_asset": 1_000_000.0, "market_value": 0.0}
+    account = paper_account_summary("paper", "demo")["account"]
+    return {
+        "cash": account["cash"],
+        "total_asset": account["equity"],
+        "market_value": account["market_value"],
+    }
 
 
 @router.get("/data/status")
@@ -48,4 +56,35 @@ def data_status() -> dict:
         },
         "rq": get_health()["rq"],
         "realtime": {"connected": False, "status": "not_configured"},
+    }
+
+
+@router.get("/agent/config")
+def agent_config() -> dict:
+    return {
+        "data_tools": {
+            "configured": True,
+            "available": True,
+            "status": "ready",
+            "count": 6,
+        },
+        "planner": {
+            "configured": False,
+            "available": False,
+            "status": "not_configured",
+        },
+        "deterministic_workflow": {
+            "configured": True,
+            "available": True,
+            "status": "ready",
+            "steps": 6,
+            "requires_paper_confirmation": True,
+        },
+        "llm": {
+            "configured": False,
+            "available": False,
+            "provider": "none",
+            "model": None,
+            "mode": "not_configured",
+        }
     }

@@ -1,30 +1,39 @@
 import { useEffect, useState } from 'react'
 import { Play, Radio } from 'lucide-react'
 import { apiGet, apiPost, type SignalResult, type StrategyTemplate } from '../../lib/api'
-import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh'
 import { useDataProfile, type DataProfile } from '../../lib/data-profile'
 
 export function SignalDeskWidget() {
   const refreshRevision = useWorkspaceRefresh()
-  const { selectedStrategy, setSelectedStrategy } = useWorkspace()
   const [strategies, setStrategies] = useState<StrategyTemplate[]>([])
+  const [strategyId, setStrategyId] = useState('balanced')
   const [signal, setSignal] = useState<SignalResult | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
   const [profile, chooseProfile] = useDataProfile()
 
   useEffect(() => {
-    apiGet<StrategyTemplate[]>('/strategies').then((items) => {
-      setStrategies(items)
-    }).catch((err: Error) => setError(err.message))
+    apiGet<StrategyTemplate[]>('/strategies')
+      .then((items) => {
+        setStrategies(items)
+        setStrategyId((current) => (
+          items.some((item) => item.id === current)
+            ? current
+            : items[0]?.id ?? ""
+        ))
+      })
+      .catch((err: Error) => setError(err.message))
   }, [refreshRevision])
 
   useEffect(() => {
-    if (!selectedStrategy && strategies[0]) setSelectedStrategy(strategies[0].id)
-  }, [selectedStrategy, setSelectedStrategy, strategies])
-
-  const strategyId = selectedStrategy ?? strategies[0]?.id ?? ''
+    if (!strategyId) return
+    setSignal(null)
+    setError('')
+    apiGet<SignalResult>(`/signals/latest?strategy_id=${encodeURIComponent(strategyId)}&profile=${profile}`)
+      .then(setSignal)
+      .catch(() => setSignal(null))
+  }, [profile, strategyId])
 
   async function generate() {
     setRunning(true)
@@ -46,10 +55,13 @@ export function SignalDeskWidget() {
           <option value="demo">Demo</option>
           <option value="runtime">Local RQ</option>
         </select>
-        <select value={strategyId} onChange={(event) => setSelectedStrategy(event.target.value)}>{strategies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+        <select value={strategyId} onChange={(event) => setStrategyId(event.target.value)}>{strategies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
         <button type="button" onClick={generate} disabled={running}><Play size={14} /> {running ? 'Generating' : 'Generate'}</button>
       </div>
       {error && <p className="error">{error}</p>}
+      {!signal && !error && (
+        <div className="panel-empty-state">No saved {profile} signal for this strategy.</div>
+      )}
       {signal && <>
         <div className="detail-strip"><span>{signal.strategy_id}</span><strong>{signal.signal_date}</strong></div>
         <div className="table"><div className="table-row table-head"><span>Symbol</span><span>Target</span></div>{Object.entries(signal.targets).map(([item, weight]) => <div className="table-row" key={item}><span>{item}</span><span>{(weight * 100).toFixed(2)}%</span></div>)}</div>

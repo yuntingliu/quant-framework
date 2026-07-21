@@ -2,9 +2,14 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from alphalab.dataio import MissingDataError
+from dashboard.backend.services.backtest_analytics_service import (
+    analyze_backtest,
+    analyze_robustness,
+    compare_backtests,
+)
 from dashboard.backend.services.framework_service import (
     get_backtest,
     list_backtests,
@@ -21,9 +26,34 @@ class BacktestRequest(BaseModel):
     profile: str = "demo"
 
 
+class BacktestCompareRequest(BaseModel):
+    ids: list[str] = Field(min_length=2, max_length=6)
+
+    @field_validator("ids")
+    @classmethod
+    def unique_ids(cls, values: list[str]) -> list[str]:
+        cleaned = [value.strip() for value in values if value.strip()]
+        if len(cleaned) != len(values):
+            raise ValueError("backtest ids must not be empty")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("backtest ids must be unique")
+        return cleaned
+
+
 @router.get("")
 def backtests(limit: int = 20) -> list[dict]:
     return list_backtests(limit=limit)
+
+
+@router.post("/compare")
+def compare(request: BacktestCompareRequest) -> dict:
+    try:
+        return compare_backtests(request.ids)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"backtest not found: {exc.args[0]}",
+        ) from exc
 
 
 @router.get("/{backtest_id}")
@@ -32,6 +62,24 @@ def backtest_detail(backtest_id: str) -> dict:
     if item is None:
         raise HTTPException(status_code=404, detail="backtest not found")
     return item
+
+
+@router.get("/{backtest_id}/analysis")
+def backtest_analysis(backtest_id: str) -> dict:
+    try:
+        return analyze_backtest(backtest_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="backtest not found") from exc
+
+
+@router.get("/{backtest_id}/robustness")
+def backtest_robustness(backtest_id: str) -> dict:
+    try:
+        return analyze_robustness(backtest_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="backtest not found") from exc
+    except MissingDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/run")

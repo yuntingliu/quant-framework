@@ -1,4 +1,12 @@
-export { useMarketKPI, useCumulativeReturns, useAnnualReturns, useFactorStats, useDrawdowns, useVolatilityAnalysis } from './use-market-data'
+export {
+  useMarketKPI,
+  useCumulativeReturns,
+  useAnnualReturns,
+  useFactorStats,
+  useDrawdowns,
+  useVolatilityAnalysis,
+  useMarketCorrelation,
+} from './use-market-data'
 export { useFactorPerformance, useCorrelation, useRollingCorrelation, useFactorDistribution, useFactorAnnualReturns } from './use-factor-data'
 export { useBacktestComparison, useBacktestRun, useBacktestRunMutation } from './use-backtest-data'
 export { useOptimizerRun, useOptimizerRunMutation, useEfficientFrontier, useEfficientFrontierMutation } from './use-optimizer-data'

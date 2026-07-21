@@ -23,7 +23,6 @@ function Import-DotEnv([string]$Path) {
 }
 
 Import-DotEnv (Join-Path $ConexusRoot 'backend\.env')
-Import-DotEnv (Join-Path $ProjectRoot '.env')
 
 $env:NODE_ENV = 'development'
 $env:CONEXUS_PROJECT_ROOT = $ProjectRoot
@@ -34,7 +33,7 @@ $env:CONEXUS_WEB_TRUSTED_RUNTIME = 'true'
 
 $entry = Join-Path $ConexusRoot 'backend\dist\web-host.js'
 if (-not (Test-Path $entry) -or -not (Test-Path (Join-Path $env:CONEXUS_WEB_DIST 'index.html'))) {
-    throw 'Conexus Web Host is not built. Run npm run build:web and npm --prefix backend run build in E:\Conexus.'
+    throw "Conexus Web Host is not built. Run 'npm run build:web' and 'npm --prefix backend run build' in $ConexusRoot."
 }
 if (-not $env:CONEXUS_WEB_TOKEN) {
     $tokenBytes = New-Object byte[] 32

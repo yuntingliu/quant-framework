@@ -14,6 +14,7 @@ from alphalab.dataio.providers.local import (
     LocalParquetFactorProvider,
     LocalParquetFundamentalProvider,
     LocalParquetMarketDataProvider,
+    PartitionedParquetFactorProvider,
     PartitionedParquetFundamentalProvider,
     PartitionedParquetMarketDataProvider,
 )
@@ -268,6 +269,11 @@ def create_runtime_engine(runtime_dir: str | Path | None = None) -> DataEngine:
     engine.register_fundamental(
         "runtime",
         PartitionedParquetFundamentalProvider(root),
+        default=True,
+    )
+    engine.register_factor(
+        "runtime",
+        PartitionedParquetFactorProvider(root),
         default=True,
     )
     return engine

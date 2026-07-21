@@ -27,7 +27,7 @@ Use the same service through CLI or FastAPI. Always preview first:
 
 ```powershell
 alphalab data plan rq
-alphalab data sync rq --datasets instruments,bars,fundamentals
+alphalab data sync rq --datasets instruments,bars,fundamentals,factors
 alphalab data validate
 ```
 
@@ -89,6 +89,20 @@ real connection.
 
 Generic templates live in `alphalab/strategies/`. A strategy is data plus YAML;
 add Python only when the framework needs a new reusable behavior.
+
+Package templates are immutable through the API. Dashboard edits are stored as
+local YAML below `data/runtime/app/strategies`. Strategy ids and YAML `name`
+must match. Validate every local definition before a backtest.
+
+Every persisted backtest can produce a same-universe equal-weight benchmark and
+a robustness report. The report checks data/weight integrity, calendar and
+rolling outcomes, turnover, concentration, and 10/20/50 bps cost assumptions.
+Its labels are research triage labels, not trading authorization.
+
+The deterministic research runner persists each step and supports cancel,
+retry, and restart interruption states. It may create a signal and paper
+rebalance preview, but only `/api/paper/rebalance/execute` with `confirm=true`
+can change the local paper account.
 
 ## Quality Gate
 

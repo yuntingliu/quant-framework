@@ -4,7 +4,7 @@ type Theme = "light" | "dark"
 
 const THEME_KEY = "alphalab-theme"
 const THEME_DEFAULT_VERSION_KEY = "alphalab-theme-default-version"
-const THEME_DEFAULT_VERSION = "2"
+const THEME_DEFAULT_VERSION = "3"
 
 interface ThemeContextType {
   theme: Theme
@@ -24,13 +24,13 @@ function normalizeTheme(value: unknown, fallback: Theme): Theme {
 
 export function ThemeProvider({
   children,
-  defaultTheme = "light",
+  defaultTheme = "dark",
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(() => {
     try {
       let stored = localStorage.getItem(THEME_KEY)
       const version = localStorage.getItem(THEME_DEFAULT_VERSION_KEY)
-      if (version !== THEME_DEFAULT_VERSION && (!stored || stored === "dark")) {
+      if (version !== THEME_DEFAULT_VERSION) {
         stored = defaultTheme
         localStorage.setItem(THEME_KEY, stored)
         localStorage.setItem(THEME_DEFAULT_VERSION_KEY, THEME_DEFAULT_VERSION)

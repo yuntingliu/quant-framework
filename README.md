@@ -21,9 +21,13 @@ orders without configuring a vendor connection.
 - A tracked 300-stock, five-year historical sample with point-in-time
   fundamentals, monthly factor returns, and six seeded backtests.
 - An RQ-only runtime data control plane with partitioned parquet storage,
-  quality checks, job records, CLI commands, APIs, and typed data tools.
-- Paper-only signal and order APIs. Realtime feeds and real orders are not
-  configured.
+  PIT fundamentals, factor returns, quality checks, job records, CLI commands,
+  APIs, and typed data tools.
+- Same-universe benchmarks, cost sensitivity, rolling checks, and explicit
+  `research_candidate/watch/weak/invalid` research gates.
+- A deterministic data-to-paper research workflow with local cash, positions,
+  fills, NAV, and confirmed rebalance simulation. Realtime feeds and real
+  orders are not configured.
 
 ## Quick Start
 
@@ -72,7 +76,7 @@ request:
 ```powershell
 alphalab data status
 alphalab data plan rq
-alphalab data sync rq --datasets instruments,bars,fundamentals
+alphalab data sync rq --datasets instruments,bars,fundamentals,factors
 alphalab data validate
 alphalab data jobs
 ```
@@ -100,9 +104,11 @@ fundamentals = engine.get_fundamentals(
 `create_rq_engine_from_env()` remains available for one-off direct queries. The
 runtime synchronizer stores adjusted research OHLC with unadjusted `raw_close`,
 retains PIT statement revisions, and derives canonical fundamentals from first
-disclosures. It does not provide realtime quotes or order execution. Network
-forwarding, machine details, private keys, and downloaded vendor data are not
-part of this repository.
+disclosures. Runtime factors use the prior-month characteristics and subsequent
+monthly returns; the `rf` column comes from the RQ China 1M yield curve,
+converted from annual yield to monthly return. It does not provide realtime
+quotes or order execution. Network forwarding, machine details, private keys,
+and downloaded vendor data are not part of this repository.
 
 Maintainers can rebuild the sample from the full local research workspace:
 
@@ -114,9 +120,27 @@ python scripts\build_example_data.py `
 ## Dashboard
 
 ```powershell
-cd E:\quant-framework
-powershell -ExecutionPolicy Bypass -File .\dashboard\start.ps1
+python -m uvicorn dashboard.backend.main:app --reload --port 8000
+npm --prefix dashboard/frontend run dev:web
 ```
+
+### Optional Research Agent
+
+The framework does not require or bundle an LLM planner. If a separately
+installed Conexus Web Host exposes a compatible published Research Harness,
+its local origin and publication slug can be supplied as process variables:
+
+```powershell
+$env:CONEXUS_WEB_ORIGIN = "http://127.0.0.1:3000"
+$env:CONEXUS_PUBLICATION_SLUG = "alphalab-research-agent"
+```
+
+Without that service, the Research Agent panel reports `not_configured` while
+all deterministic Demo/DataIO/backtest/paper workflows remain available. See
+[`docs/04_CONEXUS_AGENT.md`](docs/04_CONEXUS_AGENT.md) for the optional contract.
+The sanitized, reviewable Harness source is included under
+[`integrations/conexus/alphalab-research-agent`](integrations/conexus/alphalab-research-agent);
+generated Canvas, publication, conversation, and run state remain ignored.
 
 Open [http://localhost:5173](http://localhost:5173). API docs are available at
 [http://localhost:8000/docs](http://localhost:8000/docs).
@@ -128,13 +152,18 @@ disabled extension points. Data Center exposes explicit Demo and Local RQ
 profiles, sync planning, background jobs, coverage, and validation. It never
 starts a heavy sync during application startup.
 
-The AI Research Agent is backed by an isolated cloud Conexus Harness. The
-dashboard startup script also opens a restricted reverse SSH tunnel for the
-local AlphaLab data API; a local Conexus Web Host is not required. Architecture,
-deployment, and local-development instructions are in
-[`docs/04_CONEXUS_AGENT.md`](docs/04_CONEXUS_AGENT.md).
-It runs anonymously with publisher-funded model usage and keeps conversation
-history in the local browser/Electron profile.
+Built-in strategy YAML is immutable. Clone a template in Strategy Editor to
+create a local version below ignored runtime data. Backtest Workbench can run a
+single backtest or the deterministic six-step research workflow:
+
+```text
+data status -> strategy validation -> backtest -> robustness gate
+            -> signal -> paper risk preview
+```
+
+The workflow never confirms paper fills and never submits a broker order.
+`research_candidate` means only that the configured research thresholds passed;
+it is not an approval for live trading.
 
 ## Validation
 

@@ -393,6 +393,8 @@ export function ResearchAgentPanel() {
     placeholder: agent.run?.pendingInteraction ? "回答 Agent 的问题…" : "输入研究问题…",
     running: "Agent 正在运行…",
     unavailable: "Conexus Research Agent 尚未运行或尚未发布。",
+    notConfigured: "状态：not_configured",
+    retry: "重试",
     tools: "工具执行",
     workspaceActions: "工作台联动",
     quickPrompts: ["现在有哪些策略？", "对比当前策略并把研究报告放到中间工作区", "打开数据中心并刷新数据", "打开动量策略的回测工作台"],
@@ -407,6 +409,8 @@ export function ResearchAgentPanel() {
     placeholder: agent.run?.pendingInteraction ? "Answer the Agent…" : "Enter a research request…",
     running: "Agent is running…",
     unavailable: "The Conexus Research Agent is not running or has not been published.",
+    notConfigured: "Status: not_configured",
+    retry: "Retry",
     tools: "Tool activity",
     workspaceActions: "Workspace actions",
     quickPrompts: ["What strategies are available?", "Compare current strategies in a workspace report", "Open Data Center and refresh data", "Open the momentum backtest workbench"],
@@ -427,8 +431,9 @@ export function ResearchAgentPanel() {
     return (
       <div className="flex h-full items-center justify-center p-3">
         <div className="space-y-2 rounded border border-rose-500/30 bg-rose-500/5 p-3 text-xs text-rose-700 dark:text-rose-300">
-          <div>{copy.unavailable}{agent.status.error ? ` ${agent.status.error}` : ""}</div>
-          <button className="rounded border border-current px-2 py-1" onClick={() => void agent.reloadStatus()}>Retry</button>
+          <div>{copy.unavailable}</div>
+          <div className="font-mono text-[10px] opacity-80">{copy.notConfigured}</div>
+          <button className="rounded border border-current px-2 py-1" onClick={() => void agent.reloadStatus()}>{copy.retry}</button>
         </div>
       </div>
     )

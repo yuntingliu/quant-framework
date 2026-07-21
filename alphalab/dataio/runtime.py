@@ -374,6 +374,15 @@ class RuntimeStore:
                 )
                 for year, part in value.groupby(value["available_date"].dt.year, sort=True)
             ]
+        if dataset == "runtime.factor_returns":
+            value["date"] = pd.to_datetime(value["date"]).dt.normalize()
+            return [
+                (
+                    base / f"year={int(year):04d}" / "part.parquet",
+                    part,
+                )
+                for year, part in value.groupby(value["date"].dt.year, sort=True)
+            ]
         raise KeyError(f"Dataset does not have a partition policy: {dataset}")
 
     @staticmethod

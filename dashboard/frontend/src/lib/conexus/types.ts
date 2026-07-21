@@ -1,5 +1,7 @@
 export interface ConexusStatus {
   available: boolean
+  mode?: "published_harness" | "not_configured"
+  publication?: string
   error?: string
 }
 

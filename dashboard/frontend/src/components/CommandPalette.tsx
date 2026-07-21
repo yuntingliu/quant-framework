@@ -210,7 +210,9 @@ export function CommandPalette({ onAddWidget, onSwitchMode, onResetLayout, onOpe
 
             {/* Widgets */}
             <Command.Group heading={t("command.group.widgets")} className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider">
-              {widgetCatalog.map(w => (
+              {[...widgetCatalog]
+                .sort((left, right) => Number(right.status === "active") - Number(left.status === "active"))
+                .map(w => (
                 <Command.Item
                   key={w.id}
                   value={`${w.title} ${w.titleEn ?? ""} ${w.description || ""} ${w.descriptionEn ?? ""} ${w.category} ${w.categoryEn ?? ""}`}
@@ -222,6 +224,11 @@ export function CommandPalette({ onAddWidget, onSwitchMode, onResetLayout, onOpe
                   {widgetDescription(w, language) && (
                     <span className="text-xs text-muted-foreground ml-auto truncate max-w-[200px]">
                       {widgetDescription(w, language)}
+                    </span>
+                  )}
+                  {w.status === "not_configured" && (
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {language === "zh" ? "未配置" : "Not configured"}
                     </span>
                   )}
                 </Command.Item>

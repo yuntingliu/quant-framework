@@ -15,10 +15,12 @@ Runtime datasets are:
 | `rq.financials.income` | `symbol, quarter, info_date, if_adjusted` | report year |
 | `rq.financials.balance` | `symbol, quarter, info_date, if_adjusted` | report year |
 | `canonical.fundamentals` | `symbol, quarter` | available year |
+| `runtime.factor_returns` | `date` | year |
 
 Runtime bars contain adjusted `open/high/low/close` for research and
-unadjusted `raw_close` for market capitalization. Runtime factor returns are
-not configured.
+unadjusted `raw_close` for market capitalization. Runtime factor returns use
+the same MKT/SMB/HML/MOM/RMW definitions as the bundled sample. RQ's China 1M
+yield curve is converted from an annual yield to the monthly `rf` return.
 
 ## Synchronization
 

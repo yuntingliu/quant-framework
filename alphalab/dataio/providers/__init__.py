@@ -4,6 +4,7 @@ from alphalab.dataio.providers.local import (
     LocalParquetFactorProvider,
     LocalParquetFundamentalProvider,
     LocalParquetMarketDataProvider,
+    PartitionedParquetFactorProvider,
     PartitionedParquetFundamentalProvider,
     PartitionedParquetMarketDataProvider,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "LocalParquetFactorProvider",
     "LocalParquetFundamentalProvider",
     "LocalParquetMarketDataProvider",
+    "PartitionedParquetFactorProvider",
     "PartitionedParquetFundamentalProvider",
     "PartitionedParquetMarketDataProvider",
     "MarketDataProvider",

@@ -265,3 +265,32 @@ class PartitionedParquetFundamentalProvider(LocalParquetFundamentalProvider):
             .reset_index(drop=True)
         )
         return self._cache
+
+
+class PartitionedParquetFactorProvider(LocalParquetFactorProvider):
+    """Factor provider for derived runtime factor-return partitions."""
+
+    def __init__(self, runtime_root: str | Path):
+        self.catalog = DataCatalog(runtime_root)
+        self.factor_dir = self.catalog.path("runtime.factor_returns")
+        self.path = self.factor_dir
+        self._cache: pd.DataFrame | None = None
+
+    def _load(self) -> pd.DataFrame:
+        if self._cache is not None:
+            return self._cache
+        files = self.catalog.files("runtime.factor_returns")
+        if not files:
+            self._cache = pd.DataFrame()
+            return self._cache
+        frame = pd.concat((pd.read_parquet(path) for path in files), ignore_index=True)
+        if "date" not in frame:
+            raise MissingDataError("Runtime factor partitions must include date")
+        frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+        self._cache = (
+            frame.dropna(subset=["date"])
+            .drop_duplicates(["date"], keep="last")
+            .set_index("date")
+            .sort_index()
+        )
+        return self._cache

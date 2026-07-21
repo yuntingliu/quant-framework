@@ -9,6 +9,7 @@ __pycache__/
 coverage.xml
 htmlcov/
 
+.env
 .env.local
 .venv/
 venv/
@@ -52,3 +53,5 @@ codex_tmp/
 tmp_pytest/
 pytest-cache-files-*/
 
+.conexus/
+workspace/

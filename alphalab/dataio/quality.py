@@ -80,6 +80,22 @@ def validate_dataset(dataset: str, root: str | Path | None = None) -> dict:
             )
         elif pd.to_datetime(frame["available_date"], errors="coerce").isna().any():
             issues.append(QualityIssue("invalid_available_date", "Canonical rows need available_date"))
+    elif dataset == "runtime.factor_returns":
+        required = {"date", "MKT", "SMB", "HML", "MOM", "RMW", "rf"}
+        missing_factors = sorted(required - set(frame))
+        if missing_factors:
+            issues.append(
+                QualityIssue("missing_columns", f"Missing factor columns: {missing_factors}")
+            )
+        else:
+            values = frame[list(required - {"date"})].apply(pd.to_numeric, errors="coerce")
+            if values[["MKT", "rf"]].isna().any().any():
+                issues.append(
+                    QualityIssue("invalid_factor_returns", "MKT and rf must be finite")
+                )
+            dates = pd.to_datetime(frame["date"], errors="coerce")
+            if dates.isna().any():
+                issues.append(QualityIssue("invalid_dates", "Factor dates are invalid"))
     report = _report(dataset, status, issues)
     store.operations.record_quality(dataset, report)
     return report

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { api, buildParams } from "@/lib/api"
 import { STALE_TIME } from "@/lib/constants"
+import type { DataProfile } from "@/lib/data-profile"
 import type {
   MarketKPI,
   CumulativeReturns,
@@ -8,6 +9,7 @@ import type {
   FactorStats,
   DrawdownData,
   VolatilityData,
+  CorrelationData,
   IndexBoard,
   BreadthData,
   SectorHeatmap,
@@ -17,27 +19,29 @@ import type {
 } from "@/types/market"
 
 
-export function useMarketKPI(start?: string, end?: string) {
+export function useMarketKPI(profile: DataProfile, start?: string, end?: string) {
   return useQuery({
-    queryKey: ["market", "kpi", start, end],
+    queryKey: ["market", "kpi", profile, start, end],
     queryFn: () =>
-      api.get<MarketKPI>(`/market/kpi${buildParams({ start, end })}`),
+      api.get<MarketKPI>(`/market/kpi${buildParams({ profile, start, end })}`),
     staleTime: STALE_TIME.SHORT,
   })
 }
 
 export function useCumulativeReturns(
+  profile: DataProfile,
   start?: string,
   end?: string,
   factors?: string[]
 ) {
   return useQuery({
-    queryKey: ["market", "cumulative-returns", start, end, factors],
+    queryKey: ["market", "cumulative-returns", profile, start, end, factors],
     queryFn: () =>
       api.get<CumulativeReturns>(
         `/market/cumulative-returns${buildParams({
           start,
           end,
+          profile,
           factors: factors?.join(","),
         })}`
       ),
@@ -46,17 +50,19 @@ export function useCumulativeReturns(
 }
 
 export function useAnnualReturns(
+  profile: DataProfile,
   start?: string,
   end?: string,
   factors?: string[]
 ) {
   return useQuery({
-    queryKey: ["market", "annual-returns", start, end, factors],
+    queryKey: ["market", "annual-returns", profile, start, end, factors],
     queryFn: () =>
       api.get<AnnualReturns>(
         `/market/annual-returns${buildParams({
           start,
           end,
+          profile,
           factors: factors?.join(","),
         })}`
       ),
@@ -64,23 +70,31 @@ export function useAnnualReturns(
   })
 }
 
-export function useFactorStats(start?: string, end?: string) {
+export function useFactorStats(profile: DataProfile, start?: string, end?: string) {
   return useQuery({
-    queryKey: ["market", "factor-stats", start, end],
+    queryKey: ["market", "factor-stats", profile, start, end],
     queryFn: () =>
       api.get<FactorStats>(
-        `/market/factor-stats${buildParams({ start, end })}`
+        `/market/factor-stats${buildParams({ profile, start, end })}`
       ),
     staleTime: STALE_TIME.SHORT,
   })
 }
 
-export function useDrawdowns(topN?: number) {
+export function useDrawdowns(
+  profile: DataProfile,
+  start?: string,
+  end?: string,
+  topN?: number,
+) {
   return useQuery({
-    queryKey: ["market", "drawdowns", topN],
+    queryKey: ["market", "drawdowns", profile, start, end, topN],
     queryFn: () =>
       api.get<DrawdownData>(
         `/market/drawdowns${buildParams({
+          profile,
+          start,
+          end,
           top_n: topN?.toString(),
         })}`
       ),
@@ -88,10 +102,38 @@ export function useDrawdowns(topN?: number) {
   })
 }
 
-export function useVolatilityAnalysis() {
+export function useVolatilityAnalysis(
+  profile: DataProfile,
+  start?: string,
+  end?: string,
+) {
   return useQuery({
-    queryKey: ["market", "volatility"],
-    queryFn: () => api.get<VolatilityData>("/market/volatility"),
+    queryKey: ["market", "volatility", profile, start, end],
+    queryFn: () =>
+      api.get<VolatilityData>(
+        `/market/volatility${buildParams({ profile, start, end })}`,
+      ),
+    staleTime: STALE_TIME.SHORT,
+  })
+}
+
+export function useMarketCorrelation(
+  profile: DataProfile,
+  start?: string,
+  end?: string,
+  factors?: string[],
+) {
+  return useQuery({
+    queryKey: ["market", "correlation", profile, start, end, factors],
+    queryFn: () =>
+      api.get<CorrelationData>(
+        `/market/correlation${buildParams({
+          profile,
+          start,
+          end,
+          factors: factors?.join(","),
+        })}`,
+      ),
     staleTime: STALE_TIME.SHORT,
   })
 }
