@@ -99,6 +99,14 @@ columns and rows, the panel adds a sortable/filterable data-table view and CSV
 export. Table attachments are limited to 30 columns and 1,000 rows; document
 and descriptor payloads are bounded before storage and rendering.
 
+The Agent submits `decisionNotebook`, `workspaceDocument`, `workspaceResult`,
+and `workspaceCommands` through one `commit_harness_outputs` call. The Hosted
+Runtime validates the complete declared output schema before changing any bound
+node, then commits all four values together. A malformed or incomplete result
+therefore leaves every previous output untouched and is returned to the Agent
+for correction. The frontend still validates request IDs and the closed command
+allowlist before applying any workspace action.
+
 Multiple result tabs and layout restoration are supported. Recent validated
 documents are retained in local storage subject to browser quota. Turns without
 an independent result write `kind: "none"`, so stale Document content cannot be
@@ -108,6 +116,11 @@ Anonymous run records remain protected by their per-run access tokens while the
 Web Host retains them. They are not used as the chat-history source. Clearing
 the browser/Electron site data removes local chats, result caches, and saved
 layouts without changing the published Harness.
+
+Agent execution has no host-imposed iteration, output-token, delegated-Agent
+depth, total Agent invocation, or default Harness deadline. It ends on
+`complete` or explicit cancellation; provider context windows, concurrency, and
+request-rate limits remain operational service boundaries.
 
 Supported frontend-only actions are mode switching, opening or closing a known
 widget, changing the selected symbol/strategy/backtest/date, setting a linked

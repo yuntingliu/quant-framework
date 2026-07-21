@@ -103,7 +103,24 @@ function decisionNotebookFromArtifacts(artifacts: PublishedHarnessArtifact[]): A
         ? artifact.content.node.values.data
         : null
     if (!value || typeof value !== "object" || Array.isArray(value)) continue
-    return { ...(value as AgentDecisionNotebook), runId: artifact.runId, updatedAt: artifact.createdAt }
+    const notebook = value as Record<string, unknown>
+    if (
+      typeof notebook.classification !== "string"
+      || typeof notebook.baseCase !== "string"
+      || typeof notebook.riskCase !== "string"
+      || typeof notebook.nextAction !== "string"
+      || !Array.isArray(notebook.candidateExpressions)
+      || notebook.candidateExpressions.some((item) => typeof item !== "string")
+    ) continue
+    return {
+      classification: notebook.classification,
+      baseCase: notebook.baseCase,
+      riskCase: notebook.riskCase,
+      nextAction: notebook.nextAction,
+      candidateExpressions: notebook.candidateExpressions as string[],
+      runId: artifact.runId,
+      updatedAt: artifact.createdAt,
+    }
   }
   return null
 }
@@ -134,6 +151,7 @@ function workspaceDocumentFromArtifact(artifact: PublishedHarnessArtifact): stri
 const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   observe_nodes: { zh: "读取工作台上下文", en: "Read workspace context" },
   update_nodes: { zh: "更新决策笔记", en: "Update decision notebook" },
+  commit_harness_outputs: { zh: "原子提交研究结果", en: "Commit research outputs atomically" },
   list_nodes: { zh: "检查工作台节点", en: "Inspect workspace nodes" },
   alphalab_get_workspace_context: { zh: "读取策略与数据目录", en: "Read strategy and data catalog" },
   alphalab_get_strategy: { zh: "读取策略定义", en: "Read strategy definition" },
@@ -171,13 +189,27 @@ function ToolActivityList({
 }
 
 function Artifact({ artifact }: { artifact: PublishedHarnessArtifact }) {
+  const workspaceDocument = workspaceDocumentFromArtifact(artifact)
+  if (workspaceDocument !== null) {
+    if (!workspaceDocument.trim()) return null
+    return (
+      <details open className="rounded border border-border bg-background text-xs">
+        <summary className="cursor-pointer border-b border-border px-3 py-2 font-medium text-foreground">
+          {artifact.title || "研究报告"}
+        </summary>
+        <div className="max-h-[32rem] overflow-auto p-3">
+          <SafeMarkdown>{workspaceDocument}</SafeMarkdown>
+        </div>
+      </details>
+    )
+  }
   if (
     artifact.outputKey === "workspaceCommands"
     || artifact.producerNodeId === WORKSPACE_COMMANDS_NODE_ID
     || artifact.outputKey === "workspaceResult"
     || artifact.producerNodeId === WORKSPACE_RESULT_NODE_ID
-    || artifact.outputKey === "workspaceDocument"
-    || artifact.producerNodeId === WORKSPACE_DOCUMENT_NODE_ID
+    || artifact.outputKey === "decisionNotebook"
+    || artifact.producerNodeId === DECISION_NOTEBOOK_NODE_ID
   ) return null
   if (artifact.kind === "document") {
     return <SafeMarkdownFrame><SafeMarkdown>{artifact.content.markdown}</SafeMarkdown></SafeMarkdownFrame>
@@ -278,7 +310,7 @@ export function ResearchAgentPanel() {
         receipts: [],
       }
       window.dispatchEvent(new CustomEvent(WORKSPACE_COMMAND_EVENT, { detail }))
-      setWorkspaceReceipts(detail.receipts)
+      void (detail.receiptPromise ?? Promise.resolve(detail.receipts)).then(setWorkspaceReceipts)
       break
     }
   }, [artifacts, registerResearchResult])
