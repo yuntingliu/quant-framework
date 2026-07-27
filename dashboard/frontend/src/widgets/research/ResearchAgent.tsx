@@ -36,6 +36,7 @@ import {
   type AgentWorkspaceCommandReceipt,
 } from "@/workspace/agentCommands"
 import { parseAgentResearchResult, type AgentResearchResult } from "@/workspace/researchResults"
+import { agentWorkspaceWidgetIds } from "@/widgets/registry/catalog"
 
 const DECISION_NOTEBOOK_NODE_ID = "alphalab-decision-notebook-v1"
 const WORKSPACE_COMMANDS_NODE_ID = "alphalab-workspace-commands-v1"
@@ -74,22 +75,7 @@ const AGENT_INTENTS: Array<{ id: AgentIntent; icon: LucideIcon }> = [
 
 const WORKSPACE_CAPABILITIES = {
   modes: ["home", "data", "research", "trading_a_share"],
-  widgets: [
-    "home.index-board",
-    "market.history",
-    "data.center",
-    "data.factor-returns",
-    "strategies.hub",
-    "strategy.editor",
-    "backtest.explorer",
-    "backtest.workbench",
-    "research.signal-preview",
-    "research.result-viewer",
-    "trading.rebalance",
-    "trading.alerts",
-    "system.log",
-    "system.help",
-  ],
+  widgets: agentWorkspaceWidgetIds,
   commandTypes: [
     "switch_mode",
     "open_widget",
@@ -169,9 +155,17 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   alphalab_get_workspace_context: { zh: "读取策略与数据目录", en: "Read strategy and data catalog" },
   alphalab_get_strategy: { zh: "读取策略定义", en: "Read strategy definition" },
   alphalab_get_market_bars: { zh: "读取历史行情", en: "Read historical bars" },
+  alphalab_get_fundamentals: { zh: "读取点时基本面", en: "Read point-in-time fundamentals" },
+  alphalab_get_factor_returns: { zh: "读取因子收益", en: "Read factor returns" },
   alphalab_get_backtest: { zh: "读取回测结果", en: "Read backtest result" },
   alphalab_run_backtest: { zh: "运行回测", en: "Run backtest" },
   alphalab_generate_signal: { zh: "生成纸面信号", en: "Generate paper signal" },
+  alphalab_data_catalog: { zh: "读取数据目录", en: "Read data catalog" },
+  alphalab_data_status: { zh: "检查数据状态", en: "Check data status" },
+  alphalab_data_plan_sync: { zh: "规划数据同步", en: "Plan data sync" },
+  alphalab_data_run_sync: { zh: "执行数据同步", en: "Run data sync" },
+  alphalab_data_validate: { zh: "校验数据质量", en: "Validate data quality" },
+  alphalab_data_query: { zh: "查询运行时数据", en: "Query runtime data" },
 }
 
 function ToolActivityList({

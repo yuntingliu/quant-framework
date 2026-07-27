@@ -52,7 +52,7 @@ def test_strategy_repository_preserves_builtins_and_manages_local_yaml(tmp_path)
 
 
 def test_robustness_report_uses_benchmark_costs_and_weight_gates() -> None:
-    dates = pd.date_range("2021-01-31", periods=60, freq="ME")
+    dates = pd.date_range("2021-01-31", periods=60, freq=pd.offsets.MonthEnd())
     strategy = pd.Series(
         np.tile([0.025, 0.005, 0.020, -0.005, 0.015], 12),
         index=dates,
@@ -115,7 +115,11 @@ def test_runtime_factor_builder_uses_prior_month_characteristics() -> None:
     )
     risk_free = pd.DataFrame(
         {
-            "date": pd.date_range("2023-01-31", "2025-03-31", freq="ME"),
+            "date": pd.date_range(
+                "2023-01-31",
+                "2025-03-31",
+                freq=pd.offsets.MonthEnd(),
+            ),
             "rf": 0.001,
         }
     )

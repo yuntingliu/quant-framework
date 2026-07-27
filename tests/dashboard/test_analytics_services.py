@@ -17,7 +17,7 @@ def factor_frame() -> pd.DataFrame:
             "SMB": [0.02, 0.01, -0.01, 0.03],
             "HML": [-0.02, 0.00, 0.01, 0.02],
         },
-        index=pd.date_range("2023-01-31", periods=4, freq="ME"),
+        index=pd.date_range("2023-01-31", periods=4, freq=pd.offsets.MonthEnd()),
     )
 
 

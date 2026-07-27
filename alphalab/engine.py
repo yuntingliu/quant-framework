@@ -187,7 +187,7 @@ def run_backtest(
     if cfg.portfolio.rebalance_freq == "weekly":
         prices = close.resample("W-FRI").last().dropna(how="all")
     else:
-        prices = close.resample("ME").last().dropna(how="all")
+        prices = close.resample(pd.offsets.MonthEnd()).last().dropna(how="all")
     period_returns = prices.pct_change(fill_method=None).shift(-1)
     signal_dates = [date for date in prices.index if pd.Timestamp(start_date) <= date <= pd.Timestamp(end_date)]
 

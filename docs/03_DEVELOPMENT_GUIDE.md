@@ -77,9 +77,13 @@ from alphalab import create_runtime_engine
 engine = create_runtime_engine()
 ```
 
-The typed registry in `alphalab.tools` is the only agent-facing data surface.
-Tools return bounded rows, counts, statuses, and references rather than large
-serialized DataFrames. The LLM planner remains deliberately unconfigured.
+The typed registry in `alphalab.tools` is the canonical agent-facing data
+surface. The `/api/agent/data-tools` bridge describes and invokes that same
+registry; do not duplicate tool behavior in a separate agent adapter. Tools
+return bounded rows, counts, statuses, and references rather than large
+serialized DataFrames. Mutating tools require an explicit `confirm=true` at the
+bridge boundary. The embedded LLM planner remains deliberately unconfigured;
+the optional Conexus Harness supplies external planning.
 
 Dashboard vendor pages should stay present as GUI slots, but they must remain
 mapped to disabled placeholders until a separate adapter/plugin package owns the

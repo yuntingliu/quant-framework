@@ -60,11 +60,14 @@ class ToolRegistry:
             for item in self._tools.values()
         ]
 
-    def invoke(self, name: str, payload: dict[str, Any] | None = None) -> dict | list:
+    def spec(self, name: str) -> ToolSpec:
         try:
-            tool = self._tools[name]
+            return self._tools[name]
         except KeyError as exc:
             raise KeyError(f"Unknown data tool: {name}") from exc
+
+    def invoke(self, name: str, payload: dict[str, Any] | None = None) -> dict | list:
+        tool = self.spec(name)
         validated = tool.input_model.model_validate(payload or {})
         return tool.handler(validated)
 

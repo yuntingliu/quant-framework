@@ -36,7 +36,7 @@ from alphalab import (
 | Path | Owns |
 | --- | --- |
 | `alphalab/dataio/` | Provider protocols, `DataEngine`, runtime catalog/storage, RQ acquisition, sync jobs and quality checks. |
-| `alphalab/tools/` | Typed data tools for future agent orchestration; no LLM planner. |
+| `alphalab/tools/` | Canonical typed data tools shared by CLI/API and optional external agent orchestration; no embedded LLM planner. |
 | `alphalab/factors/` | Generic technical/fundamental factor registry and formulas. |
 | `alphalab/strategy/` | YAML schema, validation, immutable templates and ignored local copies. |
 | `alphalab/strategies/` | Generic built-in templates only. |
@@ -89,7 +89,10 @@ The barebone backend exposes:
 - `/api/data/manifest`
 - `/api/data/market/symbols`
 - `/api/data/market/bars`
+- `/api/data/fundamentals`
 - `/api/data/factors/returns`
+- `/api/agent/data-tools`
+- `/api/agent/data-tools/{tool_name}/invoke`
 - `/api/data-sync/health`
 - `/api/data-sync/catalog`
 - `/api/data-sync/plan`
@@ -122,8 +125,11 @@ large widget catalog. Default layouts contain only real-data panels backed by
 the routes above. Widgets requiring a concrete vendor or live broker remain
 registered to `AdapterDisabledWidget` as optional extension slots.
 
-Research orchestration is deterministic and uses the existing framework
-services. It stops after paper risk preview. The LLM planner remains
-`not_configured`, and paper execution requires a separate explicit
-confirmation request. The optional Conexus panel is an external extension:
-missing Conexus state never changes the deterministic workflow or data profile.
+Research orchestration in the framework core is deterministic and uses the
+existing services. It stops after paper risk preview. The embedded LLM planner
+remains `not_configured`, and paper execution requires a separate explicit
+confirmation request. The optional Conexus Harness is the external planner: it
+can discover and invoke the canonical typed data registry, combine market,
+point-in-time fundamental, factor, strategy, and backtest data, and return
+bounded reports, tables, charts, and workspace commands. Missing Conexus state
+never changes the deterministic workflow or data profile.

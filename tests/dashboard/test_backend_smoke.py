@@ -60,6 +60,57 @@ def test_real_data_endpoints():
     assert client.get("/api/data/market/symbols?profile=unknown").status_code == 422
 
 
+def test_fundamentals_endpoint_is_bounded_and_point_in_time():
+    client = TestClient(app)
+    response = client.get(
+        "/api/data/fundamentals",
+        params=[
+            ("symbols", "000002.SZ"),
+            ("fields", "ep"),
+            ("fields", "roe"),
+            ("start_quarter", "2025q1"),
+            ("end_quarter", "2026q2"),
+            ("asof_date", "2026-07-10"),
+            ("limit", "20"),
+        ],
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["profile"] == "demo"
+    assert payload["fields"] == ["ep", "roe"]
+    assert payload["returned_rows"] <= 20
+    assert all(row["available_date"] <= "2026-07-10" for row in payload["rows"])
+
+
+def test_agent_data_tool_bridge_describes_invokes_and_guards_mutation():
+    client = TestClient(app)
+    described = client.get("/api/agent/data-tools")
+    assert described.status_code == 200
+    payload = described.json()
+    assert payload["count"] == 6
+    assert {tool["name"] for tool in payload["tools"]} == {
+        "data.catalog",
+        "data.status",
+        "data.plan_sync",
+        "data.run_sync",
+        "data.validate",
+        "data.query",
+    }
+
+    status = client.post(
+        "/api/agent/data-tools/data.status/invoke",
+        json={"input": {}},
+    )
+    assert status.status_code == 200
+    assert status.json()["result"]["total"] == 6
+
+    guarded = client.post(
+        "/api/agent/data-tools/data.run_sync/invoke",
+        json={"input": {}, "confirm": False},
+    )
+    assert guarded.status_code == 409
+
+
 def test_market_analytics_endpoints():
     client = TestClient(app)
     endpoints = (

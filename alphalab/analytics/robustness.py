@@ -46,7 +46,7 @@ def equal_weight_benchmark(
     if bars.empty:
         return pd.Series(dtype=float, name="benchmark")
     close = to_wide(bars, "close").sort_index()
-    rule = "W-FRI" if frequency == "weekly" else "ME"
+    rule = "W-FRI" if frequency == "weekly" else pd.offsets.MonthEnd()
     prices = close.resample(rule).last().dropna(how="all")
     future_returns = prices.pct_change(fill_method=None).shift(-1)
     benchmark = future_returns.mean(axis=1, skipna=True)

@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from alphalab.dataio import MissingDataError
 from dashboard.backend.services.framework_service import (
     factor_returns,
+    fundamentals,
     list_provider_status,
     load_manifest,
     market_bars,
@@ -56,6 +57,34 @@ def bars(
         }
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="symbol not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except MissingDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/fundamentals")
+def fundamental_rows(
+    symbols: list[str] = Query(min_length=1, max_length=100),
+    fields: list[str] | None = Query(default=None, max_length=20),
+    start_quarter: str | None = None,
+    end_quarter: str | None = None,
+    asof_date: str | None = None,
+    profile: str = "demo",
+    limit: int = Query(default=100, ge=1, le=1000),
+) -> dict:
+    try:
+        return fundamentals(
+            symbols,
+            fields,
+            start_quarter,
+            end_quarter,
+            asof_date,
+            profile,
+            limit,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except MissingDataError as exc:

@@ -19,7 +19,10 @@ integrations/conexus/alphalab-research-agent/
 ```
 
 It contains the Agent prompt, typed context/result nodes, research document, and
-six AlphaLab API tools. Runtime and publication state remain local and ignored.
+14 AlphaLab API tools. The tool set includes all six canonical data-registry
+operations plus bounded market, point-in-time fundamental, factor, strategy,
+backtest, signal, and workspace-context access. Runtime and publication state
+remain local and ignored.
 After initializing Conexus for this repository, register and publish the bundle:
 
 ```powershell
@@ -27,9 +30,11 @@ node scripts/register_conexus_research_harness.mjs
 node scripts/publish_conexus_research_harness.mjs
 ```
 
-Registration updates only the ignored `.conexus/canvas.json`. Publication
-writes only to ignored Conexus runtime state. The source bundle remains
-deterministic and reviewable in Git.
+Registration updates only the ignored `.conexus/canvas.json` and stages an
+exact generated copy below ignored `workspace/harnesses/`, which is the backing
+path required by the Conexus publisher. Publication writes only to ignored
+Conexus runtime state. The canonical source bundle remains deterministic and
+reviewable in Git.
 
 ## Run locally
 
@@ -62,8 +67,10 @@ that port before launching AlphaLab, or set `ALPHALAB_API_ORIGIN` for the
 Conexus process.
 
 The Research Harness cannot start/stop services, modify source code, execute an
-arbitrary shell, or place real orders. Those remain administrator-only tasks in
-Conexus.
+arbitrary shell, or place real orders. Data synchronization, backtest
+execution, and paper-signal generation are separate typed tools and require an
+explicit user request; synchronization also requires `confirm=true`. Those
+guardrails are not workspace commands.
 
 ## Workstation interaction
 
@@ -87,7 +94,7 @@ structured decision notebook is reflected back into the right rail.
 The Harness publishes `workspaceDocument` from the
 `alphalab-research-document-v1` Document node. `workspaceResult`, backed by the
 `alphalab-workspace-result-v1` Custom node, is the request-bound descriptor and
-may include an interactive table attachment. An `open_result` command is
+may include interactive table and chart attachments. An `open_result` command is
 accepted only when its `resultId` matches the descriptor and current browser
 request.
 
@@ -96,8 +103,11 @@ middle workspace. The primary view renders Markdown, GitHub tables, images, and
 sanitized static HTML. Scripts, iframes, forms, event handlers, JavaScript URLs,
 and other executable markup are rejected. When the descriptor also contains
 columns and rows, the panel adds a sortable/filterable data-table view and CSV
-export. Table attachments are limited to 30 columns and 1,000 rows; document
-and descriptor payloads are bounded before storage and rendering.
+export. Native line, bar, area, scatter, and pie charts render from validated
+series descriptors and bounded row data. Table attachments are limited to 30
+columns and 1,000 rows; chart attachments are limited to 6 charts, 12 series
+per chart, and 500 rows per chart. Document and descriptor payloads are bounded
+before storage and rendering.
 
 The Agent submits `decisionNotebook`, `workspaceDocument`, `workspaceResult`,
 and `workspaceCommands` through one `commit_harness_outputs` call. The Hosted
@@ -122,12 +132,13 @@ depth, total Agent invocation, or default Harness deadline. It ends on
 `complete` or explicit cancellation; provider context windows, concurrency, and
 request-rate limits remain operational service boundaries.
 
-Supported frontend-only actions are mode switching, opening or closing a known
-widget, changing the selected symbol/strategy/backtest/date, setting a linked
-symbol group, showing the right rail, refreshing dashboard data, and saving or
-resetting a layout. These commands cannot run a backtest, generate a signal, or
-place an order; those actions remain separate Harness tools with their existing
-explicit-user-request policy.
+Supported frontend-only actions are mode switching, opening or closing an
+active registered widget, changing the selected symbol/strategy/backtest/date,
+setting a linked symbol group, showing the right rail, refreshing dashboard
+data, and saving or resetting a layout. Disabled adapter placeholders cannot
+be opened by the Agent. These commands cannot synchronize data, run a
+backtest, generate a signal, or place an order; those actions remain separate
+Harness tools with their existing explicit-user-request policy.
 
 ## Optional cloud deployment
 

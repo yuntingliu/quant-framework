@@ -12,6 +12,28 @@ export interface ResearchResultTable {
   rows: Array<Record<string, ResearchResultCell>>
 }
 
+export type ResearchResultChartType = "line" | "bar" | "area" | "scatter" | "pie"
+export type ResearchResultChartFormat = "number" | "percent"
+
+export interface ResearchResultChartSeries {
+  key: string
+  label: string
+  format: ResearchResultChartFormat
+  color?: string
+}
+
+export interface ResearchResultChart {
+  id: string
+  type: ResearchResultChartType
+  title: string
+  description?: string
+  xKey: string
+  xLabel?: string
+  yLabel?: string
+  series: ResearchResultChartSeries[]
+  rows: Array<Record<string, ResearchResultCell>>
+}
+
 export interface AgentResearchResult {
   id: string
   version: 1
@@ -21,6 +43,7 @@ export interface AgentResearchResult {
   description?: string
   markdown: string
   table?: ResearchResultTable
+  charts?: ResearchResultChart[]
   sources: string[]
   generatedAt?: string
   runId?: string
@@ -36,8 +59,13 @@ interface ResearchResultMetadata {
 }
 
 const FORMATS = new Set<ResearchResultFormat>(["text", "number", "percent", "date", "datetime"])
+const CHART_TYPES = new Set<ResearchResultChartType>(["line", "bar", "area", "scatter", "pie"])
+const CHART_FORMATS = new Set<ResearchResultChartFormat>(["number", "percent"])
 const MAX_COLUMNS = 30
 const MAX_ROWS = 1_000
+const MAX_CHARTS = 6
+const MAX_CHART_SERIES = 12
+const MAX_CHART_ROWS = 500
 const MAX_SOURCES = 20
 const MAX_DESCRIPTOR_LENGTH = 600_000
 const MAX_MARKDOWN_LENGTH = 500_000
@@ -93,6 +121,105 @@ function parseTable(value: Record<string, unknown>): ResearchResultTable | null 
   return { columns, rows }
 }
 
+function safeKey(value: unknown): string | undefined {
+  const key = text(value, 80)
+  return key && key !== "__proto__" && key !== "constructor" && key !== "prototype"
+    ? key
+    : undefined
+}
+
+function parseCharts(value: Record<string, unknown>): ResearchResultChart[] | null | undefined {
+  if (value.charts === undefined) return undefined
+  if (!Array.isArray(value.charts) || value.charts.length === 0 || value.charts.length > MAX_CHARTS) return null
+
+  const charts: ResearchResultChart[] = []
+  const chartIds = new Set<string>()
+  for (const rawChart of value.charts) {
+    if (!isRecord(rawChart)) return null
+    const id = safeKey(rawChart.id)
+    const title = text(rawChart.title, 200)
+    const type = typeof rawChart.type === "string" && CHART_TYPES.has(rawChart.type as ResearchResultChartType)
+      ? rawChart.type as ResearchResultChartType
+      : undefined
+    const xKey = safeKey(rawChart.xKey)
+    if (!id || chartIds.has(id) || !title || !type || !xKey) return null
+    chartIds.add(id)
+
+    const description = rawChart.description === undefined ? undefined : text(rawChart.description, 1_000)
+    const xLabel = rawChart.xLabel === undefined ? undefined : text(rawChart.xLabel, 120)
+    const yLabel = rawChart.yLabel === undefined ? undefined : text(rawChart.yLabel, 120)
+    if (
+      (rawChart.description !== undefined && !description)
+      || (rawChart.xLabel !== undefined && !xLabel)
+      || (rawChart.yLabel !== undefined && !yLabel)
+      || !Array.isArray(rawChart.series)
+      || rawChart.series.length === 0
+      || rawChart.series.length > MAX_CHART_SERIES
+      || !Array.isArray(rawChart.rows)
+      || rawChart.rows.length === 0
+      || rawChart.rows.length > MAX_CHART_ROWS
+    ) return null
+
+    const series: ResearchResultChartSeries[] = []
+    const seriesKeys = new Set<string>()
+    for (const rawSeries of rawChart.series) {
+      if (!isRecord(rawSeries)) return null
+      const key = safeKey(rawSeries.key)
+      const label = text(rawSeries.label, 120)
+      const format = rawSeries.format === undefined ? "number" : rawSeries.format
+      const color = rawSeries.color === undefined ? undefined : text(rawSeries.color, 7)
+      if (
+        !key
+        || key === xKey
+        || seriesKeys.has(key)
+        || !label
+        || typeof format !== "string"
+        || !CHART_FORMATS.has(format as ResearchResultChartFormat)
+        || (color !== undefined && !/^#[0-9a-f]{6}$/i.test(color))
+      ) return null
+      seriesKeys.add(key)
+      series.push({
+        key,
+        label,
+        format: format as ResearchResultChartFormat,
+        ...(color ? { color } : {}),
+      })
+    }
+    if (type === "pie" && series.length !== 1) return null
+
+    const rows: Array<Record<string, ResearchResultCell>> = []
+    for (const rawRow of rawChart.rows) {
+      if (!isRecord(rawRow)) return null
+      const xValue = cell(rawRow[xKey])
+      if (
+        xValue === undefined
+        || xValue === null
+        || typeof xValue === "boolean"
+        || (type === "scatter" && typeof xValue !== "number")
+      ) return null
+      const row: Record<string, ResearchResultCell> = { [xKey]: xValue }
+      for (const item of series) {
+        const parsed = cell(rawRow[item.key])
+        if (parsed === undefined || (parsed !== null && typeof parsed !== "number")) return null
+        row[item.key] = parsed
+      }
+      rows.push(row)
+    }
+    charts.push({
+      id,
+      type,
+      title,
+      ...(description ? { description } : {}),
+      xKey,
+      ...(xLabel ? { xLabel } : {}),
+      ...(yLabel ? { yLabel } : {}),
+      series,
+      rows,
+    })
+  }
+  return charts
+}
+
 function markdownTableCell(value: ResearchResultCell, column: ResearchResultColumn): string {
   if (value === null) return "--"
   const displayed = column.format === "percent" && typeof value === "number"
@@ -121,6 +248,21 @@ function tableFallbackMarkdown(
   return lines.join("\n")
 }
 
+function chartFallbackMarkdown(
+  title: string,
+  description: string | undefined,
+  charts: ResearchResultChart[],
+): string {
+  return [
+    `# ${title}`,
+    ...(description ? ["", description] : []),
+    "",
+    `该结果包含 ${charts.length} 个交互图表，请切换到“图表”视图查看。`,
+    "",
+    ...charts.flatMap((chart) => [`- ${chart.title}`, ...(chart.description ? [`  ${chart.description}`] : [])]),
+  ].join("\n")
+}
+
 export function parseAgentResearchResult(
   value: unknown,
   metadata: ResearchResultMetadata = {},
@@ -133,10 +275,16 @@ export function parseAgentResearchResult(
 
   const table = parseTable(value)
   if (table === null) return null
+  const charts = parseCharts(value)
+  if (charts === null) return null
   const description = value.description === undefined ? undefined : text(value.description, 2_000)
   if (value.description !== undefined && description === undefined) return null
   const markdown = text(metadata.markdown ?? value.markdown, MAX_MARKDOWN_LENGTH)
-    ?? (table ? tableFallbackMarkdown(title, description, table) : undefined)
+    ?? (table
+      ? tableFallbackMarkdown(title, description, table)
+      : charts
+        ? chartFallbackMarkdown(title, description, charts)
+        : undefined)
   if (!markdown) return null
   if (value.sources !== undefined && (!Array.isArray(value.sources) || value.sources.length > MAX_SOURCES)) return null
   const sources = (value.sources ?? []).map((source) => text(source, 500))
@@ -154,6 +302,7 @@ export function parseAgentResearchResult(
     ...(description ? { description } : {}),
     markdown,
     ...(table ? { table } : {}),
+    ...(charts ? { charts } : {}),
     sources: sources as string[],
     ...(generatedAt ? { generatedAt } : {}),
     ...(metadata.runId ? { runId: metadata.runId } : {}),

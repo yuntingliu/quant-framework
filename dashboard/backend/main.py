@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from dashboard.backend.config import LOADED_ENV_FILES
 from dashboard.backend.routers import (
+    agent_tools,
     backtests,
     compat,
     conexus,
@@ -43,6 +44,7 @@ app.add_middleware(
 )
 
 app.include_router(data.router)
+app.include_router(agent_tools.router)
 app.include_router(data_sync.router)
 app.include_router(market.router)
 app.include_router(strategies.router)

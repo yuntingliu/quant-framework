@@ -1,12 +1,14 @@
 {
-  "summary": "面向 AlphaLab 工作台的可发布研究 Agent。通过稳定 FastAPI 契约读取数据、策略与回测，并在用户明确要求时运行回测或生成纸面信号。",
+  "summary": "面向 AlphaLab 工作台的可发布研究 Agent。通过完整 typed data tools 与稳定 FastAPI 契约组合数据、策略和回测，并生成报告、表格、图表与工作台操作。",
   "entryNodeId": "alphalab-research-agent-v1",
   "template": {
     "name": "AlphaLab Research Agent",
     "summary": "Published conversational research Agent for the AlphaLab workstation.",
-    "description": "读取 AlphaLab 工作区上下文和浏览器本地对话历史，分析策略与风险，运行用户确认的回测/纸面信号，并产出可持久化的研究报告与结构化决策笔记。",
+    "description": "读取 AlphaLab 全部 typed data tools、市场/基本面/因子数据和工作区上下文，分析策略与风险，运行用户确认的数据同步、回测或纸面信号，并产出可持久化的研究报告、表格、图表与结构化决策笔记。",
     "whenToUse": [
       "用户需要解释当前 AlphaLab 数据、策略、回测或纸面信号",
+      "用户需要查询、校验或明确同步 AlphaLab runtime 数据",
+      "用户需要生成可交互的研究表格或图表",
       "用户明确要求运行回测或生成纸面信号",
       "工作台需要保存在本机浏览器中的多轮量化研究会话"
     ],
@@ -19,7 +21,7 @@
       "id": "alphalab.research-agent.v1",
       "name": "AlphaLab Research Agent",
       "summary": "Conversation-driven AlphaLab research workflow.",
-      "description": "Uses AlphaLab FastAPI tools and emits a durable research document plus structured decision data.",
+      "description": "Uses the complete AlphaLab typed data-tool surface and research APIs, then emits durable documents, tables, charts, decision data, and validated workspace commands.",
       "version": 1,
       "entrypoint": "alphalab-research-agent-v1",
       "inputs": [
@@ -71,7 +73,7 @@
         {
           "key": "workspaceResult",
           "label": "Workspace result",
-          "description": "Request-bound descriptor and optional interactive table attachment for the research document.",
+          "description": "Request-bound descriptor with optional interactive table and chart attachments for the research document.",
           "type": "json",
           "nodeId": "alphalab-workspace-result-v1",
           "port": "data"
@@ -93,8 +95,8 @@
         { "kind": "model", "name": "openrouter" },
         { "kind": "runtime", "name": "conexus.runtime.v1" }
       ],
-      "capabilities": ["quant-research", "backtest", "paper-signal", "decision-notebook", "workspace-control", "research-document", "research-table"],
-      "triggers": ["research", "backtest", "strategy risk", "paper signal"],
+      "capabilities": ["quant-research", "data-operations", "market-data", "fundamentals", "factor-returns", "backtest", "paper-signal", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
+      "triggers": ["research", "data status", "data sync", "fundamentals", "factor returns", "backtest", "strategy risk", "paper signal", "report", "chart"],
       "tags": ["alphalab", "quant", "published-agent"]
     },
     "schemas": {
@@ -182,6 +184,53 @@
                         "type": ["string", "number", "boolean", "null"]
                       }
                     }
+                  },
+                  "charts": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 6,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["id", "type", "title", "xKey", "series", "rows"],
+                      "properties": {
+                        "id": { "type": "string", "minLength": 1, "maxLength": 80 },
+                        "type": { "type": "string", "enum": ["line", "bar", "area", "scatter", "pie"] },
+                        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+                        "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
+                        "xKey": { "type": "string", "minLength": 1, "maxLength": 80 },
+                        "xLabel": { "type": "string", "minLength": 1, "maxLength": 120 },
+                        "yLabel": { "type": "string", "minLength": 1, "maxLength": 120 },
+                        "series": {
+                          "type": "array",
+                          "minItems": 1,
+                          "maxItems": 12,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["key", "label"],
+                            "properties": {
+                              "key": { "type": "string", "minLength": 1, "maxLength": 80 },
+                              "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+                              "format": { "type": "string", "enum": ["number", "percent"] },
+                              "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" }
+                            }
+                          }
+                        },
+                        "rows": {
+                          "type": "array",
+                          "minItems": 1,
+                          "maxItems": 500,
+                          "items": {
+                            "type": "object",
+                            "maxProperties": 13,
+                            "additionalProperties": {
+                              "type": ["string", "number", "boolean", "null"]
+                            }
+                          }
+                        }
+                      }
+                    }
                   }
                 },
                 "dependentRequired": { "columns": ["rows"], "rows": ["columns"] }
@@ -237,6 +286,8 @@
         "The decisionNotebook output is updated before completion.",
         "A requested rich result is written to workspaceDocument and opened through a request-bound workspaceResult descriptor.",
         "Interactive table data is included in workspaceResult only when sorting, filtering, or CSV export is useful.",
+        "Structured charts are included only when they materially improve interpretation and every plotted series is grounded in current tool results.",
+        "Mutating data synchronization, backtests, and paper signals are called only after an explicit user request.",
         "The workspaceCommands output carries the current requestId and only declared frontend commands."
       ]
     }

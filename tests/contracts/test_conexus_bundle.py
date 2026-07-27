@@ -17,7 +17,7 @@ def _load(path: Path) -> dict:
 
 def test_conexus_bundle_is_complete_and_contains_no_private_state():
     json_files = sorted(BUNDLE.rglob("*.json"))
-    assert len(json_files) == 12
+    assert len(json_files) == 20
 
     forbidden = re.compile(
         r"(?:[A-Za-z]:\\Users\\|/Users/|PRIVATE KEY|RQ_PASSWORD=|"
@@ -42,6 +42,14 @@ def test_conexus_bundle_is_complete_and_contains_no_private_state():
 def test_conexus_tools_match_barebone_profiles_and_guardrails():
     tools = {_load(path)["toolName"]: _load(path) for path in sorted(TOOLS.glob("*.json"))}
     assert set(tools) == {
+        "alphalab_data_catalog",
+        "alphalab_data_plan_sync",
+        "alphalab_data_query",
+        "alphalab_data_run_sync",
+        "alphalab_data_status",
+        "alphalab_data_validate",
+        "alphalab_get_factor_returns",
+        "alphalab_get_fundamentals",
         "alphalab_get_workspace_context",
         "alphalab_get_strategy",
         "alphalab_get_market_bars",
@@ -53,6 +61,8 @@ def test_conexus_tools_match_barebone_profiles_and_guardrails():
     profile_tools = {
         "alphalab_get_workspace_context",
         "alphalab_get_market_bars",
+        "alphalab_get_fundamentals",
+        "alphalab_get_factor_returns",
         "alphalab_run_backtest",
         "alphalab_generate_signal",
     }
@@ -69,13 +79,41 @@ def test_conexus_tools_match_barebone_profiles_and_guardrails():
             }
             assert "profile" in tool["code"]
 
-    assert tools["alphalab_run_backtest"]["sideEffects"] == "write"
-    assert tools["alphalab_generate_signal"]["sideEffects"] == "write"
+    write_tools = {
+        "alphalab_data_run_sync",
+        "alphalab_run_backtest",
+        "alphalab_generate_signal",
+    }
+    assert all(tools[name]["sideEffects"] == "write" for name in write_tools)
     assert all(
         tool["sideEffects"] == "read"
         for name, tool in tools.items()
-        if name not in {"alphalab_run_backtest", "alphalab_generate_signal"}
+        if name not in write_tools
     )
+
+    agent = _load(BUNDLE / "agents" / "AlphaLab-Research-Agent.agent.json")
+    assert set(tools).issubset(agent["toolNames"])
+    assert tools["alphalab_data_run_sync"]["inputSchema"]["properties"]["confirm"] == {
+        "const": True
+    }
+
+
+def test_conexus_result_schema_supports_bounded_structured_charts():
+    harness = _load(BUNDLE / "harness.json")
+    descriptor = harness["template"]["schemas"]["output"]["properties"]["workspaceResult"]
+    document = descriptor["oneOf"][1]
+    charts = document["properties"]["charts"]
+    assert charts["maxItems"] == 6
+    chart = charts["items"]
+    assert chart["properties"]["type"]["enum"] == [
+        "line",
+        "bar",
+        "area",
+        "scatter",
+        "pie",
+    ]
+    assert chart["properties"]["series"]["maxItems"] == 12
+    assert chart["properties"]["rows"]["maxItems"] == 500
 
 
 def test_conexus_registration_keeps_runtime_and_rq_environment_separate():
@@ -86,5 +124,6 @@ def test_conexus_registration_keeps_runtime_and_rq_environment_separate():
 
     assert "integrations/conexus/alphalab-research-agent" in register
     assert ".conexus" in register
-    assert "workspace/harnesses" not in register
+    assert "workspace/harnesses/AlphaLab-Research-Agent-v1" in register
+    assert "await cp(sourceBundlePath, stagedBundleAbsolutePath" in register
     assert "Join-Path $ProjectRoot '.env'" not in start

@@ -57,7 +57,11 @@ sync. Jobs left queued or running during a restart become `interrupted`.
 
 The typed tool registry exposes `data.catalog`, `data.status`,
 `data.plan_sync`, `data.run_sync`, `data.validate`, and `data.query`. The query
-tool is bounded to 1,000 rows. No LLM provider or autonomous planner is enabled.
+tool is bounded to 1,000 rows. The same registry is discoverable and invokable
+through `/api/agent/data-tools`; `data.run_sync` additionally requires
+`confirm=true` at that bridge. No embedded LLM provider or autonomous planner
+is enabled. The optional Conexus Harness can use this bridge as its typed data
+surface.
 
 ## Failure Semantics
 

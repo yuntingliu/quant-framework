@@ -19,8 +19,11 @@ from alphalab import (
 from alphalab.analytics import PerformanceMetrics, equal_weight_benchmark
 from alphalab.dataio import DataEngine, MissingDataError
 from alphalab.dataio.catalog import DataCatalog
+from alphalab.dataio.fundamentals import CANONICAL_FIELDS
 from alphalab.strategy import StrategyRepository
 from alphalab.utils.paths import APP_DATA_DIR, DATA_DIR, FACTOR_DIR, FUNDAMENTAL_DIR, MARKET_DIR
+
+FUNDAMENTAL_FIELDS = ("shares", "market_cap", *CANONICAL_FIELDS)
 
 
 def _hash_file(path: Path) -> str:
@@ -155,6 +158,65 @@ def market_bars(
     return frame.to_dict("records")
 
 
+def fundamentals(
+    symbols: list[str],
+    fields: list[str] | None = None,
+    start_quarter: str | None = None,
+    end_quarter: str | None = None,
+    asof_date: str | None = None,
+    profile: str = "demo",
+    limit: int = 100,
+) -> dict:
+    engine = _engine(profile)
+    normalized_symbols = list(
+        dict.fromkeys(str(symbol).strip().upper() for symbol in symbols if str(symbol).strip())
+    )
+    if not normalized_symbols:
+        raise ValueError("at least one symbol is required")
+    unknown_symbols = sorted(set(normalized_symbols) - set(engine.get_symbols()))
+    if unknown_symbols:
+        raise KeyError(f"Unknown symbols: {unknown_symbols}")
+
+    requested_fields = list(dict.fromkeys(fields or FUNDAMENTAL_FIELDS))
+    unknown_fields = sorted(set(requested_fields) - set(FUNDAMENTAL_FIELDS))
+    if unknown_fields:
+        raise KeyError(f"Unknown fundamental fields: {unknown_fields}")
+
+    profile_start, profile_end = _profile_range(profile)
+    start_quarter = (start_quarter or _quarter_label(profile_start)).lower()
+    end_quarter = (end_quarter or _quarter_label(profile_end)).lower()
+    if start_quarter > end_quarter:
+        raise ValueError("start_quarter must be on or before end_quarter")
+    effective_asof = asof_date or profile_end
+    frame = engine.get_fundamentals(
+        normalized_symbols,
+        requested_fields,
+        start_quarter,
+        end_quarter,
+        asof_date=effective_asof,
+        strict=True,
+        use_cache=False,
+    )
+    preview = frame.head(limit).copy()
+    if "available_date" in preview:
+        preview["available_date"] = pd.to_datetime(
+            preview["available_date"],
+            errors="coerce",
+        ).dt.strftime("%Y-%m-%d")
+    return {
+        "profile": profile,
+        "symbols": normalized_symbols,
+        "fields": requested_fields,
+        "start_quarter": start_quarter,
+        "end_quarter": end_quarter,
+        "asof_date": effective_asof,
+        "matched_rows": len(frame),
+        "returned_rows": len(preview),
+        "truncated": len(frame) > len(preview),
+        "rows": preview.where(pd.notna(preview), None).to_dict("records"),
+    }
+
+
 def factor_returns(
     names: list[str] | None = None,
     start: str | None = None,
@@ -190,6 +252,11 @@ def factor_returns(
     )
     values["date"] = pd.to_datetime(values["date"]).dt.strftime("%Y-%m-%d")
     return {"names": requested, "rows": values.to_dict("records")}
+
+
+def _quarter_label(value: str) -> str:
+    timestamp = pd.Timestamp(value)
+    return f"{timestamp.year}q{timestamp.quarter}"
 
 
 def list_strategy_templates() -> list[dict]:

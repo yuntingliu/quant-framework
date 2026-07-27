@@ -18,7 +18,7 @@ import {
 import "dockview/dist/styles/dockview.css"
 import { toast } from "sonner"
 
-import { widgetComponents, widgetTitleById } from "@/widgets/registry"
+import { isActiveWidgetId, widgetComponents, widgetTitleById } from "@/widgets/registry"
 import { StatusBar } from "@/widgets/StatusBar"
 import { LaunchSyncBanner } from "@/widgets/home/LaunchSyncBanner"
 import { layoutPresets, LAYOUT_VERSION, normalizeWorkspaceMode, type WorkspaceMode } from "@/layouts/presets"
@@ -525,8 +525,8 @@ function WorkspaceInner() {
         switchMode(command.mode)
         return { type: command.type, success: true, message: `已切换到 ${command.mode} 板块` }
       case "open_widget": {
-        if (!widgetComponents[command.widgetId]) {
-          return { type: command.type, success: false, message: `未知看板组件：${command.widgetId}` }
+        if (!widgetComponents[command.widgetId] || !isActiveWidgetId(command.widgetId)) {
+          return { type: command.type, success: false, message: `不可用的看板组件：${command.widgetId}` }
         }
         const openedPanel = await openWidget(command.widgetId, command.title, command.mode)
         const targetMode = command.mode ?? activeModeRef.current

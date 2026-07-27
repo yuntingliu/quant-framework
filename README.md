@@ -23,6 +23,9 @@ orders without configuring a vendor connection.
 - An RQ-only runtime data control plane with partitioned parquet storage,
   PIT fundamentals, factor returns, quality checks, job records, CLI commands,
   APIs, and typed data tools.
+- An optional Conexus Research Agent Harness that can combine the full typed
+  data surface into reports, sortable tables, native charts, and active
+  workstation components while preserving explicit mutation guardrails.
 - Same-universe benchmarks, cost sensitivity, rolling checks, and explicit
   `research_candidate/watch/weak/invalid` research gates.
 - A deterministic data-to-paper research workflow with local cash, positions,
@@ -141,6 +144,11 @@ all deterministic Demo/DataIO/backtest/paper workflows remain available. See
 The sanitized, reviewable Harness source is included under
 [`integrations/conexus/alphalab-research-agent`](integrations/conexus/alphalab-research-agent);
 generated Canvas, publication, conversation, and run state remain ignored.
+The published Harness uses 14 typed AlphaLab tools, including all six canonical
+data operations, and can produce Markdown reports, bounded data tables, line,
+bar, area, scatter, and pie charts, plus request-bound commands for active
+Dockview widgets. Data sync, backtest execution, and signal generation remain
+explicitly requested operations; it has no real-order or arbitrary-shell tool.
 
 Open [http://localhost:5173](http://localhost:5173). API docs are available at
 [http://localhost:8000/docs](http://localhost:8000/docs).

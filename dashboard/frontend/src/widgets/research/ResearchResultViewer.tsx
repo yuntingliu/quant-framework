@@ -3,6 +3,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  ChartSpline,
   Database,
   Download,
   FileSpreadsheet,
@@ -20,6 +21,7 @@ import {
   type ResearchResultCell,
   type ResearchResultColumn,
 } from "@/workspace/researchResults"
+import { ResearchResultCharts } from "./ResearchResultCharts"
 
 interface SortState {
   key: string
@@ -59,7 +61,7 @@ export function ResearchResultViewerWidget() {
   const { researchResults } = useAgentPrompt()
   const requestedId = typeof panel?.params.resultId === "string" ? panel.params.resultId : undefined
   const result = researchResults.find((item) => item.id === requestedId) ?? (!requestedId ? researchResults[0] : undefined)
-  const [activeView, setActiveView] = useState<"document" | "table">("document")
+  const [activeView, setActiveView] = useState<"document" | "table" | "charts">("document")
   const [query, setQuery] = useState("")
   const [sort, setSort] = useState<SortState | null>(null)
 
@@ -68,6 +70,7 @@ export function ResearchResultViewerWidget() {
     emptyDetail: "让 Agent 生成研究报告并打开到工作区后，结果会显示在这里。",
     document: "研究报告",
     table: "数据表",
+    charts: "图表",
     search: "筛选当前表格…",
     export: "导出 CSV",
     rows: "行",
@@ -79,6 +82,7 @@ export function ResearchResultViewerWidget() {
     emptyDetail: "Ask the Agent to create a research report and open it in the workspace.",
     document: "Research report",
     table: "Data table",
+    charts: "Charts",
     search: "Filter this table…",
     export: "Export CSV",
     rows: "rows",
@@ -88,6 +92,7 @@ export function ResearchResultViewerWidget() {
   }
 
   const table = result?.table
+  const charts = result?.charts
   const visibleRows = useMemo(() => {
     if (!table) return []
     const normalized = query.trim().toLocaleLowerCase()
@@ -155,6 +160,7 @@ export function ResearchResultViewerWidget() {
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
           {table ? <span className="rounded bg-muted px-2 py-1 font-mono">{table.rows.length} {copy.rows}</span> : null}
+          {charts ? <span className="rounded bg-muted px-2 py-1 font-mono">{charts.length} {copy.charts}</span> : null}
           {result.generatedAt || result.updatedAt ? (
             <span>{copy.generated}: {new Date(result.generatedAt ?? result.updatedAt ?? "").toLocaleString()}</span>
           ) : null}
@@ -167,7 +173,7 @@ export function ResearchResultViewerWidget() {
         </div>
       </div>
 
-      {table ? (
+      {table || charts ? (
         <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-2">
           <button
             type="button"
@@ -177,22 +183,38 @@ export function ResearchResultViewerWidget() {
             <FileText className="h-3.5 w-3.5" />
             {copy.document}
           </button>
-          <button
-            type="button"
-            className={cn("flex h-7 items-center gap-1.5 rounded px-2 text-xs", activeView === "table" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")}
-            onClick={() => setActiveView("table")}
-          >
-            <FileSpreadsheet className="h-3.5 w-3.5" />
-            {copy.table}
-          </button>
+          {table ? (
+            <button
+              type="button"
+              className={cn("flex h-7 items-center gap-1.5 rounded px-2 text-xs", activeView === "table" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")}
+              onClick={() => setActiveView("table")}
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5" />
+              {copy.table}
+            </button>
+          ) : null}
+          {charts ? (
+            <button
+              type="button"
+              className={cn("flex h-7 items-center gap-1.5 rounded px-2 text-xs", activeView === "charts" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")}
+              onClick={() => setActiveView("charts")}
+            >
+              <ChartSpline className="h-3.5 w-3.5" />
+              {copy.charts}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
-      {activeView === "document" || !table ? (
+      {activeView === "document" || (activeView === "table" && !table) || (activeView === "charts" && !charts) ? (
         <div className="min-h-0 flex-1 overflow-auto p-5">
           <SafeMarkdown className="mx-auto max-w-5xl">{result.markdown}</SafeMarkdown>
         </div>
-      ) : (
+      ) : activeView === "charts" && charts ? (
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          <ResearchResultCharts charts={charts} />
+        </div>
+      ) : table ? (
         <>
           <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
             <div className="relative min-w-0 flex-1">
@@ -245,7 +267,7 @@ export function ResearchResultViewerWidget() {
             </table>
           </div>
         </>
-      )}
+      ) : null}
     </div>
   )
 }

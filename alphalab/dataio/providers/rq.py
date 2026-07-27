@@ -143,7 +143,7 @@ class RQDataProvider:
 
         out = _normalize_bars(raw, requested)
         if freq in _MONTHLY_FREQUENCIES and not out.empty:
-            out = _resample_bars(out, "ME")
+            out = _resample_bars(out, pd.offsets.MonthEnd())
         return out
 
     def get_symbols(self, universe: str = "all") -> list[str]:
@@ -299,7 +299,7 @@ def _normalize_fundamentals(
     return out.dropna(subset=["quarter", "symbol"]).reset_index(drop=True)
 
 
-def _resample_bars(frame: pd.DataFrame, rule: str) -> pd.DataFrame:
+def _resample_bars(frame: pd.DataFrame, rule: str | pd.DateOffset) -> pd.DataFrame:
     aggregations = {
         "open": "first",
         "high": "max",

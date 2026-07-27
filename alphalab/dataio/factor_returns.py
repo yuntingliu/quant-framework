@@ -47,8 +47,8 @@ def build_factor_returns(
         values="raw_close",
         aggfunc="last",
     ).sort_index()
-    adjusted_monthly = adjusted.resample("ME").last()
-    raw_monthly = raw.resample("ME").last()
+    adjusted_monthly = adjusted.resample(pd.offsets.MonthEnd()).last()
+    raw_monthly = raw.resample(pd.offsets.MonthEnd()).last()
     monthly_returns = adjusted_monthly.pct_change(fill_method=None)
 
     pit = fundamentals.copy()

@@ -1,0 +1,22 @@
+{
+  "toolName": "alphalab_data_validate",
+  "description": "Run AlphaLab quality validation for one runtime dataset.",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["dataset"],
+    "properties": {
+      "dataset": {
+        "type": "string",
+        "enum": ["rq.instruments", "rq.bars", "rq.financials.income", "rq.financials.balance", "canonical.fundamentals", "runtime.factor_returns"]
+      }
+    }
+  },
+  "outputSchema": { "type": "object" },
+  "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const response = await fetch(apiOrigin() + '/api/agent/data-tools/data.validate/invoke', {\n    method: 'POST',\n    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },\n    body: JSON.stringify({ input }),\n  })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return (await response.json()).result\n}",
+  "timeoutMs": 120000,
+  "permissions": { "network": "alphalab-api" },
+  "sideEffects": "read"
+}

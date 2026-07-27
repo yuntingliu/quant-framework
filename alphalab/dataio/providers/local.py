@@ -71,7 +71,7 @@ class LocalParquetMarketDataProvider:
         if freq in {"1w", "W"} and not out.empty:
             out = self._resample(out, "W")
         elif freq in {"1M", "M", "ME"} and not out.empty:
-            out = self._resample(out, "ME")
+            out = self._resample(out, pd.offsets.MonthEnd())
         return out.sort_values(["date", "symbol"]).reset_index(drop=True)
 
     def get_symbols(self, universe: str = "all") -> list[str]:
@@ -87,7 +87,7 @@ class LocalParquetMarketDataProvider:
         return pd.Timestamp(df["date"].max()).strftime("%Y-%m-%d")
 
     @staticmethod
-    def _resample(df: pd.DataFrame, rule: str) -> pd.DataFrame:
+    def _resample(df: pd.DataFrame, rule: str | pd.DateOffset) -> pd.DataFrame:
         agg = {
             "open": "first",
             "high": "max",
