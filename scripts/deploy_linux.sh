@@ -44,15 +44,18 @@ if [[ ! -d "$RELEASE" ]]; then
   python3 -m venv "$STAGING/.venv"
   "$STAGING/.venv/bin/python" -m pip install --upgrade pip
   "$STAGING/.venv/bin/python" -m pip install -e "${STAGING}[dev,dashboard,rq]"
-  npm --prefix "$STAGING/dashboard/frontend" ci
-  npm --prefix "$STAGING/dashboard/frontend" run lint
-  npm --prefix "$STAGING/dashboard/frontend" run build:web
-  npm --prefix "$STAGING/dashboard/frontend" audit --omit=dev
   TEST_RUNTIME="$STAGING/.test-runtime"
-  ALPHALAB_RUNTIME_DIR="$TEST_RUNTIME" \
-    "$STAGING/.venv/bin/python" -m pytest "$STAGING/tests" -q
-  ALPHALAB_RUNTIME_DIR="$TEST_RUNTIME" \
-    "$STAGING/.venv/bin/python" "$STAGING/scripts/check_facade_imports.py"
+  (
+    cd "$STAGING"
+    npm --prefix dashboard/frontend ci
+    npm --prefix dashboard/frontend run lint
+    npm --prefix dashboard/frontend run build:web
+    npm --prefix dashboard/frontend audit --omit=dev
+    ALPHALAB_RUNTIME_DIR="$TEST_RUNTIME" \
+      .venv/bin/python -m pytest tests -q
+    ALPHALAB_RUNTIME_DIR="$TEST_RUNTIME" \
+      .venv/bin/python scripts/check_facade_imports.py
+  )
   rm -rf -- "$TEST_RUNTIME"
   rm -rf -- "$STAGING/dashboard/frontend/node_modules"
   "$STAGING/.venv/bin/python" - "$STAGING/.alphalab-release.json" "$COMMIT" <<'PY'
