@@ -219,6 +219,18 @@ def clone_strategy(strategy_id: str, target_id: str) -> dict:
     return StrategyRepository().clone(strategy_id, target_id).as_dict(include_yaml=True)
 
 
+def import_strategy(yaml_text: str, *, overwrite: bool = False) -> dict:
+    return (
+        StrategyRepository()
+        .import_yaml(yaml_text, overwrite=overwrite)
+        .as_dict(include_yaml=True)
+    )
+
+
+def export_strategy(strategy_id: str) -> str:
+    return StrategyRepository().export_yaml(strategy_id)
+
+
 def save_strategy(strategy_id: str, yaml_text: str) -> dict:
     return StrategyRepository().save(strategy_id, yaml_text).as_dict(include_yaml=True)
 

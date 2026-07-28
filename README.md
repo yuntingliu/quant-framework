@@ -34,6 +34,8 @@ orders without configuring a vendor connection.
 ```powershell
 cd C:\Users\LYT\Documents\GitHub\quant-framework
 pip install -e ".[dev,dashboard,rq]"
+npm --prefix dashboard/frontend ci
+alphalab dev doctor
 python -m pytest tests -q
 python -c "import alphalab; print(alphalab.__version__)"
 ```
@@ -153,8 +155,10 @@ profiles, sync planning, background jobs, coverage, and validation. It never
 starts a heavy sync during application startup.
 
 Built-in strategy YAML is immutable. Clone a template in Strategy Editor to
-create a local version below ignored runtime data. Backtest Workbench can run a
-single backtest or the deterministic six-step research workflow:
+create a local version below ignored runtime data. Local YAML can also be
+imported and exported from the editor or through `/api/strategies/import` and
+`/api/strategies/{id}/export`. Backtest Workbench can run a single backtest or
+the deterministic six-step research workflow:
 
 ```text
 data status -> strategy validation -> backtest -> robustness gate
@@ -170,8 +174,22 @@ it is not an approval for live trading.
 ```powershell
 python -m pytest tests -q
 python scripts/check_facade_imports.py
-npm --prefix dashboard/frontend run build
+npm --prefix dashboard/frontend run build:web
+npm --prefix dashboard/frontend audit --omit=dev
 ```
 
 See `docs/04_DATA_OPERATIONS.md` for runtime schemas, failure behavior, and API
 contracts.
+
+Electron packaging is optional and isolated from the Web dependency set:
+
+```powershell
+npm --prefix dashboard/frontend run desktop:install
+npm --prefix dashboard/frontend run pack
+```
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the branch/PR workflow and extension
+examples.
+
+For an unprivileged Linux service behind Cloudflare Tunnel, see
+[`docs/05_LINUX_CLOUDFLARE.md`](docs/05_LINUX_CLOUDFLARE.md).

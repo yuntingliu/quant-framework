@@ -96,7 +96,9 @@ The barebone backend exposes:
 - `/api/data-sync/jobs`
 - `/api/data-sync/validate`
 - `/api/strategies`
+- `/api/strategies/import`
 - `/api/strategies/{strategy_id}`
+- `/api/strategies/{strategy_id}/export`
 - `/api/strategies/{strategy_id}/clone`
 - `/api/backtests`
 - `/api/backtests/run`

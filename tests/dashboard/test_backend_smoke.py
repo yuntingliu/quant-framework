@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from alphalab import ResultStore
+from alphalab.strategy import StrategyRepository
 from dashboard.backend.main import app
 from dashboard.backend.routers import conexus
 from dashboard.backend.services import framework_service, research_service
@@ -10,7 +11,16 @@ from dashboard.backend.services import framework_service, research_service
 
 def test_backend_smoke_endpoints():
     client = TestClient(app)
-    assert client.get("/").json()["status"] == "ok"
+    root = client.get("/", follow_redirects=False)
+    assert root.status_code in {200, 307}
+    app_health = client.get("/api/health")
+    assert app_health.status_code == 200
+    health_payload = app_health.json()
+    assert health_payload["status"] == "ok"
+    assert health_payload["version"]
+    assert "commit_sha" in health_payload
+    assert "deployed_at" in health_payload
+    assert health_payload["store"]["strategies"] >= 6
     providers = client.get("/api/data/providers")
     assert providers.status_code == 200
     assert providers.json()["symbol_count"] == 300
@@ -29,6 +39,35 @@ def test_backend_smoke_endpoints():
     catalog = client.get("/api/data-sync/catalog")
     assert catalog.status_code == 200
     assert catalog.json()["datasets"]
+
+
+def test_optional_http_basic_auth(monkeypatch):
+    monkeypatch.setenv("ALPHALAB_WEB_AUTH_ENABLED", "true")
+    monkeypatch.setenv("ALPHALAB_WEB_USERNAME", "alphalab")
+    monkeypatch.setenv("ALPHALAB_WEB_PASSWORD", "not-the-ssh-password")
+    client = TestClient(app)
+
+    anonymous = client.get("/api/health")
+    assert anonymous.status_code == 401
+    assert anonymous.headers["www-authenticate"].startswith("Basic ")
+    assert client.get("/api/health", auth=("alphalab", "wrong")).status_code == 401
+
+    authenticated = client.get(
+        "/api/health",
+        auth=("alphalab", "not-the-ssh-password"),
+    )
+    assert authenticated.status_code == 200
+    assert authenticated.json()["status"] == "ok"
+
+
+def test_http_basic_auth_fails_closed_when_misconfigured(monkeypatch):
+    monkeypatch.setenv("ALPHALAB_WEB_AUTH_ENABLED", "true")
+    monkeypatch.setenv("ALPHALAB_WEB_USERNAME", "alphalab")
+    monkeypatch.delenv("ALPHALAB_WEB_PASSWORD", raising=False)
+
+    response = TestClient(app).get("/api/health")
+    assert response.status_code == 503
+    assert response.json()["status"] == "invalid"
 
 
 def test_optional_conexus_status_contract(monkeypatch):
@@ -221,6 +260,42 @@ def test_strategy_validation_contract():
     )
     assert validated.status_code == 200
     assert validated.json()["valid"] is True
+
+
+def test_strategy_import_export_contract(tmp_path, monkeypatch):
+    repository = StrategyRepository(tmp_path)
+    monkeypatch.setattr(framework_service, "StrategyRepository", lambda: repository)
+    yaml_text = """
+name: imported_value
+description: imported strategy
+universe:
+  pool: all
+factors:
+  - name: book_to_price
+    weight: 1.0
+    source: fundamental
+selection:
+  min_factor_coverage: 0.5
+  n_stocks: 10
+portfolio:
+  max_weight: 0.1
+  rebalance_freq: monthly
+  optimizer: equal_weight
+execution:
+  cost_bps: 20
+"""
+    client = TestClient(app)
+    imported = client.post(
+        "/api/strategies/import",
+        json={"yaml": yaml_text, "overwrite": False},
+    )
+    assert imported.status_code == 201, imported.text
+    assert imported.json()["id"] == "imported_value"
+    exported = client.get("/api/strategies/imported_value/export")
+    assert exported.status_code == 200
+    assert "name: imported_value" in exported.text
+    assert "attachment; filename=" in exported.headers["content-disposition"]
+    assert client.get("/api/strategies/value/export").status_code == 409
 
 
 def test_deterministic_research_run_stops_before_paper_execution(

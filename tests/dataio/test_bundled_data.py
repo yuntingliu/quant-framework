@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pandas as pd
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -55,6 +54,10 @@ def test_bundled_real_data_contract():
 
 def test_seed_database_is_complete():
     db_path = ROOT / "data" / "app" / "alphalab.db"
+    manifest = json.loads((ROOT / "data" / "manifest.json").read_text(encoding="utf-8"))
+    metadata = manifest["files"]["data/app/alphalab.db"]
+    assert db_path.stat().st_size == metadata["bytes"]
+    assert _sha256(db_path) == metadata["seed_sha256"]
     with sqlite3.connect(db_path) as connection:
         counts = {
             table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]

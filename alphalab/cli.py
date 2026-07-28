@@ -10,6 +10,7 @@ from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.quality import validate_all, validate_dataset
 from alphalab.dataio.runtime import OperationsStore
 from alphalab.dataio.sync import SyncJobManager, SyncRequest, build_sync_plan
+from alphalab.devtools import doctor_report
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,6 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("dataset", nargs="?", help="Dataset id; omit to validate all")
     jobs = data_commands.add_parser("jobs", help="List local sync jobs")
     jobs.add_argument("--limit", type=int, default=20)
+
+    dev = commands.add_parser("dev", help="Inspect the local development environment")
+    dev_commands = dev.add_subparsers(dest="dev_command", required=True)
+    dev_commands.add_parser("doctor", help="Check tools, data, configuration, and ports")
     return parser
 
 
@@ -47,10 +52,12 @@ def _add_sync_arguments(parser: argparse.ArgumentParser) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.command != "data":
-        return 2
     result: Any
-    if args.data_command == "catalog":
+    if args.command == "dev" and args.dev_command == "doctor":
+        result = doctor_report()
+    elif args.command != "data":
+        return 2
+    elif args.data_command == "catalog":
         result = DataCatalog().list()
     elif args.data_command == "status":
         result = DataCatalog().summary()

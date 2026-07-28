@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react"
-import { CheckCircle2, Copy, FileCode2, Save, Trash2 } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { CheckCircle2, Copy, Download, FileCode2, Save, Trash2, Upload } from "lucide-react"
 
 import {
   api,
@@ -16,6 +16,7 @@ export function StrategyEditorWidget() {
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
+  const importInput = useRef<HTMLInputElement>(null)
 
   async function loadStrategies(preferred?: string) {
     const items = await api.get<StrategyTemplate[]>("/strategies")
@@ -119,6 +120,45 @@ export function StrategyEditorWidget() {
     }
   }
 
+  async function importYaml(file: File | undefined) {
+    if (!file) return
+    setBusy(true)
+    setError("")
+    try {
+      const imported = await api.post<StrategyTemplateDetail>("/strategies/import", {
+        yaml: await file.text(),
+        overwrite: false,
+      })
+      setMessage("Local strategy imported")
+      await loadStrategies(imported.id)
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : String(importError))
+    } finally {
+      setBusy(false)
+      if (importInput.current) importInput.current.value = ""
+    }
+  }
+
+  async function exportYaml() {
+    if (!detail?.editable) return
+    setBusy(true)
+    setError("")
+    try {
+      const content = await api.getText(`/strategies/${detail.id}/export`)
+      const url = URL.createObjectURL(new Blob([content], { type: "application/yaml" }))
+      const anchor = document.createElement("a")
+      anchor.href = url
+      anchor.download = `${detail.id}.yaml`
+      anchor.click()
+      URL.revokeObjectURL(url)
+      setMessage("Local strategy exported")
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : String(exportError))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="panel">
       <div className="panel-heading">
@@ -160,6 +200,31 @@ export function StrategyEditorWidget() {
             onChange={(event) => setYaml(event.target.value)}
           />
           <div className="editor-actions">
+            <input
+              ref={importInput}
+              type="file"
+              accept=".yaml,.yml,application/yaml,text/yaml"
+              hidden
+              onChange={(event) => void importYaml(event.target.files?.[0])}
+            />
+            <button
+              type="button"
+              className="icon-command"
+              title="Import local strategy"
+              onClick={() => importInput.current?.click()}
+              disabled={busy}
+            >
+              <Upload aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="icon-command"
+              title="Export local strategy"
+              onClick={exportYaml}
+              disabled={busy || !detail?.editable}
+            >
+              <Download aria-hidden="true" />
+            </button>
             <button type="button" className="icon-text-command" onClick={validate} disabled={busy || !yaml}>
               <CheckCircle2 aria-hidden="true" />
               Validate
