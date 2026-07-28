@@ -30,10 +30,14 @@ COMMIT="$(git -C "$SOURCE_DIR" rev-parse "${REF}^{commit}")"
 RELEASE="$RELEASES_DIR/$COMMIT"
 STAGING="$RELEASES_DIR/.${COMMIT}.staging.$$"
 PREVIOUS="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
+BUILDING_RELEASE=0
 
 cleanup_staging() {
   if [[ -d "$STAGING" && "$STAGING" == "$RELEASES_DIR"/.*.staging.* ]]; then
     rm -rf -- "$STAGING"
+  fi
+  if [[ "$BUILDING_RELEASE" == "1" && -d "$RELEASE" && "$RELEASE" == "$RELEASES_DIR/$COMMIT" ]]; then
+    rm -rf -- "$RELEASE"
   fi
 }
 trap cleanup_staging EXIT
@@ -41,28 +45,31 @@ trap cleanup_staging EXIT
 if [[ ! -d "$RELEASE" ]]; then
   mkdir -p "$STAGING"
   git -C "$SOURCE_DIR" archive "$COMMIT" | tar -x -C "$STAGING"
-  python3 -m venv "$STAGING/.venv"
-  "$STAGING/.venv/bin/python" -m pip install --upgrade pip
-  "$STAGING/.venv/bin/python" -m pip install -e "${STAGING}[dev,dashboard,rq]"
-  TEST_RUNTIME="$STAGING/.test-runtime"
+  mv -- "$STAGING" "$RELEASE"
+  BUILDING_RELEASE=1
+  python3 -m venv "$RELEASE/.venv"
+  "$RELEASE/.venv/bin/python" -m pip install --upgrade pip
+  "$RELEASE/.venv/bin/python" -m pip install -e "${RELEASE}[dev,dashboard,rq]"
+  TEST_RUNTIME="$RELEASE/.test-runtime"
   (
-    cd "$STAGING"
+    cd "$RELEASE"
     npm --prefix dashboard/frontend ci
     npm --prefix dashboard/frontend run lint
     npm --prefix dashboard/frontend run build:web
     npm --prefix dashboard/frontend audit --omit=dev
-    ALPHALAB_ENV_FILE="$STAGING/.test.env" \
+    ALPHALAB_ENV_FILE="$RELEASE/.test.env" \
       ALPHALAB_RUNTIME_DIR="$TEST_RUNTIME" \
       ALPHALAB_WEB_AUTH_ENABLED=0 \
       .venv/bin/python -m pytest tests -q
-    ALPHALAB_ENV_FILE="$STAGING/.test.env" \
+    ALPHALAB_ENV_FILE="$RELEASE/.test.env" \
       ALPHALAB_RUNTIME_DIR="$TEST_RUNTIME" \
       ALPHALAB_WEB_AUTH_ENABLED=0 \
       .venv/bin/python scripts/check_facade_imports.py
   )
   rm -rf -- "$TEST_RUNTIME"
-  rm -rf -- "$STAGING/dashboard/frontend/node_modules"
-  "$STAGING/.venv/bin/python" - "$STAGING/.alphalab-release.json" "$COMMIT" <<'PY'
+  rm -rf -- "$RELEASE/dashboard/frontend/node_modules"
+  "$RELEASE/.venv/bin/alphalab" --help >/dev/null
+  "$RELEASE/.venv/bin/python" - "$RELEASE/.alphalab-release.json" "$COMMIT" <<'PY'
 import json
 import sys
 from datetime import datetime, timezone
@@ -77,7 +84,7 @@ Path(sys.argv[1]).write_text(
     encoding="utf-8",
 )
 PY
-  mv -- "$STAGING" "$RELEASE"
+  BUILDING_RELEASE=0
 fi
 
 DB="$RUNTIME_DIR/app/alphalab.db"
