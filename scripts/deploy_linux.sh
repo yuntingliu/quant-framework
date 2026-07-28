@@ -51,9 +51,13 @@ if [[ ! -d "$RELEASE" ]]; then
     npm --prefix dashboard/frontend run lint
     npm --prefix dashboard/frontend run build:web
     npm --prefix dashboard/frontend audit --omit=dev
-    ALPHALAB_RUNTIME_DIR="$TEST_RUNTIME" \
+    ALPHALAB_ENV_FILE="$STAGING/.test.env" \
+      ALPHALAB_RUNTIME_DIR="$TEST_RUNTIME" \
+      ALPHALAB_WEB_AUTH_ENABLED=0 \
       .venv/bin/python -m pytest tests -q
-    ALPHALAB_RUNTIME_DIR="$TEST_RUNTIME" \
+    ALPHALAB_ENV_FILE="$STAGING/.test.env" \
+      ALPHALAB_RUNTIME_DIR="$TEST_RUNTIME" \
+      ALPHALAB_WEB_AUTH_ENABLED=0 \
       .venv/bin/python scripts/check_facade_imports.py
   )
   rm -rf -- "$TEST_RUNTIME"
