@@ -1,5 +1,6 @@
 appId: com.alphalab.dashboard
 productName: AlphaLab
+electronVersion: 41.1.0
 directories:
   output: release
   buildResources: build
