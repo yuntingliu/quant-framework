@@ -5,7 +5,10 @@
 Run commands from the repository root:
 
 ```powershell
-python -m pytest tests/contracts -q
+pip install -e ".[dev,dashboard,rq]"
+npm --prefix dashboard/frontend ci
+alphalab dev doctor
+python -m pytest tests -q
 python scripts/check_facade_imports.py
 ```
 
@@ -92,7 +95,8 @@ add Python only when the framework needs a new reusable behavior.
 
 Package templates are immutable through the API. Dashboard edits are stored as
 local YAML below `data/runtime/app/strategies`. Strategy ids and YAML `name`
-must match. Validate every local definition before a backtest.
+must match. Validate every local definition before a backtest. Import and export
+operate only on these local copies.
 
 Every persisted backtest can produce a same-universe equal-weight benchmark and
 a robustness report. The report checks data/weight integrity, calendar and
@@ -111,7 +115,11 @@ Use the smallest useful gate first:
 ```powershell
 python -m pytest tests/contracts tests/dataio tests/strategy tests/dashboard -q
 python scripts/check_facade_imports.py
-npm --prefix dashboard/frontend run build
+python -m ruff check alphalab dashboard/backend tests scripts
+python scripts/check_repository_hygiene.py
+npm --prefix dashboard/frontend run lint
+npm --prefix dashboard/frontend run build:web
+npm --prefix dashboard/frontend audit --omit=dev
 ```
 
 When a backtest produces unusually strong results, inspect alignment and

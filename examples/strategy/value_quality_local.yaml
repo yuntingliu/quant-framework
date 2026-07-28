@@ -1,0 +1,23 @@
+name: value_quality_local
+description: Local example combining generic value and quality characteristics.
+universe:
+  pool: all
+selection:
+  n_stocks: 20
+  min_factor_coverage: 0.7
+portfolio:
+  max_weight: 0.05
+  rebalance_freq: monthly
+factors:
+  - name: ep
+    source: fundamental
+    direction: long
+    weight: 0.40
+  - name: bp
+    source: fundamental
+    direction: long
+    weight: 0.30
+  - name: roe
+    source: fundamental
+    direction: long
+    weight: 0.30

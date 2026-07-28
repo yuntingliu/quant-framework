@@ -73,6 +73,24 @@ class StrategyRepository:
         payload = _replace_name(payload, target)
         return self.save(target, payload, create_only=True)
 
+    def import_yaml(
+        self,
+        yaml_text: str,
+        *,
+        overwrite: bool = False,
+    ) -> StrategyDefinition:
+        config = StrategyConfig.from_yaml_string(yaml_text)
+        strategy_id = _validate_id(config.name)
+        return self.save(strategy_id, yaml_text, create_only=not overwrite)
+
+    def export_yaml(self, strategy_id: str) -> str:
+        definition = self.get(strategy_id)
+        if definition is None:
+            raise KeyError(strategy_id)
+        if definition.built_in:
+            raise PermissionError("Only local strategies can be exported; clone the template first")
+        return definition.path.read_text(encoding="utf-8")
+
     def save(
         self,
         strategy_id: str,

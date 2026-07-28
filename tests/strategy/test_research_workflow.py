@@ -47,6 +47,13 @@ def test_strategy_repository_preserves_builtins_and_manages_local_yaml(tmp_path)
     assert cloned.config.name == "value_local"
     edited = repository.save("value_local", _config("value_local").to_yaml())
     assert edited.config.factor_names == ["momentum_20d"]
+    imported = repository.import_yaml(_config("imported_local").to_yaml())
+    assert imported.config.name == "imported_local"
+    assert "name: imported_local" in repository.export_yaml("imported_local")
+    with pytest.raises(FileExistsError):
+        repository.import_yaml(_config("imported_local").to_yaml())
+    with pytest.raises(PermissionError, match="Only local"):
+        repository.export_yaml("value")
     assert repository.delete("value_local") is True
     assert repository.get("value_local") is None
 
