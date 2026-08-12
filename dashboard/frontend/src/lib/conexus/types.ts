@@ -5,19 +5,19 @@ export interface ConexusStatus {
   error?: string
 }
 
-export interface PublishedHarnessInput {
-  key: string
-  label: string
-  description: string
-  type: "string" | "text" | "number" | "boolean" | "file" | "url" | "json" | "asset"
-  required: boolean
-  defaultValue?: unknown
+export type PublishedHarnessExposureSurface = "agent_tool" | "page" | "api"
+
+export interface HostedHarnessExposure {
+  id: string
+  nodeType: string
+  surfaces: PublishedHarnessExposureSurface[]
 }
 
-export interface PublishedHarnessManifest {
+export interface HostedHarnessManifest {
   accessPolicy: "anonymous" | "conexus_account"
   billingPolicy: "publisher" | "consumer"
-  inputs: PublishedHarnessInput[]
+  exposures: HostedHarnessExposure[]
+  defaultExposureId?: string
 }
 
 export type PublishedHarnessArtifact = {

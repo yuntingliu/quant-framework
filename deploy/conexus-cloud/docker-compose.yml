@@ -2,8 +2,8 @@ name: conexus-alphalab
 
 services:
   web:
-    image: ${CONEXUS_SERVER_IMAGE}
-    command: ["node", "dist/web-host.js"]
+    image: ${CONEXUS_WEB_IMAGE}
+    command: ["node", "server-dist/entrypoints/web-host.js"]
     restart: unless-stopped
     stop_grace_period: 30s
     init: true
@@ -12,10 +12,13 @@ services:
       NODE_ENV: production
       CONEXUS_WEB_HOST: 127.0.0.1
       CONEXUS_WEB_PORT: 3100
-      CONEXUS_WEB_DIST: /app/web
+      CONEXUS_WEB_DIST: /app/apps/web/dist
       CONEXUS_PROJECT_ROOT: /data/project
+      CONEXUS_SECRET_ROOT: /data/secrets
       CONEXUS_WEB_TOKEN: ${CONEXUS_WEB_TOKEN}
       CONEXUS_WEB_ADMIN_AUTH: "false"
+      PUBLISHER_MODEL_ACCESS: ${PUBLISHER_MODEL_ACCESS:-conexus}
+      CONEXUS_PUBLISHER_TOKEN: ${CONEXUS_PUBLISHER_TOKEN:-}
       CONEXUS_WEB_ALLOWED_MODELS: ${CONEXUS_WEB_ALLOWED_MODELS:-openai/gpt-oss-120b}
       CONEXUS_WEB_MAX_CONCURRENT_AGENT_RUNS: 2
       CONEXUS_WEB_MAX_AGENT_RUNS_PER_MINUTE: 10
@@ -29,9 +32,11 @@ services:
       OPENROUTER_DEFAULT_MODEL: ${OPENROUTER_DEFAULT_MODEL:-openai/gpt-oss-120b}
       OPENROUTER_TIMEOUT_MS: ${OPENROUTER_TIMEOUT_MS:-120000}
       CONEXUS_PUBLIC_APP_URL: ${CONEXUS_PUBLIC_APP_URL}
+      CONEXUS_BACKEND_URL: ${CONEXUS_BACKEND_URL:-https://conexus-production.up.railway.app}
       ALPHALAB_API_ORIGIN: http://127.0.0.1:18000
     volumes:
       - ./project:/data/project
+      - ./secrets:/data/secrets
     read_only: true
     tmpfs:
       - /tmp:size=512m,noexec,nosuid,nodev

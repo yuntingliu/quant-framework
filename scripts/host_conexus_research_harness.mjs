@@ -4,25 +4,39 @@ import { pathToFileURL } from "node:url"
 
 const projectRoot = resolve(process.env.ALPHALAB_PROJECT_ROOT || process.cwd())
 const conexusRoot = resolve(process.env.CONEXUS_ROOT || resolve(projectRoot, "..", "Conexus"))
-const publicationModule = resolve(conexusRoot, "backend", "dist", "web-harness-publication.js")
-const runtimeModule = resolve(conexusRoot, "backend", "dist", "trusted-web-runtime.js")
+const hostingModule = resolve(
+  conexusRoot,
+  "apps",
+  "web",
+  "server-dist",
+  "harnesses",
+  "web-harness-hosting.js",
+)
+const runtimeModule = resolve(
+  conexusRoot,
+  "apps",
+  "web",
+  "server-dist",
+  "agents",
+  "trusted-web-runtime.js",
+)
 
-await access(publicationModule).catch(() => {
-  throw new Error(`Conexus backend is not built: ${publicationModule}`)
+await access(hostingModule).catch(() => {
+  throw new Error(`Conexus Web Host is not built: ${hostingModule}`)
 })
 
-const [{ WebHarnessPublicationStore }, { TRUSTED_WEB_RUNTIME_PROFILE }] = await Promise.all([
-  import(pathToFileURL(publicationModule).href),
+const [{ WebHarnessHostingStore }, { TRUSTED_WEB_RUNTIME_PROFILE }] = await Promise.all([
+  import(pathToFileURL(hostingModule).href),
   import(pathToFileURL(runtimeModule).href),
 ])
 const canvas = JSON.parse(await readFile(resolve(projectRoot, ".conexus", "canvas.json"), "utf8"))
-const store = new WebHarnessPublicationStore({
+const store = new WebHarnessHostingStore({
   projectRoot,
   runtimeProfile: TRUSTED_WEB_RUNTIME_PROFILE,
 })
-const result = await store.publish({
+const result = await store.host({
   harnessNodeId: "alphalab-research-harness-v1",
-  slug: process.env.CONEXUS_PUBLICATION_SLUG || "alphalab-research-agent",
+  slug: process.env.CONEXUS_HOSTING_SLUG || "alphalab-research-agent",
   accessPolicy: "anonymous",
   billingPolicy: "publisher",
   canvasState: { nodes: canvas.nodes, edges: canvas.edges },

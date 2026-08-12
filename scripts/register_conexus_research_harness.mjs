@@ -89,9 +89,9 @@ const nodes = [
       label: "AlphaLab Research Agent",
       description: "Optional published research Harness backed by AlphaLab FastAPI.",
       purpose: "primary",
-      publicationSlug: "alphalab-research-agent",
-      publicationAccessPolicy: "anonymous",
-      publicationBillingPolicy: "publisher",
+      hostingSlug: "alphalab-research-agent",
+      hostingAccessPolicy: "anonymous",
+      hostingBillingPolicy: "publisher",
       backingPath: `${stagedBundlePath}/harness.json`,
     },
     width: 1600,
@@ -101,7 +101,7 @@ const nodes = [
   child(agentId, "agent", { x: 32, y: 72 }, {
     label: "AlphaLab Research Agent",
     description: "Published entry Agent for AlphaLab research conversations.",
-    showOnHarnessPreview: true,
+    exposeInHarness: true,
     backingPath: `${stagedBundlePath}/agents/AlphaLab-Research-Agent.agent.json`,
   }, { width: 360, height: 264 }),
   child(contextId, "custom", { x: 424, y: 72 }, {

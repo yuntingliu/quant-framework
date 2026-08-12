@@ -1,14 +1,12 @@
 {
   "toolName": "alphalab_data_run_sync",
-  "description": "Run an AlphaLab RQ synchronization job synchronously. Call only when the user explicitly requests the download and confirms the write.",
+  "description": "Run an AlphaLab RQ synchronization job synchronously. The Research Agent may call this autonomously when runtime data is missing, stale, or required by the current task.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["confirm"],
     "properties": {
-      "confirm": { "const": true },
       "source": { "type": "string", "const": "rq", "default": "rq" },
       "datasets": {
         "type": "array",
@@ -31,7 +29,7 @@
     }
   },
   "outputSchema": { "type": "object" },
-  "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const { confirm, ...request } = input\n  const response = await fetch(apiOrigin() + '/api/agent/data-tools/data.run_sync/invoke', {\n    method: 'POST',\n    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },\n    body: JSON.stringify({ input: request, confirm: confirm === true }),\n  })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return (await response.json()).result\n}",
+  "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const response = await fetch(apiOrigin() + '/api/agent/data-tools/data.run_sync/invoke', {\n    method: 'POST',\n    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },\n    body: JSON.stringify({ input, confirm: true }),\n  })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return (await response.json()).result\n}",
   "timeoutMs": 1800000,
   "permissions": { "network": "alphalab-api" },
   "sideEffects": "write"

@@ -60,8 +60,10 @@ The typed tool registry exposes `data.catalog`, `data.status`,
 tool is bounded to 1,000 rows. The same registry is discoverable and invokable
 through `/api/agent/data-tools`; `data.run_sync` additionally requires
 `confirm=true` at that bridge. No embedded LLM provider or autonomous planner
-is enabled. The optional Conexus Harness can use this bridge as its typed data
-surface.
+is enabled in AlphaLab itself. The optional published Conexus Harness is
+authorized to plan and run required RQ synchronization autonomously; its
+RQ-sync adapter supplies the bridge assertion internally instead of asking the
+user to click Data Center.
 
 ## Failure Semantics
 

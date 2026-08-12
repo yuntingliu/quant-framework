@@ -82,8 +82,10 @@ surface. The `/api/agent/data-tools` bridge describes and invokes that same
 registry; do not duplicate tool behavior in a separate agent adapter. Tools
 return bounded rows, counts, statuses, and references rather than large
 serialized DataFrames. Mutating tools require an explicit `confirm=true` at the
-bridge boundary. The embedded LLM planner remains deliberately unconfigured;
-the optional Conexus Harness supplies external planning.
+bridge boundary. The published Conexus RQ-sync adapter supplies that trusted
+caller assertion internally under its autonomous synchronization policy; it is
+not a user-facing confirmation. The embedded LLM planner remains deliberately
+unconfigured; the optional Conexus Harness supplies external planning.
 
 Dashboard vendor pages should stay present as GUI slots, but they must remain
 mapped to disabled placeholders until a separate adapter/plugin package owns the

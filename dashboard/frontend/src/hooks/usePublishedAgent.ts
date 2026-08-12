@@ -9,14 +9,15 @@ import {
   readConexusStatus,
   readManifest,
   readRun,
+  selectRunExposure,
   streamRunEvents,
 } from "@/lib/conexus/publishedHarnessClient"
 import type {
   AgentToolActivity,
   ConexusStatus,
+  HostedHarnessManifest,
   LocalAgentConversation,
   LocalAgentConversationMessage,
-  PublishedHarnessManifest,
   PublishedHarnessRun,
 } from "@/lib/conexus/types"
 
@@ -181,7 +182,7 @@ function terminalContent(run: PublishedHarnessRun): string {
 
 export function usePublishedAgent({ onCompleted }: Options = {}) {
   const [status, setStatus] = useState<ConexusStatus | null>(null)
-  const [manifest, setManifest] = useState<PublishedHarnessManifest | null>(null)
+  const [manifest, setManifest] = useState<HostedHarnessManifest | null>(null)
   const [history, setHistory] = useState<LocalHistoryState>(loadLocalHistory)
   const [run, setRun] = useState<PublishedHarnessRun | null>(null)
   const [toolActivities, setToolActivities] = useState<AgentToolActivity[]>([])
@@ -213,8 +214,9 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
       }
       const nextManifest = await readManifest(signal)
       if (nextManifest.accessPolicy !== "anonymous" || nextManifest.billingPolicy !== "publisher") {
-        throw new Error("Published AlphaLab Agent must use anonymous access with publisher billing.")
+        throw new Error("Hosted AlphaLab Agent must use anonymous access with publisher billing.")
       }
+      selectRunExposure(nextManifest)
       setManifest(nextManifest)
     } catch (reason) {
       if (!signal?.aborted) acceptError(reason)
@@ -303,8 +305,10 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
     streamRef.current?.abort()
     setToolActivities([])
     try {
+      const exposure = selectRunExposure(manifest)
       const result = await createRun({
-        input: buildRunInput(manifest, userMessage, {
+        exposureId: exposure.id,
+        input: buildRunInput(userMessage, {
           ...context,
           localConversationHistory: localConversationContext(conversation),
         }),

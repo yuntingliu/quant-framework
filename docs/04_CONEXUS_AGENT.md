@@ -1,9 +1,9 @@
 # Optional Conexus Research Agent
 
 The barebone framework runs without an LLM planner. When an independently
-configured Conexus Web Host publishes an AlphaLab-compatible Research Harness,
+configured Conexus Web Host hosts an AlphaLab-compatible Research Harness,
 the workstation can connect to it through the narrow same-origin
-`/api/conexus` proxy. Conexus Canvas state, publication records, model
+`/api/conexus` proxy. Conexus Canvas state, hosting records, model
 credentials, and local run history are deliberately not part of this repository.
 
 The React workstation does not import Conexus Canvas components or call
@@ -21,18 +21,18 @@ integrations/conexus/alphalab-research-agent/
 It contains the Agent prompt, typed context/result nodes, research document, and
 14 AlphaLab API tools. The tool set includes all six canonical data-registry
 operations plus bounded market, point-in-time fundamental, factor, strategy,
-backtest, signal, and workspace-context access. Runtime and publication state
+backtest, signal, and workspace-context access. Runtime and hosting state
 remain local and ignored.
-After initializing Conexus for this repository, register and publish the bundle:
+After initializing Conexus for this repository, register and host the bundle:
 
 ```powershell
 node scripts/register_conexus_research_harness.mjs
-node scripts/publish_conexus_research_harness.mjs
+node scripts/host_conexus_research_harness.mjs
 ```
 
 Registration updates only the ignored `.conexus/canvas.json` and stages an
 exact generated copy below ignored `workspace/harnesses/`, which is the backing
-path required by the Conexus publisher. Publication writes only to ignored
+path required by the Conexus Web Host. Hosting writes only to ignored
 Conexus runtime state. The canonical source bundle remains deterministic and
 reviewable in Git.
 
@@ -67,10 +67,13 @@ that port before launching AlphaLab, or set `ALPHALAB_API_ORIGIN` for the
 Conexus process.
 
 The Research Harness cannot start/stop services, modify source code, execute an
-arbitrary shell, or place real orders. Data synchronization, backtest
-execution, and paper-signal generation are separate typed tools and require an
-explicit user request; synchronization also requires `confirm=true`. Those
-guardrails are not workspace commands.
+arbitrary shell, or place real orders. It may autonomously plan and run RQ
+synchronization when runtime data is missing, stale, or required by the current
+task. The RQ-sync adapter supplies the bridge's `confirm=true` trusted-caller
+assertion internally, so synchronization does not wait for user authorization
+or a Data Center click. Backtest execution and paper-signal generation remain
+separate typed tools that require an explicit user request. Those policies are
+not workspace commands.
 
 ## Workstation interaction
 
@@ -137,8 +140,9 @@ active registered widget, changing the selected symbol/strategy/backtest/date,
 setting a linked symbol group, showing the right rail, refreshing dashboard
 data, and saving or resetting a layout. Disabled adapter placeholders cannot
 be opened by the Agent. These commands cannot synchronize data, run a
-backtest, generate a signal, or place an order; those actions remain separate
-Harness tools with their existing explicit-user-request policy.
+backtest, generate a signal, or place an order. RQ synchronization runs through
+the autonomous Harness data tool; backtests and paper signals retain their
+explicit-user-request policy.
 
 ## Optional cloud deployment
 

@@ -93,14 +93,25 @@ def test_conexus_tools_match_barebone_profiles_and_guardrails():
 
     agent = _load(BUNDLE / "agents" / "AlphaLab-Research-Agent.agent.json")
     assert set(tools).issubset(agent["toolNames"])
-    assert tools["alphalab_data_run_sync"]["inputSchema"]["properties"]["confirm"] == {
-        "const": True
-    }
+    sync_tool = tools["alphalab_data_run_sync"]
+    assert "confirm" not in sync_tool["inputSchema"].get("required", [])
+    assert "confirm" not in sync_tool["inputSchema"]["properties"]
+    assert "confirm: true" in sync_tool["code"]
+    assert "无需询问用户或要求确认" in agent["systemPrompt"]
+    assert "不得只打开数据中心让用户点击" in agent["systemPrompt"]
 
 
 def test_conexus_result_schema_supports_bounded_structured_charts():
     harness = _load(BUNDLE / "harness.json")
-    descriptor = harness["template"]["schemas"]["output"]["properties"]["workspaceResult"]
+    manifest = harness["template"]["manifest"]
+    assert manifest["defaultExposureId"] == "alphalab-research-agent"
+    assert "entrypoint" not in manifest
+    assert "inputs" not in manifest
+    assert "outputs" not in manifest
+    exposure = manifest["exposures"][0]
+    assert exposure["nodeId"] == "alphalab-research-agent-v1"
+    assert exposure["surfaces"] == ["agent_tool", "page", "api"]
+    descriptor = exposure["outputSchema"]["properties"]["workspaceResult"]
     document = descriptor["oneOf"][1]
     charts = document["properties"]["charts"]
     assert charts["maxItems"] == 6
@@ -126,4 +137,51 @@ def test_conexus_registration_keeps_runtime_and_rq_environment_separate():
     assert ".conexus" in register
     assert "workspace/harnesses/AlphaLab-Research-Agent-v1" in register
     assert "await cp(sourceBundlePath, stagedBundleAbsolutePath" in register
+    assert 'hostingSlug: "alphalab-research-agent"' in register
+    assert "exposeInHarness: true" in register
+    assert "publicationSlug" not in register
+    assert "showOnHarnessPreview" not in register
     assert "Join-Path $ProjectRoot '.env'" not in start
+
+
+def test_dashboard_uses_current_hosted_exposure_manifest_contract():
+    client = (
+        ROOT
+        / "dashboard"
+        / "frontend"
+        / "src"
+        / "lib"
+        / "conexus"
+        / "publishedHarnessClient.ts"
+    ).read_text(encoding="utf-8")
+    hook = (
+        ROOT
+        / "dashboard"
+        / "frontend"
+        / "src"
+        / "hooks"
+        / "usePublishedAgent.ts"
+    ).read_text(encoding="utf-8")
+
+    assert "manifest.inputs" not in client
+    assert "manifest.exposures.find" in client
+    assert "manifest.defaultExposureId" in client
+    assert "exposure.inputs" not in client
+    assert 'return { request: contextualRequest }' in client
+    assert "exposureId: exposure.id" in hook
+    assert "buildRunInput(userMessage" in hook
+
+
+def test_hosted_linux_tunnel_uses_a_private_api_listener():
+    deployment = ROOT / "deploy" / "conexus-cloud"
+    api_service = (deployment / "alphalab-conexus-api.service").read_text(
+        encoding="utf-8"
+    )
+    tunnel_service = (deployment / "alphalab-hk-tunnel.service").read_text(
+        encoding="utf-8"
+    )
+
+    assert "dashboard.backend.main:app" in api_service
+    assert "--host 127.0.0.1 --port 8101" in api_service
+    assert "127.0.0.1:18000:127.0.0.1:8101" in tunnel_service
+    assert "127.0.0.1:18000:127.0.0.1:8100" not in tunnel_service

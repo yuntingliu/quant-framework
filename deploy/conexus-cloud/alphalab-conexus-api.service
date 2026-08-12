@@ -1,0 +1,20 @@
+[Unit]
+Description=AlphaLab private API for Conexus tools
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/dev/apps/dev版
+Environment=PYTHONUNBUFFERED=1
+Environment=ALPHALAB_RUNTIME_DIR=/home/dev/.local/share/alphalab-dev/runtime
+EnvironmentFile=/home/dev/.config/alphalab-dev/rqdata.env
+ExecStart=/home/dev/apps/dev版/.venv/bin/python -m uvicorn dashboard.backend.main:app --host 127.0.0.1 --port 8101 --workers 1
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

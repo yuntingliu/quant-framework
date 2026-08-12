@@ -17,7 +17,7 @@ The 14 tools use the stable AlphaLab FastAPI surface:
 - factor returns
 - backtest detail
 - data catalog and status
-- data-sync planning and explicitly confirmed execution
+- data-sync planning and autonomous RQ execution when runtime data is needed
 - data validation and bounded runtime queries
 - explicitly requested backtest execution
 - explicitly requested paper-signal generation

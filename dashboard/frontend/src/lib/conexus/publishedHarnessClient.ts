@@ -2,7 +2,8 @@ import { getApiBase } from "@/lib/api"
 
 import type {
   ConexusStatus,
-  PublishedHarnessManifest,
+  HostedHarnessExposure,
+  HostedHarnessManifest,
   PublishedHarnessRun,
   PublishedHarnessRunEvent,
 } from "./types"
@@ -44,38 +45,58 @@ export function readConexusStatus(signal?: AbortSignal): Promise<ConexusStatus> 
 
 export function readManifest(
   signal?: AbortSignal,
-): Promise<PublishedHarnessManifest> {
-  return json<PublishedHarnessManifest>("/manifest", {
+): Promise<HostedHarnessManifest> {
+  return json<HostedHarnessManifest>("/manifest", {
     headers: { Accept: "application/json" },
     signal,
   })
 }
 
+export function selectRunExposure(manifest: HostedHarnessManifest): HostedHarnessExposure {
+  if (!Array.isArray(manifest.exposures)) {
+    throw new Error("Hosted AlphaLab Harness manifest has no exposures.")
+  }
+  const exposureId = manifest.defaultExposureId?.trim()
+  if (!exposureId) {
+    throw new Error("Hosted AlphaLab Harness manifest has no default exposure.")
+  }
+  const exposure = manifest.exposures.find((candidate) => candidate.id === exposureId)
+  if (!exposure) {
+    throw new Error(`Hosted AlphaLab Harness default exposure was not found: ${exposureId}`)
+  }
+  if (!Array.isArray(exposure.surfaces) || !exposure.surfaces.includes("api")) {
+    throw new Error(`Hosted AlphaLab Harness exposure is not available through the API: ${exposureId}`)
+  }
+  if (exposure.nodeType !== "agent") {
+    throw new Error(`Hosted AlphaLab Harness default exposure is not an Agent: ${exposureId}`)
+  }
+  return exposure
+}
+
 export function buildRunInput(
-  manifest: PublishedHarnessManifest,
   message: string,
   context: Record<string, unknown>,
 ): Record<string, unknown> {
-  const values = Object.fromEntries(
-    manifest.inputs
-      .filter((input) => input.defaultValue !== undefined)
-      .map((input) => [input.key, structuredClone(input.defaultValue)]),
-  )
-  const requestInput = manifest.inputs.find((input) => input.key === "request")
-    ?? manifest.inputs.find((input) => input.type === "text" || input.type === "string")
-  if (!requestInput) throw new Error("Published AlphaLab Harness has no text request input.")
-  values[requestInput.key] = message
-  if (manifest.inputs.some((input) => input.key === "context")) values.context = context
-  return values
+  const request = message.trim()
+  if (!request) throw new Error("Hosted AlphaLab Agent request is empty.")
+  const workspaceContext = JSON.stringify(context)
+  const contextualRequest = workspaceContext === "{}"
+    ? request
+    : `${request}\n\nAlphaLab workspace context (JSON):\n${workspaceContext}`
+  if (contextualRequest.length > 100_000) {
+    throw new Error("Hosted AlphaLab Agent request exceeds 100000 characters.")
+  }
+  return { request: contextualRequest }
 }
 
 export async function createRun(params: {
+  exposureId: string
   input: Record<string, unknown>
 }): Promise<{ run: PublishedHarnessRun; accessToken: string }> {
   return json("/runs", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({ input: params.input }),
+    body: JSON.stringify(params),
   })
 }
 

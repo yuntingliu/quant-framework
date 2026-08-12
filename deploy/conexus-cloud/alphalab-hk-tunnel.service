@@ -1,0 +1,12 @@
+[Unit]
+Description=AlphaLab private API reverse tunnel to Hong Kong Conexus
+After=network-online.target alphalab-conexus-api.service
+Wants=network-online.target alphalab-conexus-api.service
+
+[Service]
+ExecStart=/usr/bin/ssh -N -T -i /home/dev/.ssh/alphalab_hk_tunnel_ed25519 -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=yes -R 127.0.0.1:18000:127.0.0.1:8101 ubuntu@43.154.239.41
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

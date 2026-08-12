@@ -43,3 +43,17 @@ sudo docker logs --tail 100 conexus-alphalab-web-1
 Secrets remain in the server-side mode-600 `.env` and are not part of this
 directory. The existing `conexus-digui` Compose project is not a dependency of
 this deployment.
+
+## Hosted Linux workstation
+
+The hosted AlphaLab workstation keeps browser access and Conexus tool access on
+separate loopback listeners:
+
+- `127.0.0.1:8100`: browser-facing deployment app with Basic authentication.
+- `127.0.0.1:8101`: private FastAPI listener for Conexus tools.
+- Hong Kong `127.0.0.1:18000`: reverse-tunnel endpoint forwarded to local port
+  `8101` over the authenticated SSH connection.
+
+Install `alphalab-conexus-api.service` and `alphalab-hk-tunnel.service` as user
+services. Never point the tool tunnel at port `8100`; doing so sends internal
+tool requests through the browser authentication boundary and returns HTTP 401.
