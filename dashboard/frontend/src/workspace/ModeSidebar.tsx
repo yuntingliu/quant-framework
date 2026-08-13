@@ -2,7 +2,6 @@ import {
   CircleDot,
   Eye,
   EyeOff,
-  HelpCircle,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
@@ -26,7 +25,6 @@ interface ModeSidebarProps {
   lockedCollapsed?: boolean
   onToggleCollapsed: () => void
   onSwitchMode: (mode: WorkspaceMode) => void
-  onAddWidget: (widgetId: string) => void
   hiddenModes: Set<WorkspaceMode>
   onToggleModeHidden: (mode: WorkspaceMode) => void
 }
@@ -36,7 +34,6 @@ export function ModeSidebar({
   lockedCollapsed,
   onToggleCollapsed,
   onSwitchMode,
-  onAddWidget,
   hiddenModes,
   onToggleModeHidden,
 }: ModeSidebarProps) {
@@ -205,17 +202,6 @@ export function ModeSidebar({
             </div>
           </PopoverContent>
         </Popover>
-        <button
-          className={cn(
-            "flex h-9 w-full items-center gap-2 rounded text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
-            collapsed ? "justify-center px-0" : "px-2",
-          )}
-          onClick={() => onAddWidget("system.help")}
-          title={t("toolbar.help")}
-        >
-          <HelpCircle className="h-4 w-4 shrink-0" />
-          {!collapsed && <span className="truncate">{t("toolbar.help")}</span>}
-        </button>
         {!lockedCollapsed && (
           <button
             className={cn(

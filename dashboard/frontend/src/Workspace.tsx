@@ -761,7 +761,6 @@ function WorkspaceInner() {
           lockedCollapsed={compactViewport}
           onToggleCollapsed={toggleSidebarCollapsed}
           onSwitchMode={switchMode}
-          onAddWidget={addWidget}
           hiddenModes={hiddenModes}
           onToggleModeHidden={toggleModeHidden}
         />
