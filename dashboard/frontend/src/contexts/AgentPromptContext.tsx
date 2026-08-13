@@ -2,8 +2,6 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 
 import { parseAgentResearchResult, type AgentResearchResult } from "@/workspace/researchResults"
 
-export type AgentIntent = "brief" | "draft" | "risk" | "next"
-
 export interface AgentDecisionNotebook {
   runId?: string
   updatedAt?: string

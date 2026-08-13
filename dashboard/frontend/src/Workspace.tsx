@@ -40,7 +40,7 @@ import {
 } from "@/workspace/agentCommands"
 import { MODE_CONFIG, WORKSPACE_MODES } from "@/workspace/modes"
 import type { AgentResearchResult } from "@/workspace/researchResults"
-import type { RightRailTab, WorkspaceTask } from "@/workspace/types"
+import type { WorkspaceTask } from "@/workspace/types"
 
 interface ElectronMenuApi {
   setLanguage?: (language: "zh" | "en") => Promise<void>
@@ -121,7 +121,6 @@ const VERSION_KEY = "alphalab-layout-version"
 const HIDDEN_MODES_KEY = "alphalab-hidden-modes"
 const SIDEBAR_COLLAPSED_KEY = "alphalab-sidebar-collapsed"
 const RIGHT_RAIL_COLLAPSED_KEY = "alphalab-right-sidebar-collapsed"
-const RIGHT_RAIL_TAB_KEY = "alphalab-right-sidebar-tab"
 const RIGHT_RAIL_WIDTH_KEY = "alphalab-right-sidebar-width"
 const DEFAULT_RIGHT_RAIL_WIDTH = 420
 const MIN_RIGHT_RAIL_WIDTH = 320
@@ -163,16 +162,6 @@ function loadRightRailCollapsed(): boolean {
   } catch {
     return true
   }
-}
-
-function loadRightRailTab(): RightRailTab {
-  try {
-    const saved = localStorage.getItem(RIGHT_RAIL_TAB_KEY)
-    if (saved === "agent" || saved === "activity") return saved
-  } catch {
-    // ignore
-  }
-  return "context"
 }
 
 function loadRightRailWidth(): number {
@@ -291,7 +280,6 @@ function WorkspaceInner() {
   const [mountedModes, setMountedModes] = useState<Set<WorkspaceMode>>(() => new Set([activeMode]))
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed)
   const [rightRailCollapsed, setRightRailCollapsed] = useState(loadRightRailCollapsed)
-  const [rightRailTab, setRightRailTab] = useState<RightRailTab>(loadRightRailTab)
   const [rightRailWidth, setRightRailWidth] = useState(loadRightRailWidth)
   const [hiddenModes, setHiddenModes] = useState<Set<WorkspaceMode>>(loadHiddenModes)
   const compactViewport = useViewportBelow(1024)
@@ -337,10 +325,8 @@ function WorkspaceInner() {
   }, [language, setActiveMode])
 
   const openAgentRail = useCallback(() => {
-    setRightRailTab("agent")
     setRightRailCollapsed(false)
     try {
-      localStorage.setItem(RIGHT_RAIL_TAB_KEY, "agent")
       localStorage.setItem(RIGHT_RAIL_COLLAPSED_KEY, "false")
     } catch { /* ignore */ }
   }, [])
@@ -463,14 +449,7 @@ function WorkspaceInner() {
     if (firstVisible) switchMode(firstVisible)
   }, [hiddenModes, activeMode, switchMode])
 
-  const selectRightRailTab = useCallback((tab: RightRailTab) => {
-    setRightRailTab(tab)
-    try { localStorage.setItem(RIGHT_RAIL_TAB_KEY, tab) } catch { /* ignore */ }
-  }, [])
-
   const openTask = useCallback((task: WorkspaceTask) => {
-    selectRightRailTab("context")
-
     if (task === "resetResearchWorkspace") {
       localStorage.removeItem(layoutKey("research"))
       const preset = layoutPresets.research
@@ -496,7 +475,7 @@ function WorkspaceInner() {
 
     const evidenceWidget = workspace.selectedBacktest ? "backtest.workbench" : "backtest.explorer"
     openWidget(evidenceWidget, undefined, "research")
-  }, [language, openAgentRail, openWidget, selectRightRailTab, switchMode, workspace.selectedBacktest])
+  }, [language, openAgentRail, openWidget, switchMode, workspace.selectedBacktest])
 
   const saveCurrentLayout = useCallback(() => {
     const currentMode = activeModeRef.current
@@ -589,7 +568,6 @@ function WorkspaceInner() {
         workspace.setLinkSymbol(command.group, command.symbol)
         return { type: command.type, success: true, message: `联动组 ${command.group.toUpperCase()} 已设为 ${command.symbol ?? "空"}` }
       case "show_right_rail": {
-        if (command.tab) selectRightRailTab(command.tab)
         const open = command.open ?? true
         setRightRailCollapsed(!open)
         try { localStorage.setItem(RIGHT_RAIL_COLLAPSED_KEY, String(!open)) } catch { /* ignore */ }
@@ -619,7 +597,7 @@ function WorkspaceInner() {
         return { type: command.type, success: true, message: `已重置 ${targetMode} 布局` }
       }
     }
-  }, [language, openWidget, queryClient, registerResearchResult, selectRightRailTab, switchMode, workspace])
+  }, [language, openWidget, queryClient, registerResearchResult, switchMode, workspace])
 
   useEffect(() => {
     const api = apiRefsRef.current[activeMode]
@@ -629,7 +607,7 @@ function WorkspaceInner() {
       api.layout(api.width, api.height, true)
       api.focus()
     })
-  }, [activeMode, compactViewport, narrowViewport, rightRailTab, rightRailWidth, sidebarCollapsed, rightRailCollapsed])
+  }, [activeMode, compactViewport, narrowViewport, rightRailWidth, sidebarCollapsed, rightRailCollapsed])
 
   const onReady = useCallback((mode: WorkspaceMode, event: DockviewReadyEvent) => {
     apiRefsRef.current[mode] = event.api
@@ -825,13 +803,8 @@ function WorkspaceInner() {
           collapsed={rightRailCollapsed}
           narrow={narrowViewport}
           width={rightRailWidth}
-          activeTab={rightRailTab}
-          onSelectTab={selectRightRailTab}
           onToggleCollapsed={toggleRightRailCollapsed}
           onWidthChange={resizeRightRail}
-          onAddWidget={addWidget}
-          onOpenWidget={openWidget}
-          onOpenTask={openTask}
         />
       </div>
       {/* Status bar: always visible at bottom */}

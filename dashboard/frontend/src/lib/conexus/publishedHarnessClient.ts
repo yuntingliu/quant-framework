@@ -80,13 +80,10 @@ export function buildRunInput(
   const request = message.trim()
   if (!request) throw new Error("Hosted AlphaLab Agent request is empty.")
   const workspaceContext = JSON.stringify(context)
-  const contextualRequest = workspaceContext === "{}"
-    ? request
-    : `${request}\n\nAlphaLab workspace context (JSON):\n${workspaceContext}`
-  if (contextualRequest.length > 100_000) {
+  if (request.length + workspaceContext.length > 100_000) {
     throw new Error("Hosted AlphaLab Agent request exceeds 100000 characters.")
   }
-  return { request: contextualRequest }
+  return { request, context }
 }
 
 export async function createRun(params: {

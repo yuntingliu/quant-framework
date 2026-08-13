@@ -55,7 +55,7 @@
         {
           "key": "context",
           "label": "Workspace context",
-          "description": "Selected symbol, strategy, backtest, intent, and data status from the AlphaLab workstation.",
+          "description": "Current workstation mode and selections, supported workspace commands, recent local conversation, and prior command receipts.",
           "type": "json",
           "required": false,
           "defaultValue": {},
@@ -269,7 +269,6 @@
                     "backtestId": { "type": ["string", "null"], "maxLength": 200 },
                     "date": { "type": ["string", "null"], "maxLength": 200 },
                     "group": { "type": "string", "enum": ["a", "b", "c", "d"] },
-                    "tab": { "type": "string", "enum": ["context", "agent", "activity"] },
                     "open": { "type": "boolean" }
                   },
                   "additionalProperties": false

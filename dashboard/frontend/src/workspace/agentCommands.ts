@@ -1,6 +1,5 @@
 import type { LinkGroup } from "@/contexts/WorkspaceContext"
 import type { WorkspaceMode } from "@/layouts/presets"
-import type { RightRailTab } from "@/workspace/types"
 import type { AgentResearchResult } from "@/workspace/researchResults"
 
 export const WORKSPACE_COMMAND_EVENT = "alphalab:workspaceCommands"
@@ -18,7 +17,7 @@ export type AgentWorkspaceCommand =
       date?: string | null
     }
   | { type: "set_link_symbol"; group: LinkGroup; symbol: string | null }
-  | { type: "show_right_rail"; tab?: RightRailTab; open?: boolean }
+  | { type: "show_right_rail"; open?: boolean }
   | { type: "refresh_data" }
   | { type: "save_layout"; mode?: WorkspaceMode }
   | { type: "reset_layout"; mode?: WorkspaceMode }
@@ -47,7 +46,6 @@ export interface AgentWorkspaceCommandEventDetail {
 
 const MODES = new Set<WorkspaceMode>(["home", "data", "research", "trading_a_share"])
 const LINK_GROUPS = new Set<LinkGroup>(["a", "b", "c", "d"])
-const RIGHT_RAIL_TABS = new Set<RightRailTab>(["context", "agent", "activity"])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
@@ -116,12 +114,9 @@ function parseCommand(value: unknown): AgentWorkspaceCommand | null {
         : null
     }
     case "show_right_rail": {
-      const tab = typeof value.tab === "string" && RIGHT_RAIL_TABS.has(value.tab as RightRailTab)
-        ? value.tab as RightRailTab
-        : undefined
-      if (value.tab !== undefined && !tab) return null
+      if (value.tab !== undefined) return null
       if (value.open !== undefined && typeof value.open !== "boolean") return null
-      return { type: "show_right_rail", ...(tab ? { tab } : {}), ...(typeof value.open === "boolean" ? { open: value.open } : {}) }
+      return { type: "show_right_rail", ...(typeof value.open === "boolean" ? { open: value.open } : {}) }
     }
     case "refresh_data":
       return { type: "refresh_data" }

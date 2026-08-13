@@ -1,30 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   Bot,
   CheckCircle2,
-  ChevronDown,
-  ChevronUp,
   CircleX,
-  FileText,
-  ListChecks,
   LoaderCircle,
   MessageSquarePlus,
-  Pencil,
   Send,
-  ShieldCheck,
-  SlidersHorizontal,
   Square,
   Wrench,
-  type LucideIcon,
 } from "lucide-react"
 
 import { SafeMarkdown, SafeMarkdownFrame } from "@/components/shared/SafeMarkdown"
-import { useAgentPrompt, type AgentDecisionNotebook, type AgentIntent } from "@/contexts/AgentPromptContext"
+import { useAgentPrompt, type AgentDecisionNotebook } from "@/contexts/AgentPromptContext"
 import { useLanguage } from "@/contexts/LanguageContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
 import { usePublishedAgent } from "@/hooks/usePublishedAgent"
-import { api } from "@/lib/api"
 import type {
   AgentToolActivity,
   PublishedHarnessArtifact,
@@ -51,27 +42,6 @@ function customNodePayload(value: unknown, expectedType: string): unknown {
     ? nested
     : value
 }
-
-interface AgentContextScope {
-  includeSymbol: boolean
-  includeStrategy: boolean
-  includeBacktest: boolean
-  includeData: boolean
-}
-
-const DEFAULT_CONTEXT_SCOPE: AgentContextScope = {
-  includeSymbol: true,
-  includeStrategy: true,
-  includeBacktest: true,
-  includeData: true,
-}
-
-const AGENT_INTENTS: Array<{ id: AgentIntent; icon: LucideIcon }> = [
-  { id: "brief", icon: FileText },
-  { id: "draft", icon: Pencil },
-  { id: "risk", icon: ShieldCheck },
-  { id: "next", icon: ListChecks },
-]
 
 const WORKSPACE_CAPABILITIES = {
   modes: ["home", "data", "research", "trading_a_share"],
@@ -248,17 +218,9 @@ export function ResearchAgentPanel() {
   const [draft, setDraft] = useState("")
   const [promptContext, setPromptContext] = useState<Record<string, unknown>>({})
   const [workspaceReceipts, setWorkspaceReceipts] = useState<AgentWorkspaceCommandReceipt[]>([])
-  const [intent, setIntent] = useState<AgentIntent>("brief")
-  const [contextScope, setContextScope] = useState<AgentContextScope>(DEFAULT_CONTEXT_SCOPE)
-  const [contextScopeOpen, setContextScopeOpen] = useState(false)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const pendingWorkspaceRequestIdsRef = useRef(new Set<string>())
   const processedWorkspaceArtifactIdsRef = useRef(new Set<string>())
-  const { data: dataStatus } = useQuery<Record<string, unknown>>({
-    queryKey: ["data-center", "status"],
-    queryFn: () => api.get<Record<string, unknown>>("/data/status"),
-    staleTime: 15_000,
-  })
 
   const onCompleted = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["v2", "backtests"] })
@@ -335,41 +297,19 @@ export function ResearchAgentPanel() {
     const message = draft.trim()
     if (!message) return
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    const linkedSymbols = Object.values(workspace.linkSymbols).filter((value): value is string => Boolean(value))
     const context: Record<string, unknown> = {
       ...promptContext,
       requestId,
       source: promptContext.source ?? "agent-widget",
       activeMode: workspace.activeMode,
-      researchIntent: intent,
-      contextScope,
+      selectedSymbol: workspace.selectedSymbol,
+      linkSymbols: workspace.linkSymbols,
+      selectedStrategy: workspace.selectedStrategy,
+      selectedBacktest: workspace.selectedBacktest,
+      selectedDate: workspace.selectedDate,
       workspaceCapabilities: WORKSPACE_CAPABILITIES,
       lastWorkspaceCommandReceipts: workspaceReceipts,
     }
-    if (contextScope.includeSymbol) {
-      context.selectedSymbol = workspace.selectedSymbol
-      context.symbols = workspace.selectedSymbol
-        ? [workspace.selectedSymbol]
-        : linkedSymbols.length > 0
-          ? linkedSymbols
-          : Array.isArray(promptContext.symbols)
-            ? promptContext.symbols
-            : []
-    } else {
-      delete context.selectedSymbol
-      delete context.symbols
-    }
-    if (contextScope.includeStrategy) context.selectedStrategy = workspace.selectedStrategy
-    else delete context.selectedStrategy
-    if (contextScope.includeBacktest) {
-      context.selectedBacktest = workspace.selectedBacktest
-      context.selectedDate = workspace.selectedDate
-    } else {
-      delete context.selectedBacktest
-      delete context.selectedDate
-    }
-    if (contextScope.includeData) context.dataStatus = dataStatus ?? null
-    else delete context.dataStatus
     pendingWorkspaceRequestIdsRef.current.add(requestId)
     if (await agent.send(message, context)) {
       setDraft("")
@@ -392,10 +332,6 @@ export function ResearchAgentPanel() {
     tools: "工具执行",
     workspaceActions: "工作台联动",
     quickPrompts: ["现在有哪些策略？", "对比当前策略并把研究报告放到中间工作区", "打开数据中心并刷新数据", "打开动量策略的回测工作台"],
-    intent: "研究意图",
-    intents: { brief: "简报", draft: "策略草案", risk: "风控", next: "下一步" },
-    contextScope: "携带上下文",
-    scope: { includeSymbol: "标的", includeStrategy: "策略", includeBacktest: "回测", includeData: "数据状态" },
   } : {
     title: "AI Research Agent",
     newChat: "New chat",
@@ -408,18 +344,7 @@ export function ResearchAgentPanel() {
     tools: "Tool activity",
     workspaceActions: "Workspace actions",
     quickPrompts: ["What strategies are available?", "Compare current strategies in a workspace report", "Open Data Center and refresh data", "Open the momentum backtest workbench"],
-    intent: "Research intent",
-    intents: { brief: "Brief", draft: "Strategy draft", risk: "Risk", next: "Next steps" },
-    contextScope: "Attached context",
-    scope: { includeSymbol: "Symbol", includeStrategy: "Strategy", includeBacktest: "Backtest", includeData: "Data status" },
   }
-
-  const enabledContextCount = Object.values(contextScope).filter(Boolean).length
-  const scopeOptions = (Object.keys(contextScope) as Array<keyof AgentContextScope>).map((key) => ({
-    key,
-    label: copy.scope[key],
-    enabled: contextScope[key],
-  }))
 
   if (!agent.loading && agent.status && !agent.status.available) {
     return (
@@ -532,54 +457,7 @@ export function ResearchAgentPanel() {
           )}
         </div>
         <div className="shrink-0 border-t border-border">
-          <div className="space-y-1.5 px-3 pt-2.5">
-            <div className="flex items-center gap-1" aria-label={copy.intent}>
-              {AGENT_INTENTS.map(({ id, icon: Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  aria-pressed={intent === id}
-                  className={intent === id
-                    ? "flex min-w-0 flex-1 items-center justify-center gap-1 rounded border border-primary/30 bg-primary/10 px-1.5 py-1 text-[10px] font-medium text-primary"
-                    : "flex min-w-0 flex-1 items-center justify-center gap-1 rounded border border-border bg-background px-1.5 py-1 text-[10px] text-muted-foreground hover:border-primary/30 hover:text-foreground"}
-                  onClick={() => setIntent(id)}
-                  title={`${copy.intent}: ${copy.intents[id]}`}
-                >
-                  <Icon className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{copy.intents[id]}</span>
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-[10px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-              onClick={() => setContextScopeOpen((current) => !current)}
-              aria-expanded={contextScopeOpen}
-            >
-              <SlidersHorizontal className="h-3 w-3" />
-              <span>{copy.contextScope}</span>
-              <span className="ml-auto font-mono">{enabledContextCount}/4</span>
-              {contextScopeOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-            </button>
-            {contextScopeOpen ? (
-              <div className="grid grid-cols-4 gap-1 pb-0.5">
-                {scopeOptions.map(({ key, label, enabled }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    aria-pressed={enabled}
-                    className={enabled
-                      ? "min-w-0 rounded border border-emerald-500/30 bg-emerald-500/10 px-1 py-1 text-[10px] text-emerald-700 dark:text-emerald-300"
-                      : "min-w-0 rounded border border-border bg-background px-1 py-1 text-[10px] text-muted-foreground opacity-70"}
-                    onClick={() => setContextScope((current) => ({ ...current, [key]: !current[key] }))}
-                  >
-                    <span className="block truncate">{label}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          <form className="flex gap-2 p-3 pt-2" onSubmit={submit}>
+          <form className="flex gap-2 p-3" onSubmit={submit}>
             <textarea
               className="min-h-10 flex-1 resize-none rounded border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
               value={draft}

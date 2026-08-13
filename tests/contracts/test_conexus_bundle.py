@@ -125,6 +125,9 @@ def test_conexus_result_schema_supports_bounded_structured_charts():
     ]
     assert chart["properties"]["series"]["maxItems"] == 12
     assert chart["properties"]["rows"]["maxItems"] == 500
+    commands = exposure["outputSchema"]["properties"]["workspaceCommands"]
+    command_properties = commands["properties"]["commands"]["items"]["properties"]
+    assert "tab" not in command_properties
 
 
 def test_conexus_registration_keeps_runtime_and_rq_environment_separate():
@@ -167,9 +170,21 @@ def test_dashboard_uses_current_hosted_exposure_manifest_contract():
     assert "manifest.exposures.find" in client
     assert "manifest.defaultExposureId" in client
     assert "exposure.inputs" not in client
-    assert 'return { request: contextualRequest }' in client
+    assert "AlphaLab workspace context (JSON)" not in client
+    assert "return { request, context }" in client
     assert "exposureId: exposure.id" in hook
     assert "buildRunInput(userMessage" in hook
+
+    command_parser = (
+        ROOT
+        / "dashboard"
+        / "frontend"
+        / "src"
+        / "workspace"
+        / "agentCommands.ts"
+    ).read_text(encoding="utf-8")
+    assert "RightRailTab" not in command_parser
+    assert "value.tab !== undefined" in command_parser
 
 
 def test_hosted_linux_tunnel_uses_a_private_api_listener():
