@@ -772,8 +772,6 @@ function WorkspaceInner() {
             onOpenTask={openTask}
             onSaveLayout={saveCurrentLayout}
             onResetLayout={resetCurrentLayout}
-            rightRailCollapsed={rightRailCollapsed}
-            onToggleRightRail={toggleRightRailCollapsed}
           />
           {/* Reserved for explicit, user-started data-operation notices. */}
           <LaunchSyncBanner />

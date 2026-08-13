@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from "react"
 import {
   HelpCircle,
   Moon,
-  PanelRightClose,
-  PanelRightOpen,
   Plus,
   RotateCcw,
   Save,
@@ -31,16 +29,12 @@ export function WorkspaceToolbar({
   onOpenTask,
   onSaveLayout,
   onResetLayout,
-  rightRailCollapsed,
-  onToggleRightRail,
 }: {
   onSwitchMode: (mode: WorkspaceMode) => void
   onAddWidget: (widgetId: string, title?: string) => void
   onOpenTask: (task: WorkspaceTask) => void
   onSaveLayout: () => void
   onResetLayout: () => void
-  rightRailCollapsed: boolean
-  onToggleRightRail: () => void
 }) {
   const { theme, toggleTheme } = useTheme()
   const { activeMode } = useWorkspace()
@@ -96,15 +90,6 @@ export function WorkspaceToolbar({
 
       {/* Right: add widget + utilities */}
       <div className="flex shrink-0 items-center gap-0.5 pr-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onToggleRightRail}
-          title={rightRailCollapsed ? t("rightRail.expand") : t("rightRail.collapse")}
-        >
-          {rightRailCollapsed ? <PanelRightOpen className="w-4 h-4" /> : <PanelRightClose className="w-4 h-4" />}
-        </Button>
-
         {/* Add widget catalog */}
         <div className="relative">
           <Button variant="ghost" size="sm" onClick={() => setCatalogOpen(!catalogOpen)} title={t("toolbar.addWidget")}>
