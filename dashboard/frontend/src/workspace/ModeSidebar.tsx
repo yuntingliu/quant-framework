@@ -58,15 +58,6 @@ export function ModeSidebar({
             <div className="truncate text-[10px] text-muted-foreground">{t("sidebar.workstation")}</div>
           </div>
         )}
-        {!collapsed && (
-          <button
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            onClick={onToggleCollapsed}
-            title={t("sidebar.collapse")}
-          >
-            <PanelLeftClose className="h-4 w-4" />
-          </button>
-        )}
       </div>
 
       <div className="space-y-2 p-2">
