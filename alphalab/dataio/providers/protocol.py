@@ -29,6 +29,15 @@ class MarketDataProvider(Protocol):
 
 
 @runtime_checkable
+class InstrumentProvider(Protocol):
+    """Reference data used to construct an as-of-date investable universe."""
+
+    def get_instruments(self, asof_date: Optional[str] = None) -> pd.DataFrame:
+        """Return instrument rows with symbol and listing interval metadata."""
+        ...
+
+
+@runtime_checkable
 class FundamentalProvider(Protocol):
     """Pull-based provider for point-in-time fundamental snapshots."""
 

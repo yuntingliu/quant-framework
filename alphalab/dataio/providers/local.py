@@ -106,6 +106,59 @@ class LocalParquetMarketDataProvider:
         )
 
 
+class LocalParquetInstrumentProvider:
+    """Instrument metadata with listing intervals and optional dated snapshots."""
+
+    def __init__(
+        self,
+        instrument_dir: str | Path,
+        file_name: str = "instruments.parquet",
+    ):
+        self.instrument_dir = Path(instrument_dir)
+        self.path = self.instrument_dir / file_name
+        self._cache: pd.DataFrame | None = None
+
+    def _load(self) -> pd.DataFrame:
+        if self._cache is not None:
+            return self._cache
+        if not self.path.exists():
+            self._cache = pd.DataFrame(
+                columns=["snapshot_date", "symbol", "listed_date", "de_listed_date"]
+            )
+            return self._cache
+        frame = pd.read_parquet(self.path).copy()
+        if "symbol" not in frame:
+            raise MissingDataError(f"Instrument file must include symbol: {self.path}")
+        frame["symbol"] = frame["symbol"].astype(str).str.upper()
+        for column in ("snapshot_date", "listed_date", "de_listed_date"):
+            if column in frame:
+                frame[column] = pd.to_datetime(frame[column], errors="coerce")
+        self._cache = frame.dropna(subset=["symbol"]).reset_index(drop=True)
+        return self._cache
+
+    def get_instruments(self, asof_date: Optional[str] = None) -> pd.DataFrame:
+        frame = self._load()
+        if frame.empty:
+            return frame.copy()
+        cutoff = pd.Timestamp(asof_date) if asof_date is not None else None
+        selected = frame
+        if "snapshot_date" in frame and frame["snapshot_date"].notna().any():
+            snapshots = frame["snapshot_date"].dropna()
+            eligible_snapshots = snapshots.loc[snapshots.le(cutoff)] if cutoff is not None else snapshots
+            snapshot = eligible_snapshots.max() if not eligible_snapshots.empty else snapshots.min()
+            selected = frame.loc[frame["snapshot_date"].eq(snapshot)].copy()
+        if cutoff is not None:
+            if "listed_date" in selected:
+                selected = selected.loc[
+                    selected["listed_date"].isna() | selected["listed_date"].le(cutoff)
+                ]
+            if "de_listed_date" in selected:
+                selected = selected.loc[
+                    selected["de_listed_date"].isna() | selected["de_listed_date"].gt(cutoff)
+                ]
+        return selected.drop_duplicates("symbol", keep="last").reset_index(drop=True)
+
+
 class LocalParquetFundamentalProvider:
     """Fundamental provider backed by one long-table parquet file."""
 
@@ -236,6 +289,33 @@ class PartitionedParquetMarketDataProvider(LocalParquetMarketDataProvider):
             .sort_values(["date", "symbol"])
             .reset_index(drop=True)
         )
+        return self._cache
+
+
+class PartitionedParquetInstrumentProvider(LocalParquetInstrumentProvider):
+    """Instrument provider for ignored runtime snapshots."""
+
+    def __init__(self, runtime_root: str | Path):
+        self.catalog = DataCatalog(runtime_root)
+        self.instrument_dir = self.catalog.path("rq.instruments")
+        self.path = self.instrument_dir
+        self._cache: pd.DataFrame | None = None
+
+    def _load(self) -> pd.DataFrame:
+        if self._cache is not None:
+            return self._cache
+        files = self.catalog.files("rq.instruments")
+        if not files:
+            self._cache = pd.DataFrame(
+                columns=["snapshot_date", "symbol", "listed_date", "de_listed_date"]
+            )
+            return self._cache
+        frame = pd.concat((pd.read_parquet(path) for path in files), ignore_index=True)
+        frame["symbol"] = frame["symbol"].astype(str).str.upper()
+        for column in ("snapshot_date", "listed_date", "de_listed_date"):
+            if column in frame:
+                frame[column] = pd.to_datetime(frame[column], errors="coerce")
+        self._cache = frame.dropna(subset=["symbol"]).reset_index(drop=True)
         return self._cache
 
 

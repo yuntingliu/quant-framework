@@ -7,9 +7,11 @@ import {
   type StrategyTemplateDetail,
 } from "../../lib/api"
 import { useWorkspaceRefresh } from "../../hooks/useWorkspaceRefresh"
+import { useWorkspace } from "../../contexts/WorkspaceContext"
 
-export function StrategyEditorWidget() {
+export function StrategyWorkbenchWidget() {
   const refreshRevision = useWorkspaceRefresh()
+  const { selectedStrategy, setSelectedStrategy } = useWorkspace()
   const [strategies, setStrategies] = useState<StrategyTemplate[]>([])
   const [strategyId, setStrategyId] = useState("")
   const [detail, setDetail] = useState<StrategyTemplateDetail | null>(null)
@@ -28,16 +30,24 @@ export function StrategyEditorWidget() {
         ? strategyId
         : items[0]?.id ?? ""
     setStrategyId(next)
+    setSelectedStrategy(next || null)
   }
 
   useEffect(() => {
     api.get<StrategyTemplate[]>("/strategies")
       .then((items) => {
         setStrategies(items)
-        setStrategyId(items[0]?.id ?? "")
+        const selected = items[0]?.id ?? ""
+        setStrategyId(selected)
+        setSelectedStrategy(selected || null)
       })
       .catch((loadError: Error) => setError(loadError.message))
-  }, [refreshRevision])
+  }, [refreshRevision, setSelectedStrategy])
+
+  useEffect(() => {
+    if (!selectedStrategy || selectedStrategy === strategyId) return
+    if (strategies.some((item) => item.id === selectedStrategy)) setStrategyId(selectedStrategy)
+  }, [selectedStrategy, strategies, strategyId])
 
   useEffect(() => {
     if (!strategyId) return
@@ -125,8 +135,8 @@ export function StrategyEditorWidget() {
     <div className="panel">
       <div className="panel-heading">
         <div>
-          <h2>Strategy Editor</h2>
-          <p>Built-in templates remain immutable; local copies stay under runtime data.</p>
+          <h2>Strategy Workbench</h2>
+          <p>Review, clone, validate, and save complete strategy definitions in one place.</p>
         </div>
         <FileCode2 size={18} />
       </div>
@@ -139,7 +149,10 @@ export function StrategyEditorWidget() {
               key={strategy.id}
               type="button"
               className={strategy.id === strategyId ? "active" : ""}
-              onClick={() => setStrategyId(strategy.id)}
+              onClick={() => {
+                setStrategyId(strategy.id)
+                setSelectedStrategy(strategy.id)
+              }}
             >
               <strong>{strategy.name}</strong>
               <span>

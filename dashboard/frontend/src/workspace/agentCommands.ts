@@ -44,7 +44,7 @@ export interface AgentWorkspaceCommandEventDetail {
   receiptPromise?: Promise<AgentWorkspaceCommandReceipt[]>
 }
 
-const MODES = new Set<WorkspaceMode>(["home", "data", "research", "trading_a_share"])
+const MODES = new Set<WorkspaceMode>(["data", "factor", "strategy", "backtest", "report"])
 const LINK_GROUPS = new Set<LinkGroup>(["a", "b", "c", "d"])
 
 function isRecord(value: unknown): value is Record<string, unknown> {

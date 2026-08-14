@@ -22,11 +22,15 @@ def test_public_facade_exports_core_loop():
         "RQDataProvider",
         "StrategyConfig",
         "SignalEngine",
+        "BacktestResult",
         "run_backtest",
+        "run_backtest_detailed",
         "ResultStore",
         "list_factors",
         "compute_factor",
         "get_factor",
+        "evaluate_factor",
+        "ExecutionSpec",
     ]:
         assert hasattr(alphalab, name)
 
@@ -58,7 +62,7 @@ def test_frontend_preserves_gui_with_disabled_adapter_placeholders():
     components = root / "dashboard" / "frontend" / "src" / "widgets" / "registry" / "components.tsx"
     text = components.read_text(encoding="utf-8")
     assert "AdapterDisabledWidget" in text
-    assert '"trading.auto-trade": disabled("trading.auto-trade")' in text
+    assert "widgetCatalog.map((widget) => [widget.id, disabled(widget.id)])" in text
 
 
 def test_frontend_visible_catalog_excludes_removed_broker():
@@ -76,6 +80,22 @@ def test_frontend_visible_catalog_excludes_removed_broker():
         if term in path.read_text(encoding="utf-8", errors="ignore").lower()
     ]
     assert hits == []
+
+
+def test_frontend_exposes_five_customizable_workstation_modes():
+    root = Path(__file__).resolve().parents[2]
+    presets = (
+        root / "dashboard" / "frontend" / "src" / "layouts" / "presets.ts"
+    ).read_text(encoding="utf-8")
+    modes = (
+        root / "dashboard" / "frontend" / "src" / "workspace" / "modes.ts"
+    ).read_text(encoding="utf-8")
+    expected = ["data", "factor", "strategy", "backtest", "report"]
+    assert 'export type WorkspaceMode = "data" | "factor" | "strategy" | "backtest" | "report"' in presets
+    for mode in expected:
+        assert f'{mode}: createWorkbenchPreset("{mode}"' in presets
+        assert f'{mode}: {{ icon:' in modes
+    assert 'export const DEFAULT_MODE: WorkspaceMode = "data"' in presets
 
 
 def test_only_generic_strategy_templates_are_bundled():

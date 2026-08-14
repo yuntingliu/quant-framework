@@ -19,9 +19,12 @@ integrations/conexus/alphalab-research-agent/
 ```
 
 It contains the Agent prompt, typed context/result nodes, research document, and
-14 AlphaLab API tools. The tool set includes all six canonical data-registry
+15 AlphaLab API tools. The tool set includes all six canonical data-registry
 operations plus bounded market, point-in-time fundamental, factor, strategy,
-backtest, signal, and workspace-context access. Runtime and hosting state
+backtest, signal, workspace-context access, and a dedicated factor evaluator.
+The evaluator supports registered factors and safe expressions and returns PIT
+coverage, IC/ICIR, quantile spreads, decay, turnover, bootstrap intervals and
+data-quality warnings. Runtime and hosting state
 remain local and ignored.
 After initializing Conexus for this repository, register and host the bundle:
 
@@ -71,11 +74,16 @@ arbitrary shell, or place real orders. It may autonomously plan and run RQ
 synchronization when runtime data is missing, stale, or required by the current
 task. The RQ-sync adapter supplies the bridge's `confirm=true` trusted-caller
 assertion internally, so synchronization does not wait for user authorization
-or a Data Center click. Backtest execution and paper-signal generation remain
+or a Data Workbench click. Backtest execution and paper-signal generation remain
 separate typed tools that require an explicit user request. Those policies are
 not workspace commands.
 
 ## Workstation interaction
+
+The left navigation and Agent contract share five modes: `data`, `factor`,
+`strategy`, `backtest`, and `report`. Each mode starts with its matching primary
+workbench, while the middle Dockview area remains customizable and persists a
+separate layout for every mode.
 
 The published Harness exposes a `workspaceCommands` JSON output backed by the
 `alphalab-workspace-commands-v1` Custom node. The Agent tab in the React right
@@ -87,10 +95,10 @@ local conversations are retained under
 recent transcript as untrusted continuity context. Selecting New chat starts
 without that transcript.
 
-The right rail stages prompts into the Dockview Research Agent panel. The Agent
-composer exposes `brief`, `draft`, `risk`, and `next` intents plus explicit
-symbol, strategy, backtest, and data-status context switches. The latest
-structured decision notebook is reflected back into the right rail.
+The right rail stages free-form prompts into the Dockview Research Agent panel.
+Workspace mode, selected symbol/strategy/backtest, data profile and recent
+conversation are assembled automatically through the Conexus context nodes;
+there is no separate manual-context UI or duplicated intent button row.
 
 ## Structured workspace results
 
@@ -101,8 +109,8 @@ may include interactive table and chart attachments. An `open_result` command is
 accepted only when its `resultId` matches the descriptor and current browser
 request.
 
-Validated documents open as `research.result-viewer` Dockview panels in the
-middle workspace. The primary view renders Markdown, GitHub tables, images, and
+Validated documents open as `report.workbench` Dockview panels in the Report
+mode by default. The primary view renders Markdown, GitHub tables, images, and
 sanitized static HTML. Scripts, iframes, forms, event handlers, JavaScript URLs,
 and other executable markup are rejected. When the descriptor also contains
 columns and rows, the panel adds a sortable/filterable data-table view and CSV
@@ -121,7 +129,8 @@ for correction. The frontend still validates request IDs and the closed command
 allowlist before applying any workspace action.
 
 Multiple result tabs and layout restoration are supported. Recent validated
-documents are retained in local storage subject to browser quota. Turns without
+documents are retained in local storage subject to browser quota and persisted
+to SQLite through `/api/reports` with data/code fingerprints. Turns without
 an independent result write `kind: "none"`, so stale Document content cannot be
 reopened as if it belonged to the current turn.
 

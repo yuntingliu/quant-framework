@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react"
 import {
-  HelpCircle,
   Moon,
   Plus,
   RotateCcw,
@@ -13,26 +12,20 @@ import { Button } from "@/components/ui/button"
 import { useLanguage } from "@/contexts/LanguageContext"
 import { useTheme } from "@/contexts/ThemeContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
-import type { WorkspaceMode } from "@/layouts/presets"
-import { widgetCategory, widgetCatalog, widgetDescription, widgetTitle, widgetTitleById } from "@/widgets/registry"
+import { widgetCategory, widgetCatalog, widgetDescription, widgetTitle } from "@/widgets/registry"
 
-import { MODE_CONFIG } from "./modes"
-import type { WorkspaceTask } from "./types"
+import { MODE_CONFIG, MODE_SHORTCUTS } from "./modes"
 
 // ---------------------------------------------------------------------------
 // Toolbar
 // ---------------------------------------------------------------------------
 
 export function WorkspaceToolbar({
-  onSwitchMode,
   onAddWidget,
-  onOpenTask,
   onSaveLayout,
   onResetLayout,
 }: {
-  onSwitchMode: (mode: WorkspaceMode) => void
   onAddWidget: (widgetId: string, title?: string) => void
-  onOpenTask: (task: WorkspaceTask) => void
   onSaveLayout: () => void
   onResetLayout: () => void
 }) {
@@ -58,7 +51,10 @@ export function WorkspaceToolbar({
     setCatalogOpen(false)
   }
 
-  const categories = widgetCatalog.reduce<Record<string, typeof widgetCatalog>>((acc, w) => {
+  const availableWidgets = widgetCatalog.filter(
+    (widget) => widget.status === "active" && MODE_SHORTCUTS[activeMode].includes(widget.id),
+  )
+  const categories = availableWidgets.reduce<Record<string, typeof widgetCatalog>>((acc, w) => {
     const category = widgetCategory(w, language)
     ;(acc[category] ??= []).push(w)
     return acc
@@ -70,12 +66,7 @@ export function WorkspaceToolbar({
   return (
     <div ref={toolbarRef} className="relative z-30 h-10 flex min-w-0 shrink-0 items-center overflow-visible border-b border-border bg-card">
       {/* Command Palette (Ctrl+K) */}
-      <CommandPalette
-        onAddWidget={addWidget}
-        onSwitchMode={onSwitchMode}
-        onResetLayout={onResetLayout}
-        onOpenTask={onOpenTask}
-      />
+      <CommandPalette onAddWidget={addWidget} />
 
       {/* Left: current mode context */}
       <div className="flex min-w-0 items-center gap-2 px-3">
@@ -130,9 +121,6 @@ export function WorkspaceToolbar({
         </Button>
         <Button variant="ghost" size="sm" onClick={onResetLayout} title={t("toolbar.resetLayout")}>
           <RotateCcw className="w-4 h-4" />
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => addWidget("system.help", widgetTitleById("system.help", language))} title={t("toolbar.help")}>
-          <HelpCircle className="w-4 h-4" />
         </Button>
         <Button variant="ghost" size="sm" onClick={toggleTheme} title={t("toolbar.theme")}>
           {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}

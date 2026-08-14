@@ -96,7 +96,7 @@ def test_backtest_analysis_derives_equity_turnover_and_holdings():
 
     assert analysis["equity_curve"] == pytest.approx([1.10, 1.089])
     assert analysis["drawdown"][-1] == pytest.approx(-0.01)
-    assert analysis["turnover"][0]["value"] == pytest.approx(0.50)
+    assert analysis["turnover"][0]["value"] == pytest.approx(1.00)
     assert analysis["turnover"][1]["value"] == pytest.approx(0.10)
     assert analysis["holdings"][0]["holdings_count"] == 2
     assert analysis["holdings"][0]["concentration"] == pytest.approx(0.52)

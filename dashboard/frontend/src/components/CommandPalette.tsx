@@ -1,36 +1,19 @@
 /**
- * Command Palette — Ctrl+K spotlight search for stocks, strategies, widgets, actions.
+ * Command Palette — Ctrl+K spotlight search for stocks, strategies, and widgets.
  *
  * Uses cmdk for fuzzy search + keyboard navigation.
  * Integrates with WorkspaceContext for cross-widget symbol linking.
  */
 import { useEffect, useState, useCallback } from "react"
 import { Command } from "cmdk"
-import {
-  Search, BarChart3, Database, FlaskConical, TrendingUp, Home,
-  Plus, RotateCcw, Sun, Moon, Workflow, PlayCircle,
-} from "lucide-react"
+import { Plus, Search } from "lucide-react"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
-import { useTheme } from "@/contexts/ThemeContext"
-import { useLanguage, type TranslationKey } from "@/contexts/LanguageContext"
-import { widgetCatalog, widgetDescription, widgetTitle } from "@/widgets/registry"
-import type { WorkspaceMode } from "@/layouts/presets"
+import { useLanguage } from "@/contexts/LanguageContext"
+import { agentWorkspaceWidgetIds, widgetCatalog, widgetDescription, widgetTitle } from "@/widgets/registry"
 
 interface CommandPaletteProps {
   onAddWidget?: (widgetId: string, title: string) => void
-  onSwitchMode?: (mode: WorkspaceMode) => void
-  onResetLayout?: () => void
-  onOpenTask?: (task: CommandTask) => void
 }
-
-type CommandTask = "startResearch" | "runBacktest" | "openEvidence" | "resetResearchWorkspace"
-
-const MODE_ITEMS: { mode: WorkspaceMode; labelKey: TranslationKey; icon: typeof BarChart3 }[] = [
-  { mode: "home", labelKey: "mode.home.long", icon: Home },
-  { mode: "data", labelKey: "mode.data.long", icon: Database },
-  { mode: "research", labelKey: "mode.research.long", icon: FlaskConical },
-  { mode: "trading_a_share", labelKey: "mode.tradingAshare.long", icon: TrendingUp },
-]
 
 // Common A-share stocks for quick search (loaded once)
 const QUICK_STOCKS = [
@@ -51,10 +34,9 @@ const QUICK_STOCKS = [
   { code: "601012.SH", name: "隆基绿能" },
 ]
 
-export function CommandPalette({ onAddWidget, onSwitchMode, onResetLayout, onOpenTask }: CommandPaletteProps) {
+export function CommandPalette({ onAddWidget }: CommandPaletteProps) {
   const [open, setOpen] = useState(false)
   const { setSelectedSymbol } = useWorkspace()
-  const { theme, toggleTheme } = useTheme()
   const { language, t } = useLanguage()
 
   // Global Ctrl+K shortcut
@@ -81,16 +63,6 @@ export function CommandPalette({ onAddWidget, onSwitchMode, onResetLayout, onOpe
     onAddWidget?.(id, title)
     setOpen(false)
   }, [onAddWidget])
-
-  const selectMode = useCallback((mode: WorkspaceMode) => {
-    onSwitchMode?.(mode)
-    setOpen(false)
-  }, [onSwitchMode])
-
-  const selectTask = useCallback((task: CommandTask) => {
-    onOpenTask?.(task)
-    setOpen(false)
-  }, [onOpenTask])
 
   if (!open) return null
 
@@ -126,58 +98,6 @@ export function CommandPalette({ onAddWidget, onSwitchMode, onResetLayout, onOpe
               {t("command.empty")}
             </Command.Empty>
 
-            {/* Actions */}
-            <Command.Group heading={t("command.group.actions")} className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider">
-              <Command.Item
-                value="开始研究 start research workflow ai quant workflow"
-                onSelect={() => selectTask("startResearch")}
-                className="flex items-center gap-3 px-2 py-1.5 text-sm rounded cursor-pointer data-[selected=true]:bg-accent/10 data-[selected=true]:text-accent-foreground"
-              >
-                <Workflow className="w-4 h-4 text-muted-foreground" />
-                <span>{t("command.action.startResearch")}</span>
-              </Command.Item>
-              <Command.Item
-                value="运行回测 run selected strategy backtest"
-                onSelect={() => selectTask("runBacktest")}
-                className="flex items-center gap-3 px-2 py-1.5 text-sm rounded cursor-pointer data-[selected=true]:bg-accent/10 data-[selected=true]:text-accent-foreground"
-              >
-                <PlayCircle className="w-4 h-4 text-muted-foreground" />
-                <span>{t("command.action.runBacktest")}</span>
-              </Command.Item>
-              <Command.Item
-                value="查看证据 open latest evidence backtest workbench records"
-                onSelect={() => selectTask("openEvidence")}
-                className="flex items-center gap-3 px-2 py-1.5 text-sm rounded cursor-pointer data-[selected=true]:bg-accent/10 data-[selected=true]:text-accent-foreground"
-              >
-                <BarChart3 className="w-4 h-4 text-muted-foreground" />
-                <span>{t("command.action.openEvidence")}</span>
-              </Command.Item>
-              <Command.Item
-                value="重置研究工作台 reset research workspace"
-                onSelect={() => selectTask("resetResearchWorkspace")}
-                className="flex items-center gap-3 px-2 py-1.5 text-sm rounded cursor-pointer data-[selected=true]:bg-accent/10 data-[selected=true]:text-accent-foreground"
-              >
-                <RotateCcw className="w-4 h-4 text-muted-foreground" />
-                <span>{t("command.action.resetResearch")}</span>
-              </Command.Item>
-              <Command.Item
-                value="重置布局 reset layout"
-                onSelect={() => { onResetLayout?.(); setOpen(false) }}
-                className="flex items-center gap-3 px-2 py-1.5 text-sm rounded cursor-pointer data-[selected=true]:bg-accent/10 data-[selected=true]:text-accent-foreground"
-              >
-                <RotateCcw className="w-4 h-4 text-muted-foreground" />
-                <span>{t("command.action.resetLayout")}</span>
-              </Command.Item>
-              <Command.Item
-                value="切换主题 toggle theme dark light"
-                onSelect={() => { toggleTheme(); setOpen(false) }}
-                className="flex items-center gap-3 px-2 py-1.5 text-sm rounded cursor-pointer data-[selected=true]:bg-accent/10 data-[selected=true]:text-accent-foreground"
-              >
-                {theme === "dark" ? <Sun className="w-4 h-4 text-muted-foreground" /> : <Moon className="w-4 h-4 text-muted-foreground" />}
-                <span>{t("command.action.toggleTheme")}</span>
-              </Command.Item>
-            </Command.Group>
-
             {/* Stocks */}
             <Command.Group heading={t("command.group.stocks")} className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider">
               {QUICK_STOCKS.map(s => (
@@ -193,25 +113,10 @@ export function CommandPalette({ onAddWidget, onSwitchMode, onResetLayout, onOpe
               ))}
             </Command.Group>
 
-            {/* Modes */}
-            <Command.Group heading={t("command.group.modes")} className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider">
-              {MODE_ITEMS.map(m => (
-                <Command.Item
-                  key={m.mode}
-                  value={`${t(m.labelKey)} ${m.mode}`}
-                  onSelect={() => selectMode(m.mode)}
-                  className="flex items-center gap-3 px-2 py-1.5 text-sm rounded cursor-pointer data-[selected=true]:bg-accent/10 data-[selected=true]:text-accent-foreground"
-                >
-                  <m.icon className="w-4 h-4 text-muted-foreground" />
-                  <span>{t(m.labelKey)}</span>
-                </Command.Item>
-              ))}
-            </Command.Group>
-
             {/* Widgets */}
             <Command.Group heading={t("command.group.widgets")} className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider">
-              {[...widgetCatalog]
-                .sort((left, right) => Number(right.status === "active") - Number(left.status === "active"))
+              {widgetCatalog
+                .filter((widget) => agentWorkspaceWidgetIds.includes(widget.id))
                 .map(w => (
                 <Command.Item
                   key={w.id}
@@ -224,11 +129,6 @@ export function CommandPalette({ onAddWidget, onSwitchMode, onResetLayout, onOpe
                   {widgetDescription(w, language) && (
                     <span className="text-xs text-muted-foreground ml-auto truncate max-w-[200px]">
                       {widgetDescription(w, language)}
-                    </span>
-                  )}
-                  {w.status === "not_configured" && (
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {language === "zh" ? "未配置" : "Not configured"}
                     </span>
                   )}
                 </Command.Item>

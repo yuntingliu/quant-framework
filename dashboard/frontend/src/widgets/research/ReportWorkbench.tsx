@@ -55,7 +55,7 @@ function compareCells(left: ResearchResultCell, right: ResearchResultCell): numb
   return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" })
 }
 
-export function ResearchResultViewerWidget() {
+export function ReportWorkbenchWidget() {
   const panel = usePanel()
   const { language } = useLanguage()
   const { researchResults } = useAgentPrompt()
@@ -93,6 +93,10 @@ export function ResearchResultViewerWidget() {
 
   const table = result?.table
   const charts = result?.charts
+  const provenance = result?.provenance as {
+    code?: { commit?: string | null; dirty?: boolean | null; source_sha256?: string }
+    data?: { aggregate_sha256?: string }
+  } | undefined
   const visibleRows = useMemo(() => {
     if (!table) return []
     const normalized = query.trim().toLocaleLowerCase()
@@ -169,6 +173,16 @@ export function ResearchResultViewerWidget() {
               <Database className="h-3 w-3 shrink-0" />
               <span className="truncate">{copy.sources}: {result.sources.join(" · ")}</span>
             </span>
+          ) : null}
+          {result.profile ? <span className="rounded bg-muted px-2 py-1 font-mono">{result.profile}</span> : null}
+          {provenance?.data?.aggregate_sha256 ? (
+            <span className="font-mono" title={provenance.data.aggregate_sha256}>data {provenance.data.aggregate_sha256.slice(0, 12)}</span>
+          ) : null}
+          {provenance?.code?.commit ? (
+            <span className="font-mono" title={provenance.code.commit}>code {provenance.code.commit.slice(0, 10)}{provenance.code.dirty ? "-dirty" : ""}</span>
+          ) : null}
+          {provenance?.code?.source_sha256 ? (
+            <span className="font-mono" title={provenance.code.source_sha256}>source {provenance.code.source_sha256.slice(0, 12)}</span>
           ) : null}
         </div>
       </div>

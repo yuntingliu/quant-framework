@@ -24,8 +24,13 @@ class PerformanceMetrics:
         total = float(nav.iloc[-1] - 1)
         years = max(len(returns) / periods_per_year, 1 / periods_per_year)
         annual_return = float((1 + total) ** (1 / years) - 1)
-        annual_vol = float(returns.std(ddof=0) * np.sqrt(periods_per_year))
-        sharpe = float(annual_return / annual_vol) if annual_vol > 0 else 0.0
+        period_vol = float(returns.std(ddof=1)) if len(returns) > 1 else 0.0
+        annual_vol = float(period_vol * np.sqrt(periods_per_year))
+        sharpe = (
+            float(returns.mean() / period_vol * np.sqrt(periods_per_year))
+            if period_vol > 0
+            else 0.0
+        )
         max_drawdown = float((nav / nav.cummax() - 1).min())
         return {
             "total_return": total,

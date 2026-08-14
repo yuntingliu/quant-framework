@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS backtests (
     max_drawdown REAL,
     n_periods INTEGER,
     tags TEXT,
-    notes TEXT
+    notes TEXT,
+    provenance_json TEXT,
+    execution_json TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_backtests_strategy ON backtests(strategy_id);
@@ -153,6 +155,20 @@ CREATE TABLE IF NOT EXISTS research_runs (
 
 CREATE INDEX IF NOT EXISTS idx_research_runs_created
     ON research_runs(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS research_artifacts (
+    id TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL,
+    profile TEXT NOT NULL,
+    title TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    provenance_json TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_artifacts_updated
+    ON research_artifacts(updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS research_run_steps (
     run_id TEXT NOT NULL REFERENCES research_runs(id) ON DELETE CASCADE,

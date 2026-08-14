@@ -105,6 +105,7 @@ class RQDataProvider:
         self.client = client
         self.adjust_type = adjust_type
         self.fundamental_batch_size = fundamental_batch_size
+        self._instrument_cache: pd.DataFrame | None = None
 
     @classmethod
     def from_env(cls, **kwargs: Any) -> "RQDataProvider":
@@ -149,19 +150,61 @@ class RQDataProvider:
     def get_symbols(self, universe: str = "all") -> list[str]:
         if universe.lower() not in {"all", "stock", "stocks", "cs"}:
             raise MissingDataError(f"RQData universe is not supported: {universe!r}")
-        rq = self.client.connect()
-        try:
-            raw = rq.all_instruments(type="CS", market="cn")
-        except Exception as exc:
-            raise DataLoadError("RQData instrument request failed") from exc
-        frame = _reset_index(pd.DataFrame(raw))
-        if frame.empty:
-            return []
-        columns = _columns(frame)
-        symbol_column = columns.get("order_book_id") or columns.get("symbol")
-        if symbol_column is None:
-            raise DataValidationError("RQData instruments do not include order_book_id")
-        return sorted({_from_rq_symbol(value) for value in frame[symbol_column].dropna()})
+        frame = self.get_instruments()
+        return sorted(frame["symbol"].dropna().astype(str).unique().tolist())
+
+    def get_instruments(self, asof_date: Optional[str] = None) -> pd.DataFrame:
+        """Return current RQ reference data, filtered by listing intervals.
+
+        The retrieval date remains in ``snapshot_date`` so historical research
+        can disclose when a current snapshot was used for an earlier signal.
+        """
+
+        if self._instrument_cache is not None:
+            out = self._instrument_cache.copy()
+        else:
+            rq = self.client.connect()
+            try:
+                raw = rq.all_instruments(type="CS", market="cn")
+            except Exception as exc:
+                raise DataLoadError("RQData instrument request failed") from exc
+            frame = _reset_index(pd.DataFrame(raw))
+            if frame.empty:
+                self._instrument_cache = pd.DataFrame(
+                    columns=["snapshot_date", "symbol", "listed_date", "de_listed_date"]
+                )
+                return self._instrument_cache.copy()
+            columns = _columns(frame)
+            symbol_column = columns.get("order_book_id") or columns.get("symbol")
+            if symbol_column is None:
+                raise DataValidationError("RQData instruments do not include order_book_id")
+            out = pd.DataFrame(
+                {
+                    "snapshot_date": pd.Timestamp.now().normalize(),
+                    "symbol": frame[symbol_column].map(_from_rq_symbol),
+                    "listed_date": _optional_datetime(
+                        frame,
+                        columns,
+                        "listed_date",
+                        "listed_at",
+                    ),
+                    "de_listed_date": _optional_datetime(
+                        frame,
+                        columns,
+                        "de_listed_date",
+                        "de_listed_at",
+                    ),
+                }
+            ).dropna(subset=["symbol"])
+            self._instrument_cache = out.drop_duplicates("symbol", keep="last")
+            out = self._instrument_cache.copy()
+        if asof_date is not None:
+            cutoff = pd.Timestamp(asof_date)
+            out = out.loc[
+                (out["listed_date"].isna() | out["listed_date"].le(cutoff))
+                & (out["de_listed_date"].isna() | out["de_listed_date"].gt(cutoff))
+            ]
+        return out.reset_index(drop=True)
 
     def get_fundamentals(
         self,
@@ -338,6 +381,17 @@ def _reset_index(frame: pd.DataFrame) -> pd.DataFrame:
 
 def _columns(frame: pd.DataFrame) -> dict[str, Any]:
     return {str(column).lower(): column for column in frame.columns}
+
+
+def _optional_datetime(
+    frame: pd.DataFrame,
+    columns: dict[str, Any],
+    *names: str,
+) -> pd.Series:
+    for name in names:
+        if name in columns:
+            return pd.to_datetime(frame[columns[name]], errors="coerce")
+    return pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
 
 
 def _to_rq_symbol(symbol: str) -> str:

@@ -29,6 +29,13 @@ request may supply another explicit list. Initial sync covers five years;
 incremental bars overlap seven calendar days (at least five trading days) and
 financials overlap eight quarters.
 
+Each instrument sync writes a dated reference snapshot. Historical research
+chooses the latest snapshot no later than the signal date. If history predates
+the first stored snapshot, the earliest later snapshot is filtered by listing
+intervals and the run is marked with a future-snapshot warning; collecting
+snapshots over time is therefore preferable. With no instrument snapshots, the
+engine records that it used bar-history membership instead.
+
 RQ calls use at most 200 stocks and 50 quarters per batch. Financial acquisition
 requests `statements="all"` and retains revisions. The canonical transform uses
 the earliest original disclosure and exposes `available_date`, preventing a
@@ -63,7 +70,7 @@ through `/api/agent/data-tools`; `data.run_sync` additionally requires
 is enabled in AlphaLab itself. The optional published Conexus Harness is
 authorized to plan and run required RQ synchronization autonomously; its
 RQ-sync adapter supplies the bridge assertion internally instead of asking the
-user to click Data Center.
+user to click Data Workbench.
 
 ## Failure Semantics
 

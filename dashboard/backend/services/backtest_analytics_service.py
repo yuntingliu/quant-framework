@@ -51,6 +51,11 @@ def analyze_record(record: dict) -> dict:
 
     snapshots = []
     turnover = []
+    execution_turnover = {
+        str(item.get("entry_date")): float(item.get("turnover") or 0.0)
+        for item in record.get("executions", [])
+        if isinstance(item, dict) and item.get("entry_date")
+    }
     previous = pd.Series(dtype=float)
     for date, row in pivot.iterrows():
         current = row.loc[row.abs() > 1e-12]
@@ -58,9 +63,15 @@ def analyze_record(record: dict) -> dict:
         changed = row.reindex(symbols, fill_value=0.0) - previous.reindex(
             symbols, fill_value=0.0
         )
-        period_turnover = float(changed.abs().sum() / 2.0)
+        cash = 1.0 - float(row.sum())
+        previous_cash = 1.0 - float(previous.sum())
+        calculated_turnover = float(
+            (changed.abs().sum() + abs(cash - previous_cash)) / 2.0
+        )
+        date_text = date.strftime("%Y-%m-%d")
+        period_turnover = execution_turnover.get(date_text, calculated_turnover)
         turnover.append(
-            {"date": date.strftime("%Y-%m-%d"), "value": period_turnover}
+            {"date": date_text, "value": period_turnover}
         )
         ordered = current.sort_values(ascending=False)
         snapshots.append(
@@ -99,6 +110,8 @@ def analyze_record(record: dict) -> dict:
             _safe(np.mean([item["value"] for item in turnover])) if turnover else None
         ),
         "holdings": snapshots,
+        "executions": record.get("executions", []),
+        "provenance": record.get("provenance", {}),
     }
 
 
@@ -136,6 +149,7 @@ def analyze_robustness(backtest_id: str) -> dict:
             record["start_date"],
             record["end_date"],
             frequency=config.portfolio.rebalance_freq,
+            execution_price=config.execution.execution_price,
         ).reindex(returns.index)
     rows = record.get("weights", [])
     if rows:

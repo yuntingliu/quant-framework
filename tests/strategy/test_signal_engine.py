@@ -30,6 +30,7 @@ def _write_market_fixture(root):
                     "low": price * 0.98,
                     "close": price,
                     "volume": 1000 + idx * 100,
+                    "amount": price * (1000 + idx * 100),
                 }
             )
     pd.DataFrame(rows).to_parquet(market / "bars.parquet")

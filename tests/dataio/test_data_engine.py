@@ -38,7 +38,12 @@ def test_default_engine_reads_generic_local_parquet(tmp_path):
     )
 
     engine = create_default_engine(tmp_path)
-    assert engine.providers() == {"market": ["local"], "fundamental": ["local"], "factor": ["local"]}
+    assert engine.providers() == {
+        "market": ["local"],
+        "instrument": ["local"],
+        "fundamental": ["local"],
+        "factor": ["local"],
+    }
     assert engine.get_symbols() == ["AAA"]
     assert not engine.get_bars(["AAA"], "2024-01-01", "2024-01-03").empty
     before_release = engine.get_fundamentals(

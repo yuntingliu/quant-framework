@@ -1,1 +1,1 @@
-export type WorkspaceTask = "startResearch" | "runBacktest" | "openEvidence" | "resetResearchWorkspace"
+export type WorkspaceTask = "startResearch" | "runBacktest" | "openEvidence" | "resetWorkstations"

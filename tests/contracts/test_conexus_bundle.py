@@ -17,7 +17,7 @@ def _load(path: Path) -> dict:
 
 def test_conexus_bundle_is_complete_and_contains_no_private_state():
     json_files = sorted(BUNDLE.rglob("*.json"))
-    assert len(json_files) == 20
+    assert len(json_files) == 21
 
     forbidden = re.compile(
         r"(?:[A-Za-z]:\\Users\\|/Users/|PRIVATE KEY|RQ_PASSWORD=|"
@@ -49,6 +49,7 @@ def test_conexus_tools_match_barebone_profiles_and_guardrails():
         "alphalab_data_status",
         "alphalab_data_validate",
         "alphalab_get_factor_returns",
+        "alphalab_evaluate_factor",
         "alphalab_get_fundamentals",
         "alphalab_get_workspace_context",
         "alphalab_get_strategy",
@@ -63,6 +64,7 @@ def test_conexus_tools_match_barebone_profiles_and_guardrails():
         "alphalab_get_market_bars",
         "alphalab_get_fundamentals",
         "alphalab_get_factor_returns",
+        "alphalab_evaluate_factor",
         "alphalab_run_backtest",
         "alphalab_generate_signal",
     }
@@ -98,7 +100,7 @@ def test_conexus_tools_match_barebone_profiles_and_guardrails():
     assert "confirm" not in sync_tool["inputSchema"]["properties"]
     assert "confirm: true" in sync_tool["code"]
     assert "无需询问用户或要求确认" in agent["systemPrompt"]
-    assert "不得只打开数据中心让用户点击" in agent["systemPrompt"]
+    assert "不得只打开数据工作台让用户点击" in agent["systemPrompt"]
 
 
 def test_conexus_result_schema_supports_bounded_structured_charts():
@@ -127,6 +129,13 @@ def test_conexus_result_schema_supports_bounded_structured_charts():
     assert chart["properties"]["rows"]["maxItems"] == 500
     commands = exposure["outputSchema"]["properties"]["workspaceCommands"]
     command_properties = commands["properties"]["commands"]["items"]["properties"]
+    assert command_properties["mode"]["enum"] == [
+        "data",
+        "factor",
+        "strategy",
+        "backtest",
+        "report",
+    ]
     assert "tab" not in command_properties
 
 

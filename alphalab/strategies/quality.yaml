@@ -2,12 +2,22 @@ name: quality
 description: Generic quality template.
 universe:
   pool: all
+  min_price: 3.0
+  min_history_days: 120
+  min_average_amount: 10000000
 selection:
   n_stocks: 10
   min_factor_coverage: 0.5
 portfolio:
   max_weight: 0.10
   rebalance_freq: monthly
+execution:
+  cost_bps: 10
+  slippage_bps: 5
+  impact_bps: 10
+  execution_price: next_open
+  portfolio_value: 1000000
+  max_participation_rate: 0.10
 factors:
   - name: roe
     source: fundamental

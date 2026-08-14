@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import numpy as np
@@ -188,6 +189,35 @@ def test_research_run_state_is_persisted_and_cancellable(tmp_path) -> None:
         assert run["status"] == "running"
         assert run["cancel_requested"] is True
         assert run["steps"][0]["detail"] == {"profile": "demo"}
+    finally:
+        store.close()
+
+
+def test_backtest_store_persists_provenance_and_execution_audit(tmp_path) -> None:
+    store = ResultStore(tmp_path / "audit.db")
+    try:
+        store.register_strategy("test_local", "test_local.yaml", "test")
+        dates = pd.date_range("2024-01-31", periods=2, freq=pd.offsets.MonthEnd())
+        backtest_id = store.save_backtest(
+            _config().to_yaml(),
+            pd.Series([0.01, 0.02], index=dates),
+            {
+                "total_return": 0.0302,
+                "annual_return": 0.1,
+                "annual_vol": 0.1,
+                "sharpe": 1.0,
+                "max_drawdown": 0.0,
+                "n_periods": 2,
+            },
+            strategy_id="test_local",
+            provenance={"version": 1, "data": {"aggregate_sha256": "abc"}},
+            executions=[{"entry_date": "2024-01-31", "total_cost": 0.001}],
+        )
+        record = store.get_backtest_record(backtest_id)
+        assert record is not None
+        assert json.loads(record["provenance_json"])["data"]["aggregate_sha256"] == "abc"
+        assert json.loads(record["execution_json"])[0]["total_cost"] == 0.001
+        assert "provenance_json" not in store.list_backtests().columns
     finally:
         store.close()
 

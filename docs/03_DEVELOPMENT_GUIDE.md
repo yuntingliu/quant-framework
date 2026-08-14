@@ -101,9 +101,60 @@ local YAML below `data/runtime/app/strategies`. Strategy ids and YAML `name`
 must match. Validate every local definition before a backtest.
 
 Every persisted backtest can produce a same-universe equal-weight benchmark and
-a robustness report. The report checks data/weight integrity, calendar and
-rolling outcomes, turnover, concentration, and 10/20/50 bps cost assumptions.
-Its labels are research triage labels, not trading authorization.
+a robustness report. Signals use only information available at period end and
+execute on the next observed session. The report checks data/weight integrity,
+calendar and rolling outcomes, turnover, concentration, 10/20/50 bps cost
+assumptions, a final 30% validation segment, bootstrap mean-excess intervals,
+Newey-West mean tests, moving-block bootstrap intervals, and a Bonferroni
+adjustment using `metadata.research_trials`. Its labels are
+research triage labels, not trading authorization.
+
+Reported Sharpe uses the annualized arithmetic mean divided by sample standard
+deviation. Annual return remains the compounded CAGR; the two are intentionally
+not substituted for one another.
+
+Professional defaults and a safe custom factor can be declared entirely in
+YAML:
+
+```yaml
+universe:
+  pool: all
+  min_price: 3
+  min_history_days: 120
+  min_average_amount: 10000000
+factors:
+  - name: quality_momentum
+    source: expression
+    expression: zscore(roe) + zscore(momentum_60d) - 0.5 * zscore(volatility_20d)
+    weight: 1.0
+    winsorize: 0.01
+    neutralize: [market_cap]
+portfolio:
+  max_weight: 0.10
+  rebalance_freq: monthly
+execution:
+  execution_price: next_open
+  cost_bps: 10
+  slippage_bps: 5
+  impact_bps: 10
+  portfolio_value: 1000000
+  max_participation_rate: 0.10
+metadata:
+  research_trials: 1
+```
+
+Expressions accept only registered factor names, numeric operators and the
+whitelisted `abs`, `clip`, `log`, `rank`, `sqrt`, and `zscore` functions. They
+never execute Python. Use the Factor Workbench or
+`POST /api/factor-research/evaluate` to inspect PIT coverage, Rank IC/ICIR,
+quantile returns, long-short returns, decay, top-bucket turnover and deterministic
+moving-block bootstrap intervals before adding a factor to a strategy.
+
+Missing daily amount blocks the affected trade because participation cannot be
+verified. Portfolio caps may deliberately leave cash. Each persisted backtest
+stores the execution audit and hashes of its YAML, exact input files and current
+Git commit/dirty state. Agent reports are saved through `/api/reports` with the
+same data/code provenance and also cached locally for offline startup.
 
 The deterministic research runner persists each step and supports cancel,
 retry, and restart interruption states. It may create a signal and paper

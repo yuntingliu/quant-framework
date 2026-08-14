@@ -1,13 +1,14 @@
 """YAML strategy configuration for the barebone research loop."""
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-FACTOR_SOURCES = ("technical", "fundamental")
+FACTOR_SOURCES = ("technical", "fundamental", "expression")
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,10 @@ class UniverseSpec:
     pool: str = "all"
     symbols: tuple[str, ...] = ()
     min_price: float = 0.0
+    min_history_days: int = 60
+    min_average_amount: float = 0.0
+    max_stale_days: int = 7
+    require_positive_volume: bool = True
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -24,6 +29,14 @@ class UniverseSpec:
             "symbols",
             tuple(str(symbol).strip().upper() for symbol in self.symbols if str(symbol).strip()),
         )
+        if not math.isfinite(self.min_price) or self.min_price < 0:
+            raise ValueError("universe.min_price must be non-negative")
+        if self.min_history_days < 2:
+            raise ValueError("universe.min_history_days must be at least 2")
+        if not math.isfinite(self.min_average_amount) or self.min_average_amount < 0:
+            raise ValueError("universe.min_average_amount must be non-negative")
+        if self.max_stale_days < 0:
+            raise ValueError("universe.max_stale_days must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -34,14 +47,50 @@ class FactorSpec:
     weight: float
     direction: str = "long"
     source: str = "technical"
+    expression: str | None = None
+    winsorize: float = 0.01
+    neutralize: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if not self.name.strip():
+            raise ValueError("factor.name must not be empty")
         if self.direction not in {"long", "short"}:
             raise ValueError("factor.direction must be 'long' or 'short'")
         if self.source not in FACTOR_SOURCES:
             raise ValueError(f"factor.source must be one of {FACTOR_SOURCES}")
-        if self.weight < 0:
+        if not math.isfinite(self.weight) or self.weight < 0:
             raise ValueError("factor.weight must be non-negative")
+        object.__setattr__(
+            self,
+            "neutralize",
+            tuple(str(value).strip().lower() for value in self.neutralize if str(value).strip()),
+        )
+        if not math.isfinite(self.winsorize) or not 0 <= self.winsorize < 0.25:
+            raise ValueError("factor.winsorize must be in [0, 0.25)")
+        unknown_neutralizers = sorted(set(self.neutralize) - {"market_cap"})
+        if unknown_neutralizers:
+            raise ValueError(f"unsupported factor neutralizers: {unknown_neutralizers}")
+        from alphalab.factors.fundamental import FundamentalFactors
+        from alphalab.factors.technical import TechnicalFactors
+
+        technical = set(TechnicalFactors().available_factors)
+        fundamental = set(FundamentalFactors.available_factors)
+        if self.source == "expression":
+            from alphalab.factors.expression import factor_dependencies
+
+            if not self.expression:
+                raise ValueError("expression factors require factor.expression")
+            dependencies = factor_dependencies(self.expression)
+            available = technical | fundamental
+            unknown = sorted(set(dependencies) - available)
+            if unknown:
+                raise ValueError(f"unknown factor expression inputs: {unknown}")
+        elif self.expression is not None:
+            raise ValueError("factor.expression is only valid when source is expression")
+        elif self.source == "technical" and self.name not in technical:
+            raise ValueError(f"unknown technical factor: {self.name}")
+        elif self.source == "fundamental" and self.name not in fundamental:
+            raise ValueError(f"unknown fundamental factor: {self.name}")
 
 
 @dataclass(frozen=True)
@@ -52,7 +101,7 @@ class SelectionSpec:
     n_stocks: int = 10
 
     def __post_init__(self) -> None:
-        if not 0 <= self.min_factor_coverage <= 1:
+        if not math.isfinite(self.min_factor_coverage) or not 0 <= self.min_factor_coverage <= 1:
             raise ValueError("selection.min_factor_coverage must be in [0, 1]")
         if self.n_stocks < 1:
             raise ValueError("selection.n_stocks must be >= 1")
@@ -67,7 +116,7 @@ class PortfolioSpec:
     optimizer: str = "equal_weight"
 
     def __post_init__(self) -> None:
-        if self.max_weight <= 0:
+        if not math.isfinite(self.max_weight) or self.max_weight <= 0:
             raise ValueError("portfolio.max_weight must be positive")
         if self.rebalance_freq not in {"monthly", "weekly"}:
             raise ValueError("portfolio.rebalance_freq must be monthly or weekly")
@@ -80,6 +129,22 @@ class ExecutionSpec:
     """Backtest execution assumptions."""
 
     cost_bps: float = 20.0
+    slippage_bps: float = 0.0
+    impact_bps: float = 0.0
+    execution_price: str = "next_open"
+    portfolio_value: float = 1_000_000.0
+    max_participation_rate: float = 0.10
+
+    def __post_init__(self) -> None:
+        for name in ("cost_bps", "slippage_bps", "impact_bps"):
+            if not math.isfinite(getattr(self, name)) or getattr(self, name) < 0:
+                raise ValueError(f"execution.{name} must be non-negative")
+        if self.execution_price not in {"next_open", "next_close"}:
+            raise ValueError("execution.execution_price must be next_open or next_close")
+        if not math.isfinite(self.portfolio_value) or self.portfolio_value <= 0:
+            raise ValueError("execution.portfolio_value must be positive")
+        if not math.isfinite(self.max_participation_rate) or not 0 < self.max_participation_rate <= 1:
+            raise ValueError("execution.max_participation_rate must be in (0, 1]")
 
 
 @dataclass(frozen=True)

@@ -13,6 +13,7 @@ __author__ = "LYT"
 __name_cn__ = "AlphaLab Barebone"
 
 # -- Public facade ------------------------------------------------------------
+from alphalab.analytics import evaluate_factor
 from alphalab.dataio import (
     DataEngine,
     RQDataConfig,
@@ -21,10 +22,17 @@ from alphalab.dataio import (
     create_rq_engine_from_env,
     create_runtime_engine,
 )
-from alphalab.engine import SignalEngine, run_backtest
+from alphalab.engine import BacktestResult, SignalEngine, run_backtest, run_backtest_detailed
 from alphalab.factors.registry import compute_factor, get_factor, list_factors
 from alphalab.store import ResultStore
-from alphalab.strategy.config import FactorSpec, StrategyConfig, UniverseSpec
+from alphalab.strategy.config import (
+    ExecutionSpec,
+    FactorSpec,
+    PortfolioSpec,
+    SelectionSpec,
+    StrategyConfig,
+    UniverseSpec,
+)
 
 __all__ = [
     "DataEngine",
@@ -34,12 +42,18 @@ __all__ = [
     "RQDataConfig",
     "RQDataProvider",
     "SignalEngine",
+    "BacktestResult",
     "run_backtest",
+    "run_backtest_detailed",
     "ResultStore",
     "StrategyConfig",
     "FactorSpec",
+    "SelectionSpec",
+    "PortfolioSpec",
+    "ExecutionSpec",
     "UniverseSpec",
     "list_factors",
     "compute_factor",
     "get_factor",
+    "evaluate_factor",
 ]

@@ -32,8 +32,8 @@
         { "kind": "model", "name": "openrouter" },
         { "kind": "runtime", "name": "conexus.runtime.v1" }
       ],
-      "capabilities": ["quant-research", "data-operations", "market-data", "fundamentals", "factor-returns", "backtest", "paper-signal", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
-      "triggers": ["research", "data status", "data sync", "fundamentals", "factor returns", "backtest", "strategy risk", "paper signal", "report", "chart"],
+      "capabilities": ["quant-research", "data-operations", "market-data", "fundamentals", "factor-returns", "factor-evaluation", "backtest", "paper-signal", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
+      "triggers": ["research", "data status", "data sync", "fundamentals", "factor returns", "factor evaluation", "custom factor", "backtest", "strategy risk", "paper signal", "report", "chart"],
       "tags": ["alphalab", "quant", "published-agent"],
       "exposures": [
         {
@@ -260,7 +260,7 @@
                       "type": "string",
                       "enum": ["switch_mode", "open_widget", "open_result", "close_widget", "set_focus", "set_link_symbol", "show_right_rail", "refresh_data", "save_layout", "reset_layout"]
                     },
-                    "mode": { "type": "string", "enum": ["home", "data", "research", "trading_a_share"] },
+                    "mode": { "type": "string", "enum": ["data", "factor", "strategy", "backtest", "report"] },
                     "widgetId": { "type": "string", "minLength": 1, "maxLength": 200 },
                     "resultId": { "type": "string", "minLength": 1, "maxLength": 200 },
                     "title": { "type": "string", "minLength": 1, "maxLength": 200 },

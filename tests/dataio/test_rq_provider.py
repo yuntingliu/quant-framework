@@ -97,6 +97,9 @@ def test_rq_market_provider_is_lazy_and_normalizes_bars() -> None:
     assert bars["volume"].tolist() == [10.0, 20.0]
     assert bars["amount"].tolist() == [10200.0, 40400.0]
     assert provider.get_symbols() == ["000001.SZ", "600000.SH"]
+    instruments = provider.get_instruments("2025-01-02")
+    assert instruments["symbol"].tolist() == ["600000.SH", "000001.SZ"]
+    assert instruments["snapshot_date"].notna().all()
 
 
 def test_rq_fundamentals_are_point_in_time_and_batched() -> None:
@@ -124,4 +127,9 @@ def test_rq_engine_factory_registers_market_and_fundamental(monkeypatch, tmp_pat
 
     engine = create_rq_engine_from_env(cache=DataCache(tmp_path))
 
-    assert engine.providers() == {"market": ["rq"], "fundamental": ["rq"], "factor": []}
+    assert engine.providers() == {
+        "market": ["rq"],
+        "instrument": ["rq"],
+        "fundamental": ["rq"],
+        "factor": [],
+    }

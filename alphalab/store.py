@@ -46,6 +46,14 @@ class ResultStore:
         self._migrate()
 
     def _migrate(self) -> None:
+        backtest_columns = {
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(backtests)").fetchall()
+        }
+        if "provenance_json" not in backtest_columns:
+            self._conn.execute("ALTER TABLE backtests ADD COLUMN provenance_json TEXT")
+        if "execution_json" not in backtest_columns:
+            self._conn.execute("ALTER TABLE backtests ADD COLUMN execution_json TEXT")
         order_columns = {
             row["name"]
             for row in self._conn.execute("PRAGMA table_info(orders)").fetchall()
@@ -245,6 +253,8 @@ class ResultStore:
         end_date: str | None = None,
         tags: list[str] | None = None,
         notes: str | None = None,
+        provenance: dict | None = None,
+        executions: list[dict] | tuple[dict, ...] | None = None,
     ) -> str:
         backtest_id = _uuid()
         if start_date is None and not returns.empty:
@@ -257,8 +267,8 @@ class ResultStore:
                 """INSERT INTO backtests
                    (id, strategy_id, config_yaml, code_version, start_date, end_date,
                     total_return, annual_return, annual_vol, sharpe, max_drawdown,
-                    n_periods, tags, notes)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    n_periods, tags, notes, provenance_json, execution_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     backtest_id,
                     strategy_id,
@@ -274,6 +284,8 @@ class ResultStore:
                     metrics.get("n_periods", len(returns)),
                     json.dumps(tags) if tags else None,
                     notes,
+                    json.dumps(provenance, sort_keys=True) if provenance else None,
+                    json.dumps(list(executions), sort_keys=True) if executions else None,
                 ),
             )
             rows = []
@@ -301,13 +313,27 @@ class ResultStore:
         return backtest_id
 
     def list_backtests(self, strategy_id: str | None = None, limit: int = 20) -> pd.DataFrame:
+        columns = """id, strategy_id, code_version, start_date, end_date, run_at,
+                     total_return, annual_return, annual_vol, sharpe, max_drawdown,
+                     n_periods, tags, notes"""
         if strategy_id:
             return pd.read_sql(
-                "SELECT * FROM backtests WHERE strategy_id = ? ORDER BY run_at DESC LIMIT ?",
+                f"SELECT {columns} FROM backtests WHERE strategy_id = ? ORDER BY run_at DESC LIMIT ?",
                 self._conn,
                 params=(strategy_id, limit),
             )
-        return pd.read_sql("SELECT * FROM backtests ORDER BY run_at DESC LIMIT ?", self._conn, params=(limit,))
+        return pd.read_sql(
+            f"SELECT {columns} FROM backtests ORDER BY run_at DESC LIMIT ?",
+            self._conn,
+            params=(limit,),
+        )
+
+    def get_backtest_record(self, backtest_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM backtests WHERE id = ?",
+            (backtest_id,),
+        ).fetchone()
+        return dict(row) if row is not None else None
 
     def load_returns(self, backtest_id: str) -> pd.DataFrame:
         df = pd.read_sql(
@@ -360,6 +386,57 @@ class ResultStore:
 
         self._write(work)
         return signal_id
+
+    def save_research_artifact(
+        self,
+        artifact_id: str,
+        request_id: str,
+        profile: str,
+        title: str,
+        payload: dict,
+        provenance: dict,
+    ) -> str:
+        def work() -> None:
+            self._conn.execute(
+                """INSERT INTO research_artifacts
+                   (id, request_id, profile, title, payload_json, provenance_json)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                     request_id=excluded.request_id,
+                     profile=excluded.profile,
+                     title=excluded.title,
+                     payload_json=excluded.payload_json,
+                     provenance_json=excluded.provenance_json,
+                     updated_at=datetime('now')""",
+                (
+                    artifact_id,
+                    request_id,
+                    profile,
+                    title,
+                    json.dumps(payload, sort_keys=True),
+                    json.dumps(provenance, sort_keys=True),
+                ),
+            )
+
+        self._write(work)
+        return artifact_id
+
+    def list_research_artifacts(self, limit: int = 20) -> list[dict]:
+        rows = self._conn.execute(
+            """SELECT id, request_id, profile, title, payload_json,
+                      provenance_json, created_at, updated_at
+               FROM research_artifacts
+               ORDER BY updated_at DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_research_artifact(self, artifact_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM research_artifacts WHERE id = ?",
+            (artifact_id,),
+        ).fetchone()
+        return dict(row) if row is not None else None
 
     def get_latest_signal(
         self,
@@ -988,6 +1065,7 @@ class ResultStore:
             "paper_positions",
             "paper_fills",
             "research_runs",
+            "research_artifacts",
             "journal",
         ):
             counts[table] = int(self._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])

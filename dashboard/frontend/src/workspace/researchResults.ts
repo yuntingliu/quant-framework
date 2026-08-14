@@ -49,6 +49,9 @@ export interface AgentResearchResult {
   runId?: string
   artifactId?: string
   updatedAt?: string
+  profile?: "demo" | "runtime"
+  provenance?: Record<string, unknown>
+  persistedAt?: string
 }
 
 interface ResearchResultMetadata {
@@ -273,7 +276,8 @@ export function parseAgentResearchResult(
   const title = text(value.title, 200)
   if (!requestId || !title) return null
 
-  const table = parseTable(value)
+  if (value.table !== undefined && !isRecord(value.table)) return null
+  const table = parseTable(isRecord(value.table) ? value.table : value)
   if (table === null) return null
   const charts = parseCharts(value)
   if (charts === null) return null
@@ -292,6 +296,18 @@ export function parseAgentResearchResult(
   const generatedAt = value.generatedAt === undefined ? undefined : text(value.generatedAt, 100)
   if (value.generatedAt !== undefined && generatedAt === undefined) return null
   if (generatedAt && Number.isNaN(Date.parse(generatedAt))) return null
+  const profile = value.profile === "demo" || value.profile === "runtime" ? value.profile : undefined
+  const provenance = isRecord(value.provenance) ? value.provenance : undefined
+  const persistedAt = value.persistedAt === undefined ? undefined : text(value.persistedAt, 100)
+  if (value.persistedAt !== undefined && !persistedAt) return null
+  const runId = metadata.runId ?? (value.runId === undefined ? undefined : text(value.runId, 200))
+  const artifactId = metadata.artifactId ?? (value.artifactId === undefined ? undefined : text(value.artifactId, 200))
+  const updatedAt = metadata.updatedAt ?? (value.updatedAt === undefined ? undefined : text(value.updatedAt, 100))
+  if (
+    (value.runId !== undefined && !runId)
+    || (value.artifactId !== undefined && !artifactId)
+    || (value.updatedAt !== undefined && !updatedAt)
+  ) return null
 
   return {
     id: requestId,
@@ -305,9 +321,12 @@ export function parseAgentResearchResult(
     ...(charts ? { charts } : {}),
     sources: sources as string[],
     ...(generatedAt ? { generatedAt } : {}),
-    ...(metadata.runId ? { runId: metadata.runId } : {}),
-    ...(metadata.artifactId ? { artifactId: metadata.artifactId } : {}),
-    ...(metadata.updatedAt ? { updatedAt: metadata.updatedAt } : {}),
+    ...(runId ? { runId } : {}),
+    ...(artifactId ? { artifactId } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
+    ...(profile ? { profile } : {}),
+    ...(provenance ? { provenance } : {}),
+    ...(persistedAt ? { persistedAt } : {}),
   }
 }
 

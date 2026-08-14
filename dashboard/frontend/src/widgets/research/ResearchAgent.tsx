@@ -13,6 +13,7 @@ import {
 
 import { SafeMarkdown, SafeMarkdownFrame } from "@/components/shared/SafeMarkdown"
 import { useAgentPrompt, type AgentDecisionNotebook } from "@/contexts/AgentPromptContext"
+import { useGlobalFilter } from "@/contexts/GlobalFilterContext"
 import { useLanguage } from "@/contexts/LanguageContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
 import { usePublishedAgent } from "@/hooks/usePublishedAgent"
@@ -20,6 +21,7 @@ import type {
   AgentToolActivity,
   PublishedHarnessArtifact,
 } from "@/lib/conexus/types"
+import { useDataProfile } from "@/lib/data-profile"
 import {
   WORKSPACE_COMMAND_EVENT,
   parseAgentWorkspaceCommandBatch,
@@ -44,7 +46,7 @@ function customNodePayload(value: unknown, expectedType: string): unknown {
 }
 
 const WORKSPACE_CAPABILITIES = {
-  modes: ["home", "data", "research", "trading_a_share"],
+  modes: ["data", "factor", "strategy", "backtest", "report"],
   widgets: agentWorkspaceWidgetIds,
   commandTypes: [
     "switch_mode",
@@ -127,6 +129,7 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   alphalab_get_market_bars: { zh: "读取历史行情", en: "Read historical bars" },
   alphalab_get_fundamentals: { zh: "读取点时基本面", en: "Read point-in-time fundamentals" },
   alphalab_get_factor_returns: { zh: "读取因子收益", en: "Read factor returns" },
+  alphalab_evaluate_factor: { zh: "评估因子", en: "Evaluate factor" },
   alphalab_get_backtest: { zh: "读取回测结果", en: "Read backtest result" },
   alphalab_run_backtest: { zh: "运行回测", en: "Run backtest" },
   alphalab_generate_signal: { zh: "生成纸面信号", en: "Generate paper signal" },
@@ -213,6 +216,8 @@ function Artifact({ artifact }: { artifact: PublishedHarnessArtifact }) {
 export function ResearchAgentPanel() {
   const { language } = useLanguage()
   const workspace = useWorkspace()
+  const { selectedFactors, startDate, endDate } = useGlobalFilter()
+  const [activeDataProfile] = useDataProfile()
   const queryClient = useQueryClient()
   const { stagedPrompt, consumePrompt, setDecisionNotebook, registerResearchResult } = useAgentPrompt()
   const [draft, setDraft] = useState("")
@@ -300,8 +305,12 @@ export function ResearchAgentPanel() {
     const context: Record<string, unknown> = {
       ...promptContext,
       requestId,
-      source: promptContext.source ?? "agent-widget",
+      source: promptContext.source ?? "agent-rail",
       activeMode: workspace.activeMode,
+      activeDataProfile,
+      selectedDataset: workspace.selectedDataset,
+      selectedFactors,
+      factorDateRange: { start: startDate || null, end: endDate || null },
       selectedSymbol: workspace.selectedSymbol,
       linkSymbols: workspace.linkSymbols,
       selectedStrategy: workspace.selectedStrategy,
@@ -331,7 +340,7 @@ export function ResearchAgentPanel() {
     retry: "重试",
     tools: "工具执行",
     workspaceActions: "工作台联动",
-    quickPrompts: ["现在有哪些策略？", "对比当前策略并把研究报告放到中间工作区", "打开数据中心并刷新数据", "打开动量策略的回测工作台"],
+    quickPrompts: ["现在有哪些策略？", "对比当前策略并把研究报告放到中间工作区", "打开数据工作台并刷新数据", "打开动量策略的回测工作台"],
   } : {
     title: "AI Research Agent",
     newChat: "New chat",
@@ -343,7 +352,7 @@ export function ResearchAgentPanel() {
     retry: "Retry",
     tools: "Tool activity",
     workspaceActions: "Workspace actions",
-    quickPrompts: ["What strategies are available?", "Compare current strategies in a workspace report", "Open Data Center and refresh data", "Open the momentum backtest workbench"],
+    quickPrompts: ["What strategies are available?", "Compare current strategies in a workspace report", "Open Data Workbench and refresh data", "Open the momentum backtest workbench"],
   }
 
   if (!agent.loading && agent.status && !agent.status.available) {

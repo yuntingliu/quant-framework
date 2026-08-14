@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 
 import { parseAgentResearchResult, type AgentResearchResult } from "@/workspace/researchResults"
+import { api } from "@/lib/api"
+import { getDataProfile } from "@/lib/data-profile"
 
 export interface AgentDecisionNotebook {
   runId?: string
@@ -79,6 +81,45 @@ export function AgentPromptProvider({ children }: { children: ReactNode }) {
       result,
       ...current.filter((item) => item.id !== result.id),
     ].slice(0, MAX_SAVED_RESULTS))
+    void api.post<AgentResearchResult>("/reports", {
+      profile: getDataProfile(),
+      result,
+    }).then((persisted) => {
+      const parsed = parseAgentResearchResult(persisted, {
+        markdown: persisted.markdown,
+        runId: persisted.runId,
+        artifactId: persisted.artifactId,
+        updatedAt: persisted.updatedAt,
+      })
+      if (!parsed) return
+      setResearchResults((current) => [
+        parsed,
+        ...current.filter((item) => item.id !== parsed.id),
+      ].slice(0, MAX_SAVED_RESULTS))
+    }).catch(() => {
+      // The validated local result remains available if backend persistence fails.
+    })
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void api.get<{ items: unknown[] }>("/reports?limit=20").then(({ items }) => {
+      if (cancelled) return
+      const persisted = items
+        .map((item) => parseAgentResearchResult(item, {
+          markdown: typeof (item as Record<string, unknown>)?.markdown === "string"
+            ? (item as Record<string, unknown>).markdown as string
+            : undefined,
+        }))
+        .filter((item): item is AgentResearchResult => item !== null)
+      setResearchResults((current) => [
+        ...persisted,
+        ...current.filter((item) => !persisted.some((saved) => saved.id === item.id)),
+      ].slice(0, MAX_SAVED_RESULTS))
+    }).catch(() => {
+      // Offline startup continues with browser-local results.
+    })
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {

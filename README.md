@@ -9,11 +9,14 @@ orders without configuring a vendor connection.
 
 ## What Is Included
 
-- `DataEngine` with pluggable market, fundamental and factor providers.
+- `DataEngine` with pluggable market, instrument, fundamental and factor providers.
 - `StrategyConfig` YAML templates for generic momentum, value, quality, growth,
   low-volatility and balanced styles.
-- `SignalEngine.generate_targets()` and `run_backtest()` as the shared parity
-  point for research and workstation previews.
+- `SignalEngine.generate_targets()` and `run_backtest_detailed()` as the shared
+  point-in-time parity point for research and workstation previews, with
+  next-session execution, explicit cash, costs, slippage, impact and liquidity.
+- Registered and safe expression factors with IC/ICIR, quantile, decay,
+  turnover, coverage and bootstrap diagnostics.
 - `ResultStore` for local SQLite state.
 - Broker-neutral execution dataclasses plus paper trading helpers.
 - FastAPI + React/Electron Dockview workstation shell using the original
@@ -26,8 +29,11 @@ orders without configuring a vendor connection.
 - An optional Conexus Research Agent Harness that can combine the full typed
   data surface into reports, sortable tables, native charts, and active
   workstation components while preserving explicit mutation guardrails.
-- Same-universe benchmarks, cost sensitivity, rolling checks, and explicit
+- Same-universe benchmarks, cost sensitivity, validation splits, bootstrap and
+  multiple-testing checks, and explicit
   `research_candidate/watch/weak/invalid` research gates.
+- Reproducible backtests and durable Agent reports with data, strategy and Git
+  fingerprints plus per-period execution audits.
 - A deterministic data-to-paper research workflow with local cash, positions,
   fills, NAV, and confirmed rebalance simulation. Realtime feeds and real
   orders are not configured.
@@ -48,6 +54,7 @@ The default engine reads a generic local layout under `data/`:
 ```text
 data/
   market/bars.parquet                 # date, symbol, open, high, low, close, volume, amount?
+  instruments/instruments.parquet     # optional dated listing snapshots
   fundamentals/fundamentals.parquet   # quarter, available_date, symbol, factors
   factors/factor_returns.parquet      # DatetimeIndex, one column per factor return
   app/alphalab.db                     # local SQLite state

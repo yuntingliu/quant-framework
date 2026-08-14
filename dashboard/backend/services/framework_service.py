@@ -14,12 +14,13 @@ from alphalab import (
     StrategyConfig,
     create_default_engine,
     create_runtime_engine,
-    run_backtest,
 )
 from alphalab.analytics import PerformanceMetrics, equal_weight_benchmark
 from alphalab.dataio import DataEngine, MissingDataError
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.fundamentals import CANONICAL_FIELDS
+from alphalab.engine import run_backtest_detailed
+from alphalab.provenance import build_research_provenance
 from alphalab.strategy import StrategyRepository
 from alphalab.utils.paths import APP_DATA_DIR, DATA_DIR, FACTOR_DIR, FUNDAMENTAL_DIR, MARKET_DIR
 
@@ -305,25 +306,31 @@ def run_strategy_backtest(
         raise KeyError(strategy_id)
     cfg = StrategyConfig.from_yaml(strategy["path"])
     engine = _engine(profile)
-    returns, weights = run_backtest(
+    backtest = run_backtest_detailed(
         cfg,
         start_date,
         end_date,
         data_engine=engine,
     )
+    returns = backtest.returns
+    weights = backtest.weights
     benchmark = equal_weight_benchmark(
         engine,
         list(cfg.universe.symbols) or engine.get_symbols(cfg.universe.pool),
         start_date,
         end_date,
         frequency=cfg.portfolio.rebalance_freq,
+        execution_price=cfg.execution.execution_price,
     ).reindex(returns.index)
-    metrics = PerformanceMetrics.summarize(returns)
+    periods_per_year = 52 if cfg.portfolio.rebalance_freq == "weekly" else 12
+    metrics = PerformanceMetrics.summarize(returns, periods_per_year)
+    config_yaml = cfg.to_yaml()
+    provenance = build_research_provenance(profile, config_yaml)
     store = ResultStore()
     try:
         store.register_strategy(cfg.name, strategy["path"], cfg.description)
         backtest_id = store.save_backtest(
-            cfg.to_yaml(),
+            config_yaml,
             returns,
             metrics,
             strategy_id=cfg.name,
@@ -332,6 +339,8 @@ def run_strategy_backtest(
             start_date=start_date,
             end_date=end_date,
             tags=[f"profile:{profile}"],
+            provenance=provenance,
+            executions=backtest.executions,
         )
     finally:
         store.close()
@@ -353,17 +362,17 @@ def run_strategy_backtest(
             for date, value in returns.items()
         ],
         "weights_count": int((weights.abs() > 0).sum().sum()) if not weights.empty else 0,
+        "execution": backtest.diagnostics,
+        "provenance": provenance,
     }
 
 
 def get_backtest(backtest_id: str) -> dict | None:
     store = ResultStore()
     try:
-        rows = store.list_backtests(limit=1000)
-        match = rows.loc[rows["id"].eq(backtest_id)]
-        if match.empty:
+        record = store.get_backtest_record(backtest_id)
+        if record is None:
             return None
-        record = match.iloc[0].fillna("").to_dict()
         returns = store.load_returns(backtest_id).reset_index()
         weights = store.load_weights(backtest_id)
     finally:
@@ -391,7 +400,18 @@ def get_backtest(backtest_id: str) -> dict | None:
     record["weights"] = weights.to_dict("records")
     record["weights_count"] = len(record["weights"])
     record["profile"] = _backtest_profile(record.get("tags"))
+    record["provenance"] = _json_payload(record.pop("provenance_json", None), {})
+    record["executions"] = _json_payload(record.pop("execution_json", None), [])
     return record
+
+
+def _json_payload(value: object, default: object) -> object:
+    if not isinstance(value, str) or not value:
+        return default
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return default
 
 
 def generate_signal(

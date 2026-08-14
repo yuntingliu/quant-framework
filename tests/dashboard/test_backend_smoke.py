@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from alphalab import ResultStore
 from dashboard.backend.main import app
-from dashboard.backend.routers import conexus
+from dashboard.backend.routers import conexus, reports
 from dashboard.backend.services import framework_service, research_service
 
 
@@ -135,6 +135,59 @@ def test_market_analytics_endpoints():
     assert client.get("/api/market/correlation?factors=UNKNOWN").status_code == 422
 
 
+def test_factor_research_library_and_expression_guardrails():
+    client = TestClient(app)
+    library = client.get("/api/factor-research/library")
+    assert library.status_code == 200
+    assert {item["name"] for item in library.json()["factors"]} >= {
+        "momentum_20d",
+        "roe",
+    }
+    rejected = client.post(
+        "/api/factor-research/evaluate",
+        json={
+            "name": "unsafe",
+            "source": "expression",
+            "expression": "__import__('os').system('whoami')",
+            "start_date": "2022-01-01",
+            "end_date": "2024-01-01",
+        },
+    )
+    assert rejected.status_code == 422
+
+
+def test_agent_reports_are_durable_and_provenance_bound(tmp_path, monkeypatch):
+    database = tmp_path / "reports.db"
+    monkeypatch.setattr(reports, "ResultStore", lambda: ResultStore(database))
+    client = TestClient(app)
+    result = {
+        "version": 1,
+        "requestId": "request-report-1",
+        "kind": "document",
+        "title": "Factor review",
+        "markdown": "# Factor review\n\nEvidence-backed result.",
+        "sources": ["alphalab_evaluate_factor"],
+    }
+    created = client.post(
+        "/api/reports",
+        json={"profile": "demo", "result": result},
+    )
+    assert created.status_code == 201, created.text
+    payload = created.json()
+    assert payload["requestId"] == result["requestId"]
+    assert payload["profile"] == "demo"
+    assert payload["provenance"]["data"]["aggregate_sha256"]
+    assert payload["provenance"]["code"]["source_sha256"]
+    assert payload["provenance"]["strategy_sha256"] is None
+
+    listed = client.get("/api/reports")
+    assert listed.status_code == 200
+    assert listed.json()["items"][0]["requestId"] == result["requestId"]
+    detail = client.get("/api/reports/request-report-1")
+    assert detail.status_code == 200
+    assert detail.json()["markdown"] == result["markdown"]
+
+
 def test_data_sync_plan_and_submit_contract(monkeypatch):
     client = TestClient(app)
     plan = client.post(
@@ -192,6 +245,10 @@ def test_backtest_signal_and_paper_endpoints(tmp_path, monkeypatch):
     assert detail.status_code == 200
     assert detail.json()["returns"]
     assert detail.json()["weights"]
+    assert detail.json()["executions"]
+    assert detail.json()["provenance"]["data"]["aggregate_sha256"]
+    assert isinstance(detail.json()["provenance"]["code"]["dirty"], bool)
+    assert detail.json()["provenance"]["code"]["source_sha256"]
 
     analysis = client.get(f"/api/backtests/{payload['id']}/analysis")
     assert analysis.status_code == 200

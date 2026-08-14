@@ -1,5 +1,5 @@
 /**
- * Workspace - dockview layout with Overview / Data / Research / Trading modes.
+ * Workspace - dockview layout with five workflow workstations.
  *
  * Features:
  *   - Mode switching with per-mode layout persistence (localStorage)
@@ -25,7 +25,6 @@ import { layoutPresets, LAYOUT_VERSION, normalizeWorkspaceMode, type WorkspaceMo
 import { WorkspaceProvider, useWorkspace, type LinkGroup } from "@/contexts/WorkspaceContext"
 import { PanelContext } from "@/contexts/PanelContext"
 import { useAgentPrompt } from "@/contexts/AgentPromptContext"
-import { useTradingHotkeys } from "@/hooks/useTradingHotkeys"
 import { useAlertNotifications } from "@/lib/notifications"
 import { useLanguage } from "@/contexts/LanguageContext"
 import { cn } from "@/lib/utils"
@@ -268,6 +267,7 @@ function removeLegacyAgentPanels(api: DockviewApi): boolean {
 // ---------------------------------------------------------------------------
 
 function WorkspaceInner() {
+  const layoutVersion = LAYOUT_VERSION
   const queryClient = useQueryClient()
   const { registerResearchResult } = useAgentPrompt()
   const apiRef = useRef<DockviewApi | null>(null)
@@ -450,16 +450,17 @@ function WorkspaceInner() {
   }, [hiddenModes, activeMode, switchMode])
 
   const openTask = useCallback((task: WorkspaceTask) => {
-    if (task === "resetResearchWorkspace") {
-      localStorage.removeItem(layoutKey("research"))
-      const preset = layoutPresets.research
-      const researchApi = apiRefsRef.current.research
-      if (preset && researchApi) {
-        preset.apply(researchApi)
-        relabelPanels(researchApi, language)
-        saveLayout(researchApi, "research")
+    if (task === "resetWorkstations") {
+      for (const mode of WORKSPACE_MODES) {
+        localStorage.removeItem(layoutKey(mode))
+        const modeApi = apiRefsRef.current[mode]
+        if (modeApi) {
+          layoutPresets[mode].apply(modeApi)
+          relabelPanels(modeApi, language)
+          saveLayout(modeApi, mode)
+        }
       }
-      switchMode("research")
+      switchMode("data")
       return
     }
 
@@ -469,13 +470,12 @@ function WorkspaceInner() {
     }
 
     if (task === "runBacktest") {
-      openWidget("backtest.workbench", undefined, "research")
+      openWidget("backtest.workbench", undefined, "backtest")
       return
     }
 
-    const evidenceWidget = workspace.selectedBacktest ? "backtest.workbench" : "backtest.explorer"
-    openWidget(evidenceWidget, undefined, "research")
-  }, [language, openAgentRail, openWidget, switchMode, workspace.selectedBacktest])
+    openWidget("backtest.workbench", undefined, "backtest")
+  }, [language, openAgentRail, openWidget, switchMode])
 
   const saveCurrentLayout = useCallback(() => {
     const currentMode = activeModeRef.current
@@ -523,12 +523,12 @@ function WorkspaceInner() {
         registerResearchResult(researchResult)
         const panelId = `research-result-${command.resultId.replace(/[^a-zA-Z0-9_-]/g, "-")}`
         const openedPanel = await openWidget(
-          "research.result-viewer",
+          "report.workbench",
           command.title ?? researchResult.title,
-          command.mode ?? "research",
+          command.mode ?? "report",
           { panelId, params: { resultId: researchResult.id } },
         )
-        const targetMode = command.mode ?? "research"
+        const targetMode = command.mode ?? "report"
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
         const targetApi = apiRefsRef.current[targetMode]
         if (targetApi && openedPanel?.id === panelId && activeModeRef.current === targetMode && targetApi.activePanel?.id === panelId) {
@@ -630,6 +630,26 @@ function WorkspaceInner() {
       saveLayout(event.api, mode)
     })
   }, [addWidgetToApi, language, openAgentRail])
+
+  // Keep the live Dockview tree in sync during Vite Fast Refresh as well as
+  // after a full reload. A layout-version bump intentionally replaces saved
+  // presets because the registered component IDs have changed.
+  useEffect(() => {
+    const savedVersion = Number(localStorage.getItem(VERSION_KEY) || "0")
+    if (savedVersion >= layoutVersion) return
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith("alphalab-layout-")) localStorage.removeItem(key)
+    }
+    localStorage.setItem(VERSION_KEY, String(layoutVersion))
+    for (const [rawMode, api] of Object.entries(apiRefsRef.current)) {
+      const mode = rawMode as WorkspaceMode
+      const preset = layoutPresets[mode]
+      if (!api || !preset) continue
+      preset.apply(api)
+      relabelPanels(api, language)
+      saveLayout(api, mode)
+    }
+  }, [language, layoutVersion])
 
   // Electron menu IPC events
   useEffect(() => {
@@ -747,8 +767,7 @@ function WorkspaceInner() {
     return () => window.removeEventListener("keydown", handler)
   }, [switchMode, hiddenModes])
 
-  // Trading-mode hotkeys (B/S/W//, Shift+X) and app-level alert toasts.
-  useTradingHotkeys()
+  // App-level alert toasts remain available for background system notices.
   useAlertNotifications()
 
   const effectiveSidebarCollapsed = compactViewport || sidebarCollapsed
@@ -766,16 +785,13 @@ function WorkspaceInner() {
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <WorkspaceToolbar
-            onSwitchMode={switchMode}
             onAddWidget={addWidget}
-            onOpenTask={openTask}
             onSaveLayout={saveCurrentLayout}
             onResetLayout={resetCurrentLayout}
           />
           {/* Reserved for explicit, user-started data-operation notices. */}
           <LaunchSyncBanner />
-          {/* Trading modes: amber top border as safety indicator */}
-          <div className={cn("relative min-w-0 flex-1", activeMode.startsWith("trading_") && "border-t-2 border-amber-500/60")}>
+          <div className="relative min-w-0 flex-1">
             {WORKSPACE_MODES.filter(mode => mountedModes.has(mode)).map(mode => (
               <div
                 key={mode}

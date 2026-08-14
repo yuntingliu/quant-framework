@@ -5,10 +5,10 @@ import { createContext, useContext, useState, useCallback } from "react"
 import { DEFAULT_MODE, normalizeWorkspaceMode, type WorkspaceMode } from "@/layouts/presets"
 
 const MODE_KEY = "alphalab-active-mode"
-// Startup always lands on the live-market Home page. Users can still switch
-// modes during the session, but reload/open should not restore an old monitor tab.
+// Startup always lands on the Data workbench. Users can switch workstations
+// during the session or request another one explicitly through the URL.
 const DEFAULT_MODE_VERSION_KEY = "alphalab-default-mode-version"
-const DEFAULT_MODE_VERSION = "5"
+const DEFAULT_MODE_VERSION = "6"
 
 /** Symbol link channels. Panels assigned to the same group follow
  * the same symbol; `null` group falls back to the global selectedSymbol. */
@@ -28,6 +28,8 @@ interface WorkspaceContextValue {
   setActiveMode: (mode: WorkspaceMode) => void
   selectedStrategy: string | null
   setSelectedStrategy: (id: string | null) => void
+  selectedDataset: string | null
+  setSelectedDataset: (id: string | null) => void
   selectedSymbol: string | null
   setSelectedSymbol: (code: string | null) => void
   linkSymbols: Partial<Record<LinkGroup, string | null>>
@@ -66,6 +68,7 @@ function loadMode(): WorkspaceMode {
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [activeMode, _setActiveMode] = useState<WorkspaceMode>(loadMode)
   const [selectedStrategy, setSelectedStrategy] = useState<string | null>(null)
+  const [selectedDataset, setSelectedDataset] = useState<string | null>(null)
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
   const [linkSymbols, setLinkSymbols] = useState<Partial<Record<LinkGroup, string | null>>>({})
   const [selectedOrderPrice, setSelectedOrderPrice] = useState<number | null>(null)
@@ -84,6 +87,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         activeMode,
         setActiveMode,
         selectedStrategy,
+        selectedDataset,
         selectedSymbol,
         linkSymbols,
         setLinkSymbol: useCallback((group: LinkGroup | null, symbol: string | null) => {
@@ -98,6 +102,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         selectedBacktest,
         selectedDate,
         setSelectedStrategy: useCallback((v) => setSelectedStrategy(v), []),
+        setSelectedDataset: useCallback((v) => setSelectedDataset(v), []),
         setSelectedSymbol: useCallback((v) => setSelectedSymbol(v), []),
         setSelectedOrderPrice: useCallback((v) => setSelectedOrderPrice(v), []),
         setSelectedOrderSide: useCallback((v) => setSelectedOrderSide(v), []),
@@ -117,6 +122,7 @@ export function useWorkspace(): WorkspaceContextValue {
       activeMode: DEFAULT_MODE,
       setActiveMode: () => {},
       selectedStrategy: null,
+      selectedDataset: null,
       selectedSymbol: null,
       linkSymbols: {},
       setLinkSymbol: () => {},
@@ -125,6 +131,7 @@ export function useWorkspace(): WorkspaceContextValue {
       selectedBacktest: null,
       selectedDate: null,
       setSelectedStrategy: () => {},
+      setSelectedDataset: () => {},
       setSelectedSymbol: () => {},
       setSelectedOrderPrice: () => {},
       setSelectedOrderSide: () => {},

@@ -905,6 +905,22 @@ button {
   min-width: 680px;
 }
 
+.runtime-table button.table-row {
+  width: 100%;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+}
+
+.runtime-table button.table-row:hover,
+.runtime-table button.table-row.active {
+  background: rgba(238, 186, 80, 0.08);
+}
+
+.runtime-table button.table-row.active {
+  box-shadow: inset 2px 0 #eeba50;
+}
+
 .compact-metrics {
   margin-bottom: 10px;
 }
@@ -1407,6 +1423,55 @@ button {
   padding: 8px;
 }
 
+.market-kline-workbench {
+  display: grid;
+  gap: 8px;
+}
+
+.market-kline-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.market-kline-toolbar .symbol-combobox {
+  width: min(260px, 45%);
+}
+
+.market-kline-toolbar select {
+  height: 30px;
+  border: 1px solid #343842;
+  border-radius: 5px;
+  background: #191b20;
+  color: #e9edf1;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.market-kline-kpis {
+  margin-top: 2px;
+}
+
+.market-kline-kpis .analytics-kpi span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.market-kline-frame {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #2f333b;
+  border-radius: 6px;
+  background: #101114;
+}
+
+.candlestick-chart {
+  width: 100%;
+  min-width: 0;
+}
+
 .robustness-header {
   display: flex;
   align-items: center;
@@ -1533,6 +1598,14 @@ button {
 }
 
 @container (max-width: 680px) {
+  .market-kline-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .market-kline-toolbar .symbol-combobox {
+    width: 100%;
+  }
+
   .analytics-date-filter {
     display: none;
   }
@@ -1568,4 +1641,46 @@ button {
   .paper-rebalance-controls {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+.factor-research-lab {
+  overflow: auto;
+}
+
+.factor-expression-editor {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  background: hsl(var(--background));
+}
+
+.factor-expression-editor label {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.factor-expression-editor textarea {
+  min-height: 4.5rem;
+  resize: vertical;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.25rem;
+  background: hsl(var(--card));
+  padding: 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+}
+
+.factor-expression-editor small,
+.inline-check {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.6875rem;
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
 }

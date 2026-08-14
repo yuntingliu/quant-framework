@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Play, RefreshCw, ShieldCheck, Workflow } from "lucide-react"
 
 import { CumulativeReturnsChart, DrawdownChart } from "@/components/charts"
+import { useWorkspace } from "@/contexts/WorkspaceContext"
 import {
   api,
   type BacktestAnalysis,
@@ -19,8 +20,10 @@ import { useDataProfile, type DataProfile } from "@/lib/data-profile"
 import { formatNumber, formatPercent } from "@/lib/utils"
 import { Widget } from "@/widgets/Widget"
 import { analyticsError } from "@/widgets/market/analytics-utils"
+import { BacktestCompareWidget } from "./BacktestCompare"
 
 type WorkbenchTab = "performance" | "robustness" | "holdings"
+type WorkbenchView = "inspect" | "compare"
 
 function metric(value: number | null | undefined, kind: "pct" | "number"): string {
   if (value == null) return "—"
@@ -28,11 +31,12 @@ function metric(value: number | null | undefined, kind: "pct" | "number"): strin
 }
 
 export function BacktestWorkbenchWidget() {
+  const { selectedStrategy, setSelectedStrategy, selectedBacktest, setSelectedBacktest } = useWorkspace()
   const [profile, setProfile] = useDataProfile()
   const [strategies, setStrategies] = useState<StrategyTemplate[]>([])
   const [records, setRecords] = useState<BacktestRecord[]>([])
-  const [strategyId, setStrategyId] = useState("balanced")
-  const [selectedId, setSelectedId] = useState("")
+  const [strategyId, setStrategyId] = useState(selectedStrategy ?? "balanced")
+  const [selectedId, setSelectedId] = useState(selectedBacktest ?? "")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [setupError, setSetupError] = useState("")
@@ -40,6 +44,7 @@ export function BacktestWorkbenchWidget() {
   const [researching, setResearching] = useState(false)
   const [researchMessage, setResearchMessage] = useState("")
   const [tab, setTab] = useState<WorkbenchTab>("performance")
+  const [view, setView] = useState<WorkbenchView>("inspect")
   const [holdingDate, setHoldingDate] = useState("")
 
   useEffect(() => {
@@ -54,14 +59,16 @@ export function BacktestWorkbenchWidget() {
     ])
       .then(([templates, manifest, providers, catalog, saved]) => {
         setStrategies(templates)
-        if (templates.some((item) => item.id === "balanced")) {
-          setStrategyId("balanced")
-        } else if (templates[0]) {
-          setStrategyId(templates[0].id)
-        }
+        const nextStrategy = templates.some((item) => item.id === "balanced")
+            ? "balanced"
+            : templates[0]?.id ?? ""
+        setStrategyId(nextStrategy)
+        setSelectedStrategy(nextStrategy || null)
         const matching = saved.filter((item) => item.profile === profile)
         setRecords(matching)
-        setSelectedId(matching[0]?.id ?? "")
+        const nextBacktest = matching[0]?.id ?? ""
+        setSelectedId(nextBacktest)
+        setSelectedBacktest(nextBacktest || null)
         if (profile === "demo") {
           setStartDate(manifest.sample_start)
           setEndDate(manifest.cutoff_date)
@@ -74,11 +81,23 @@ export function BacktestWorkbenchWidget() {
         } else {
           setStartDate("")
           setEndDate("")
-          setSetupError("Runtime data is not ready. Complete an RQ sync in Data Center.")
+          setSetupError("Runtime data is not ready. Complete an RQ sync in Data Workbench.")
         }
       })
       .catch((error: Error) => setSetupError(error.message))
-  }, [profile])
+  }, [profile, setSelectedBacktest, setSelectedStrategy])
+
+  useEffect(() => {
+    if (selectedStrategy && selectedStrategy !== strategyId && strategies.some((item) => item.id === selectedStrategy)) {
+      setStrategyId(selectedStrategy)
+    }
+  }, [selectedStrategy, strategies, strategyId])
+
+  useEffect(() => {
+    if (selectedBacktest && selectedBacktest !== selectedId && records.some((item) => item.id === selectedBacktest)) {
+      setSelectedId(selectedBacktest)
+    }
+  }, [records, selectedBacktest, selectedId])
 
   const analysis = useQuery({
     queryKey: ["backtests", "analysis", selectedId],
@@ -109,6 +128,8 @@ export function BacktestWorkbenchWidget() {
       const saved = await api.get<BacktestRecord[]>("/backtests?limit=100")
       setRecords(saved.filter((item) => item.profile === profile))
       setSelectedId(result.id)
+      setSelectedStrategy(strategyId)
+      setSelectedBacktest(result.id)
       setTab("performance")
     } catch (error) {
       setSetupError(error instanceof Error ? error.message : String(error))
@@ -141,6 +162,8 @@ export function BacktestWorkbenchWidget() {
       const saved = await api.get<BacktestRecord[]>("/backtests?limit=100")
       setRecords(saved.filter((item) => item.profile === profile))
       setSelectedId(run.result.backtest_id)
+      setSelectedStrategy(strategyId)
+      setSelectedBacktest(run.result.backtest_id)
       setTab("robustness")
       setResearchMessage(
         `${run.result.robustness_status} · paper rebalance awaits confirmation`,
@@ -172,12 +195,19 @@ export function BacktestWorkbenchWidget() {
   )
   const snapshot = analysis.data?.holdings.find((item) => item.date === holdingDate)
     ?? analysis.data?.holdings.at(-1)
+  const executions = analysis.data?.executions ?? []
+  const executionCost = executions.reduce((total, item) => total + item.total_cost, 0)
+  const constrainedPeriods = executions.filter((item) => item.constrained_symbols.length > 0).length
+  const averageCash = executions.length
+    ? executions.reduce((total, item) => total + item.cash_weight, 0) / executions.length
+    : null
+  const provenance = analysis.data?.provenance
 
   return (
     <Widget
       title="Backtest Workbench"
-      loading={analysis.isLoading}
-      error={analyticsError(analysis.error)}
+      loading={view === "inspect" && analysis.isLoading}
+      error={view === "inspect" ? analyticsError(analysis.error) : undefined}
       onRetry={() => analysis.refetch()}
       actions={
         <button
@@ -192,6 +222,11 @@ export function BacktestWorkbenchWidget() {
       }
       bodyPadding="none"
     >
+      <div className="workbench-tabs" role="tablist" aria-label="Backtest workbench mode">
+        <button type="button" role="tab" aria-selected={view === "inspect"} onClick={() => setView("inspect")}>Run &amp; Inspect</button>
+        <button type="button" role="tab" aria-selected={view === "compare"} onClick={() => setView("compare")}>Compare</button>
+      </div>
+      {view === "compare" ? <BacktestCompareWidget /> : <>
       <div className="workbench-controls">
         <select
           aria-label="Backtest data profile"
@@ -204,7 +239,10 @@ export function BacktestWorkbenchWidget() {
         <select
           aria-label="Strategy"
           value={strategyId}
-          onChange={(event) => setStrategyId(event.target.value)}
+          onChange={(event) => {
+            setStrategyId(event.target.value)
+            setSelectedStrategy(event.target.value)
+          }}
         >
           {strategies.map((strategy) => (
             <option key={strategy.id} value={strategy.id}>{strategy.name}</option>
@@ -243,7 +281,10 @@ export function BacktestWorkbenchWidget() {
         <select
           aria-label="Saved backtest"
           value={selectedId}
-          onChange={(event) => setSelectedId(event.target.value)}
+          onChange={(event) => {
+            setSelectedId(event.target.value)
+            setSelectedBacktest(event.target.value || null)
+          }}
         >
           <option value="">Saved run</option>
           {records.map((record) => (
@@ -297,6 +338,21 @@ export function BacktestWorkbenchWidget() {
                 <div className="analytics-kpi"><span>Max drawdown</span><strong>{metric(analysis.data.metrics.max_drawdown, "pct")}</strong></div>
                 <div className="analytics-kpi"><span>Avg turnover</span><strong>{metric(analysis.data.average_turnover, "pct")}</strong></div>
               </div>
+              <div className="detail-strip">
+                <span>{executions[0]?.execution_price?.replace("_", " ") ?? "saved execution"} · {executions.length} periods</span>
+                <span>Total modeled cost {metric(executionCost, "pct")}</span>
+                <span>Average cash {metric(averageCash, "pct")}</span>
+                <span>{constrainedPeriods} liquidity-constrained periods</span>
+                {provenance?.data?.aggregate_sha256 && (
+                  <span className="font-mono" title={provenance.data.aggregate_sha256}>data {provenance.data.aggregate_sha256.slice(0, 12)}</span>
+                )}
+                {provenance?.code?.commit && (
+                  <span className="font-mono" title={provenance.code.commit}>code {provenance.code.commit.slice(0, 10)}{provenance.code.dirty ? "-dirty" : ""}</span>
+                )}
+                {provenance?.code?.source_sha256 && (
+                  <span className="font-mono" title={provenance.code.source_sha256}>source {provenance.code.source_sha256.slice(0, 12)}</span>
+                )}
+              </div>
               <CumulativeReturnsChart
                 data={equityData}
                 series={[{ key: "strategy", name: analysis.data.strategy_id }]}
@@ -336,6 +392,22 @@ export function BacktestWorkbenchWidget() {
                       <span>Avg turnover</span>
                       <strong>{metric(robustness.data.turnover.average, "pct")}</strong>
                     </div>
+                    <div className="analytics-kpi">
+                      <span>Validation excess</span>
+                      <strong>{metric(robustness.data.validation.validation.excess?.annual_return, "pct")}</strong>
+                    </div>
+                    <div className="analytics-kpi">
+                      <span>Adjusted p-value</span>
+                      <strong>{metric(robustness.data.statistical.adjusted_p_value, "number")}</strong>
+                    </div>
+                  </div>
+                  <div className="detail-strip">
+                    <span>Validation from {robustness.data.validation.split_date ?? "--"}</span>
+                    <span>{robustness.data.validation.validation.periods ?? 0} holdout periods</span>
+                    <span>
+                      Bootstrap mean excess 95% [{metric(robustness.data.statistical.bootstrap_mean_excess_95.lower, "pct")}, {metric(robustness.data.statistical.bootstrap_mean_excess_95.upper, "pct")}]
+                    </span>
+                    <span>{robustness.data.statistical.research_trials} declared trials</span>
                   </div>
                   <div className="robustness-grid">
                     <section>
@@ -416,6 +488,7 @@ export function BacktestWorkbenchWidget() {
           )}
         </>
       ) : null}
+      </>}
     </Widget>
   )
 }

@@ -1,8 +1,9 @@
 import {
+  BarChart3,
   Database,
+  FileText,
   FlaskConical,
-  Home,
-  TrendingUp,
+  Sigma,
   type LucideIcon,
 } from "lucide-react"
 
@@ -10,43 +11,27 @@ import type { TranslationKey } from "@/contexts/LanguageContext"
 import type { WorkspaceMode } from "@/layouts/presets"
 
 export const MODE_CONFIG: Record<WorkspaceMode, { icon: LucideIcon; labelKey: TranslationKey; detailKey: TranslationKey }> = {
-  home: { icon: Home, labelKey: "mode.home", detailKey: "mode.home.long" },
   data: { icon: Database, labelKey: "mode.data", detailKey: "mode.data.long" },
-  research: { icon: FlaskConical, labelKey: "mode.research", detailKey: "mode.research.long" },
-  trading_a_share: { icon: TrendingUp, labelKey: "mode.tradingAshare", detailKey: "mode.tradingAshare.long" },
+  factor: { icon: Sigma, labelKey: "mode.factor", detailKey: "mode.factor.long" },
+  strategy: { icon: FlaskConical, labelKey: "mode.strategy", detailKey: "mode.strategy.long" },
+  backtest: { icon: BarChart3, labelKey: "mode.backtest", detailKey: "mode.backtest.long" },
+  report: { icon: FileText, labelKey: "mode.report", detailKey: "mode.report.long" },
 }
 
 export const WORKSPACE_MODES = Object.keys(MODE_CONFIG) as WorkspaceMode[]
 
+const CORE_WORKBENCHES = [
+  "data.workbench",
+  "factor.workbench",
+  "strategy.workbench",
+  "backtest.workbench",
+  "report.workbench",
+]
+
 export const MODE_SHORTCUTS: Record<WorkspaceMode, string[]> = {
-  home: [
-    "home.index-board",
-    "market.history",
-    "backtest.explorer",
-  ],
-  data: [
-    "market.kpi",
-    "market.cumulative-returns",
-    "market.factor-stats",
-    "market.drawdowns",
-    "market.annual-returns",
-    "market.volatility",
-    "market.correlation",
-    "data.center",
-    "data.factor-returns",
-    "system.log",
-  ],
-  research: [
-    "backtest.workbench",
-    "backtest.compare",
-    "backtest.explorer",
-    "strategies.hub",
-    "strategy.editor",
-    "research.signal-preview",
-  ],
-  trading_a_share: [
-    "trading.rebalance",
-    "research.signal-preview",
-    "trading.alerts",
-  ],
+  data: [...CORE_WORKBENCHES],
+  factor: [...CORE_WORKBENCHES],
+  strategy: [...CORE_WORKBENCHES],
+  backtest: [...CORE_WORKBENCHES],
+  report: [...CORE_WORKBENCHES],
 }

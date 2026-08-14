@@ -13,14 +13,17 @@ from alphalab.dataio.io_utils import atomic_write_parquet
 from alphalab.dataio.providers.local import (
     LocalParquetFactorProvider,
     LocalParquetFundamentalProvider,
+    LocalParquetInstrumentProvider,
     LocalParquetMarketDataProvider,
     PartitionedParquetFactorProvider,
     PartitionedParquetFundamentalProvider,
+    PartitionedParquetInstrumentProvider,
     PartitionedParquetMarketDataProvider,
 )
 from alphalab.dataio.providers.protocol import (
     FactorProvider,
     FundamentalProvider,
+    InstrumentProvider,
     MarketDataProvider,
     to_wide,
 )
@@ -66,9 +69,11 @@ class DataEngine:
 
     def __init__(self, cache: DataCache | None = None):
         self._market: dict[str, MarketDataProvider] = {}
+        self._instrument: dict[str, InstrumentProvider] = {}
         self._fundamental: dict[str, FundamentalProvider] = {}
         self._factor: dict[str, FactorProvider] = {}
         self._default_market: str | None = None
+        self._default_instrument: str | None = None
         self._default_fundamental: str | None = None
         self._default_factor: str | None = None
         self._cache = cache or DataCache()
@@ -88,6 +93,17 @@ class DataEngine:
         self._fundamental[name] = provider
         if default or self._default_fundamental is None:
             self._default_fundamental = name
+        return self
+
+    def register_instrument(
+        self,
+        name: str,
+        provider: InstrumentProvider,
+        default: bool = False,
+    ) -> "DataEngine":
+        self._instrument[name] = provider
+        if default or self._default_instrument is None:
+            self._default_instrument = name
         return self
 
     def register_factor(self, name: str, provider: FactorProvider, default: bool = False) -> "DataEngine":
@@ -110,12 +126,22 @@ class DataEngine:
         source = source or self._default_market
         if source is None or source not in self._market:
             raise MissingDataError(f"No market provider registered for source {source!r}")
-        key = DataCache.key("bars", source, sorted(symbols), start, end, freq, sorted(fields or []))
+        provider = self._market[source]
+        key = DataCache.key(
+            "bars",
+            source,
+            _provider_cache_token(provider),
+            sorted(symbols),
+            start,
+            end,
+            freq,
+            sorted(fields or []),
+        )
         if use_cache:
             cached = self._cache.get(key)
             if cached is not None:
                 return cached
-        out = self._market[source].get_bars(symbols, start, end, freq=freq, fields=fields)
+        out = provider.get_bars(symbols, start, end, freq=freq, fields=fields)
         if strict and out.empty:
             raise MissingDataError(f"No market bars returned for {symbols} from {source!r}")
         if use_cache and not out.empty:
@@ -158,6 +184,16 @@ class DataEngine:
             return provider.get_latest_date()
         return None
 
+    def get_instruments(
+        self,
+        asof_date: Optional[str] = None,
+        source: Optional[str] = None,
+    ) -> pd.DataFrame:
+        source = source or self._default_instrument
+        if source is None or source not in self._instrument:
+            return pd.DataFrame()
+        return self._instrument[source].get_instruments(asof_date)
+
     def get_fundamentals(
         self,
         symbols: list[str],
@@ -172,12 +208,22 @@ class DataEngine:
         source = source or self._default_fundamental
         if source is None or source not in self._fundamental:
             raise MissingDataError(f"No fundamental provider registered for source {source!r}")
-        key = DataCache.key("fundamentals", source, sorted(symbols), sorted(fields), start_quarter, end_quarter, asof_date)
+        provider = self._fundamental[source]
+        key = DataCache.key(
+            "fundamentals",
+            source,
+            _provider_cache_token(provider),
+            sorted(symbols),
+            sorted(fields),
+            start_quarter,
+            end_quarter,
+            asof_date,
+        )
         if use_cache:
             cached = self._cache.get(key)
             if cached is not None:
                 return cached
-        out = self._fundamental[source].get_fundamentals(
+        out = provider.get_fundamentals(
             symbols,
             fields,
             start_quarter,
@@ -204,12 +250,21 @@ class DataEngine:
         source = source or self._default_factor
         if source is None or source not in self._factor:
             raise MissingDataError(f"No factor provider registered for source {source!r}")
-        key = DataCache.key("factors", source, sorted(names), start, end, freq)
+        provider = self._factor[source]
+        key = DataCache.key(
+            "factors",
+            source,
+            _provider_cache_token(provider),
+            sorted(names),
+            start,
+            end,
+            freq,
+        )
         if use_cache:
             cached = self._cache.get(key)
             if cached is not None:
                 return cached
-        out = self._factor[source].get_factors(names, start, end, freq=freq, strict=strict)
+        out = provider.get_factors(names, start, end, freq=freq, strict=strict)
         if strict and out.empty:
             raise MissingDataError(f"No factor returns returned for {names} from {source!r}")
         if use_cache and not out.empty:
@@ -225,6 +280,7 @@ class DataEngine:
     def providers(self) -> dict[str, list[str]]:
         return {
             "market": sorted(self._market),
+            "instrument": sorted(self._instrument),
             "fundamental": sorted(self._fundamental),
             "factor": sorted(self._factor),
         }
@@ -237,11 +293,34 @@ def create_default_engine(data_dir: str | Path | None = None) -> DataEngine:
     """Create an engine wired to the generic local parquet layout."""
 
     root = Path(data_dir) if data_dir is not None else DATA_DIR
-    engine = DataEngine()
+    engine = DataEngine(cache=DataCache(root / "cache" / "engine"))
     engine.register_market("local", LocalParquetMarketDataProvider(root / "market"), default=True)
+    engine.register_instrument(
+        "local",
+        LocalParquetInstrumentProvider(root / "instruments"),
+        default=True,
+    )
     engine.register_fundamental("local", LocalParquetFundamentalProvider(root / "fundamentals"), default=True)
     engine.register_factor("local", LocalParquetFactorProvider(root / "factors"), default=True)
     return engine
+
+
+def _provider_cache_token(provider: object) -> tuple[str, int, int]:
+    """Bind cached requests to a provider path and its current file state."""
+
+    raw_path = getattr(provider, "path", None)
+    if raw_path is None:
+        return (type(provider).__name__, 0, 0)
+    path = Path(raw_path).resolve()
+    if path.is_file():
+        stat = path.stat()
+        return (str(path), stat.st_mtime_ns, stat.st_size)
+    if path.is_dir():
+        files = [item for item in path.rglob("*.parquet") if item.is_file()]
+        latest = max((item.stat().st_mtime_ns for item in files), default=0)
+        total_size = sum(item.stat().st_size for item in files)
+        return (str(path), latest, total_size)
+    return (str(path), 0, 0)
 
 
 def create_rq_engine_from_env(cache: DataCache | None = None) -> DataEngine:
@@ -252,6 +331,7 @@ def create_rq_engine_from_env(cache: DataCache | None = None) -> DataEngine:
     provider = RQDataProvider.from_env()
     engine = DataEngine(cache=cache)
     engine.register_market("rq", provider, default=True)
+    engine.register_instrument("rq", provider, default=True)
     engine.register_fundamental("rq", provider, default=True)
     return engine
 
@@ -264,6 +344,11 @@ def create_runtime_engine(runtime_dir: str | Path | None = None) -> DataEngine:
     engine.register_market(
         "runtime",
         PartitionedParquetMarketDataProvider(root),
+        default=True,
+    )
+    engine.register_instrument(
+        "runtime",
+        PartitionedParquetInstrumentProvider(root),
         default=True,
     )
     engine.register_fundamental(

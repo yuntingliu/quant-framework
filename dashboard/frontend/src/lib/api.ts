@@ -50,6 +50,39 @@ export interface BacktestRunResult {
   metrics: Record<string, number>
   returns: { date: string; value: number }[]
   weights_count: number
+  execution: Record<string, unknown>
+  provenance: ResearchProvenance
+}
+
+export interface ResearchProvenance {
+  version?: number
+  created_at?: string
+  profile?: "demo" | "runtime"
+  strategy_sha256?: string | null
+  code?: {
+    commit?: string | null
+    dirty?: boolean | null
+    source_sha256?: string
+    source_files?: number
+  }
+  data?: { aggregate_sha256?: string; kind?: string }
+}
+
+export interface BacktestExecution {
+  signal_date: string
+  entry_date: string
+  exit_date: string
+  execution_price?: "next_open" | "next_close"
+  turnover: number
+  traded_weight: number
+  fixed_cost: number
+  impact_cost: number
+  total_cost: number
+  gross_return: number
+  net_return: number
+  cash_weight: number
+  constrained_symbols: string[]
+  missing_amount_symbols: string[]
 }
 
 export interface BacktestHoldingSnapshot {
@@ -76,6 +109,8 @@ export interface BacktestAnalysis {
   turnover: Array<{ date: string; value: number }>
   average_turnover: number | null
   holdings: BacktestHoldingSnapshot[]
+  executions: BacktestExecution[]
+  provenance: ResearchProvenance
 }
 
 export interface BacktestComparison {
@@ -117,6 +152,17 @@ export interface BacktestRobustness {
     benchmark: number
     excess: number
   }>>
+  validation: {
+    split_date: string | null
+    development: RobustnessPeriodMetrics
+    validation: RobustnessPeriodMetrics
+  }
+  statistical: {
+    bootstrap_mean_excess_95: { lower: number | null; upper: number | null }
+    one_sided_p_value: number
+    research_trials: number
+    adjusted_p_value: number
+  }
   cost_sensitivity: Record<string, Record<string, number | null>>
   turnover: { average: number | null; maximum: number | null }
   portfolio: {
@@ -247,6 +293,60 @@ export interface MarketBar {
 export interface FactorReturnsPayload {
   names: string[]
   rows: Array<Record<string, string | number>>
+}
+
+export interface RobustnessPeriodMetrics {
+  periods?: number
+  strategy?: Record<string, number | null>
+  benchmark?: Record<string, number | null>
+  excess?: Record<string, number | null>
+}
+
+export interface FactorResearchLibrary {
+  factors: Array<{
+    name: string
+    source: "technical" | "fundamental"
+    description: string
+  }>
+  expression_functions: string[]
+  neutralizers: string[]
+}
+
+export interface FactorResearchResult {
+  factor: {
+    name: string
+    source: "technical" | "fundamental" | "expression"
+    expression?: string | null
+    direction: "long" | "short"
+    winsorize: number
+    neutralize: string[]
+  }
+  frequency: "monthly" | "weekly"
+  quantiles: number
+  universe_size: number
+  periods: number
+  summary: {
+    ic_mean?: number
+    ic_std?: number
+    icir?: number
+    ic_t_stat?: number
+    ic_positive_ratio?: number
+    coverage_mean?: number
+    top_turnover_mean?: number | null
+    bootstrap_ic_95?: { lower: number | null; upper: number | null }
+    long_short?: Record<string, number>
+  }
+  decay: Record<string, { mean_ic: number | null; observations: number }>
+  rows: Array<{
+    date: string
+    observations: number
+    coverage: number
+    ic: number
+    long_short: number
+    top_turnover: number | null
+    quantile_returns: Record<string, number>
+  }>
+  warnings: string[]
 }
 
 export interface SignalResult {
