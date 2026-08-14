@@ -1,27 +1,25 @@
-"""Built-in and local strategy definitions with explicit mutability rules."""
+"""Built-in and local market-timing strategy definitions."""
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from alphalab.strategies import list_strategy_files
-from alphalab.strategy.config import StrategyConfig
+from alphalab.strategy.repository import replace_strategy_name, validate_strategy_id
+from alphalab.strategy.timing import TimingStrategyConfig
 from alphalab.strategy.python_runtime import (
     python_source_sha256,
     validate_python_source,
 )
+from alphalab.timing_strategies import list_timing_strategy_files
 from alphalab.utils.paths import RUNTIME_APP_DIR
-
-_STRATEGY_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 
 
 @dataclass(frozen=True)
-class StrategyDefinition:
+class TimingStrategyDefinition:
     id: str
     path: Path
-    config: StrategyConfig
+    config: TimingStrategyConfig
     built_in: bool
 
     def as_dict(self, *, include_yaml: bool = False) -> dict:
@@ -36,11 +34,12 @@ class StrategyDefinition:
             warnings = [*warnings, "Python source is missing"]
         item = {
             "id": self.id,
-            "strategy_type": "stock_selection",
+            "strategy_type": "market_timing",
             "name": self.config.name,
             "description": self.config.description,
             "path": str(self.path),
-            "factors": self.config.factor_names,
+            "factors": [],
+            "signals": self.config.signal_names,
             "implementation": self.config.implementation.kind,
             "warnings": warnings,
             "built_in": self.built_in,
@@ -57,16 +56,16 @@ class StrategyDefinition:
         return item
 
 
-class StrategyRepository:
-    """Resolve immutable package templates and ignored local strategy YAML."""
+class TimingStrategyRepository:
+    """Resolve immutable timing templates and ignored local YAML definitions."""
 
     def __init__(self, local_dir: str | Path | None = None):
         self.local_dir = (
-            Path(local_dir) if local_dir is not None else RUNTIME_APP_DIR / "strategies"
+            Path(local_dir) if local_dir is not None else RUNTIME_APP_DIR / "timing_strategies"
         )
 
-    def list(self) -> list[StrategyDefinition]:
-        values = [self._definition(path, built_in=True) for path in list_strategy_files()]
+    def list(self) -> list[TimingStrategyDefinition]:
+        values = [self._definition(path, built_in=True) for path in list_timing_strategy_files()]
         if self.local_dir.exists():
             values.extend(
                 self._definition(path, built_in=False)
@@ -75,23 +74,18 @@ class StrategyRepository:
             )
         return sorted(values, key=lambda item: (not item.built_in, item.id))
 
-    def get(self, strategy_id: str) -> StrategyDefinition | None:
+    def get(self, strategy_id: str) -> TimingStrategyDefinition | None:
         normalized = validate_strategy_id(strategy_id)
-        for item in self.list():
-            if item.id == normalized:
-                return item
-        return None
+        return next((item for item in self.list() if item.id == normalized), None)
 
-    def clone(self, source_id: str, target_id: str) -> StrategyDefinition:
+    def clone(self, source_id: str, target_id: str) -> TimingStrategyDefinition:
         source = self.get(source_id)
         if source is None:
             raise KeyError(source_id)
         target = validate_strategy_id(target_id)
         if self.get(target) is not None:
             raise FileExistsError(target)
-        config = StrategyConfig.from_yaml_string(source.path.read_text(encoding="utf-8"))
-        payload = config.to_yaml()
-        payload = replace_strategy_name(payload, target)
+        payload = replace_strategy_name(source.config.to_yaml(), target)
         python_source = (
             source.path.with_suffix(".py").read_text(encoding="utf-8")
             if source.config.implementation.kind == "python"
@@ -111,21 +105,25 @@ class StrategyRepository:
         *,
         python_source: str | None = None,
         create_only: bool = False,
-    ) -> StrategyDefinition:
+    ) -> TimingStrategyDefinition:
         normalized = validate_strategy_id(strategy_id)
         existing = self.get(normalized)
         if existing is not None and existing.built_in:
             raise PermissionError("Built-in strategies are immutable; clone the template first")
         if create_only and existing is not None:
             raise FileExistsError(normalized)
-        config = StrategyConfig.from_yaml_string(yaml_text)
+        config = TimingStrategyConfig.from_yaml_string(yaml_text)
         if config.name != normalized:
             raise ValueError("Strategy YAML name must match the strategy id")
-        warnings = config.validate()
         hard_errors = [
             warning
-            for warning in warnings
-            if warning in {"No factors defined", "Factor weights must sum to a positive value"}
+            for warning in config.validate()
+            if warning
+            in {
+                "Barebone timing research currently requires the MKT series",
+                "No timing signals defined",
+                "Timing signal weights must sum to a positive value",
+            }
         ]
         if hard_errors:
             raise ValueError("; ".join(hard_errors))
@@ -162,29 +160,32 @@ class StrategyRepository:
 
     @staticmethod
     def validate_yaml(yaml_text: str, python_source: str | None = None) -> dict:
-        config = StrategyConfig.from_yaml_string(yaml_text)
-        return StrategyRepository.validate_config(config, python_source)
+        return TimingStrategyRepository.validate_config(
+            TimingStrategyConfig.from_yaml_string(yaml_text),
+            python_source,
+        )
 
     @staticmethod
     def validate_dict(
         raw: dict[str, Any],
         python_source: str | None = None,
     ) -> dict:
-        return StrategyRepository.validate_config(
-            StrategyConfig.from_dict(raw),
+        return TimingStrategyRepository.validate_config(
+            TimingStrategyConfig.from_dict(raw),
             python_source,
         )
 
     @staticmethod
     def validate_config(
-        config: StrategyConfig,
+        config: TimingStrategyConfig,
         python_source: str | None = None,
     ) -> dict:
         warnings = config.validate()
         configured = config.implementation.kind == "configured"
         hard_errors = {
-            "No factors defined",
-            "Factor weights must sum to a positive value",
+            "Barebone timing research currently requires the MKT series",
+            "No timing signals defined",
+            "Timing signal weights must sum to a positive value",
         }
         python_check = None
         if config.implementation.kind == "python":
@@ -203,23 +204,33 @@ class StrategyRepository:
                 "message": f"Strategy name is {config.name}",
             },
             {
-                "code": "factors_defined",
+                "code": "timing_market",
+                "status": "passed" if config.market_factor == "MKT" else "failed",
+                "severity": "info" if config.market_factor == "MKT" else "error",
+                "message": (
+                    "MKT is the timed market return series"
+                    if config.market_factor == "MKT"
+                    else "Barebone timing research currently requires the MKT series"
+                ),
+            },
+            {
+                "code": "timing_signals",
                 "status": (
                     "passed"
-                    if config.factors or config.implementation.kind == "python"
+                    if config.signals or config.implementation.kind == "python"
                     else "failed"
                 ),
                 "severity": (
                     "info"
-                    if config.factors or config.implementation.kind == "python"
+                    if config.signals or config.implementation.kind == "python"
                     else "error"
                 ),
                 "message": (
-                    f"{len(config.factors)} factors are defined"
-                    if config.factors
-                    else "Python strategy may use price history without configured factors"
+                    f"{len(config.signals)} timing signals are defined"
+                    if config.signals
+                    else "Python strategy computes market exposure from MKT history"
                     if config.implementation.kind == "python"
-                    else "No factors defined"
+                    else "No timing signals defined"
                 ),
             },
             {
@@ -235,7 +246,7 @@ class StrategyRepository:
                     else "error"
                 ),
                 "message": (
-                    "Configured strategy uses the built-in selection engine"
+                    "Configured strategy uses registered timing signals"
                     if config.implementation.kind == "configured"
                     else f"Python source validated ({python_check['bytes']} bytes)"
                     if python_check
@@ -243,57 +254,32 @@ class StrategyRepository:
                 ),
             },
             {
-                "code": "factor_registry",
+                "code": "timing_weight_total",
+                "status": (
+                    "passed"
+                    if not configured or config.total_weight > 0
+                    else "failed"
+                ),
+                "severity": (
+                    "info"
+                    if not configured or config.total_weight > 0
+                    else "error"
+                ),
+                "message": (
+                    "Python strategy returns market exposure directly"
+                    if not configured
+                    else f"Timing signal weights sum to {config.total_weight:.6g}"
+                    if config.total_weight > 0
+                    else "Timing signal weights must sum to a positive value"
+                ),
+            },
+            {
+                "code": "timing_exposure",
                 "status": "passed",
                 "severity": "info",
-                "message": "All factor definitions use valid registered inputs",
-            },
-            {
-                "code": "factor_weight_total",
-                "status": (
-                    "passed"
-                    if not configured
-                    else "failed"
-                    if config.total_weight <= 0
-                    else "passed"
-                    if abs(config.total_weight - 1.0) < 1e-9
-                    else "warning"
-                ),
-                "severity": (
-                    "info"
-                    if not configured
-                    else "error"
-                    if config.total_weight <= 0
-                    else "info"
-                    if abs(config.total_weight - 1.0) < 1e-9
-                    else "warning"
-                ),
                 "message": (
-                    "Python strategy returns target weights directly"
-                    if not configured
-                    else "Factor weights must sum to a positive value"
-                    if config.total_weight <= 0
-                    else "Factor weights sum to 1.0"
-                    if abs(config.total_weight - 1.0) < 1e-9
-                    else f"Factor weights sum to {config.total_weight:.6g}; scores are normalized at runtime"
-                ),
-            },
-            {
-                "code": "portfolio_capacity",
-                "status": (
-                    "passed"
-                    if config.selection.n_stocks * config.portfolio.max_weight >= 1
-                    else "warning"
-                ),
-                "severity": (
-                    "info"
-                    if config.selection.n_stocks * config.portfolio.max_weight >= 1
-                    else "warning"
-                ),
-                "message": (
-                    "Portfolio capacity can reach 100% invested"
-                    if config.selection.n_stocks * config.portfolio.max_weight >= 1
-                    else "n_stocks * max_weight is below 100%; portfolio will hold cash"
+                    f"Exposure range is {config.position.min_exposure:.0%}-"
+                    f"{config.position.max_exposure:.0%}"
                 ),
             },
         ]
@@ -305,10 +291,11 @@ class StrategyRepository:
                     or python_check is not None
                 )
             ),
-            "strategy_type": "stock_selection",
+            "strategy_type": "market_timing",
             "implementation": config.implementation.kind,
             "name": config.name,
-            "factors": config.factor_names,
+            "factors": [],
+            "signals": config.signal_names,
             "warnings": warnings,
             "normalized_yaml": config.to_yaml(),
             "config": config.to_dict(),
@@ -320,36 +307,13 @@ class StrategyRepository:
         }
 
     @staticmethod
-    def _definition(path: Path, *, built_in: bool) -> StrategyDefinition:
-        return StrategyDefinition(
+    def _definition(path: Path, *, built_in: bool) -> TimingStrategyDefinition:
+        return TimingStrategyDefinition(
             id=path.stem,
             path=path,
-            config=StrategyConfig.from_yaml(path),
+            config=TimingStrategyConfig.from_yaml(path),
             built_in=built_in,
         )
 
 
-def validate_strategy_id(value: str) -> str:
-    normalized = str(value).strip().lower()
-    if not _STRATEGY_ID.fullmatch(normalized):
-        raise ValueError(
-            "strategy id must be 2-64 lowercase letters, numbers, underscores, or hyphens"
-        )
-    return normalized
-
-
-def replace_strategy_name(yaml_text: str, target: str) -> str:
-    lines = yaml_text.splitlines()
-    for index, line in enumerate(lines):
-        if line.startswith("name:"):
-            lines[index] = f"name: {target}"
-            break
-    return "\n".join(lines) + "\n"
-
-
-__all__ = [
-    "StrategyDefinition",
-    "StrategyRepository",
-    "replace_strategy_name",
-    "validate_strategy_id",
-]
+__all__ = ["TimingStrategyDefinition", "TimingStrategyRepository"]

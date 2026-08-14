@@ -8,6 +8,8 @@ from typing import Any
 
 import yaml
 
+from alphalab.strategy.implementation import StrategyImplementationSpec
+
 FACTOR_SOURCES = ("technical", "fundamental", "expression")
 
 
@@ -158,6 +160,9 @@ class StrategyConfig:
     selection: SelectionSpec = field(default_factory=SelectionSpec)
     portfolio: PortfolioSpec = field(default_factory=PortfolioSpec)
     execution: ExecutionSpec = field(default_factory=ExecutionSpec)
+    implementation: StrategyImplementationSpec = field(
+        default_factory=StrategyImplementationSpec
+    )
     metadata: dict[str, Any] = field(default_factory=dict)
     _source_path: str | None = field(default=None, repr=False, compare=False)
 
@@ -172,7 +177,15 @@ class StrategyConfig:
         return cls._from_dict(yaml.safe_load(text) or {})
 
     @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "StrategyConfig":
+        """Build a strategy from the structured public representation."""
+        return cls._from_dict(dict(raw))
+
+    @classmethod
     def _from_dict(cls, raw: dict[str, Any], source_path: str | None = None) -> "StrategyConfig":
+        strategy_type = str(raw.get("strategy_type", "stock_selection"))
+        if strategy_type != "stock_selection":
+            raise ValueError("strategy_type must be stock_selection")
         universe_raw = dict(raw.get("universe", {}))
         if universe_raw.get("symbols") is None:
             universe_raw["symbols"] = []
@@ -184,12 +197,17 @@ class StrategyConfig:
             selection=SelectionSpec(**raw.get("selection", {})),
             portfolio=PortfolioSpec(**raw.get("portfolio", {})),
             execution=ExecutionSpec(**raw.get("execution", {})),
+            implementation=StrategyImplementationSpec(
+                **raw.get("implementation", {})
+            ),
             metadata=dict(raw.get("metadata", {})),
             _source_path=source_path,
         )
 
-    def to_yaml(self) -> str:
+    def to_dict(self) -> dict[str, Any]:
+        """Return the canonical JSON/YAML-compatible strategy representation."""
         payload = {
+            "strategy_type": "stock_selection",
             "name": self.name,
             "description": self.description,
             "universe": {**asdict(self.universe), "symbols": list(self.universe.symbols)},
@@ -197,9 +215,14 @@ class StrategyConfig:
             "selection": asdict(self.selection),
             "portfolio": asdict(self.portfolio),
             "execution": asdict(self.execution),
+            "implementation": asdict(self.implementation),
         }
         if self.metadata:
             payload["metadata"] = self.metadata
+        return payload
+
+    def to_yaml(self) -> str:
+        payload = self.to_dict()
         return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
 
     @property
@@ -212,9 +235,9 @@ class StrategyConfig:
 
     def validate(self) -> list[str]:
         warnings: list[str] = []
-        if not self.factors:
+        if self.implementation.kind == "configured" and not self.factors:
             warnings.append("No factors defined")
-        if self.total_weight <= 0:
+        if self.implementation.kind == "configured" and self.total_weight <= 0:
             warnings.append("Factor weights must sum to a positive value")
         if self.selection.n_stocks * self.portfolio.max_weight < 1:
             warnings.append("n_stocks * max_weight is below 100%; portfolio will hold cash")

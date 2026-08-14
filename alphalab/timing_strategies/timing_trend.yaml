@@ -1,0 +1,21 @@
+strategy_type: market_timing
+name: timing_trend
+description: Monthly MKT trend and momentum exposure strategy.
+market_factor: MKT
+signals:
+  - kind: trend
+    weight: 0.6
+    window: 12
+    threshold: 0.0
+  - kind: momentum
+    weight: 0.4
+    window: 6
+    threshold: 0.0
+position:
+  min_exposure: 0.0
+  max_exposure: 1.0
+execution:
+  cost_bps: 5.0
+  slippage_bps: 0.0
+metadata:
+  research_trials: 1

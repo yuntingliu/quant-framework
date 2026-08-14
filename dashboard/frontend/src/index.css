@@ -396,13 +396,18 @@ input[type="number"]:focus {
 }
 
 .dockview-theme-abyss,
-.dockview-theme-abyss * {
+.dockview-theme-light,
+.dockview-theme-abyss *,
+.dockview-theme-light * {
   box-sizing: border-box;
 }
 
 .dockview-theme-abyss .dv-view,
 .dockview-theme-abyss .dv-groupview,
-.dockview-theme-abyss .dv-content-container {
+.dockview-theme-abyss .dv-content-container,
+.dockview-theme-light .dv-view,
+.dockview-theme-light .dv-groupview,
+.dockview-theme-light .dv-content-container {
   min-width: 0;
   min-height: 0;
 }
@@ -412,15 +417,23 @@ input[type="number"]:focus {
 .dockview-theme-abyss .dv-tabs-container,
 .dockview-theme-abyss .dv-tab,
 .dockview-theme-abyss .dv-default-tab,
-.dockview-theme-abyss .dv-default-tab-content {
+.dockview-theme-abyss .dv-default-tab-content,
+.dockview-theme-light .dv-tabs-and-actions-container,
+.dockview-theme-light .dv-scrollable,
+.dockview-theme-light .dv-tabs-container,
+.dockview-theme-light .dv-tab,
+.dockview-theme-light .dv-default-tab,
+.dockview-theme-light .dv-default-tab-content {
   min-width: 0;
 }
 
-.dockview-theme-abyss .dv-default-tab {
+.dockview-theme-abyss .dv-default-tab,
+.dockview-theme-light .dv-default-tab {
   overflow: hidden;
 }
 
-.dockview-theme-abyss .dv-default-tab-content {
+.dockview-theme-abyss .dv-default-tab-content,
+.dockview-theme-light .dv-default-tab-content {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -516,7 +529,8 @@ input[type="number"]:focus {
 }
 
 /* ── Dockview theme: match our dark/light design tokens ───── */
-.dockview-theme-abyss {
+.dockview-theme-abyss,
+.dockview-theme-light {
   --dv-background-color: hsl(var(--background));
   --dv-paneview-header-border-color: hsl(var(--border));
   --dv-tabs-and-actions-container-background-color: hsl(var(--card));

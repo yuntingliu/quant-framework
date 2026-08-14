@@ -31,6 +31,7 @@ export function BacktestCompareWidget() {
     noBacktests: "没有已保存的回测。",
     selectTwo: "请至少选择两条回测记录。",
     strategy: "策略",
+    range: "区间",
     total: "总收益",
     annual: "年化收益",
     volatility: "波动率",
@@ -42,6 +43,7 @@ export function BacktestCompareWidget() {
     noBacktests: "has no persisted backtests.",
     selectTwo: "Select at least two saved runs.",
     strategy: "Strategy",
+    range: "Range",
     total: "Total",
     annual: "Annual",
     volatility: "Volatility",
@@ -122,7 +124,7 @@ export function BacktestCompareWidget() {
               onChange={() => toggle(record.id)}
             />
             <span>{record.strategy_id}</span>
-            <small>{record.id.slice(0, 6)}</small>
+            <small>{record.start_date.slice(0, 7)}–{record.end_date.slice(0, 7)} · {record.run_at.slice(0, 10)}</small>
           </label>
         ))}
       </div>
@@ -145,6 +147,7 @@ export function BacktestCompareWidget() {
               <thead>
                 <tr>
                   <th>{copy.strategy}</th>
+                  <th>{copy.range}</th>
                   <th>{copy.total}</th>
                   <th>{copy.annual}</th>
                   <th>{copy.volatility}</th>
@@ -156,6 +159,7 @@ export function BacktestCompareWidget() {
                 {(comparison.data?.metrics ?? []).map((row) => (
                   <tr key={String(row.id)}>
                     <td><strong>{String(row.strategy_id)}</strong></td>
+                    <td>{String(row.start_date).slice(0, 7)}–{String(row.end_date).slice(0, 7)}</td>
                     <td>{metric(row.total_return, "pct")}</td>
                     <td>{metric(row.annual_return, "pct")}</td>
                     <td>{metric(row.annual_vol, "pct")}</td>

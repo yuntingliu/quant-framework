@@ -13,6 +13,7 @@ import {
 import type { MarketBar } from "@/lib/api"
 import type { IndicatorId } from "@/hooks/useIndicatorSelection"
 import { addIndicatorSeries } from "@/lib/chartIndicators"
+import { useTheme } from "@/contexts/ThemeContext"
 
 interface CandlestickChartProps {
   rows: MarketBar[]
@@ -21,6 +22,7 @@ interface CandlestickChartProps {
 }
 
 export function CandlestickChart({ rows, selectedIndicators, height = 420 }: CandlestickChartProps) {
+  const { theme } = useTheme()
   const containerRef = useRef<HTMLDivElement>(null)
   const orderedRows = useMemo(
     () => [...rows]
@@ -38,27 +40,40 @@ export function CandlestickChart({ rows, selectedIndicators, height = 420 }: Can
   useEffect(() => {
     const container = containerRef.current
     if (!container || orderedRows.length === 0) return
+    const palette = theme === "dark"
+      ? {
+          background: "#101114",
+          text: "#8f99a6",
+          grid: "rgba(143, 153, 166, 0.08)",
+          border: "#2f333b",
+        }
+      : {
+          background: "#ffffff",
+          text: "#657080",
+          grid: "rgba(101, 112, 128, 0.12)",
+          border: "#d9dde4",
+        }
 
     const chart = createChart(container, {
       width: container.clientWidth,
       height,
       layout: {
-        background: { type: ColorType.Solid, color: "#101114" },
-        textColor: "#8f99a6",
+        background: { type: ColorType.Solid, color: palette.background },
+        textColor: palette.text,
         fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: "rgba(143, 153, 166, 0.08)" },
-        horzLines: { color: "rgba(143, 153, 166, 0.08)" },
+        vertLines: { color: palette.grid },
+        horzLines: { color: palette.grid },
       },
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: {
-        borderColor: "#2f333b",
+        borderColor: palette.border,
         scaleMargins: { top: 0.08, bottom: 0.25 },
       },
       timeScale: {
-        borderColor: "#2f333b",
+        borderColor: palette.border,
         timeVisible: false,
         rightOffset: 2,
       },
@@ -115,7 +130,7 @@ export function CandlestickChart({ rows, selectedIndicators, height = 420 }: Can
       resizeObserver.disconnect()
       chart.remove()
     }
-  }, [height, orderedRows, selectedIndicators])
+  }, [height, orderedRows, selectedIndicators, theme])
 
   return <div ref={containerRef} className="candlestick-chart" style={{ height }} />
 }

@@ -39,6 +39,12 @@ execution:
 
 def test_strategy_repository_preserves_builtins_and_manages_local_yaml(tmp_path) -> None:
     repository = StrategyRepository(tmp_path)
+    structured = _config().to_dict()
+    assert StrategyConfig.from_dict(structured).to_dict() == structured
+    validation = repository.validate_dict(structured)
+    assert validation["valid"] is True
+    assert validation["config"] == structured
+    assert all(check["status"] == "passed" for check in validation["checks"])
     assert repository.get("value").built_in is True
     with pytest.raises(PermissionError, match="immutable"):
         repository.save("value", _config("value").to_yaml())

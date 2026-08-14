@@ -255,6 +255,7 @@ class ResultStore:
         notes: str | None = None,
         provenance: dict | None = None,
         executions: list[dict] | tuple[dict, ...] | None = None,
+        persist_zero_weights: bool = False,
     ) -> str:
         backtest_id = _uuid()
         if start_date is None and not returns.empty:
@@ -301,7 +302,9 @@ class ResultStore:
             if weights is not None and not weights.empty:
                 for dt, row in weights.iterrows():
                     for symbol, weight in row.items():
-                        if pd.notna(weight) and abs(float(weight)) > 1e-12:
+                        if pd.notna(weight) and (
+                            persist_zero_weights or abs(float(weight)) > 1e-12
+                        ):
                             weight_rows.append((backtest_id, str(dt)[:10], str(symbol), float(weight)))
             if weight_rows:
                 self._conn.executemany(

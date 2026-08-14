@@ -51,6 +51,7 @@ results/
 scratch/
 codex_tmp/
 tmp_pytest/
+.pytest_tmp*/
 tmp_runtime_probe/
 pytest-cache-files-*/
 

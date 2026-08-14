@@ -93,21 +93,111 @@ real connection.
 
 ## Adding Strategies
 
-Generic templates live in `alphalab/strategies/`. A strategy is data plus YAML;
-add Python only when the framework needs a new reusable behavior.
+Stock-selection templates live in `alphalab/strategies/`; market-timing templates
+live in `alphalab/timing_strategies/`. Built-in reusable behavior should remain
+registered framework code plus data-only YAML. A local strategy may instead own
+a Python hook. Every newly serialized strategy declares exactly one domain
+discriminator:
+
+- `strategy_type: stock_selection`
+- `strategy_type: market_timing`
+
+Existing selection YAML without `strategy_type` is the sole compatibility
+migration and is normalized to `stock_selection`. Do not add heuristic type
+detection or additional aliases.
+
+Every config also has one explicit implementation:
+
+- `implementation.kind: configured` uses registered factors or timing signals.
+- `implementation.kind: python` calls the configured public entrypoint, normally
+  `generate`, in a timeout-bounded child process.
+
+Omitted `implementation` is the narrow persisted-data migration to `configured`.
+Do not infer Python mode from a file or source field. The Python process is for
+trusted local code: `-I`, process separation, bounded captured logs, and a 0.1–30
+second timeout contain common failures, but do not form an OS security sandbox.
 
 Package templates are immutable through the API. Dashboard edits are stored as
-local YAML below `data/runtime/app/strategies`. Strategy ids and YAML `name`
-must match. Validate every local definition before a backtest.
+local YAML below `data/runtime/app/strategies` or
+`data/runtime/app/timing_strategies`, according to type. Python implementations
+store an adjacent same-stem `.py` sidecar. Both directories are ignored. Strategy
+ids are unique across both repositories and must match the YAML `name`. Saving,
+cloning, and deleting a Python strategy must handle YAML and source together.
+Validate every local definition before a backtest.
 
-Every persisted backtest can produce a same-universe equal-weight benchmark and
-a robustness report. Signals use only information available at period end and
-execute on the next observed session. The report checks data/weight integrity,
+`StrategyConfig.to_dict()` and `TimingStrategyConfig.to_dict()` are the canonical
+structured representations used by the Strategy Workbench; `to_yaml()` serializes
+those same payloads. Keep visual
+form changes and YAML synchronized through `POST /api/strategies/validate`
+instead of reproducing YAML serialization in the browser. The endpoint accepts
+either `{"config": ...}` or `{"yaml": "..."}` (never both), plus the optional
+`python_source`, and returns both normalized representations plus structured
+checks and the source hash. `PUT /api/strategies/{strategy_id}` accepts the same
+source beside YAML. Add new strategy fields to
+the dataclass, both representations, the frontend API type, and the workbench
+editor together. The workbench creates a new strategy as an in-memory blank
+stock-selection draft by validating `{"config": {"strategy_type":
+"stock_selection", "name": strategy_id}}`, or a timing draft with
+`strategy_type: market_timing`; the first successful
+save uses the existing `PUT /api/strategies/{strategy_id}` path and must still
+pass the repository's executable-strategy gates.
+
+Python hooks have exact, type-specific contracts; do not add alternate names or
+compatibility fallbacks:
+
+```python
+# stock_selection
+def generate(context):
+    # context: strategy id/date, eligible candidates with PIT OHLCV histories
+    # and optional factor scores, current weights, limits, metadata
+    return {"weights": {"600519.SH": 0.10}}
+
+# market_timing
+def generate(context):
+    # context: strategy id/date, PIT monthly MKT returns, limits, metadata
+    return {"market_exposure": 0.50}
+```
+
+Selection output may contain only eligible symbols, non-negative finite weights,
+at most `selection.n_stocks`, no weight above `portfolio.max_weight`, and total
+weight at most one. Timing exposure must be finite and within the configured
+minimum/maximum. Empty Python selection output means cash; it must not silently
+reuse the prior portfolio. Preserve the one-period execution lag in both paths.
+
+`POST /api/strategies/selection-preview` is the canonical non-persisting stock
+selection check for both saved templates and unsaved workbench edits. It accepts
+the same exclusive `config` or `yaml` representation plus a data profile and
+optional as-of date. Keep its candidate ranks, factor contributions, cutoff,
+target weights, and exclusions sourced from `SignalEngine`; do not add a second
+frontend-only screener or reuse index-timing results as stock-selection output.
+
+`POST /api/strategies/timing-research` is the canonical non-persisting timing
+check. It accepts a `market_timing` config or YAML plus profile and date range.
+The current implementation times the monthly `MKT` return series with registered
+`trend`, `momentum`, and `volatility_control` signals. The combined 0–1 score maps
+to the configured exposure range; exposure is shifted one period before it earns
+returns, and turnover costs are applied when exposure changes. Keep this
+portfolio-level output separate from stock targets and paper-order generation.
+
+Every persisted stock-selection backtest can produce a same-universe equal-weight
+benchmark; every timing backtest persists MKT as its benchmark. Both produce a
+robustness report. Selection signals use only information available at period end
+and execute on the next observed session; timing exposure is lagged by one month.
+The report checks data/weight integrity,
 calendar and rolling outcomes, turnover, concentration, 10/20/50 bps cost
 assumptions, a final 30% validation segment, bootstrap mean-excess intervals,
 Newey-West mean tests, moving-block bootstrap intervals, and a Bonferroni
 adjustment using `metadata.research_trials`. Its labels are
 research triage labels, not trading authorization.
+
+Keep Backtest Workbench run controls distinct from saved-result inspection: the
+selected strategy and dates describe the next run, while charts and metrics must
+be labeled from the selected persisted record. New runs persist benchmark and
+execution audit data. `/api/backtests/{id}/analysis` returns strategy, benchmark,
+excess, drawdown, snapshot, and audit-availability fields without recomputing
+missing history. Legacy benchmark reconstruction belongs to the explicit
+robustness path because it can be slow; absent execution audits must render as
+unknown, never as zero cost or zero constrained periods.
 
 Reported Sharpe uses the annualized arithmetic mean divided by sample standard
 deviation. Annual return remains the compounded CAGR; the two are intentionally
@@ -149,11 +239,14 @@ never execute Python. Use the Factor Workbench or
 `POST /api/factor-research/evaluate` to inspect PIT coverage, Rank IC/ICIR,
 quantile returns, long-short returns, decay, top-bucket turnover and deterministic
 moving-block bootstrap intervals before adding a factor to a strategy.
+The workbench uses the shared Data Workbench profile over the full eligible
+universe; selecting one symbol for a K-line does not narrow a factor test.
 
 Missing daily amount blocks the affected trade because participation cannot be
 verified. Portfolio caps may deliberately leave cash. Each persisted backtest
-stores the execution audit and hashes of its YAML, exact input files and current
-Git commit/dirty state. Agent reports are saved through `/api/reports` with the
+stores the execution audit, the exact Python source snapshot when applicable,
+and hashes of its YAML, Python source, exact input files and current Git
+commit/dirty state. Agent reports are saved through `/api/reports` with the
 same data/code provenance and also cached locally for offline startup.
 
 The deterministic research runner persists each step and supports cancel,

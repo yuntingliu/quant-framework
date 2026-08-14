@@ -7,13 +7,16 @@ import math
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 from alphalab import (
     ResultStore,
     SignalEngine,
     StrategyConfig,
+    TimingStrategyConfig,
     create_default_engine,
     create_runtime_engine,
+    run_timing_backtest,
 )
 from alphalab.analytics import PerformanceMetrics, equal_weight_benchmark
 from alphalab.dataio import DataEngine, MissingDataError
@@ -21,7 +24,7 @@ from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.fundamentals import CANONICAL_FIELDS
 from alphalab.engine import run_backtest_detailed
 from alphalab.provenance import build_research_provenance
-from alphalab.strategy import StrategyRepository
+from alphalab.strategy import StrategyRepository, TimingStrategyRepository
 from alphalab.utils.paths import APP_DATA_DIR, DATA_DIR, FACTOR_DIR, FUNDAMENTAL_DIR, MARKET_DIR
 
 FUNDAMENTAL_FIELDS = ("shares", "market_cap", *CANONICAL_FIELDS)
@@ -263,15 +266,28 @@ def _quarter_label(value: str) -> str:
 def list_strategy_templates() -> list[dict]:
     activity = _strategy_activity()
     rows = []
-    for definition in StrategyRepository().list():
+    definitions = [
+        *StrategyRepository().list(),
+        *TimingStrategyRepository().list(),
+    ]
+    for definition in definitions:
         item = definition.as_dict()
         item.update(activity.get(definition.id, {}))
         rows.append(item)
-    return rows
+    return sorted(
+        rows,
+        key=lambda item: (
+            item["strategy_type"],
+            not item["built_in"],
+            item["id"],
+        ),
+    )
 
 
 def get_strategy_template(strategy_id: str) -> dict | None:
     definition = StrategyRepository().get(strategy_id)
+    if definition is None:
+        definition = TimingStrategyRepository().get(strategy_id)
     if definition is None:
         return None
     item = definition.as_dict(include_yaml=True)
@@ -279,20 +295,94 @@ def get_strategy_template(strategy_id: str) -> dict | None:
     return item
 
 
-def validate_strategy_yaml(yaml_text: str) -> dict:
-    return StrategyRepository.validate_yaml(yaml_text)
+def validate_strategy_yaml(
+    yaml_text: str,
+    python_source: str | None = None,
+) -> dict:
+    strategy_type = _strategy_type_from_yaml(yaml_text)
+    if strategy_type == "market_timing":
+        return TimingStrategyRepository.validate_yaml(yaml_text, python_source)
+    return StrategyRepository.validate_yaml(yaml_text, python_source)
+
+
+def validate_strategy_config(
+    config: dict,
+    python_source: str | None = None,
+) -> dict:
+    strategy_type = _strategy_type_from_dict(config)
+    if strategy_type == "market_timing":
+        return TimingStrategyRepository.validate_dict(config, python_source)
+    return StrategyRepository.validate_dict(config, python_source)
 
 
 def clone_strategy(strategy_id: str, target_id: str) -> dict:
-    return StrategyRepository().clone(strategy_id, target_id).as_dict(include_yaml=True)
+    source = get_strategy_template(strategy_id)
+    if source is None:
+        raise KeyError(strategy_id)
+    if get_strategy_template(target_id) is not None:
+        raise FileExistsError(target_id)
+    repository = (
+        TimingStrategyRepository()
+        if source["strategy_type"] == "market_timing"
+        else StrategyRepository()
+    )
+    return repository.clone(strategy_id, target_id).as_dict(include_yaml=True)
 
 
-def save_strategy(strategy_id: str, yaml_text: str) -> dict:
-    return StrategyRepository().save(strategy_id, yaml_text).as_dict(include_yaml=True)
+def save_strategy(
+    strategy_id: str,
+    yaml_text: str,
+    python_source: str | None = None,
+) -> dict:
+    existing = get_strategy_template(strategy_id)
+    strategy_type = _strategy_type_from_yaml(yaml_text)
+    if existing is not None and existing["strategy_type"] != strategy_type:
+        raise ValueError("strategy_type cannot be changed for an existing strategy")
+    if existing is None:
+        other = (
+            StrategyRepository().get(strategy_id)
+            if strategy_type == "market_timing"
+            else TimingStrategyRepository().get(strategy_id)
+        )
+        if other is not None:
+            raise FileExistsError(strategy_id)
+    repository = (
+        TimingStrategyRepository()
+        if strategy_type == "market_timing"
+        else StrategyRepository()
+    )
+    return repository.save(
+        strategy_id,
+        yaml_text,
+        python_source=python_source,
+    ).as_dict(include_yaml=True)
 
 
 def delete_strategy(strategy_id: str) -> bool:
-    return StrategyRepository().delete(strategy_id)
+    definition = get_strategy_template(strategy_id)
+    if definition is None:
+        return False
+    repository = (
+        TimingStrategyRepository()
+        if definition["strategy_type"] == "market_timing"
+        else StrategyRepository()
+    )
+    return repository.delete(strategy_id)
+
+
+def _strategy_type_from_yaml(yaml_text: str) -> str:
+    raw = yaml.safe_load(yaml_text) or {}
+    if not isinstance(raw, dict):
+        raise ValueError("strategy YAML must contain a mapping")
+    return _strategy_type_from_dict(raw)
+
+
+def _strategy_type_from_dict(config: dict) -> str:
+    # Existing saved selection strategies predate this discriminator.
+    strategy_type = str(config.get("strategy_type", "stock_selection"))
+    if strategy_type not in {"stock_selection", "market_timing"}:
+        raise ValueError("strategy_type must be stock_selection or market_timing")
+    return strategy_type
 
 
 def run_strategy_backtest(
@@ -304,6 +394,13 @@ def run_strategy_backtest(
     strategy = get_strategy_template(strategy_id)
     if strategy is None:
         raise KeyError(strategy_id)
+    if strategy["strategy_type"] == "market_timing":
+        return _run_timing_strategy_backtest(
+            strategy,
+            start_date,
+            end_date,
+            profile,
+        )
     cfg = StrategyConfig.from_yaml(strategy["path"])
     engine = _engine(profile)
     backtest = run_backtest_detailed(
@@ -311,6 +408,7 @@ def run_strategy_backtest(
         start_date,
         end_date,
         data_engine=engine,
+        python_source=strategy.get("python_source"),
     )
     returns = backtest.returns
     weights = backtest.weights
@@ -325,7 +423,11 @@ def run_strategy_backtest(
     periods_per_year = 52 if cfg.portfolio.rebalance_freq == "weekly" else 12
     metrics = PerformanceMetrics.summarize(returns, periods_per_year)
     config_yaml = cfg.to_yaml()
-    provenance = build_research_provenance(profile, config_yaml)
+    provenance = build_research_provenance(
+        profile,
+        config_yaml,
+        strategy_python=strategy.get("python_source"),
+    )
     store = ResultStore()
     try:
         store.register_strategy(cfg.name, strategy["path"], cfg.description)
@@ -347,6 +449,7 @@ def run_strategy_backtest(
     return {
         "id": backtest_id,
         "strategy_id": cfg.name,
+        "strategy_type": "stock_selection",
         "profile": profile,
         "metrics": metrics,
         "returns": [
@@ -364,6 +467,141 @@ def run_strategy_backtest(
         "weights_count": int((weights.abs() > 0).sum().sum()) if not weights.empty else 0,
         "execution": backtest.diagnostics,
         "provenance": provenance,
+    }
+
+
+def _run_timing_strategy_backtest(
+    strategy: dict,
+    start_date: str,
+    end_date: str,
+    profile: str,
+) -> dict:
+    cfg = TimingStrategyConfig.from_yaml(strategy["path"])
+    backtest = run_timing_backtest(
+        cfg,
+        start_date,
+        end_date,
+        _engine(profile),
+        strategy.get("python_source"),
+    )
+    metrics = PerformanceMetrics.summarize(backtest.returns, 12)
+    config_yaml = cfg.to_yaml()
+    provenance = build_research_provenance(
+        profile,
+        config_yaml,
+        strategy_python=strategy.get("python_source"),
+    )
+    weights = backtest.exposure.to_frame()
+    store = ResultStore()
+    try:
+        store.register_strategy(cfg.name, strategy["path"], cfg.description)
+        backtest_id = store.save_backtest(
+            config_yaml,
+            backtest.returns,
+            metrics,
+            strategy_id=cfg.name,
+            benchmark=backtest.benchmark,
+            weights=weights,
+            start_date=start_date,
+            end_date=end_date,
+            tags=[f"profile:{profile}", "strategy_type:market_timing"],
+            provenance=provenance,
+            executions=backtest.executions,
+            persist_zero_weights=True,
+        )
+    finally:
+        store.close()
+    return {
+        "id": backtest_id,
+        "strategy_id": cfg.name,
+        "strategy_type": "market_timing",
+        "profile": profile,
+        "metrics": metrics,
+        "returns": [
+            {
+                "date": str(date)[:10],
+                "value": float(value),
+                "benchmark": float(backtest.benchmark.loc[date]),
+            }
+            for date, value in backtest.returns.items()
+        ],
+        "weights_count": int(len(backtest.exposure)),
+        "execution": backtest.diagnostics,
+        "provenance": provenance,
+    }
+
+
+def research_timing_strategy(
+    *,
+    config: dict | None = None,
+    yaml_text: str | None = None,
+    python_source: str | None = None,
+    start_date: str,
+    end_date: str,
+    profile: str = "demo",
+) -> dict:
+    """Research an unsaved timing draft without writing a backtest record."""
+
+    if (config is None) == (yaml_text is None):
+        raise ValueError("provide exactly one of yaml or config")
+    validation = (
+        validate_strategy_yaml(yaml_text or "", python_source)
+        if yaml_text is not None
+        else validate_strategy_config(config or {}, python_source)
+    )
+    if validation.get("strategy_type") != "market_timing":
+        raise ValueError("timing research requires a market_timing strategy")
+    if not validation["valid"]:
+        failures = [
+            check["message"]
+            for check in validation["checks"]
+            if check["status"] == "failed"
+        ]
+        raise ValueError("; ".join(failures) or "timing strategy is not executable")
+    cfg = TimingStrategyConfig.from_dict(validation["config"])
+    backtest = run_timing_backtest(
+        cfg,
+        start_date,
+        end_date,
+        _engine(profile),
+        python_source,
+    )
+    metrics = PerformanceMetrics.summarize(backtest.returns, 12)
+    series = []
+    strategy_equity = (1.0 + backtest.returns).cumprod()
+    benchmark_equity = (1.0 + backtest.benchmark).cumprod()
+    for date, equity in strategy_equity.items():
+        series.append(
+            {
+                "date": str(date)[:10],
+                "strategy": float(equity),
+                "benchmark": float(benchmark_equity.loc[date]),
+                "exposure": float(backtest.exposure.loc[date]),
+            }
+        )
+    signal_rows = []
+    signal_columns = [
+        column
+        for column in backtest.signal_scores.columns
+        if column not in {"combined_score", "exposure"}
+    ]
+    for date, row in backtest.signal_scores.iterrows():
+        signal_rows.append(
+            {
+                "date": str(date)[:10],
+                "combined_score": float(row["combined_score"]),
+                "exposure": float(row["exposure"]),
+                "signals": {column: float(row[column]) for column in signal_columns},
+            }
+        )
+    return {
+        "strategy_id": cfg.name,
+        "strategy_type": "market_timing",
+        "profile": profile,
+        "metrics": metrics,
+        "diagnostics": backtest.diagnostics,
+        "series": series,
+        "signals": signal_rows,
     }
 
 
@@ -423,13 +661,19 @@ def generate_signal(
     strategy = get_strategy_template(strategy_id)
     if strategy is None:
         raise KeyError(strategy_id)
+    if strategy["strategy_type"] != "stock_selection":
+        raise ValueError("stock signals require a stock_selection strategy")
     _, profile_end = _profile_range(profile)
     signal_date = as_of_date or profile_end
     if pd.Timestamp(signal_date) > pd.Timestamp(profile_end):
         signal_date = profile_end
     cfg = StrategyConfig.from_yaml(strategy["path"])
-    signal_engine = SignalEngine(_engine(profile))
-    targets = signal_engine.generate_targets(cfg, signal_date)
+    payload = _generate_selection_payload(
+        cfg,
+        signal_date,
+        profile,
+        strategy.get("python_source"),
+    )
     signal_id = None
     if persist:
         store = ResultStore()
@@ -437,20 +681,80 @@ def generate_signal(
             store.register_strategy(cfg.name, strategy["path"], cfg.description)
             signal_id = store.save_signal(
                 cfg.name,
-                signal_date,
-                targets,
+                payload["signal_date"],
+                payload["targets"],
                 status="paper",
                 profile=profile,
             )
         finally:
             store.close()
     return {
+        **payload,
         "id": signal_id,
-        "strategy_id": cfg.name,
+    }
+
+
+def preview_strategy_selection(
+    *,
+    config: dict | None = None,
+    yaml_text: str | None = None,
+    python_source: str | None = None,
+    as_of_date: str | None = None,
+    profile: str = "demo",
+) -> dict:
+    """Preview a structured or YAML strategy without saving a signal."""
+
+    if (config is None) == (yaml_text is None):
+        raise ValueError("provide exactly one of yaml or config")
+    validation = (
+        validate_strategy_yaml(yaml_text or "", python_source)
+        if yaml_text is not None
+        else validate_strategy_config(config or {}, python_source)
+    )
+    if validation.get("strategy_type") != "stock_selection":
+        raise ValueError("selection preview requires a stock_selection strategy")
+    if not validation["valid"]:
+        failures = [
+            check["message"]
+            for check in validation["checks"]
+            if check["status"] == "failed"
+        ]
+        raise ValueError("; ".join(failures) or "strategy is not executable")
+    _, profile_end = _profile_range(profile)
+    signal_date = as_of_date or profile_end
+    if pd.Timestamp(signal_date) > pd.Timestamp(profile_end):
+        signal_date = profile_end
+    cfg = StrategyConfig.from_dict(validation["config"])
+    return {
+        **_generate_selection_payload(
+            cfg,
+            signal_date,
+            profile,
+            python_source,
+        ),
+        "id": None,
+    }
+
+
+def _generate_selection_payload(
+    config: StrategyConfig,
+    signal_date: str,
+    profile: str,
+    python_source: str | None = None,
+) -> dict:
+    signal_engine = SignalEngine(_engine(profile))
+    targets = signal_engine.generate_targets(
+        config,
+        signal_date,
+        python_source=python_source,
+    )
+    return {
+        "strategy_id": config.name,
         "profile": profile,
-        "signal_date": signal_date,
+        "signal_date": signal_engine.diagnostics.get("as_of_date", signal_date),
         "targets": targets,
         "diagnostics": signal_engine.diagnostics,
+        "selection": signal_engine.selection_snapshot,
     }
 
 

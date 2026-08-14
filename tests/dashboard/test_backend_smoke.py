@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from alphalab import ResultStore
+from alphalab.strategy import StrategyRepository, TimingStrategyRepository
 from dashboard.backend.main import app
 from dashboard.backend.routers import conexus, reports
 from dashboard.backend.services import framework_service, research_service
@@ -21,6 +22,10 @@ def test_backend_smoke_endpoints():
     strategies = client.get("/api/strategies")
     assert strategies.status_code == 200
     assert {item["id"] for item in strategies.json()} >= {"momentum", "balanced"}
+    assert {item["strategy_type"] for item in strategies.json()} == {
+        "stock_selection",
+        "market_timing",
+    }
     assert client.get("/api/system/logs").status_code == 200
     health = client.get("/api/data-sync/health")
     assert health.status_code == 200
@@ -253,6 +258,11 @@ def test_backtest_signal_and_paper_endpoints(tmp_path, monkeypatch):
     analysis = client.get(f"/api/backtests/{payload['id']}/analysis")
     assert analysis.status_code == 200
     assert analysis.json()["equity_curve"]
+    assert analysis.json()["benchmark_equity_curve"]
+    assert analysis.json()["excess_equity_curve"]
+    assert analysis.json()["benchmark_coverage"] > 0.8
+    assert analysis.json()["has_execution_audit"] is True
+    assert analysis.json()["strategy_snapshot"]["name"] == "momentum"
     assert analysis.json()["holdings"]
     robustness = client.get(f"/api/backtests/{payload['id']}/robustness")
     assert robustness.status_code == 200
@@ -290,6 +300,8 @@ def test_backtest_signal_and_paper_endpoints(tmp_path, monkeypatch):
     signal = client.post("/api/signals/generate", json={"strategy_id": "balanced", "persist": True})
     assert signal.status_code == 200
     assert len(signal.json()["targets"]) == 10
+    assert signal.json()["selection"]["selected_count"] == 10
+    assert signal.json()["selection"]["rows"][0]["selected"] is True
 
     symbol = next(iter(signal.json()["targets"]))
     order = client.post(
@@ -322,13 +334,252 @@ def test_strategy_validation_contract():
     payload = strategy.json()
     assert payload["built_in"] is True
     assert payload["editable"] is False
+    assert payload["config"]["name"] == "value"
+    selection = client.post(
+        "/api/strategies/selection-preview",
+        json={"config": payload["config"], "profile": "demo"},
+    )
+    assert selection.status_code == 200, selection.text
+    selection_payload = selection.json()
+    assert selection_payload["id"] is None
+    assert selection_payload["selection"]["selected_count"] == (
+        payload["config"]["selection"]["n_stocks"]
+    )
+    assert selection_payload["selection"]["rows"][0]["factor_scores"]
 
     validated = client.post(
         "/api/strategies/validate",
         json={"yaml": payload["yaml"]},
     )
     assert validated.status_code == 200
-    assert validated.json()["valid"] is True
+    validation = validated.json()
+    assert validation["valid"] is True
+    assert validation["config"] == payload["config"]
+    assert any(check["code"] == "factor_weight_total" for check in validation["checks"])
+
+    structured = client.post(
+        "/api/strategies/validate",
+        json={"config": payload["config"]},
+    )
+    assert structured.status_code == 200
+    assert structured.json()["normalized_yaml"]
+
+
+def test_python_strategy_drafts_validate_and_research_through_api():
+    client = TestClient(app)
+    selection_config = {
+        "strategy_type": "stock_selection",
+        "name": "python_selection_draft",
+        "universe": {
+            "symbols": ["600519.SH", "002594.SZ", "000858.SZ"],
+            "min_history_days": 20,
+        },
+        "factors": [],
+        "selection": {"n_stocks": 2},
+        "portfolio": {"max_weight": 0.5},
+        "implementation": {
+            "kind": "python",
+            "entrypoint": "generate",
+            "timeout_seconds": 5.0,
+        },
+    }
+    selection_source = (
+        "def generate(context):\n"
+        "    symbols = sorted(row['symbol'] for row in context['candidates'])[:2]\n"
+        "    return {'weights': {symbol: 0.5 for symbol in symbols}}\n"
+    )
+    validation = client.post(
+        "/api/strategies/validate",
+        json={"config": selection_config, "python_source": selection_source},
+    )
+    assert validation.status_code == 200, validation.text
+    assert validation.json()["valid"] is True
+    assert validation.json()["python_source_sha256"]
+
+    preview = client.post(
+        "/api/strategies/selection-preview",
+        json={
+            "config": selection_config,
+            "python_source": selection_source,
+            "profile": "demo",
+        },
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["selection"]["selected_count"] == 2
+    assert preview.json()["diagnostics"]["implementation"] == "python"
+
+    timing_config = {
+        "strategy_type": "market_timing",
+        "name": "python_timing_draft",
+        "signals": [],
+        "position": {"min_exposure": 0.2, "max_exposure": 0.8},
+        "implementation": {
+            "kind": "python",
+            "entrypoint": "generate",
+            "timeout_seconds": 5.0,
+        },
+    }
+    timing_source = (
+        "def generate(context):\n"
+        "    return {'market_exposure': 0.5}\n"
+    )
+    research = client.post(
+        "/api/strategies/timing-research",
+        json={
+            "config": timing_config,
+            "python_source": timing_source,
+            "profile": "demo",
+            "start_date": "2024-01-01",
+            "end_date": "2025-12-31",
+        },
+    )
+    assert research.status_code == 200, research.text
+    assert research.json()["series"]
+    assert research.json()["diagnostics"]["python"]["source_sha256"]
+
+
+def test_saved_python_strategy_runs_with_source_snapshot(tmp_path, monkeypatch):
+    class LocalSelectionRepository(StrategyRepository):
+        def __init__(self):
+            super().__init__(tmp_path / "selection")
+
+    class LocalTimingRepository(TimingStrategyRepository):
+        def __init__(self):
+            super().__init__(tmp_path / "timing")
+
+    database = tmp_path / "python-strategy.db"
+    monkeypatch.setattr(framework_service, "StrategyRepository", LocalSelectionRepository)
+    monkeypatch.setattr(framework_service, "TimingStrategyRepository", LocalTimingRepository)
+    monkeypatch.setattr(framework_service, "ResultStore", lambda: ResultStore(database))
+    client = TestClient(app)
+    source = (
+        "def generate(context):\n"
+        "    symbols = sorted(row['symbol'] for row in context['candidates'])[:2]\n"
+        "    return {'weights': {symbol: 0.5 for symbol in symbols}}\n"
+    )
+    config = {
+        "strategy_type": "stock_selection",
+        "name": "python_saved",
+        "universe": {
+            "symbols": ["600519.SH", "002594.SZ", "000858.SZ"],
+            "min_history_days": 20,
+        },
+        "factors": [],
+        "selection": {"n_stocks": 2},
+        "portfolio": {"max_weight": 0.5},
+        "implementation": {
+            "kind": "python",
+            "entrypoint": "generate",
+            "timeout_seconds": 5.0,
+        },
+    }
+    validated = client.post(
+        "/api/strategies/validate",
+        json={"config": config, "python_source": source},
+    )
+    assert validated.status_code == 200, validated.text
+    saved = client.put(
+        "/api/strategies/python_saved",
+        json={
+            "yaml": validated.json()["normalized_yaml"],
+            "python_source": source,
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["python_source"] == source
+
+    backtest = client.post(
+        "/api/backtests/run",
+        json={
+            "strategy_id": "python_saved",
+            "start_date": "2025-01-01",
+            "end_date": "2025-04-30",
+            "profile": "demo",
+        },
+    )
+    assert backtest.status_code == 200, backtest.text
+    provenance = backtest.json()["provenance"]
+    assert provenance["strategy_python"]["source"] == source
+    assert provenance["strategy_python"]["sha256"] == provenance["strategy_python_sha256"]
+
+
+def test_timing_strategy_research_and_backtest_contract(tmp_path, monkeypatch):
+    database = tmp_path / "timing.db"
+    def factory():
+        return ResultStore(database)
+
+    monkeypatch.setattr(framework_service, "ResultStore", factory)
+    monkeypatch.setattr(research_service, "ResultStore", factory)
+    client = TestClient(app)
+    strategy = client.get("/api/strategies/timing_trend")
+    assert strategy.status_code == 200
+    payload = strategy.json()
+    assert payload["strategy_type"] == "market_timing"
+    assert payload["signals"] == ["trend", "momentum"]
+
+    validation = client.post(
+        "/api/strategies/validate",
+        json={"config": payload["config"]},
+    )
+    assert validation.status_code == 200
+    assert validation.json()["valid"] is True
+    assert validation.json()["strategy_type"] == "market_timing"
+
+    research = client.post(
+        "/api/strategies/timing-research",
+        json={
+            "config": payload["config"],
+            "profile": "demo",
+            "start_date": "2023-01-01",
+            "end_date": "2025-12-31",
+        },
+    )
+    assert research.status_code == 200, research.text
+    assert research.json()["series"]
+    assert research.json()["signals"]
+    assert 0 <= research.json()["diagnostics"]["latest_exposure"] <= 1
+
+    backtest = client.post(
+        "/api/backtests/run",
+        json={
+            "strategy_id": "timing_trend",
+            "start_date": "2023-01-01",
+            "end_date": "2025-12-31",
+            "profile": "demo",
+        },
+    )
+    assert backtest.status_code == 200, backtest.text
+    result = backtest.json()
+    assert result["strategy_type"] == "market_timing"
+    assert result["execution"]["latest_exposure"] >= 0
+
+    analysis = client.get(f"/api/backtests/{result['id']}/analysis")
+    assert analysis.status_code == 200, analysis.text
+    assert analysis.json()["strategy_snapshot"]["strategy_type"] == "market_timing"
+    assert len(analysis.json()["holdings"]) == result["metrics"]["n_periods"]
+    assert any(
+        row["top_holdings"]
+        and row["top_holdings"][0]["symbol"] == "MARKET_EXPOSURE"
+        for row in analysis.json()["holdings"]
+    )
+    robustness = client.get(f"/api/backtests/{result['id']}/robustness")
+    assert robustness.status_code == 200, robustness.text
+
+    run = research_service.ResearchRunManager().run_now(
+        {
+            "strategy_id": "timing_trend",
+            "profile": "demo",
+            "start_date": "2023-01-01",
+            "end_date": "2025-12-31",
+            "account_id": "paper",
+        }
+    )
+    assert run["status"] == "succeeded"
+    assert run["result"]["signal_id"] is None
+    assert run["result"]["preview_id"] is None
+    assert run["result"]["paper_execution"] == "not_applicable_for_market_timing"
+    assert next(step for step in run["steps"] if step["name"] == "signal")["status"] == "succeeded"
+    assert next(step for step in run["steps"] if step["name"] == "risk_preview")["status"] == "skipped"
 
 
 def test_deterministic_research_run_stops_before_paper_execution(

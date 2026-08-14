@@ -6,10 +6,13 @@ interface ElectronApiBridge {
 
 export interface StrategyTemplate {
   id: string
+  strategy_type: "stock_selection" | "market_timing"
   name: string
   description: string
   path: string
   factors: string[]
+  signals?: string[]
+  implementation: "configured" | "python"
   warnings: string[]
   built_in: boolean
   editable: boolean
@@ -28,6 +31,155 @@ export interface StrategyTemplate {
 
 export interface StrategyTemplateDetail extends StrategyTemplate {
   yaml: string
+  config: StrategyConfigPayload
+  python_source: string | null
+  python_source_sha256: string | null
+}
+
+export interface StrategyImplementationConfig {
+  kind: "configured" | "python"
+  entrypoint: string
+  timeout_seconds: number
+}
+
+export interface StrategyFactorConfig {
+  name: string
+  weight: number
+  direction: "long" | "short"
+  source: "technical" | "fundamental" | "expression"
+  expression?: string | null
+  winsorize: number
+  neutralize: string[]
+}
+
+export interface StrategyConfigPayload {
+  strategy_type: "stock_selection"
+  name: string
+  description: string
+  universe: {
+    pool: string
+    symbols: string[]
+    min_price: number
+    min_history_days: number
+    min_average_amount: number
+    max_stale_days: number
+    require_positive_volume: boolean
+  }
+  factors: StrategyFactorConfig[]
+  selection: {
+    min_factor_coverage: number
+    n_stocks: number
+  }
+  portfolio: {
+    max_weight: number
+    rebalance_freq: "monthly" | "weekly"
+    optimizer: "equal_weight"
+  }
+  execution: {
+    cost_bps: number
+    slippage_bps: number
+    impact_bps: number
+    execution_price: "next_open" | "next_close"
+    portfolio_value: number
+    max_participation_rate: number
+  }
+  implementation: StrategyImplementationConfig
+  metadata?: Record<string, unknown>
+}
+
+export interface StrategyValidationCheck {
+  code: string
+  status: "passed" | "warning" | "failed"
+  severity: "info" | "warning" | "error"
+  message: string
+}
+
+export interface StrategyValidationResult {
+  valid: boolean
+  strategy_type: "stock_selection"
+  name: string
+  factors: string[]
+  warnings: string[]
+  normalized_yaml: string
+  config: StrategyConfigPayload
+  python_source: string | null
+  python_source_sha256: string | null
+  checks: StrategyValidationCheck[]
+}
+
+export interface TimingSignalConfig {
+  kind: "trend" | "momentum" | "volatility_control"
+  weight: number
+  window: number
+  threshold: number
+}
+
+export interface TimingStrategyConfigPayload {
+  strategy_type: "market_timing"
+  name: string
+  description: string
+  market_factor: "MKT"
+  signals: TimingSignalConfig[]
+  position: {
+    min_exposure: number
+    max_exposure: number
+  }
+  execution: {
+    cost_bps: number
+    slippage_bps: number
+  }
+  implementation: StrategyImplementationConfig
+  metadata?: Record<string, unknown>
+}
+
+export interface TimingStrategyTemplateDetail extends StrategyTemplate {
+  strategy_type: "market_timing"
+  yaml: string
+  config: TimingStrategyConfigPayload
+  python_source: string | null
+  python_source_sha256: string | null
+}
+
+export interface TimingStrategyValidationResult {
+  valid: boolean
+  strategy_type: "market_timing"
+  name: string
+  factors: string[]
+  signals: string[]
+  warnings: string[]
+  normalized_yaml: string
+  config: TimingStrategyConfigPayload
+  python_source: string | null
+  python_source_sha256: string | null
+  checks: StrategyValidationCheck[]
+}
+
+export interface TimingResearchResult {
+  strategy_id: string
+  strategy_type: "market_timing"
+  profile: "demo" | "runtime"
+  metrics: Record<string, number>
+  diagnostics: {
+    market_factor: string
+    frequency: "monthly"
+    periods: number
+    average_exposure: number
+    latest_exposure: number
+    latest_signal_date: string
+    turnover: number
+  }
+  series: Array<{
+    date: string
+    strategy: number
+    benchmark: number
+    exposure: number
+  }>
+  signals: Array<{
+    date: string
+    combined_score: number
+    exposure: number
+    signals: Record<string, number>
+  }>
 }
 
 export interface BacktestRecord {
@@ -47,6 +199,7 @@ export interface BacktestRecord {
 export interface BacktestRunResult {
   id: string
   strategy_id: string
+  strategy_type: "stock_selection" | "market_timing"
   metrics: Record<string, number>
   returns: { date: string; value: number }[]
   weights_count: number
@@ -59,6 +212,8 @@ export interface ResearchProvenance {
   created_at?: string
   profile?: "demo" | "runtime"
   strategy_sha256?: string | null
+  strategy_python_sha256?: string | null
+  strategy_python?: { source: string; sha256: string } | null
   code?: {
     commit?: string | null
     dirty?: boolean | null
@@ -72,7 +227,7 @@ export interface BacktestExecution {
   signal_date: string
   entry_date: string
   exit_date: string
-  execution_price?: "next_open" | "next_close"
+  execution_price?: "next_open" | "next_close" | "monthly_factor_close"
   turnover: number
   traded_weight: number
   fixed_cost: number
@@ -106,10 +261,31 @@ export interface BacktestAnalysis {
   returns: Array<number | null>
   equity_curve: Array<number | null>
   drawdown: Array<number | null>
+  benchmark_returns: Array<number | null>
+  benchmark_equity_curve: Array<number | null>
+  benchmark_drawdown: Array<number | null>
+  excess_returns: Array<number | null>
+  excess_equity_curve: Array<number | null>
+  benchmark_coverage: number | null
   turnover: Array<{ date: string; value: number }>
   average_turnover: number | null
   holdings: BacktestHoldingSnapshot[]
   executions: BacktestExecution[]
+  has_execution_audit: boolean
+  strategy_snapshot: {
+    strategy_type: "stock_selection" | "market_timing"
+    implementation: "configured" | "python"
+    name: string
+    description: string
+    factors: string[]
+    signals: string[]
+    market_factor?: string
+    rebalance_freq: "monthly" | "weekly"
+    execution_price: "next_open" | "next_close" | "monthly_factor_close"
+    cost_bps: number
+    max_weight?: number
+    max_exposure?: number
+  } | null
   provenance: ResearchProvenance
 }
 
@@ -183,8 +359,8 @@ export interface ResearchRun {
   result?: {
     backtest_id: string
     robustness_status: string
-    signal_id: string
-    preview_id: string
+    signal_id: string | null
+    preview_id: string | null
     paper_execution: string
   } | null
   steps: Array<{
@@ -355,7 +531,27 @@ export interface SignalResult {
   profile: "demo" | "runtime"
   signal_date: string
   targets: Record<string, number>
-  diagnostics: Record<string, string | number | string[]>
+  diagnostics: Record<string, unknown>
+  selection: {
+    as_of_date: string
+    universe_size: number
+    eligible_count: number
+    scored_count: number
+    requested_count: number
+    selected_count: number
+    cash_weight: number
+    factor_names: string[]
+    exclusions: Record<string, number>
+    rows: Array<{
+      rank: number
+      symbol: string
+      selected: boolean
+      composite_score: number
+      factor_coverage: number
+      target_weight: number
+      factor_scores: Record<string, number | null>
+    }>
+  }
 }
 
 export interface PaperOrder {

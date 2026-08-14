@@ -13,7 +13,7 @@ from alphalab.analytics.inference import (
 )
 from alphalab.analytics.metrics import PerformanceMetrics
 from alphalab.dataio import DataEngine
-from alphalab.strategy import StrategyConfig
+from alphalab.strategy import StrategyConfig, TimingStrategyConfig
 
 
 @dataclass(frozen=True)
@@ -105,14 +105,14 @@ def robustness_report(
     returns: pd.Series,
     benchmark: pd.Series,
     weights: pd.DataFrame,
-    config: StrategyConfig,
+    config: StrategyConfig | TimingStrategyConfig,
     *,
     thresholds: RobustnessThresholds | None = None,
 ) -> dict:
     """Evaluate research quality without presenting the result as trading approval."""
 
     limits = thresholds or RobustnessThresholds()
-    periods_per_year = 52 if config.portfolio.rebalance_freq == "weekly" else 12
+    periods_per_year = _periods_per_year(config)
     minimum_periods = max(limits.min_periods, periods_per_year * 2)
     strategy = _clean_series(returns)
     reference = _clean_series(benchmark).reindex(strategy.index)
@@ -289,12 +289,20 @@ def _traded_weight(weights: pd.DataFrame) -> pd.Series:
     return (values - previous).abs().sum(axis=1)
 
 
-def _weight_checks(weights: pd.DataFrame, config: StrategyConfig) -> list[dict]:
+def _weight_checks(
+    weights: pd.DataFrame,
+    config: StrategyConfig | TimingStrategyConfig,
+) -> list[dict]:
     if weights.empty:
         return [_check("weights_present", False, "no saved weights")]
     values = weights.fillna(0.0).astype(float)
     gross = values.abs().sum(axis=1)
     maximum = values.max(axis=1)
+    maximum_limit = (
+        config.position.max_exposure
+        if isinstance(config, TimingStrategyConfig)
+        else config.portfolio.max_weight
+    )
     return [
         _check("weights_present", True, f"{len(values)} snapshots"),
         _check(
@@ -304,10 +312,16 @@ def _weight_checks(weights: pd.DataFrame, config: StrategyConfig) -> list[dict]:
         ),
         _check(
             "max_weight",
-            bool((maximum <= config.portfolio.max_weight + 1e-8).all()),
-            f"observed {maximum.max():.4f}, limit {config.portfolio.max_weight:.4f}",
+            bool((maximum <= maximum_limit + 1e-8).all()),
+            f"observed {maximum.max():.4f}, limit {maximum_limit:.4f}",
         ),
     ]
+
+
+def _periods_per_year(config: StrategyConfig | TimingStrategyConfig) -> int:
+    if isinstance(config, TimingStrategyConfig):
+        return 12
+    return 52 if config.portfolio.rebalance_freq == "weekly" else 12
 
 
 def _annual_rows(frame: pd.DataFrame, periods_per_year: int) -> list[dict]:

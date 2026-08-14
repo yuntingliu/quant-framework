@@ -31,6 +31,10 @@ def test_public_facade_exports_core_loop():
         "get_factor",
         "evaluate_factor",
         "ExecutionSpec",
+        "TimingStrategyConfig",
+        "TimingBacktestResult",
+        "evaluate_timing_signals",
+        "run_timing_backtest",
     ]:
         assert hasattr(alphalab, name)
 
@@ -124,6 +128,19 @@ def test_primary_workbench_surfaces_subscribe_to_language_context():
         if "useLanguage" not in (frontend / path).read_text(encoding="utf-8")
     ]
     assert missing == []
+
+
+def test_workspace_theme_switch_covers_dockview_and_legacy_surfaces():
+    root = Path(__file__).resolve().parents[2]
+    frontend = root / "dashboard" / "frontend" / "src"
+    workspace = (frontend / "Workspace.tsx").read_text(encoding="utf-8")
+    dockview_css = (frontend / "index.css").read_text(encoding="utf-8")
+    legacy_css = (frontend / "styles.css").read_text(encoding="utf-8")
+
+    assert 'theme === "dark" ? "dockview-theme-abyss" : "dockview-theme-light"' in workspace
+    assert ".dockview-theme-abyss,\n.dockview-theme-light" in dockview_css
+    for dark_only_color in ["#101114", "#191b20", "#22252c", "#e9edf1", "#8f99a6"]:
+        assert dark_only_color not in legacy_css
 
 
 def test_only_generic_strategy_templates_are_bundled():

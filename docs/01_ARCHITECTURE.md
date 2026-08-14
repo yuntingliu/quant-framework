@@ -7,9 +7,16 @@ information provider. Live broker adapters remain extension points.
 ## Core Loop
 
 ```text
-local/vendor adapter -> DataEngine -> StrategyConfig -> SignalEngine -> run_backtest_detailed
+                                      /-> StrategyConfig -> SignalEngine -> run_backtest_detailed
+local/vendor adapter -> DataEngine --|
+                                      \-> TimingStrategyConfig -> run_timing_backtest
                                       \-> factor diagnostics / ResultStore / dashboard
 ```
+
+Both strategy domains dispatch on `implementation.kind`. `configured` uses the
+registered factor/signal engines; `python` calls the same selection or timing
+boundary through a timeout-bounded child process. It does not introduce a third
+strategy domain or a separate backtest path.
 
 The public Python facade is:
 
@@ -22,11 +29,16 @@ from alphalab import (
     RQDataConfig,
     RQDataProvider,
     StrategyConfig,
+    TimingStrategyConfig,
+    StrategyImplementationSpec,
+    PythonStrategyError,
+    validate_python_source,
     ExecutionSpec,
     SignalEngine,
     BacktestResult,
     run_backtest,
     run_backtest_detailed,
+    run_timing_backtest,
     evaluate_factor,
     ResultStore,
     list_factors,
@@ -43,9 +55,11 @@ from alphalab import (
 | `alphalab/tools/` | Canonical typed data tools shared by CLI/API and optional external agent orchestration; no embedded LLM planner. |
 | `alphalab/factors/` | Generic technical/fundamental factor registry and formulas. |
 | `alphalab/analytics/` | Factor diagnostics, benchmark construction, validation splits, bootstrap inference and robustness gates. |
-| `alphalab/strategy/` | YAML schema, validation, immutable templates and ignored local copies. |
-| `alphalab/strategies/` | Generic built-in templates only. |
+| `alphalab/strategy/` | Stock-selection and market-timing schemas, validation, immutable templates, ignored local copies, and trusted-local Python execution. |
+| `alphalab/strategies/` | Generic built-in stock-selection templates. |
+| `alphalab/timing_strategies/` | Generic built-in market-timing templates. |
 | `alphalab/engine.py` | Target generation and backtest parity point. |
+| `alphalab/timing.py` | Monthly timing-signal evaluation, lagged market exposure and timing backtests. |
 | `alphalab/store.py` | SQLite state for strategies, backtests, research runs, provenance-bound reports, signals, paper accounts and journal. |
 | `alphalab/execution/` | Broker-neutral contracts and paper execution helpers. |
 | `dashboard/` | FastAPI backend and original-style React/Electron Dockview workstation GUI. |
@@ -115,6 +129,9 @@ The barebone backend exposes:
 - `/api/data-sync/jobs`
 - `/api/data-sync/validate`
 - `/api/strategies`
+- `/api/strategies/validate`
+- `/api/strategies/selection-preview`
+- `/api/strategies/timing-research`
 - `/api/strategies/{strategy_id}`
 - `/api/strategies/{strategy_id}/clone`
 - `/api/backtests`
@@ -149,11 +166,64 @@ supplies them.
 
 The Data Workbench opens on a profile-aware daily OHLCV view with symbol and
 history-range selection, candlesticks, and volume. Catalog, bounded query,
-local synchronization, and quality controls remain additional views in the
-same workstation rather than separate navigation destinations.
+local synchronization, and quality controls remain in a collapsed advanced
+data-management section of the same workstation rather than competing with the
+primary market view or becoming separate navigation destinations.
+
+The Factor Workbench shares the same `demo` or `runtime` data profile selected
+in the Data Workbench, but a factor evaluation uses the profile's full eligible
+cross-sectional universe rather than the Data Workbench's currently displayed
+symbol or selected raw dataset. Stock-ranking factor definitions and their PIT
+diagnostics are kept separate from MKT/SMB/HML market-factor return analytics.
+
+The Strategy Workbench is one composition boundary with two explicit research
+domains. A `stock_selection` strategy owns universe gates, factor direction and
+weights, cross-sectional selection, portfolio construction, and stock execution
+assumptions. A `market_timing` strategy owns MKT time-series signals, their
+weights and lookbacks, the minimum/maximum aggregate exposure, and turnover
+costs. The UI keeps these domains in separate top-level sections instead of
+pretending stock ranking and market exposure are the same decision.
+
+YAML remains the advanced view of the corresponding canonical config. Strategy
+detail responses include both representations, and `/api/strategies/validate`
+dispatches on the required `strategy_type`, returning normalized YAML, normalized
+config, and machine-readable checks. The only migration exception is an existing
+selection YAML with no discriminator, which is read as `stock_selection`; newly
+serialized configs always include the type. Built-in templates remain immutable
+and local copies must be saved before Backtest Workbench handoff.
+
+Within either domain, `implementation.kind` is exactly `configured` or `python`.
+Python source is a sidecar beside the ignored local YAML, is validated with the
+same request, and is executed only by the core selection/timing engine. Selection
+code receives point-in-time eligible candidates and returns exact target weights;
+timing code receives point-in-time monthly MKT history and returns one aggregate
+exposure. The core still enforces universe membership, stock count, weight and
+exposure limits. The child process provides timeout and crash containment, not a
+security sandbox: custom source is trusted local code and may access the user's
+machine with the Python process's permissions.
+
+Stock selection can send an unsaved config to
+`/api/strategies/selection-preview` and inspect cross-sectional rank, factor
+contribution, cutoff, target weight, and exclusions. The same `SignalEngine`
+supplies periodic holdings and paper signals. Timing can send an unsaved config
+to `/api/strategies/timing-research` and inspect the lagged monthly exposure,
+signal components, MKT benchmark, and performance without persisting a backtest.
+Timing signals formed at one month-end apply to the following return period and
+never produce individual stock orders.
+
+The Backtest Workbench keeps next-run settings separate from the identity of the
+persisted result being inspected. Strategy handoff from the Strategy Workbench is
+preserved, while each result is labeled by its saved strategy snapshot, profile,
+date range, run time, and provenance. The analysis response exposes persisted
+strategy, its type-appropriate benchmark, and excess series together with execution-audit
+availability. Legacy results never infer zero costs or zero constraints when the
+audit is absent. A missing legacy benchmark is reported explicitly; rebuilding it
+is an opt-in robustness operation because it may require a full historical query.
 
 Research orchestration in the framework core is deterministic and uses the
-existing services. It stops after paper risk preview. The embedded LLM planner
+existing services. Stock-selection research stops after paper risk preview;
+market-timing research stops after the latest aggregate exposure because it has
+no individual stock orders. The embedded LLM planner
 remains `not_configured`, and paper execution requires a separate explicit
 confirmation request. The optional Conexus Harness is the external planner: it
 can discover and invoke the canonical typed data registry, combine market,
@@ -166,6 +236,7 @@ next observed session at the configured open or close. Cash, one-way costs,
 slippage, square-root participation impact, positive-volume checks and amount
 participation limits are explicit. Missing amount blocks a trade instead of
 assuming infinite liquidity. Saved runs include per-period execution audits plus
-exact strategy, data-file and Git fingerprints. This remains a daily-bar,
+exact strategy YAML and Python-source snapshots, data-file and Git fingerprints.
+This remains a daily-bar,
 weekly/monthly-rebalance, long-only research engine; it is not a live or
 intraday execution simulator.

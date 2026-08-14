@@ -81,8 +81,8 @@ def test_backtest_analysis_derives_equity_turnover_and_holdings():
         "run_at": "2024-03-01",
         "metrics": {"total_return": 0.089, "sharpe": 1.2},
         "returns": [
-            {"date": "2024-01-31", "value": 0.10},
-            {"date": "2024-02-29", "value": -0.01},
+            {"date": "2024-01-31", "value": 0.10, "benchmark": 0.05},
+            {"date": "2024-02-29", "value": -0.01, "benchmark": 0.01},
         ],
         "weights": [
             {"date": "2024-01-31", "symbol": "A", "weight": 0.60},
@@ -96,6 +96,10 @@ def test_backtest_analysis_derives_equity_turnover_and_holdings():
 
     assert analysis["equity_curve"] == pytest.approx([1.10, 1.089])
     assert analysis["drawdown"][-1] == pytest.approx(-0.01)
+    assert analysis["benchmark_equity_curve"] == pytest.approx([1.05, 1.0605])
+    assert analysis["excess_equity_curve"] == pytest.approx([1.05, 1.029])
+    assert analysis["benchmark_coverage"] == pytest.approx(1.0)
+    assert analysis["has_execution_audit"] is False
     assert analysis["turnover"][0]["value"] == pytest.approx(1.00)
     assert analysis["turnover"][1]["value"] == pytest.approx(0.10)
     assert analysis["holdings"][0]["holdings_count"] == 2
@@ -114,11 +118,15 @@ def test_backtest_analysis_handles_empty_results_and_compare_alignment(monkeypat
     )
     assert empty["dates"] == []
     assert empty["average_turnover"] is None
+    assert empty["benchmark_coverage"] is None
 
     analyses = {
         "a": {
             "id": "a",
             "strategy_id": "alpha",
+            "start_date": "2024-01-31",
+            "end_date": "2024-02-29",
+            "run_at": "2024-03-01",
             "dates": ["2024-01-31", "2024-02-29"],
             "equity_curve": [1.1, 1.2],
             "metrics": {"sharpe": 1.0},
@@ -126,6 +134,9 @@ def test_backtest_analysis_handles_empty_results_and_compare_alignment(monkeypat
         "b": {
             "id": "b",
             "strategy_id": "beta",
+            "start_date": "2024-02-29",
+            "end_date": "2024-03-31",
+            "run_at": "2024-04-01",
             "dates": ["2024-02-29", "2024-03-31"],
             "equity_curve": [0.9, 1.0],
             "metrics": {"sharpe": 0.5},
@@ -140,3 +151,5 @@ def test_backtest_analysis_handles_empty_results_and_compare_alignment(monkeypat
     assert comparison["dates"] == ["2024-01-31", "2024-02-29", "2024-03-31"]
     assert comparison["series"]["a"] == [1.1, 1.2, None]
     assert comparison["series"]["b"] == [None, 0.9, 1.0]
+    assert comparison["labels"]["a"] == "alpha · 2024-01–2024-02"
+    assert comparison["metrics"][0]["start_date"] == "2024-01-31"

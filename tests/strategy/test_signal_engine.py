@@ -59,10 +59,17 @@ factors:
     weight: 1.0
 """
     )
-    targets = SignalEngine(engine).generate_targets(config, "2023-08-31")
+    signal_engine = SignalEngine(engine)
+    targets = signal_engine.generate_targets(config, "2023-08-31")
     assert targets
     assert abs(sum(targets.values()) - 1.0) < 1e-9
     assert max(targets.values()) <= 0.50
+    selection = signal_engine.selection_snapshot
+    assert selection["requested_count"] == 2
+    assert selection["selected_count"] == 2
+    assert selection["rows"][0]["selected"] is True
+    assert selection["rows"][0]["symbol"] in targets
+    assert selection["rows"][0]["factor_scores"]["momentum_20d"] is not None
 
 
 def test_run_backtest_returns_series_and_weights(tmp_path):

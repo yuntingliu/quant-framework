@@ -34,8 +34,6 @@ const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
   { id: "market.watchlist", title: "自选股", titleEn: "Watchlist", category: "市场概览", categoryEn: "Market", description: "股票列表 + 行情 + 走势", descriptionEn: "Stock list, quotes, and trend" },
 
   // Timing
-  { id: "timing.live-signals", title: "实时信号", titleEn: "Live Signals", category: "指数择时", categoryEn: "Timing", description: "CSI 300 当前仓位 + 4信号", descriptionEn: "CSI 300 allocation and four signals" },
-  { id: "timing.volume-rally", title: "大盘放量大涨监测", titleEn: "Volume-Rally Monitor", category: "指数择时", categoryEn: "Timing", description: "大盘放量大涨检测 + 历史次日收益研究 (仅警示)", descriptionEn: "Broad-index volume-rally detection and forward-return study (warn-only)" },
 
   // Optional strategy and research extensions.
   { id: "ensemble.composer", title: "策略协同", titleEn: "Strategy Ensemble", category: "策略回测", categoryEn: "Backtest", description: "多策略协同：成员 + 元配置法，选中后在「回测工作台」运行", descriptionEn: "Coordinate strategies into one book: members + meta-method; run via Backtest Workbench" },

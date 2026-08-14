@@ -62,6 +62,11 @@ FastAPI exposes health, catalog, plan, job, cancel, and validation routes below
 `/api/data-sync`. The backend uses one in-process worker and performs no startup
 sync. Jobs left queued or running during a restart become `interrupted`.
 
+The Data Workbench keeps symbol selection and the daily market view as its
+primary workflow. Local update planning, synchronization, catalog inspection,
+bounded queries, job history, and detailed quality reports live under its
+collapsed advanced data-management section.
+
 The typed tool registry exposes `data.catalog`, `data.status`,
 `data.plan_sync`, `data.run_sync`, `data.validate`, and `data.query`. The query
 tool is bounded to 1,000 rows. The same registry is discoverable and invokable

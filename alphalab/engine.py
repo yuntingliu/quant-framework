@@ -14,6 +14,7 @@ from alphalab.factors.cross_sectional import (
     required_fundamental_fields,
 )
 from alphalab.strategy.config import FactorSpec, StrategyConfig
+from alphalab.strategy.python_runtime import execute_python_strategy
 
 ConfigOrPath = Union[StrategyConfig, str, Path]
 
@@ -83,10 +84,25 @@ class SignalEngine:
     def __init__(self, data_engine: DataEngine):
         self._data = data_engine
         self._diagnostics: dict = {}
+        self._selection_snapshot: dict = {}
 
     @property
     def diagnostics(self) -> dict:
         return dict(self._diagnostics)
+
+    @property
+    def selection_snapshot(self) -> dict:
+        """Return the latest cross-sectional ranking preview.
+
+        The payload is deliberately separate from diagnostics so backtests can
+        retain compact execution metadata while interactive research surfaces
+        can explain which stocks crossed the selection cutoff and why.
+        """
+
+        return {
+            **self._selection_snapshot,
+            "rows": [dict(row) for row in self._selection_snapshot.get("rows", [])],
+        }
 
     def generate_targets(
         self,
@@ -94,6 +110,8 @@ class SignalEngine:
         as_of_date: str,
         lookback_days: int = 120,
         auto_latest: bool = True,
+        python_source: str | None = None,
+        current_weights: dict[str, float] | None = None,
     ) -> dict[str, float]:
         as_of = pd.Timestamp(as_of_date)
         if auto_latest:
@@ -123,7 +141,20 @@ class SignalEngine:
                 and pd.Timestamp(instrument_snapshot) > as_of
             ),
         }
-        if not symbols or not config.factors:
+        self._selection_snapshot = {
+            "as_of_date": as_of.strftime("%Y-%m-%d"),
+            "universe_size": len(symbols),
+            "eligible_count": 0,
+            "scored_count": 0,
+            "requested_count": config.selection.n_stocks,
+            "selected_count": 0,
+            "cash_weight": 1.0,
+            "factor_names": list(config.factor_names),
+            "exclusions": {},
+            "rows": [],
+        }
+        is_python = config.implementation.kind == "python"
+        if not symbols or (not config.factors and not is_python):
             return {}
 
         start = (as_of - pd.Timedelta(days=max(lookback_days * 2, lookback_days + 30))).strftime("%Y-%m-%d")
@@ -150,9 +181,26 @@ class SignalEngine:
                 "exclusions": exclusions,
             }
         )
+        self._selection_snapshot.update(
+            {
+                "eligible_count": len(eligible_symbols),
+                "exclusions": dict(exclusions),
+            }
+        )
         if not eligible_symbols:
             return {}
         scores = self._factor_scores(config, eligible_symbols, data_by_symbol, end)
+        if is_python:
+            return self._python_targets(
+                config,
+                as_of,
+                eligible_symbols,
+                data_by_symbol,
+                scores,
+                python_source,
+                current_weights or {},
+                lookback_days,
+            )
         if scores.empty:
             return {}
 
@@ -164,6 +212,27 @@ class SignalEngine:
         selected = composite.head(config.selection.n_stocks)
         equal = pd.Series(1.0, index=selected.index, dtype=float)
         weights = _normalize_weights(equal, config.portfolio.max_weight)
+        preview_limit = min(max(config.selection.n_stocks * 2, 20), 100)
+        preview_rows: list[dict] = []
+        for rank, (symbol, composite_score) in enumerate(
+            composite.head(preview_limit).items(),
+            start=1,
+        ):
+            contributions = {
+                str(name): None if pd.isna(value) else float(value)
+                for name, value in scores.loc[symbol].items()
+            }
+            preview_rows.append(
+                {
+                    "rank": rank,
+                    "symbol": str(symbol),
+                    "selected": symbol in weights,
+                    "composite_score": float(composite_score),
+                    "factor_coverage": float(coverage.loc[symbol]),
+                    "target_weight": float(weights.get(str(symbol), 0.0)),
+                    "factor_scores": contributions,
+                }
+            )
         self._diagnostics.update(
             {
                 "score_count": int(len(composite)),
@@ -171,6 +240,152 @@ class SignalEngine:
                 "selected_symbols": list(weights),
                 "weight_sum": float(sum(weights.values())),
                 "cash_weight": float(max(0.0, 1.0 - sum(weights.values()))),
+            }
+        )
+        self._selection_snapshot.update(
+            {
+                "scored_count": int(len(composite)),
+                "selected_count": int(len(weights)),
+                "cash_weight": float(max(0.0, 1.0 - sum(weights.values()))),
+                "rows": preview_rows,
+            }
+        )
+        return weights
+
+    def _python_targets(
+        self,
+        config: StrategyConfig,
+        as_of: pd.Timestamp,
+        symbols: list[str],
+        data_by_symbol: dict[str, pd.DataFrame],
+        scores: pd.DataFrame,
+        python_source: str | None,
+        current_weights: dict[str, float],
+        lookback_days: int,
+    ) -> dict[str, float]:
+        if python_source is None:
+            raise ValueError("python_source is required for a Python strategy")
+        candidates = []
+        history_limit = min(max(lookback_days, 20), 240)
+        for symbol in symbols:
+            history = data_by_symbol[symbol].tail(history_limit)
+            rows = []
+            for _, row in history.iterrows():
+                item = {"date": pd.Timestamp(row["date"]).strftime("%Y-%m-%d")}
+                for field in ("open", "high", "low", "close", "volume", "amount"):
+                    value = pd.to_numeric(pd.Series([row.get(field)]), errors="coerce").iloc[0]
+                    item[field] = float(value) if pd.notna(value) else None
+                rows.append(item)
+            factor_values = {}
+            if symbol in scores.index:
+                factor_values = {
+                    str(name): float(value)
+                    for name, value in scores.loc[symbol].dropna().items()
+                }
+            candidates.append(
+                {
+                    "symbol": symbol,
+                    "history": rows,
+                    "factor_scores": factor_values,
+                }
+            )
+        context = {
+            "strategy_type": "stock_selection",
+            "strategy_id": config.name,
+            "as_of_date": as_of.strftime("%Y-%m-%d"),
+            "candidates": candidates,
+            "current_weights": dict(current_weights),
+            "limits": {
+                "max_weight": config.portfolio.max_weight,
+                "max_stocks": config.selection.n_stocks,
+            },
+            "metadata": config.metadata,
+        }
+        execution = execute_python_strategy(
+            python_source,
+            config.implementation.entrypoint,
+            [context],
+            config.implementation.timeout_seconds,
+        )
+        value = execution.values[0]
+        if not isinstance(value, dict) or not isinstance(value.get("weights"), dict):
+            raise ValueError("Python stock-selection strategy must return {'weights': {...}}")
+        allowed = set(symbols)
+        weights: dict[str, float] = {}
+        for raw_symbol, raw_weight in value["weights"].items():
+            symbol = str(raw_symbol).strip().upper()
+            if symbol not in allowed:
+                raise ValueError(f"Python strategy returned an ineligible symbol: {symbol}")
+            try:
+                weight = float(raw_weight)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Python strategy returned a non-numeric weight for {symbol}") from exc
+            if not np.isfinite(weight) or weight < 0:
+                raise ValueError(f"Python strategy weight for {symbol} must be finite and non-negative")
+            if weight > config.portfolio.max_weight + 1e-9:
+                raise ValueError(
+                    f"Python strategy weight for {symbol} exceeds max_weight "
+                    f"{config.portfolio.max_weight:g}"
+                )
+            if weight > 1e-12:
+                weights[symbol] = weight
+        if len(weights) > config.selection.n_stocks:
+            raise ValueError(
+                f"Python strategy returned {len(weights)} stocks; limit is {config.selection.n_stocks}"
+            )
+        total = float(sum(weights.values()))
+        if total > 1.0 + 1e-9:
+            raise ValueError("Python strategy weights must sum to at most 1.0")
+        ordered = sorted(weights.items(), key=lambda item: item[1], reverse=True)
+        preview_rows = []
+        for rank, (symbol, weight) in enumerate(ordered, start=1):
+            factor_values = (
+                {
+                    str(name): float(score)
+                    for name, score in scores.loc[symbol].dropna().items()
+                }
+                if symbol in scores.index
+                else {}
+            )
+            preview_rows.append(
+                {
+                    "rank": rank,
+                    "symbol": symbol,
+                    "selected": True,
+                    "composite_score": weight,
+                    "factor_coverage": (
+                        float(scores.loc[symbol].notna().mean())
+                        if symbol in scores.index and len(scores.columns)
+                        else 1.0
+                    ),
+                    "target_weight": weight,
+                    "factor_scores": factor_values,
+                }
+            )
+        runtime = {
+            "source_sha256": execution.source_sha256,
+            "duration_seconds": execution.duration_seconds,
+            "stdout": execution.stdout,
+            "stderr": execution.stderr,
+        }
+        self._diagnostics.update(
+            {
+                "implementation": "python",
+                "score_count": len(symbols),
+                "selected_count": len(weights),
+                "selected_symbols": list(weights),
+                "weight_sum": total,
+                "cash_weight": max(0.0, 1.0 - total),
+                "python": runtime,
+            }
+        )
+        self._selection_snapshot.update(
+            {
+                "scored_count": len(symbols),
+                "selected_count": len(weights),
+                "cash_weight": max(0.0, 1.0 - total),
+                "rows": preview_rows,
+                "python": runtime,
             }
         )
         return weights
@@ -275,6 +490,7 @@ def run_backtest(
     end_date: str,
     data_engine: DataEngine | None = None,
     lookback_days: int = 120,
+    python_source: str | None = None,
 ) -> tuple[pd.Series, pd.DataFrame]:
     """Run the configured backtest and return its net returns and holdings."""
 
@@ -284,6 +500,7 @@ def run_backtest(
         end_date,
         data_engine=data_engine,
         lookback_days=lookback_days,
+        python_source=python_source,
     )
     return result.returns, result.weights
 
@@ -294,6 +511,7 @@ def run_backtest_detailed(
     end_date: str,
     data_engine: DataEngine | None = None,
     lookback_days: int = 120,
+    python_source: str | None = None,
 ) -> BacktestResult:
     """Run a PIT rebalance simulation with next-session execution constraints.
 
@@ -342,8 +560,10 @@ def run_backtest_detailed(
             signal_date.strftime("%Y-%m-%d"),
             lookback_days=lookback_days,
             auto_latest=False,
+            python_source=python_source,
+            current_weights=previous,
         )
-        if not target:
+        if not target and cfg.implementation.kind != "python":
             target = dict(previous)
             warnings.add("empty signal retained the prior portfolio")
         signal_diagnostics = engine.diagnostics

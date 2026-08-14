@@ -17,6 +17,7 @@ def build_research_provenance(
     profile: str,
     strategy_yaml: str | None = None,
     *,
+    strategy_python: str | None = None,
     data_root: str | Path | None = None,
     runtime_root: str | Path | None = None,
 ) -> dict:
@@ -27,11 +28,25 @@ def build_research_provenance(
         if strategy_yaml
         else None
     )
+    strategy_python_hash = (
+        hashlib.sha256(strategy_python.encode("utf-8")).hexdigest()
+        if strategy_python is not None
+        else None
+    )
     return {
         "version": 1,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "profile": profile,
         "strategy_sha256": strategy_hash,
+        "strategy_python_sha256": strategy_python_hash,
+        "strategy_python": (
+            {
+                "source": strategy_python,
+                "sha256": strategy_python_hash,
+            }
+            if strategy_python is not None
+            else None
+        ),
         "code": _code_state(),
         "environment": _environment_state(),
         "data": (

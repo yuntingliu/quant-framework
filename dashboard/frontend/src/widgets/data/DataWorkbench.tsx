@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BarChart3, CalendarDays, Database, Play, RefreshCw, Search, ShieldCheck } from 'lucide-react'
+import { BarChart3, CalendarDays, ChevronDown, Database, Play, RefreshCw, Search, ShieldCheck } from 'lucide-react'
 import { CandlestickChart } from '../../components/charts'
 import { CSVExportButton } from '../../components/shared/CSVExportButton'
 import { IndicatorMenu } from '../../components/shared/IndicatorMenu'
@@ -7,7 +7,6 @@ import { SymbolCombobox } from '../../components/shared/SymbolCombobox'
 import {
   apiGet,
   apiPost,
-  type DataManifest,
   type DataSyncHealth,
   type MarketBar,
   type ProviderStatus,
@@ -21,7 +20,7 @@ import { useLanguage } from '../../contexts/LanguageContext'
 import { useDataProfile, type DataProfile } from '../../lib/data-profile'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 
-type DataWorkbenchTab = 'market' | 'catalog' | 'preview' | 'jobs'
+type DataWorkbenchTab = 'catalog' | 'preview' | 'jobs'
 type MarketRange = '3m' | '6m' | '1y' | 'all'
 
 interface DataPreview {
@@ -34,6 +33,18 @@ interface DataPreview {
 
 interface DataToolResult<T> {
   result: T
+}
+
+interface QualityReport {
+  dataset: string
+  status: string
+  rows: number
+  files: number
+  issues: Array<{
+    code: string
+    message: string
+    severity: string
+  }>
 }
 
 function previewCell(value: unknown): string {
@@ -60,29 +71,39 @@ export function DataWorkbenchWidget() {
   const { language } = useLanguage()
   const copy = language === 'zh' ? {
     title: '数据工作台',
-    description: '获取、检查、筛选和校验有界本地数据集。',
+    description: '选择证券，直接查看行情、成交量和技术指标。',
     demoProfile: '演示数据',
     runtimeProfile: '本地 RQ 数据',
+    source: '数据源',
+    updatedThrough: '数据更新至',
+    availableSymbols: '可选证券',
+    ready: '可用',
     coverage: '覆盖范围',
     symbols: '只证券',
     loading: '加载中',
-    preview: '预览',
-    previewTitle: '预览本地 RQ 同步计划',
-    sync: '同步',
-    syncTitle: '开始执行已规划的本地同步',
-    validate: '校验',
-    validateTitle: '校验运行时数据集',
+    reloadChart: '重新加载',
+    reloadChartTitle: '重新读取当前证券行情',
+    dataManagement: '高级数据管理',
+    dataManagementDescription: '管理本地研究数据库、质量检查和原始数据查询。',
+    runtimeReadiness: '本地数据集',
+    checkUpdates: '检查更新',
+    checkUpdatesTitle: '检查本地 RQ 研究数据的更新范围',
+    startUpdate: '开始更新',
+    startUpdateTitle: '下载并更新已确认的本地研究数据',
+    validate: '数据质量检查',
+    validateTitle: '检查所有本地研究数据集',
     configuredRequired: '请先配置',
     rqEnvironment: '本地 RQ 环境',
-    beforeSync: '后再执行同步。',
-    demoFallback: '演示数据仍可用；运行时数据在同步完成前会明确报错。',
+    beforeSync: '后再更新本地研究数据。',
+    demoFallback: '这不影响演示数据，也不影响查看已经保存在本地的行情。',
     datasets: '个数据集',
     batches: '个批次',
-    tabsLabel: '数据工作台视图',
-    marketTab: '行情 / K 线',
+    updatePlan: '更新计划',
+    updateScope: '将更新',
+    tabsLabel: '高级数据管理视图',
     catalogTab: '数据目录',
-    previewTab: '查询与预览',
-    jobsTab: '同步任务',
+    previewTab: '数据查询',
+    jobsTab: '更新任务',
     marketSymbol: '行情证券代码',
     klineRange: 'K 线区间',
     threeMonths: '3 个月',
@@ -118,31 +139,45 @@ export function DataWorkbenchWidget() {
     message: '消息',
     noJobs: '暂无本地同步任务。',
     passed: '项通过',
+    qualityPassed: '质量检查通过',
+    qualityFailed: '质量检查未通过',
+    noQualityIssues: '未发现问题',
+    rowsUnit: '行',
   } : {
     title: 'Data Workbench',
-    description: 'Acquire, inspect, filter, and validate bounded local datasets.',
+    description: 'Choose a symbol and inspect its market data, volume, and indicators.',
     demoProfile: 'Demo profile',
     runtimeProfile: 'Local RQ profile',
+    source: 'Data source',
+    updatedThrough: 'Updated through',
+    availableSymbols: 'Available symbols',
+    ready: 'Ready',
     coverage: 'Coverage',
     symbols: 'symbols',
     loading: 'loading',
-    preview: 'Preview',
-    previewTitle: 'Preview local RQ synchronization',
-    sync: 'Sync',
-    syncTitle: 'Start the planned local synchronization',
-    validate: 'Validate',
-    validateTitle: 'Validate runtime datasets',
+    reloadChart: 'Reload',
+    reloadChartTitle: 'Reload market data for the current symbol',
+    dataManagement: 'Advanced data management',
+    dataManagementDescription: 'Manage the local research database, quality checks, and raw data queries.',
+    runtimeReadiness: 'Local datasets',
+    checkUpdates: 'Check for updates',
+    checkUpdatesTitle: 'Check the update scope for local RQ research data',
+    startUpdate: 'Start update',
+    startUpdateTitle: 'Download and update the confirmed local research data',
+    validate: 'Check data quality',
+    validateTitle: 'Check all local research datasets',
     configuredRequired: 'Configure',
     rqEnvironment: 'the local RQ environment',
-    beforeSync: 'before syncing.',
-    demoFallback: 'Demo remains available, while runtime requests fail explicitly until sync is complete.',
+    beforeSync: 'before updating local research data.',
+    demoFallback: 'This does not affect demo data or market data already saved locally.',
     datasets: 'datasets',
     batches: 'batches',
-    tabsLabel: 'Data workbench view',
-    marketTab: 'Market / K-line',
+    updatePlan: 'Update plan',
+    updateScope: 'Will update',
+    tabsLabel: 'Advanced data management view',
     catalogTab: 'Catalog',
-    previewTab: 'Query & Preview',
-    jobsTab: 'Sync Jobs',
+    previewTab: 'Data query',
+    jobsTab: 'Update jobs',
     marketSymbol: 'Market symbol',
     klineRange: 'K-line range',
     threeMonths: '3 months',
@@ -178,20 +213,23 @@ export function DataWorkbenchWidget() {
     message: 'Message',
     noJobs: 'No local sync jobs yet.',
     passed: 'passed',
+    qualityPassed: 'Quality check passed',
+    qualityFailed: 'Quality check failed',
+    noQualityIssues: 'No issues found',
+    rowsUnit: 'rows',
   }
   const refreshRevision = useWorkspaceRefresh()
   const { selectedDataset, setSelectedDataset, selectedSymbol, setSelectedSymbol } = useWorkspace()
   const [status, setStatus] = useState<ProviderStatus | null>(null)
   const [error, setError] = useState('')
-  const [manifest, setManifest] = useState<DataManifest | null>(null)
   const [health, setHealth] = useState<DataSyncHealth | null>(null)
   const [catalog, setCatalog] = useState<RuntimeCatalog | null>(null)
   const [jobs, setJobs] = useState<SyncJob[]>([])
   const [plan, setPlan] = useState<SyncPlan | null>(null)
   const [profile, chooseProfile] = useDataProfile()
   const [busy, setBusy] = useState(false)
-  const [quality, setQuality] = useState<{ passed: number; total: number } | null>(null)
-  const [tab, setTab] = useState<DataWorkbenchTab>('market')
+  const [qualityReports, setQualityReports] = useState<QualityReport[] | null>(null)
+  const [tab, setTab] = useState<DataWorkbenchTab>('catalog')
   const [datasetId, setDatasetId] = useState('')
   const [symbolFilter, setSymbolFilter] = useState('')
   const [startFilter, setStartFilter] = useState('')
@@ -204,19 +242,18 @@ export function DataWorkbenchWidget() {
   const [marketRange, setMarketRange] = useState<MarketRange>('1y')
   const [marketBusy, setMarketBusy] = useState(false)
   const [marketError, setMarketError] = useState('')
+  const [marketReloadRevision, setMarketReloadRevision] = useState(0)
   const [selectedIndicators, setSelectedIndicators] = useIndicatorSelection('data-workbench-market')
 
   const refresh = useCallback(async () => {
     try {
-      const [providerStatus, dataManifest, syncHealth, runtimeCatalog, syncJobs] = await Promise.all([
+      const [providerStatus, syncHealth, runtimeCatalog, syncJobs] = await Promise.all([
         apiGet<ProviderStatus>('/data/providers'),
-        apiGet<DataManifest>('/data/manifest'),
         apiGet<DataSyncHealth>('/data-sync/health'),
         apiGet<RuntimeCatalog>('/data-sync/catalog'),
         apiGet<SyncJob[]>('/data-sync/jobs?limit=8'),
       ])
       setStatus(providerStatus)
-      setManifest(dataManifest)
       setHealth(syncHealth)
       setCatalog(runtimeCatalog)
       setJobs(syncJobs)
@@ -262,8 +299,8 @@ export function DataWorkbenchWidget() {
   const marketSymbol = selectedSymbol && marketSymbols.includes(selectedSymbol)
     ? selectedSymbol
     : marketSymbols[0] ?? ''
-  const marketEnd = status?.profiles[profile]?.latest_date
-    ?? (profile === 'demo' ? manifest?.cutoff_date : null)
+  const profileStatus = status?.profiles[profile]
+  const marketEnd = profileStatus?.latest_date ?? null
 
   useEffect(() => {
     if (marketSymbol && marketSymbol !== selectedSymbol) setSelectedSymbol(marketSymbol)
@@ -295,9 +332,9 @@ export function DataWorkbenchWidget() {
         if (active) setMarketBusy(false)
       })
     return () => { active = false }
-  }, [marketEnd, marketRange, marketSymbol, profile, refreshRevision])
+  }, [marketEnd, marketRange, marketReloadRevision, marketSymbol, profile, refreshRevision])
 
-  async function preview() {
+  async function checkUpdates() {
     setBusy(true)
     setError('')
     try {
@@ -312,7 +349,7 @@ export function DataWorkbenchWidget() {
     }
   }
 
-  async function startSync() {
+  async function startUpdate() {
     if (!plan) return
     setBusy(true)
     setError('')
@@ -324,6 +361,7 @@ export function DataWorkbenchWidget() {
         end: plan.requested_end,
       })
       setPlan(null)
+      setTab('jobs')
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -336,9 +374,8 @@ export function DataWorkbenchWidget() {
     setBusy(true)
     setError('')
     try {
-      const reports = await apiPost<Array<{ status: string }>>('/data-sync/validate', {})
-      const passed = reports.filter((item) => item.status === 'passed').length
-      setQuality({ passed, total: reports.length })
+      const reports = await apiPost<QualityReport[]>('/data-sync/validate', {})
+      setQualityReports(reports)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -376,6 +413,8 @@ export function DataWorkbenchWidget() {
     () => dataPreview?.rows.length ? Object.keys(dataPreview.rows[0]) : [],
     [dataPreview],
   )
+  const qualityPassed = qualityReports?.filter((item) => item.status === 'passed').length ?? 0
+  const latestJob = jobs[0]
   const latestBar = marketRows.at(-1)
   const previousBar = marketRows.at(-2)
   const dailyChange = latestBar && previousBar && previousBar.close
@@ -391,165 +430,224 @@ export function DataWorkbenchWidget() {
     setDataPreview(null)
   }
 
+  function datasetLabel(id: string): string {
+    return catalog?.datasets.find((item) => item.id === id)?.label ?? id
+  }
+
   if (error) return <div className="panel"><h2>{copy.title}</h2><p className="error">{error}</p></div>
   return (
     <div className="panel">
-      <div className="panel-heading">
+      <div className="panel-heading data-workbench-heading">
         <div>
           <h2>{copy.title}</h2>
           <p>{copy.description}</p>
         </div>
-        <select value={profile} onChange={(event) => chooseProfile(event.target.value as DataProfile)}>
-          <option value="demo">{copy.demoProfile}</option>
-          <option value="runtime">{copy.runtimeProfile}</option>
-        </select>
-      </div>
-      <div className="metric-grid">
-        {Object.entries(status?.datasets ?? {}).map(([kind, dataset]) => <div className="metric" key={kind}><span>{kind}</span><strong>{dataset.status}</strong><small>{(dataset.bytes / 1024 / 1024).toFixed(2)} MB</small></div>)}
-        <div className="metric">
-          <span>{copy.coverage}</span>
-          <strong>{manifest?.symbol_count ?? 0} {copy.symbols}</strong>
-          <small>{manifest?.sample_start ?? '-'} → {manifest?.cutoff_date ?? '-'}</small>
-        </div>
-      </div>
-      <div className="sync-toolbar">
-        <span className={`status-pill ${health?.rq.configured ? 'ready' : 'neutral'}`}>
-          <Database size={13} /> RQ {health?.rq.status ?? copy.loading}
-        </span>
-        <button type="button" onClick={preview} disabled={busy} title={copy.previewTitle}>
-          <RefreshCw size={14} /> {copy.preview}
-        </button>
-        <button type="button" onClick={startSync} disabled={busy || !plan || !health?.rq.configured} title={copy.syncTitle}>
-          <Play size={14} /> {copy.sync}
-        </button>
-        <button type="button" onClick={validateRuntime} disabled={busy || catalog?.ready === 0} title={copy.validateTitle}>
-          <ShieldCheck size={14} /> {copy.validate}
-        </button>
-        {quality && <span className="status-pill ready">{quality.passed}/{quality.total} {copy.passed}</span>}
-      </div>
-      {!health?.rq.configured && (
-        <p className="data-guidance">
-          {copy.configuredRequired} {health?.rq.missing.join(', ') || copy.rqEnvironment} {copy.beforeSync} {copy.demoFallback}
-        </p>
-      )}
-      {plan && (
-        <div className="detail-strip">
-          <span>{plan.symbol_count} {copy.symbols} · {plan.steps.length} {copy.datasets} · {plan.estimated_batches} {copy.batches}</span>
-          <strong>{plan.requested_start} → {plan.requested_end}</strong>
-        </div>
-      )}
-      <div className="workbench-tabs" role="tablist" aria-label={copy.tabsLabel}>
-        <button type="button" role="tab" aria-selected={tab === 'market'} onClick={() => setTab('market')}>{copy.marketTab}</button>
-        <button type="button" role="tab" aria-selected={tab === 'catalog'} onClick={() => setTab('catalog')}>{copy.catalogTab}</button>
-        <button type="button" role="tab" aria-selected={tab === 'preview'} onClick={() => setTab('preview')}>{copy.previewTab}</button>
-        <button type="button" role="tab" aria-selected={tab === 'jobs'} onClick={() => setTab('jobs')}>{copy.jobsTab}</button>
-      </div>
-
-      {tab === 'market' && (
-        <div className="workbench-body market-kline-workbench">
-          <div className="market-kline-toolbar">
-            <SymbolCombobox
-              symbols={marketSymbols}
-              value={marketSymbol}
-              onChange={setSelectedSymbol}
-              ariaLabel={copy.marketSymbol}
-            />
-            <select aria-label={copy.klineRange} value={marketRange} onChange={(event) => setMarketRange(event.target.value as MarketRange)}>
-              <option value="3m">{copy.threeMonths}</option>
-              <option value="6m">{copy.sixMonths}</option>
-              <option value="1y">{copy.oneYear}</option>
-              <option value="all">{copy.allHistory}</option>
+        <div className="data-source-summary">
+          <label>
+            <span>{copy.source}</span>
+            <select value={profile} onChange={(event) => chooseProfile(event.target.value as DataProfile)}>
+              <option value="demo">{copy.demoProfile}</option>
+              <option value="runtime">{copy.runtimeProfile}</option>
             </select>
-            <IndicatorMenu selected={selectedIndicators} onChange={setSelectedIndicators} />
-            <span className="status-pill neutral"><CalendarDays size={13} /> {copy.dailyAdjusted}</span>
-          </div>
-          {marketError ? <div className="workbench-message error">{marketError}</div> : null}
-          {!marketError && marketBusy && marketRows.length === 0 ? <div className="analytics-empty">{copy.loadingBars}</div> : null}
-          {!marketError && !marketBusy && marketRows.length === 0 ? <div className="analytics-empty">{copy.noBars}</div> : null}
-          {marketRows.length > 0 ? (
-            <>
-              <div className="analytics-kpi-grid market-kline-kpis">
-                <div className="analytics-kpi"><span><BarChart3 size={12} /> {copy.lastClose}</span><strong>{latestBar?.close.toFixed(2) ?? '—'}</strong></div>
-                <div className="analytics-kpi"><span>{copy.dailyChange}</span><strong className={dailyChange !== null && dailyChange < 0 ? 'gate-fail-text' : 'gate-pass-text'}>{dailyChange === null ? '—' : `${(dailyChange * 100).toFixed(2)}%`}</strong></div>
-                <div className="analytics-kpi"><span>{copy.rangeChange}</span><strong className={rangeChange !== null && rangeChange < 0 ? 'gate-fail-text' : 'gate-pass-text'}>{rangeChange === null ? '—' : `${(rangeChange * 100).toFixed(2)}%`}</strong></div>
-                <div className="analytics-kpi"><span>{copy.latestVolume}</span><strong>{compactNumber(latestBar?.volume, language === 'zh' ? 'zh-CN' : 'en-US')}</strong></div>
-                <div className="analytics-kpi"><span>{copy.latestDate}</span><strong>{latestBar?.date ?? '—'}</strong></div>
-              </div>
-              <div className="market-kline-frame">
-                <CandlestickChart rows={marketRows} selectedIndicators={selectedIndicators} />
-              </div>
-            </>
-          ) : null}
+          </label>
+          <span className={`status-pill ${profileStatus?.status === 'ready' ? 'ready' : 'neutral'}`}>
+            {profileStatus?.status ?? copy.loading}
+          </span>
+          <span className="status-pill neutral">
+            <CalendarDays size={13} /> {copy.updatedThrough}: {profileStatus?.latest_date ?? '—'}
+          </span>
+          <span className="status-pill">
+            {copy.availableSymbols}: {(profileStatus?.symbol_count ?? 0).toLocaleString()}
+          </span>
         </div>
-      )}
-
-      {tab === 'catalog' && (
-        <div className="table runtime-table">
-          <div className="table-row table-head"><span>{copy.runtimeDataset}</span><span>{copy.status}</span><span>{copy.rows}</span><span>{copy.coverage}</span></div>
-          {(catalog?.datasets ?? []).map((dataset) => (
-            <button className={`table-row ${dataset.id === datasetId ? 'active' : ''}`} type="button" key={dataset.id} onClick={() => chooseDataset(dataset.id)}>
-              <span>{dataset.label}<small>{dataset.id}</small></span>
-              <span>{dataset.status}</span>
-              <span>{dataset.rows.toLocaleString()}</span>
-              <span>{dataset.date_start ?? '-'} → {dataset.date_end ?? '-'}</span>
-            </button>
-          ))}
+      </div>
+      <div className="workbench-body market-kline-workbench">
+        <div className="market-kline-toolbar">
+          <SymbolCombobox
+            symbols={marketSymbols}
+            value={marketSymbol}
+            onChange={setSelectedSymbol}
+            ariaLabel={copy.marketSymbol}
+          />
+          <select aria-label={copy.klineRange} value={marketRange} onChange={(event) => setMarketRange(event.target.value as MarketRange)}>
+            <option value="3m">{copy.threeMonths}</option>
+            <option value="6m">{copy.sixMonths}</option>
+            <option value="1y">{copy.oneYear}</option>
+            <option value="all">{copy.allHistory}</option>
+          </select>
+          <IndicatorMenu selected={selectedIndicators} onChange={setSelectedIndicators} />
+          <button
+            className="market-refresh-button"
+            type="button"
+            onClick={() => setMarketReloadRevision((value) => value + 1)}
+            disabled={marketBusy || !marketSymbol}
+            title={copy.reloadChartTitle}
+          >
+            <RefreshCw size={14} /> {copy.reloadChart}
+          </button>
+          <span className="status-pill neutral"><CalendarDays size={13} /> {copy.dailyAdjusted}</span>
         </div>
-      )}
-
-      {tab === 'preview' && (
-        <div className="workbench-body">
-          <div className="workbench-controls">
-            <select aria-label={copy.runtimeDataset} value={datasetId} onChange={(event) => chooseDataset(event.target.value)}>
-              {(catalog?.datasets ?? []).map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.label}</option>)}
-            </select>
-            <input aria-label={copy.symbolsInput} placeholder={copy.symbolsPlaceholder} value={symbolFilter} onChange={(event) => setSymbolFilter(event.target.value)} />
-            <input aria-label={copy.startDate} type="date" value={startFilter} onChange={(event) => setStartFilter(event.target.value)} />
-            <input aria-label={copy.endDate} type="date" value={endFilter} onChange={(event) => setEndFilter(event.target.value)} />
-            <input aria-label={copy.columns} placeholder={copy.columnsPlaceholder} value={columnFilter} onChange={(event) => setColumnFilter(event.target.value)} />
-            <input aria-label={copy.rowLimit} type="number" min={1} max={1000} value={rowLimit} onChange={(event) => setRowLimit(Math.max(1, Math.min(1000, Number(event.target.value) || 1)))} />
-            <button className="primary-command" type="button" onClick={queryDataset} disabled={busy || !datasetId}>
-              <Search size={14} /> {copy.query}
-            </button>
-          </div>
-          {dataPreview ? (
-            <>
-              <div className="detail-strip">
-                <span>{dataPreview.returned_rows.toLocaleString()} {copy.ofMatchedRows} {dataPreview.matched_rows.toLocaleString()} {copy.matchedRowsSuffix}</span>
-                <strong>{dataPreview.dataset}{dataPreview.truncated ? ` · ${copy.boundedPreview}` : ''}</strong>
-                <CSVExportButton
-                  data={dataPreview.rows}
-                  filename={`alphalab-${dataPreview.dataset}-preview`}
-                  label={copy.exportCsv}
-                />
-              </div>
-              <div className="analytics-table-wrap">
-                <table className="analytics-table compact">
-                  <thead><tr>{previewColumns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
-                  <tbody>{dataPreview.rows.map((row, index) => (
-                    <tr key={index}>{previewColumns.map((column) => <td key={column}>{previewCell(row[column])}</td>)}</tr>
-                  ))}</tbody>
-                </table>
-              </div>
-            </>
-          ) : <div className="analytics-empty">{copy.chooseDataset}</div>}
-        </div>
-      )}
-
-      {tab === 'jobs' && (
-        <div className="table runtime-jobs">
-          <div className="table-row table-head"><span>{copy.job}</span><span>{copy.status}</span><span>{copy.progress}</span><span>{copy.message}</span></div>
-          {jobs.length === 0 && <div className="table-row"><span>{copy.noJobs}</span></div>}
-          {jobs.map((job) => (
-            <div className="table-row" key={job.id}>
-              <span>{job.id.slice(0, 8)}<small>{job.created_at}</small></span>
-              <span>{job.status}</span>
-              <span>{job.progress}/{job.total}</span>
-              <span>{job.error || job.message || '-'}</span>
+        {marketError ? <div className="workbench-message error">{marketError}</div> : null}
+        {!marketError && marketBusy && marketRows.length === 0 ? <div className="analytics-empty">{copy.loadingBars}</div> : null}
+        {!marketError && !marketBusy && marketRows.length === 0 ? <div className="analytics-empty">{copy.noBars}</div> : null}
+        {marketRows.length > 0 ? (
+          <>
+            <div className="analytics-kpi-grid market-kline-kpis">
+              <div className="analytics-kpi"><span><BarChart3 size={12} /> {copy.lastClose}</span><strong>{latestBar?.close.toFixed(2) ?? '—'}</strong></div>
+              <div className="analytics-kpi"><span>{copy.dailyChange}</span><strong className={dailyChange !== null && dailyChange < 0 ? 'gate-fail-text' : 'gate-pass-text'}>{dailyChange === null ? '—' : `${(dailyChange * 100).toFixed(2)}%`}</strong></div>
+              <div className="analytics-kpi"><span>{copy.rangeChange}</span><strong className={rangeChange !== null && rangeChange < 0 ? 'gate-fail-text' : 'gate-pass-text'}>{rangeChange === null ? '—' : `${(rangeChange * 100).toFixed(2)}%`}</strong></div>
+              <div className="analytics-kpi"><span>{copy.latestVolume}</span><strong>{compactNumber(latestBar?.volume, language === 'zh' ? 'zh-CN' : 'en-US')}</strong></div>
+              <div className="analytics-kpi"><span>{copy.latestDate}</span><strong>{latestBar?.date ?? '—'}</strong></div>
             </div>
-          ))}
+            <div className="market-kline-frame">
+              <CandlestickChart rows={marketRows} selectedIndicators={selectedIndicators} />
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      <details className="data-management">
+        <summary>
+          <Database size={17} />
+          <span className="data-management-title">
+            <strong>{copy.dataManagement}</strong>
+            <small>{copy.dataManagementDescription}</small>
+          </span>
+          <span className="data-management-status">
+            {copy.runtimeReadiness}: {catalog?.ready ?? 0}/{catalog?.configured ?? 0}
+            {latestJob ? ` · ${latestJob.status}` : ''}
+          </span>
+          <ChevronDown className="data-management-chevron" size={17} />
+        </summary>
+
+        <div className="data-management-body">
+          <div className="sync-toolbar">
+            <span className={`status-pill ${health?.rq.configured ? 'ready' : 'neutral'}`}>
+              <Database size={13} /> RQ {health?.rq.status ?? copy.loading}
+            </span>
+            <button type="button" onClick={checkUpdates} disabled={busy} title={copy.checkUpdatesTitle}>
+              <RefreshCw size={14} /> {copy.checkUpdates}
+            </button>
+            <button type="button" onClick={validateRuntime} disabled={busy || catalog?.ready === 0} title={copy.validateTitle}>
+              <ShieldCheck size={14} /> {copy.validate}
+            </button>
+            {qualityReports && (
+              <span className={`status-pill ${qualityPassed === qualityReports.length ? 'ready' : 'neutral'}`}>
+                {qualityPassed}/{qualityReports.length} {copy.passed}
+              </span>
+            )}
+          </div>
+          {!health?.rq.configured && (
+            <p className="data-guidance">
+              {copy.configuredRequired} {health?.rq.missing.join(', ') || copy.rqEnvironment} {copy.beforeSync} {copy.demoFallback}
+            </p>
+          )}
+          {plan && (
+            <div className="sync-plan-card">
+              <div>
+                <strong>{copy.updatePlan}</strong>
+                <span>{copy.updateScope} {plan.symbol_count} {copy.symbols} · {plan.steps.length} {copy.datasets} · {plan.estimated_batches} {copy.batches}</span>
+                <small>{plan.requested_start} → {plan.requested_end}</small>
+              </div>
+              <button className="primary-command" type="button" onClick={startUpdate} disabled={busy || !health?.rq.configured} title={copy.startUpdateTitle}>
+                <Play size={14} /> {copy.startUpdate}
+              </button>
+            </div>
+          )}
+          {qualityReports && (
+            <div className="quality-report-list">
+              {qualityReports.map((report) => (
+                <div className="quality-report-row" key={report.dataset}>
+                  <span className={report.status === 'passed' ? 'gate-pass-text' : 'gate-fail-text'}>
+                    {report.status === 'passed' ? copy.qualityPassed : copy.qualityFailed}
+                  </span>
+                  <strong>{datasetLabel(report.dataset)}</strong>
+                  <small>{report.rows.toLocaleString()} {copy.rowsUnit}</small>
+                  <div>
+                    {report.issues.length === 0
+                      ? copy.noQualityIssues
+                      : report.issues.map((issue) => <span key={`${report.dataset}-${issue.code}`}>{issue.message}</span>)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="workbench-tabs" role="tablist" aria-label={copy.tabsLabel}>
+            <button type="button" role="tab" aria-selected={tab === 'catalog'} onClick={() => setTab('catalog')}>{copy.catalogTab}</button>
+            <button type="button" role="tab" aria-selected={tab === 'preview'} onClick={() => setTab('preview')}>{copy.previewTab}</button>
+            <button type="button" role="tab" aria-selected={tab === 'jobs'} onClick={() => setTab('jobs')}>{copy.jobsTab}</button>
+          </div>
+
+          {tab === 'catalog' && (
+            <div className="table runtime-table">
+              <div className="table-row table-head"><span>{copy.runtimeDataset}</span><span>{copy.status}</span><span>{copy.rows}</span><span>{copy.coverage}</span></div>
+              {(catalog?.datasets ?? []).map((dataset) => (
+                <button className={`table-row ${dataset.id === datasetId ? 'active' : ''}`} type="button" key={dataset.id} onClick={() => chooseDataset(dataset.id)}>
+                  <span>{dataset.label}<small>{dataset.id}</small></span>
+                  <span>{dataset.status}</span>
+                  <span>{dataset.rows.toLocaleString()}</span>
+                  <span>{dataset.date_start ?? '-'} → {dataset.date_end ?? '-'}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {tab === 'preview' && (
+            <div className="workbench-body">
+              <div className="workbench-controls">
+                <select aria-label={copy.runtimeDataset} value={datasetId} onChange={(event) => chooseDataset(event.target.value)}>
+                  {(catalog?.datasets ?? []).map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.label}</option>)}
+                </select>
+                <input aria-label={copy.symbolsInput} placeholder={copy.symbolsPlaceholder} value={symbolFilter} onChange={(event) => setSymbolFilter(event.target.value)} />
+                <input aria-label={copy.startDate} type="date" value={startFilter} onChange={(event) => setStartFilter(event.target.value)} />
+                <input aria-label={copy.endDate} type="date" value={endFilter} onChange={(event) => setEndFilter(event.target.value)} />
+                <input aria-label={copy.columns} placeholder={copy.columnsPlaceholder} value={columnFilter} onChange={(event) => setColumnFilter(event.target.value)} />
+                <input aria-label={copy.rowLimit} type="number" min={1} max={1000} value={rowLimit} onChange={(event) => setRowLimit(Math.max(1, Math.min(1000, Number(event.target.value) || 1)))} />
+                <button className="primary-command" type="button" onClick={queryDataset} disabled={busy || !datasetId}>
+                  <Search size={14} /> {copy.query}
+                </button>
+              </div>
+              {dataPreview ? (
+                <>
+                  <div className="detail-strip">
+                    <span>{dataPreview.returned_rows.toLocaleString()} {copy.ofMatchedRows} {dataPreview.matched_rows.toLocaleString()} {copy.matchedRowsSuffix}</span>
+                    <strong>{dataPreview.dataset}{dataPreview.truncated ? ` · ${copy.boundedPreview}` : ''}</strong>
+                    <CSVExportButton
+                      data={dataPreview.rows}
+                      filename={`alphalab-${dataPreview.dataset}-preview`}
+                      label={copy.exportCsv}
+                    />
+                  </div>
+                  <div className="analytics-table-wrap">
+                    <table className="analytics-table compact">
+                      <thead><tr>{previewColumns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
+                      <tbody>{dataPreview.rows.map((row, index) => (
+                        <tr key={index}>{previewColumns.map((column) => <td key={column}>{previewCell(row[column])}</td>)}</tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                </>
+              ) : <div className="analytics-empty">{copy.chooseDataset}</div>}
+            </div>
+          )}
+
+          {tab === 'jobs' && (
+            <div className="table runtime-jobs">
+              <div className="table-row table-head"><span>{copy.job}</span><span>{copy.status}</span><span>{copy.progress}</span><span>{copy.message}</span></div>
+              {jobs.length === 0 && <div className="table-row"><span>{copy.noJobs}</span></div>}
+              {jobs.map((job) => (
+                <div className="table-row" key={job.id}>
+                  <span>{job.id.slice(0, 8)}<small>{job.created_at}</small></span>
+                  <span>{job.status}</span>
+                  <span>{job.progress}/{job.total}</span>
+                  <span>{job.error || job.message || '-'}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </details>
     </div>
   )
 }

@@ -27,6 +27,7 @@ import { PanelContext } from "@/contexts/PanelContext"
 import { useAgentPrompt } from "@/contexts/AgentPromptContext"
 import { useAlertNotifications } from "@/lib/notifications"
 import { useLanguage } from "@/contexts/LanguageContext"
+import { useTheme } from "@/contexts/ThemeContext"
 import { cn } from "@/lib/utils"
 import { ModeSidebar } from "@/workspace/ModeSidebar"
 import { WorkspaceRightRail } from "@/workspace/RightRail"
@@ -276,6 +277,7 @@ function WorkspaceInner() {
   const workspace = useWorkspace()
   const { activeMode, setActiveMode } = workspace
   const { language } = useLanguage()
+  const { theme } = useTheme()
   const activeModeRef = useRef(activeMode)
   const [mountedModes, setMountedModes] = useState<Set<WorkspaceMode>>(() => new Set([activeMode]))
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed)
@@ -804,7 +806,7 @@ function WorkspaceInner() {
                 )}
               >
                 <DockviewReact
-                  className="dockview-theme-abyss"
+                  className={theme === "dark" ? "dockview-theme-abyss" : "dockview-theme-light"}
                   onReady={(event) => onReady(mode, event)}
                   components={components}
                 />
