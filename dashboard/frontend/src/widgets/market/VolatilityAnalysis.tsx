@@ -2,6 +2,7 @@ import { useMemo } from "react"
 
 import { VolatilityChart } from "@/components/charts"
 import { useGlobalFilter } from "@/contexts/GlobalFilterContext"
+import { useLanguage } from "@/contexts/LanguageContext"
 import { useVolatilityAnalysis } from "@/hooks"
 import { useDataProfile } from "@/lib/data-profile"
 import { formatPercent } from "@/lib/utils"
@@ -11,6 +12,15 @@ import { AnalyticsFilters } from "./AnalyticsControls"
 import { analyticsError } from "./analytics-utils"
 
 export function VolatilityAnalysisWidget() {
+  const { language } = useLanguage()
+  const copy = language === "zh"
+    ? { title: "波动率区间", low: "低波动", normal: "正常", high: "高波动", months: "个月", mean: "均值", share: "占比" }
+    : { title: "Volatility Regimes", low: "low", normal: "normal", high: "high", months: "months", mean: "mean", share: "share" }
+  const regimeLabels: Record<string, string> = {
+    low: copy.low,
+    normal: copy.normal,
+    high: copy.high,
+  }
   const [profile, setProfile] = useDataProfile()
   const { startDate, endDate } = useGlobalFilter()
   const query = useVolatilityAnalysis(profile, startDate, endDate)
@@ -25,7 +35,7 @@ export function VolatilityAnalysisWidget() {
   )
   return (
     <Widget
-      title="Volatility Regimes"
+      title={copy.title}
       loading={query.isLoading}
       error={analyticsError(query.error)}
       onRetry={() => query.refetch()}
@@ -36,9 +46,9 @@ export function VolatilityAnalysisWidget() {
       <div className="analytics-regime-grid">
         {(query.data?.regime_stats ?? []).map((item) => (
           <div key={item.regime}>
-            <span>{item.regime}</span>
-            <strong>{item.n_months} months</strong>
-            <small>{formatPercent(item.mean, 1)} mean · {formatPercent(item.proportion, 0)} share</small>
+            <span>{regimeLabels[item.regime] ?? item.regime}</span>
+            <strong>{item.n_months} {copy.months}</strong>
+            <small>{formatPercent(item.mean, 1)} {copy.mean} · {formatPercent(item.proportion, 0)} {copy.share}</small>
           </div>
         ))}
       </div>

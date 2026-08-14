@@ -169,13 +169,14 @@ function ToolActivityList({
 }
 
 function Artifact({ artifact }: { artifact: PublishedHarnessArtifact }) {
+  const { language } = useLanguage()
   const workspaceDocument = workspaceDocumentFromArtifact(artifact)
   if (workspaceDocument !== null) {
     if (!workspaceDocument.trim()) return null
     return (
       <details open className="rounded border border-border bg-background text-xs">
         <summary className="cursor-pointer border-b border-border px-3 py-2 font-medium text-foreground">
-          {artifact.title || "研究报告"}
+          {artifact.title || (language === "zh" ? "研究报告" : "Research report")}
         </summary>
         <div className="max-h-[32rem] overflow-auto p-3">
           <SafeMarkdown>{workspaceDocument}</SafeMarkdown>
@@ -340,6 +341,9 @@ export function ResearchAgentPanel() {
     retry: "重试",
     tools: "工具执行",
     workspaceActions: "工作台联动",
+    conversation: "Agent 会话",
+    stop: "停止",
+    send: "发送",
     quickPrompts: ["现在有哪些策略？", "对比当前策略并把研究报告放到中间工作区", "打开数据工作台并刷新数据", "打开动量策略的回测工作台"],
   } : {
     title: "AI Research Agent",
@@ -352,6 +356,9 @@ export function ResearchAgentPanel() {
     retry: "Retry",
     tools: "Tool activity",
     workspaceActions: "Workspace actions",
+    conversation: "Agent conversation",
+    stop: "Stop",
+    send: "Send",
     quickPrompts: ["What strategies are available?", "Compare current strategies in a workspace report", "Open Data Workbench and refresh data", "Open the momentum backtest workbench"],
   }
 
@@ -375,7 +382,7 @@ export function ResearchAgentPanel() {
             value={agent.conversation?.id ?? ""}
             disabled={agent.responseActive}
             onChange={(event) => { if (event.target.value) void agent.selectConversation(event.target.value) }}
-            aria-label="Agent conversation"
+            aria-label={copy.conversation}
           >
             <option value="">{copy.newChat}</option>
             {agent.conversations.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
@@ -481,11 +488,11 @@ export function ResearchAgentPanel() {
               }}
             />
             {agent.responseActive && !agent.run?.pendingInteraction ? (
-              <button type="button" className="rounded border border-border px-3 text-muted-foreground hover:text-foreground" onClick={() => void agent.cancel()} title="Stop">
+              <button type="button" className="rounded border border-border px-3 text-muted-foreground hover:text-foreground" onClick={() => void agent.cancel()} title={copy.stop}>
                 <Square className="h-4 w-4" />
               </button>
             ) : (
-              <button type="submit" className="rounded bg-primary px-3 text-primary-foreground disabled:opacity-50" disabled={!draft.trim()} title="Send">
+              <button type="submit" className="rounded bg-primary px-3 text-primary-foreground disabled:opacity-50" disabled={!draft.trim()} title={copy.send}>
                 <Send className="h-4 w-4" />
               </button>
             )}

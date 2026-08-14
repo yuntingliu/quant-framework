@@ -1,6 +1,7 @@
 import { useCallback } from "react"
 import { Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useLanguage } from "@/contexts/LanguageContext"
 import { cn } from "@/lib/utils"
 
 interface CSVExportButtonProps {
@@ -55,9 +56,11 @@ export function CSVExportButton({
   data,
   headers,
   filename,
-  label = "Export CSV",
+  label,
   className,
 }: CSVExportButtonProps) {
+  const { language } = useLanguage()
+  const resolvedLabel = label ?? (language === "zh" ? "导出 CSV" : "Export CSV")
   const handleExport = useCallback(() => {
     if (!data || data.length === 0) return
 
@@ -71,7 +74,8 @@ export function CSVExportButton({
     try {
       const link = document.createElement("a")
       link.href = url
-      link.download = `${filename}.csv`
+      const safeFilename = filename.replace(/[\\/:*?"<>|]+/g, "-").replace(/\.csv$/i, "") || "export"
+      link.download = `${safeFilename}.csv`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -89,7 +93,7 @@ export function CSVExportButton({
       className={cn("gap-2", className)}
     >
       <Download className="h-4 w-4" />
-      {label}
+      {resolvedLabel}
     </Button>
   )
 }

@@ -12,7 +12,7 @@ import {
   type Time,
 } from "lightweight-charts"
 
-import type { IndicatorId } from "@/components/shared/IndicatorMenu"
+import type { IndicatorId } from "@/hooks/useIndicatorSelection"
 import {
   bollinger,
   ema,

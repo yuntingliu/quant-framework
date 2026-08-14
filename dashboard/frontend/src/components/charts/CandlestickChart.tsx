@@ -11,13 +11,16 @@ import {
 } from "lightweight-charts"
 
 import type { MarketBar } from "@/lib/api"
+import type { IndicatorId } from "@/hooks/useIndicatorSelection"
+import { addIndicatorSeries } from "@/lib/chartIndicators"
 
 interface CandlestickChartProps {
   rows: MarketBar[]
+  selectedIndicators: IndicatorId[]
   height?: number
 }
 
-export function CandlestickChart({ rows, height = 420 }: CandlestickChartProps) {
+export function CandlestickChart({ rows, selectedIndicators, height = 420 }: CandlestickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const orderedRows = useMemo(
     () => [...rows]
@@ -80,6 +83,12 @@ export function CandlestickChart({ rows, height = 420 }: CandlestickChartProps) 
       close: row.close,
     })) as CandlestickData<Time>[])
 
+    addIndicatorSeries(
+      chart,
+      orderedRows.map((row) => ({ time: row.date, close: row.close })),
+      selectedIndicators,
+    )
+
     const volume = chart.addSeries(HistogramSeries, {
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
@@ -106,7 +115,7 @@ export function CandlestickChart({ rows, height = 420 }: CandlestickChartProps) 
       resizeObserver.disconnect()
       chart.remove()
     }
-  }, [height, orderedRows])
+  }, [height, orderedRows, selectedIndicators])
 
   return <div ref={containerRef} className="candlestick-chart" style={{ height }} />
 }

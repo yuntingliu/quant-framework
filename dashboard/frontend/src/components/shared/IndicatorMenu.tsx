@@ -1,45 +1,10 @@
-/**
- * Chart indicator selector — checkbox dropdown persisted per widget key.
- */
-import { useState } from "react"
+/** Chart indicator selector for the market workbench. */
 import { LineChart as LineChartIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-
-export type IndicatorId = "ma20" | "ma60" | "ema12" | "boll" | "rsi" | "macd"
-
-export const INDICATOR_OPTIONS: Array<{ id: IndicatorId; label: string; pane: "overlay" | "sub" }> = [
-  { id: "ma20", label: "MA 20", pane: "overlay" },
-  { id: "ma60", label: "MA 60", pane: "overlay" },
-  { id: "ema12", label: "EMA 12", pane: "overlay" },
-  { id: "boll", label: "BOLL (20, 2)", pane: "overlay" },
-  { id: "rsi", label: "RSI 14", pane: "sub" },
-  { id: "macd", label: "MACD (12, 26, 9)", pane: "sub" },
-]
-
-export function useIndicatorSelection(widgetKey: string): [IndicatorId[], (next: IndicatorId[]) => void] {
-  const storageKey = `alphalab-chart-indicators:${widgetKey}`
-  const [selected, setSelected] = useState<IndicatorId[]>(() => {
-    try {
-      const raw = localStorage.getItem(storageKey)
-      if (raw) {
-        const parsed: unknown = JSON.parse(raw)
-        if (Array.isArray(parsed)) {
-          return parsed.filter((id): id is IndicatorId =>
-            INDICATOR_OPTIONS.some((option) => option.id === id),
-          )
-        }
-      }
-    } catch { /* ignore */ }
-    return []
-  })
-  const update = (next: IndicatorId[]) => {
-    setSelected(next)
-    try { localStorage.setItem(storageKey, JSON.stringify(next)) } catch { /* ignore */ }
-  }
-  return [selected, update]
-}
+import { useLanguage } from "@/contexts/LanguageContext"
+import { INDICATOR_OPTIONS, type IndicatorId } from "@/hooks/useIndicatorSelection"
 
 export function IndicatorMenu({
   selected,
@@ -50,6 +15,10 @@ export function IndicatorMenu({
   onChange: (next: IndicatorId[]) => void
   className?: string
 }) {
+  const { language } = useLanguage()
+  const copy = language === "zh"
+    ? { title: "技术指标", indicators: "指标", overlay: "主图", sub: "副图" }
+    : { title: "Technical indicators", indicators: "Indicators", overlay: "overlay", sub: "sub" }
   const toggle = (id: IndicatorId) => {
     onChange(selected.includes(id) ? selected.filter((value) => value !== id) : [...selected, id])
   }
@@ -66,10 +35,10 @@ export function IndicatorMenu({
               : "border-border/70 text-muted-foreground hover:bg-muted",
             className,
           )}
-          title="Technical indicators"
+          title={copy.title}
         >
           <LineChartIcon className="h-3 w-3" />
-          Indicators{selected.length > 0 ? ` (${selected.length})` : ""}
+          {copy.indicators}{selected.length > 0 ? ` (${selected.length})` : ""}
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-44 p-1">
@@ -84,7 +53,7 @@ export function IndicatorMenu({
               onChange={() => toggle(option.id)}
             />
             <span className="flex-1">{option.label}</span>
-            <span className="text-[9px] uppercase text-muted-foreground">{option.pane}</span>
+            <span className="text-[9px] uppercase text-muted-foreground">{copy[option.pane]}</span>
           </label>
         ))}
       </PopoverContent>

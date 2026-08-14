@@ -1,4 +1,5 @@
 import { useGlobalFilter } from "@/contexts/GlobalFilterContext"
+import { useLanguage } from "@/contexts/LanguageContext"
 import { useFactorStats } from "@/hooks"
 import { useDataProfile } from "@/lib/data-profile"
 import { formatNumber, formatPercent } from "@/lib/utils"
@@ -16,12 +17,16 @@ function num(value: number | null): string {
 }
 
 export function FactorStatsWidget() {
+  const { language } = useLanguage()
+  const copy = language === "zh"
+    ? { title: "因子统计", factor: "因子", annual: "年化收益", volatility: "波动率", maxDrawdown: "最大回撤", positive: "正收益占比", skew: "偏度", kurtosis: "峰度" }
+    : { title: "Factor Statistics", factor: "Factor", annual: "Annual", volatility: "Volatility", maxDrawdown: "Max DD", positive: "Positive", skew: "Skew", kurtosis: "Kurtosis" }
   const [profile, setProfile] = useDataProfile()
   const { startDate, endDate } = useGlobalFilter()
   const query = useFactorStats(profile, startDate, endDate)
   return (
     <Widget
-      title="Factor Statistics"
+      title={copy.title}
       loading={query.isLoading}
       error={analyticsError(query.error)}
       onRetry={() => query.refetch()}
@@ -32,14 +37,14 @@ export function FactorStatsWidget() {
         <table className="analytics-table">
           <thead>
             <tr>
-              <th>Factor</th>
-              <th>Annual</th>
-              <th>Volatility</th>
+              <th>{copy.factor}</th>
+              <th>{copy.annual}</th>
+              <th>{copy.volatility}</th>
               <th>Sharpe</th>
-              <th>Max DD</th>
-              <th>Positive</th>
-              <th>Skew</th>
-              <th>Kurtosis</th>
+              <th>{copy.maxDrawdown}</th>
+              <th>{copy.positive}</th>
+              <th>{copy.skew}</th>
+              <th>{copy.kurtosis}</th>
             </tr>
           </thead>
           <tbody>

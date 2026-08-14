@@ -98,6 +98,34 @@ def test_frontend_exposes_five_customizable_workstation_modes():
     assert 'export const DEFAULT_MODE: WorkspaceMode = "data"' in presets
 
 
+def test_primary_workbench_surfaces_subscribe_to_language_context():
+    root = Path(__file__).resolve().parents[2]
+    frontend = root / "dashboard" / "frontend" / "src"
+    localized_surfaces = [
+        "widgets/data/DataWorkbench.tsx",
+        "widgets/research/FactorWorkbench.tsx",
+        "widgets/research/FactorResearchLab.tsx",
+        "widgets/research/FactorLibrary.tsx",
+        "widgets/research/StrategyWorkbench.tsx",
+        "widgets/backtest/BacktestWorkbench.tsx",
+        "widgets/backtest/BacktestCompare.tsx",
+        "widgets/research/ReportWorkbench.tsx",
+        "widgets/market/AnalyticsControls.tsx",
+        "widgets/market/AnnualReturns.tsx",
+        "widgets/market/CorrelationMatrix.tsx",
+        "widgets/market/CumulativeReturns.tsx",
+        "widgets/market/DrawdownAnalysis.tsx",
+        "widgets/market/FactorStats.tsx",
+        "widgets/market/VolatilityAnalysis.tsx",
+    ]
+    missing = [
+        path
+        for path in localized_surfaces
+        if "useLanguage" not in (frontend / path).read_text(encoding="utf-8")
+    ]
+    assert missing == []
+
+
 def test_only_generic_strategy_templates_are_bundled():
     root = Path(__file__).resolve().parents[2]
     names = sorted(path.stem for path in (root / "alphalab" / "strategies").glob("*.yaml"))

@@ -51,7 +51,8 @@ results/
 scratch/
 codex_tmp/
 tmp_pytest/
+tmp_runtime_probe/
 pytest-cache-files-*/
 
 .conexus/
-workspace/
+/workspace/

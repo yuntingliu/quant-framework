@@ -11,6 +11,7 @@ import {
   Legend,
 } from 'recharts'
 import { formatPercent } from '@/lib/utils'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 interface DrawdownDataPoint {
   date: string
@@ -30,6 +31,7 @@ const TICK_STYLE = {
 }
 
 export function DrawdownChart({ data, height = 300 }: DrawdownChartProps) {
+  const { language } = useLanguage()
   const hasBenchmark = data.some((d) => d.benchmark !== undefined)
 
   const dateFormatter = (value: string) => {
@@ -88,7 +90,7 @@ export function DrawdownChart({ data, height = 300 }: DrawdownChartProps) {
         <Area
           type="monotone"
           dataKey="strategy"
-          name="Strategy"
+          name={language === 'zh' ? '策略' : 'Strategy'}
           stroke="rgba(220, 53, 69, 0.8)"
           fill="rgba(220, 53, 69, 0.25)"
           strokeWidth={1.5}
@@ -100,7 +102,7 @@ export function DrawdownChart({ data, height = 300 }: DrawdownChartProps) {
           <Area
             type="monotone"
             dataKey="benchmark"
-            name="Benchmark"
+            name={language === 'zh' ? '基准' : 'Benchmark'}
             stroke="#2962FF"
             fill="rgba(41, 98, 255, 0.1)"
             strokeWidth={1}

@@ -11,3 +11,5 @@ export { useFactorPerformance, useCorrelation, useRollingCorrelation, useFactorD
 export { useBacktestComparison, useBacktestRun, useBacktestRunMutation } from './use-backtest-data'
 export { useOptimizerRun, useOptimizerRunMutation, useEfficientFrontier, useEfficientFrontierMutation } from './use-optimizer-data'
 export { useFactorAttribution, useRollingExposure, useStyleDrift, useStressTest } from './use-risk-data'
+export { INDICATOR_OPTIONS, useIndicatorSelection } from './useIndicatorSelection'
+export type { IndicatorId } from './useIndicatorSelection'

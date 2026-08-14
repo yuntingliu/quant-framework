@@ -77,6 +77,9 @@ export function ReportWorkbenchWidget() {
     shown: "显示",
     sources: "数据来源",
     generated: "生成时间",
+    data: "数据",
+    code: "代码",
+    source: "源码",
   } : {
     emptyTitle: "No research result",
     emptyDetail: "Ask the Agent to create a research report and open it in the workspace.",
@@ -89,6 +92,9 @@ export function ReportWorkbenchWidget() {
     shown: "shown",
     sources: "Sources",
     generated: "Generated",
+    data: "data",
+    code: "code",
+    source: "source",
   }
 
   const table = result?.table
@@ -166,7 +172,7 @@ export function ReportWorkbenchWidget() {
           {table ? <span className="rounded bg-muted px-2 py-1 font-mono">{table.rows.length} {copy.rows}</span> : null}
           {charts ? <span className="rounded bg-muted px-2 py-1 font-mono">{charts.length} {copy.charts}</span> : null}
           {result.generatedAt || result.updatedAt ? (
-            <span>{copy.generated}: {new Date(result.generatedAt ?? result.updatedAt ?? "").toLocaleString()}</span>
+            <span>{copy.generated}: {new Date(result.generatedAt ?? result.updatedAt ?? "").toLocaleString(language === "zh" ? "zh-CN" : "en-US")}</span>
           ) : null}
           {result.sources.length ? (
             <span className="flex min-w-0 items-center gap-1">
@@ -176,13 +182,13 @@ export function ReportWorkbenchWidget() {
           ) : null}
           {result.profile ? <span className="rounded bg-muted px-2 py-1 font-mono">{result.profile}</span> : null}
           {provenance?.data?.aggregate_sha256 ? (
-            <span className="font-mono" title={provenance.data.aggregate_sha256}>data {provenance.data.aggregate_sha256.slice(0, 12)}</span>
+            <span className="font-mono" title={provenance.data.aggregate_sha256}>{copy.data} {provenance.data.aggregate_sha256.slice(0, 12)}</span>
           ) : null}
           {provenance?.code?.commit ? (
-            <span className="font-mono" title={provenance.code.commit}>code {provenance.code.commit.slice(0, 10)}{provenance.code.dirty ? "-dirty" : ""}</span>
+            <span className="font-mono" title={provenance.code.commit}>{copy.code} {provenance.code.commit.slice(0, 10)}{provenance.code.dirty ? "-dirty" : ""}</span>
           ) : null}
           {provenance?.code?.source_sha256 ? (
-            <span className="font-mono" title={provenance.code.source_sha256}>source {provenance.code.source_sha256.slice(0, 12)}</span>
+            <span className="font-mono" title={provenance.code.source_sha256}>{copy.source} {provenance.code.source_sha256.slice(0, 12)}</span>
           ) : null}
         </div>
       </div>

@@ -13,6 +13,7 @@ import {
   ReferenceArea,
 } from 'recharts'
 import { formatPercent } from '@/lib/utils'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 interface VolatilityDataPoint {
   date: string
@@ -41,6 +42,7 @@ export function VolatilityChart({
   data,
   height = 380,
 }: VolatilityChartProps) {
+  const { language } = useLanguage()
   // Compute regime bands: contiguous date ranges of the same regime
   const regimeBands = useMemo(() => {
     const bands: RegionBand[] = []
@@ -172,7 +174,7 @@ export function VolatilityChart({
         <Line
           type="monotone"
           dataKey="volatility"
-          name="Volatility"
+          name={language === 'zh' ? '波动率' : 'Volatility'}
           stroke="#2962FF"
           strokeWidth={2}
           dot={false}

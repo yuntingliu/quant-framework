@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { RefreshCw } from "lucide-react"
 
 import { CumulativeReturnsChart } from "@/components/charts"
+import { useLanguage } from "@/contexts/LanguageContext"
 import {
   api,
   type BacktestComparison,
@@ -22,6 +23,30 @@ function metric(value: string | number | null | undefined, kind: "pct" | "number
 }
 
 export function BacktestCompareWidget() {
+  const { language } = useLanguage()
+  const copy = language === "zh" ? {
+    title: "策略对比",
+    refresh: "刷新对比结果",
+    picker: "选择要对比的回测",
+    noBacktests: "没有已保存的回测。",
+    selectTwo: "请至少选择两条回测记录。",
+    strategy: "策略",
+    total: "总收益",
+    annual: "年化收益",
+    volatility: "波动率",
+    maxDrawdown: "最大回撤",
+  } : {
+    title: "Strategy Compare",
+    refresh: "Refresh comparison",
+    picker: "Backtests to compare",
+    noBacktests: "has no persisted backtests.",
+    selectTwo: "Select at least two saved runs.",
+    strategy: "Strategy",
+    total: "Total",
+    annual: "Annual",
+    volatility: "Volatility",
+    maxDrawdown: "Max DD",
+  }
   const [profile, setProfile] = useDataProfile()
   const [records, setRecords] = useState<BacktestRecord[]>([])
   const [selected, setSelected] = useState<string[]>([])
@@ -68,7 +93,7 @@ export function BacktestCompareWidget() {
 
   return (
     <Widget
-      title="Strategy Compare"
+      title={copy.title}
       loading={records.length === 0 && !recordsError && comparison.isLoading}
       error={recordsError || analyticsError(comparison.error)}
       onRetry={() => comparison.refetch()}
@@ -78,7 +103,7 @@ export function BacktestCompareWidget() {
           <button
             className="icon-command"
             type="button"
-            title="Refresh comparison"
+            title={copy.refresh}
             onClick={() => comparison.refetch()}
             disabled={selected.length < 2}
           >
@@ -88,7 +113,7 @@ export function BacktestCompareWidget() {
       }
       bodyPadding="compact"
     >
-      <div className="backtest-picker" aria-label="Backtests to compare">
+      <div className="backtest-picker" aria-label={copy.picker}>
         {records.map((record) => (
           <label key={record.id} title={`${record.strategy_id} · ${record.run_at}`}>
             <input
@@ -102,9 +127,9 @@ export function BacktestCompareWidget() {
         ))}
       </div>
       {records.length === 0 ? (
-        <div className="analytics-empty">No persisted {profile} backtests.</div>
+        <div className="analytics-empty">{profile} {copy.noBacktests}</div>
       ) : selected.length < 2 ? (
-        <div className="analytics-empty">Select at least two saved runs.</div>
+        <div className="analytics-empty">{copy.selectTwo}</div>
       ) : (
         <>
           <CumulativeReturnsChart
@@ -119,12 +144,12 @@ export function BacktestCompareWidget() {
             <table className="analytics-table compact">
               <thead>
                 <tr>
-                  <th>Strategy</th>
-                  <th>Total</th>
-                  <th>Annual</th>
-                  <th>Volatility</th>
+                  <th>{copy.strategy}</th>
+                  <th>{copy.total}</th>
+                  <th>{copy.annual}</th>
+                  <th>{copy.volatility}</th>
                   <th>Sharpe</th>
-                  <th>Max DD</th>
+                  <th>{copy.maxDrawdown}</th>
                 </tr>
               </thead>
               <tbody>

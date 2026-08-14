@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { CheckCircle2, Copy, FileCode2, Save, Trash2 } from "lucide-react"
 
+import { useLanguage } from "../../contexts/LanguageContext"
 import {
   api,
   type StrategyTemplate,
@@ -10,6 +11,40 @@ import { useWorkspaceRefresh } from "../../hooks/useWorkspaceRefresh"
 import { useWorkspace } from "../../contexts/WorkspaceContext"
 
 export function StrategyWorkbenchWidget() {
+  const { language } = useLanguage()
+  const copy = language === "zh" ? {
+    title: "策略工作台",
+    description: "在同一处查看、克隆、校验和保存完整策略定义。",
+    factors: "个因子",
+    template: "模板",
+    local: "本地",
+    selectStrategy: "请选择策略",
+    readOnly: "只读",
+    editable: "可编辑",
+    yaml: "策略 YAML",
+    validate: "校验",
+    save: "保存",
+    localId: "本地策略 ID",
+    clone: "克隆策略",
+    remove: "删除本地策略",
+    confirmRemove: "确定删除本地策略",
+  } : {
+    title: "Strategy Workbench",
+    description: "Review, clone, validate, and save complete strategy definitions in one place.",
+    factors: "factors",
+    template: "template",
+    local: "local",
+    selectStrategy: "Select a strategy",
+    readOnly: "read only",
+    editable: "editable",
+    yaml: "Strategy YAML",
+    validate: "Validate",
+    save: "Save",
+    localId: "Local strategy id",
+    clone: "Clone strategy",
+    remove: "Delete local strategy",
+    confirmRemove: "Delete local strategy",
+  }
   const refreshRevision = useWorkspaceRefresh()
   const { selectedStrategy, setSelectedStrategy } = useWorkspace()
   const [strategies, setStrategies] = useState<StrategyTemplate[]>([])
@@ -115,7 +150,7 @@ export function StrategyWorkbenchWidget() {
   }
 
   async function remove() {
-    if (!detail?.editable || !window.confirm(`Delete local strategy ${detail.id}?`)) return
+    if (!detail?.editable || !window.confirm(`${copy.confirmRemove} ${detail.id}?`)) return
     setBusy(true)
     setError("")
     try {
@@ -135,8 +170,8 @@ export function StrategyWorkbenchWidget() {
     <div className="panel">
       <div className="panel-heading">
         <div>
-          <h2>Strategy Workbench</h2>
-          <p>Review, clone, validate, and save complete strategy definitions in one place.</p>
+          <h2>{copy.title}</h2>
+          <p>{copy.description}</p>
         </div>
         <FileCode2 size={18} />
       </div>
@@ -156,19 +191,19 @@ export function StrategyWorkbenchWidget() {
             >
               <strong>{strategy.name}</strong>
               <span>
-                {strategy.factors.length} factors · {strategy.built_in ? "template" : "local"}
+                {strategy.factors.length} {copy.factors} · {strategy.built_in ? copy.template : copy.local}
               </span>
             </button>
           ))}
         </aside>
         <section className="editor-main">
           <div className="detail-strip editor-detail-strip">
-            <span>{detail?.description ?? "Select a strategy"}</span>
-            <strong>{detail?.built_in ? "read only" : "editable"}</strong>
+            <span>{detail?.description ?? copy.selectStrategy}</span>
+            <strong>{detail?.built_in ? copy.readOnly : copy.editable}</strong>
           </div>
           <textarea
             className="code-view code-editor"
-            aria-label="Strategy YAML"
+            aria-label={copy.yaml}
             value={yaml}
             readOnly={!detail?.editable}
             spellCheck={false}
@@ -177,21 +212,21 @@ export function StrategyWorkbenchWidget() {
           <div className="editor-actions">
             <button type="button" className="icon-text-command" onClick={validate} disabled={busy || !yaml}>
               <CheckCircle2 aria-hidden="true" />
-              Validate
+              {copy.validate}
             </button>
             <button type="button" className="icon-text-command primary" onClick={save} disabled={busy || !detail?.editable}>
               <Save aria-hidden="true" />
-              Save
+              {copy.save}
             </button>
             <input
-              aria-label="Local strategy id"
+              aria-label={copy.localId}
               value={cloneId}
               onChange={(event) => setCloneId(event.target.value)}
             />
-            <button type="button" className="icon-command" title="Clone strategy" onClick={clone} disabled={busy || !strategyId || !cloneId}>
+            <button type="button" className="icon-command" title={copy.clone} onClick={clone} disabled={busy || !strategyId || !cloneId}>
               <Copy aria-hidden="true" />
             </button>
-            <button type="button" className="icon-command danger" title="Delete local strategy" onClick={remove} disabled={busy || !detail?.editable}>
+            <button type="button" className="icon-command danger" title={copy.remove} onClick={remove} disabled={busy || !detail?.editable}>
               <Trash2 aria-hidden="true" />
             </button>
           </div>

@@ -34,8 +34,8 @@ export function FactorWorkbenchWidget() {
   const [tab, setTab] = useState<FactorWorkbenchTab>("evaluate")
 
   const copy = language === "zh"
-    ? { title: "因子工作台", description: "选择因子与研究区间，在一个工作站完成定义检查和表现分析。", range: "共享研究区间" }
-    : { title: "Factor Workbench", description: "Select factors and a research range, then inspect definitions and performance in one workstation.", range: "Shared research range" }
+    ? { title: "因子工作台", description: "选择因子与研究区间，在一个工作站完成定义检查和表现分析。", range: "共享研究区间", selected: "已选因子", start: "因子分析开始月份", end: "因子分析结束月份", views: "因子工作台视图" }
+    : { title: "Factor Workbench", description: "Select factors and a research range, then inspect definitions and performance in one workstation.", range: "Shared research range", selected: "Selected factors", start: "Factor analysis start month", end: "Factor analysis end month", views: "Factor workbench view" }
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-card">
@@ -45,7 +45,7 @@ export function FactorWorkbenchWidget() {
             <div className="text-sm font-semibold text-foreground">{copy.title}</div>
             <div className="mt-0.5 text-[11px] text-muted-foreground">{copy.description}</div>
           </div>
-          <div className="flex flex-wrap items-center gap-1" aria-label="Selected factors">
+          <div className="flex flex-wrap items-center gap-1" aria-label={copy.selected}>
             {ALL_FACTORS.map((factor) => (
               <button
                 key={factor}
@@ -65,14 +65,14 @@ export function FactorWorkbenchWidget() {
           </div>
           <div className="flex items-center gap-1 rounded border border-border bg-background px-2 py-1" title={copy.range}>
             <CalendarRange className="h-3.5 w-3.5 text-muted-foreground" />
-            <input className="w-[7.5rem] bg-transparent text-[11px]" aria-label="Factor analysis start month" type="month" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+            <input className="w-[7.5rem] bg-transparent text-[11px]" aria-label={copy.start} type="month" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
             <span className="text-[10px] text-muted-foreground">—</span>
-            <input className="w-[7.5rem] bg-transparent text-[11px]" aria-label="Factor analysis end month" type="month" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+            <input className="w-[7.5rem] bg-transparent text-[11px]" aria-label={copy.end} type="month" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
           </div>
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-2 py-1.5" role="tablist" aria-label="Factor workbench view">
+      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-2 py-1.5" role="tablist" aria-label={copy.views}>
         {TABS.map(({ id, zh, en, icon: Icon }) => (
           <button
             key={id}

@@ -2,6 +2,7 @@ import { useMemo } from "react"
 
 import { DrawdownChart } from "@/components/charts"
 import { useGlobalFilter } from "@/contexts/GlobalFilterContext"
+import { useLanguage } from "@/contexts/LanguageContext"
 import { useDrawdowns } from "@/hooks"
 import { useDataProfile } from "@/lib/data-profile"
 import { formatPercent } from "@/lib/utils"
@@ -11,6 +12,10 @@ import { AnalyticsFilters } from "./AnalyticsControls"
 import { analyticsError } from "./analytics-utils"
 
 export function DrawdownAnalysisWidget() {
+  const { language } = useLanguage()
+  const copy = language === "zh"
+    ? { title: "回撤分析", start: "开始", trough: "谷底", end: "结束", depth: "深度", recovery: "修复", open: "尚未修复", months: "个月" }
+    : { title: "Drawdown Analysis", start: "Start", trough: "Trough", end: "End", depth: "Depth", recovery: "Recovery", open: "Open", months: "mo" }
   const [profile, setProfile] = useDataProfile()
   const { startDate, endDate } = useGlobalFilter()
   const query = useDrawdowns(profile, startDate, endDate, 5)
@@ -24,7 +29,7 @@ export function DrawdownAnalysisWidget() {
   )
   return (
     <Widget
-      title="Drawdown Analysis"
+      title={copy.title}
       loading={query.isLoading}
       error={analyticsError(query.error)}
       onRetry={() => query.refetch()}
@@ -35,7 +40,7 @@ export function DrawdownAnalysisWidget() {
       <div className="analytics-table-wrap">
         <table className="analytics-table compact">
           <thead>
-            <tr><th>Start</th><th>Trough</th><th>End</th><th>Depth</th><th>Recovery</th></tr>
+            <tr><th>{copy.start}</th><th>{copy.trough}</th><th>{copy.end}</th><th>{copy.depth}</th><th>{copy.recovery}</th></tr>
           </thead>
           <tbody>
             {(query.data?.top_drawdowns ?? []).map((period) => (
@@ -44,7 +49,7 @@ export function DrawdownAnalysisWidget() {
                 <td>{period.trough}</td>
                 <td>{period.end}</td>
                 <td>{formatPercent(period.depth, 1)}</td>
-                <td>{period.recovery_months == null ? "Open" : `${period.recovery_months} mo`}</td>
+                <td>{period.recovery_months == null ? copy.open : `${period.recovery_months} ${copy.months}`}</td>
               </tr>
             ))}
           </tbody>

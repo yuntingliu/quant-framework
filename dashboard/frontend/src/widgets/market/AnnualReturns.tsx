@@ -2,6 +2,7 @@ import { useMemo } from "react"
 
 import { AnnualReturnsChart } from "@/components/charts"
 import { useGlobalFilter } from "@/contexts/GlobalFilterContext"
+import { useLanguage } from "@/contexts/LanguageContext"
 import { useAnnualReturns } from "@/hooks"
 import { useDataProfile } from "@/lib/data-profile"
 import { Widget } from "@/widgets/Widget"
@@ -10,6 +11,7 @@ import { AnalyticsFilters } from "./AnalyticsControls"
 import { analyticsError } from "./analytics-utils"
 
 export function AnnualReturnsWidget() {
+  const { language } = useLanguage()
   const [profile, setProfile] = useDataProfile()
   const { startDate, endDate, selectedFactors } = useGlobalFilter()
   const query = useAnnualReturns(profile, startDate, endDate, selectedFactors)
@@ -27,7 +29,7 @@ export function AnnualReturnsWidget() {
   )
   return (
     <Widget
-      title="Annual Returns"
+      title={language === "zh" ? "年度收益" : "Annual Returns"}
       loading={query.isLoading}
       error={analyticsError(query.error)}
       onRetry={() => query.refetch()}

@@ -2,6 +2,8 @@
 
 import { useMemo, useRef, useEffect, useState } from 'react'
 
+import { useLanguage } from '@/contexts/LanguageContext'
+
 interface CorrelationHeatmapProps {
   labels: string[]
   matrix: number[][]
@@ -43,6 +45,7 @@ export function CorrelationHeatmap({
   matrix,
   height: propHeight,
 }: CorrelationHeatmapProps) {
+  const { language } = useLanguage()
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(500)
 
@@ -79,7 +82,7 @@ export function CorrelationHeatmap({
         height={finalHeight}
         style={{ display: 'block' }}
         role="img"
-        aria-label="Correlation matrix heatmap"
+        aria-label={language === 'zh' ? '相关性矩阵热力图' : 'Correlation matrix heatmap'}
       >
         {/* Top labels (rotated) */}
         {labels.map((label, i) => (
