@@ -20,8 +20,9 @@ import { useIndicatorSelection } from '../../hooks/useIndicatorSelection'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useDataProfile, type DataProfile } from '../../lib/data-profile'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
+import { RiskDataWorkspace } from './RiskDataWorkspace'
 
-type DataWorkbenchTab = 'catalog' | 'preview' | 'jobs'
+type DataWorkbenchTab = 'catalog' | 'risk' | 'preview' | 'jobs'
 type MarketRange = '3m' | '6m' | '1y' | 'all'
 const WATCHLIST_STORAGE_KEY = 'alphalab.data-watchlist.v1'
 
@@ -101,7 +102,7 @@ export function DataWorkbenchWidget() {
     reloadChart: '重新加载',
     reloadChartTitle: '重新读取当前证券行情',
     dataManagement: '高级数据管理',
-    dataManagementDescription: '管理本地研究数据库、质量检查和原始数据查询。',
+    dataManagementDescription: '管理本地研究数据库、风险数据、质量检查和原始数据查询。',
     runtimeReadiness: '本地数据集',
     checkUpdates: '检查更新',
     checkUpdatesTitle: '检查本地 RQ 研究数据的更新范围',
@@ -119,6 +120,7 @@ export function DataWorkbenchWidget() {
     updateScope: '将更新',
     tabsLabel: '高级数据管理视图',
     catalogTab: '数据目录',
+    riskTab: '风险数据',
     previewTab: '数据查询',
     jobsTab: '更新任务',
     marketSymbol: '股票代码或名称',
@@ -181,7 +183,7 @@ export function DataWorkbenchWidget() {
     reloadChart: 'Reload',
     reloadChartTitle: 'Reload market data for the current symbol',
     dataManagement: 'Advanced data management',
-    dataManagementDescription: 'Manage the local research database, quality checks, and raw data queries.',
+    dataManagementDescription: 'Manage the local research database, risk data, quality checks, and raw data queries.',
     runtimeReadiness: 'Local datasets',
     checkUpdates: 'Check for updates',
     checkUpdatesTitle: 'Check the update scope for local RQ research data',
@@ -199,6 +201,7 @@ export function DataWorkbenchWidget() {
     updateScope: 'Will update',
     tabsLabel: 'Advanced data management view',
     catalogTab: 'Catalog',
+    riskTab: 'Risk data',
     previewTab: 'Data query',
     jobsTab: 'Update jobs',
     marketSymbol: 'Stock symbol or name',
@@ -682,6 +685,7 @@ export function DataWorkbenchWidget() {
 
           <div className="workbench-tabs" role="tablist" aria-label={copy.tabsLabel}>
             <button type="button" role="tab" aria-selected={tab === 'catalog'} onClick={() => setTab('catalog')}>{copy.catalogTab}</button>
+            <button type="button" role="tab" aria-selected={tab === 'risk'} onClick={() => setTab('risk')}>{copy.riskTab}</button>
             <button type="button" role="tab" aria-selected={tab === 'preview'} onClick={() => setTab('preview')}>{copy.previewTab}</button>
             <button type="button" role="tab" aria-selected={tab === 'jobs'} onClick={() => setTab('jobs')}>{copy.jobsTab}</button>
           </div>
@@ -699,6 +703,8 @@ export function DataWorkbenchWidget() {
               ))}
             </div>
           )}
+
+          {tab === 'risk' && <RiskDataWorkspace profile={profile} />}
 
           {tab === 'preview' && (
             <div className="workbench-body">

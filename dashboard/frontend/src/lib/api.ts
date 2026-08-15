@@ -4,182 +4,86 @@ interface ElectronApiBridge {
   getApiBase?: () => string
 }
 
-export interface StrategyTemplate {
+export type PythonPipelineStage = "universe" | "selection" | "timing" | "portfolio" | "risk" | "execution"
+
+export interface PipelineComponentSummary {
   id: string
-  strategy_type: "stock_selection" | "market_timing"
+  stage: PythonPipelineStage
   name: string
   description: string
-  path: string
-  factors: string[]
-  signals?: string[]
-  implementation: "configured" | "python"
-  warnings: string[]
   built_in: boolean
   editable: boolean
-  source: "built_in" | "local"
-  research_status?: "research_candidate" | "watch" | "weak" | "invalid"
-  latest_signal_date?: string
-  latest_backtest?: {
-    id: string
-    run_at: string
-    total_return: number | null
-    sharpe: number | null
-    max_drawdown: number | null
-    profile: "demo" | "runtime"
-  }
+  latest_version: number
+  version_count: number
 }
 
-export interface StrategyTemplateDetail extends StrategyTemplate {
-  yaml: string
-  config: StrategyConfigPayload
-  python_source: string | null
-  python_source_sha256: string | null
-}
-
-export interface StrategyImplementationConfig {
-  kind: "configured" | "python"
+export interface PipelineComponentDetail extends PipelineComponentSummary {
+  version: number
+  versions: number[]
   entrypoint: string
-  timeout_seconds: number
+  source: string
+  source_sha256: string
+  parameters: Record<string, unknown>
+  notes: string
+  created_at: string
 }
 
-export interface StrategyFactorConfig {
-  name: string
-  weight: number
-  direction: "long" | "short"
-  source: "technical" | "fundamental" | "expression"
-  expression?: string | null
-  winsorize: number
-  neutralize: string[]
+export interface PipelineComponentRef {
+  component_id: string
+  version: number
 }
 
-export interface StrategyConfigPayload {
-  strategy_type: "stock_selection"
-  name: string
-  description: string
-  universe: {
-    pool: string
-    symbols: string[]
-    min_price: number
-    min_history_days: number
-    min_average_amount: number
-    max_stale_days: number
-    require_positive_volume: boolean
-  }
-  factors: StrategyFactorConfig[]
-  selection: {
-    min_factor_coverage: number
-    n_stocks: number
-  }
-  portfolio: {
-    max_weight: number
-    rebalance_freq: "monthly" | "weekly"
-    optimizer: "equal_weight"
-  }
-  execution: {
-    cost_bps: number
-    slippage_bps: number
-    impact_bps: number
-    execution_price: "next_open" | "next_close"
-    portfolio_value: number
-    max_participation_rate: number
-  }
-  implementation: StrategyImplementationConfig
-  metadata?: Record<string, unknown>
+export interface PipelineComponentManifest extends PipelineComponentRef {
+  stage: PythonPipelineStage
+  entrypoint: string
+  source_sha256: string
+  parameters: Record<string, unknown>
 }
 
-export interface StrategyValidationCheck {
-  code: string
-  status: "passed" | "warning" | "failed"
-  severity: "info" | "warning" | "error"
-  message: string
-}
-
-export interface StrategyValidationResult {
-  valid: boolean
-  strategy_type: "stock_selection"
-  name: string
-  factors: string[]
-  warnings: string[]
-  normalized_yaml: string
-  config: StrategyConfigPayload
-  python_source: string | null
-  python_source_sha256: string | null
-  checks: StrategyValidationCheck[]
-}
-
-export interface TimingSignalConfig {
-  kind: "trend" | "momentum" | "volatility_control"
-  weight: number
-  window: number
-  threshold: number
-}
-
-export interface TimingStrategyConfigPayload {
-  strategy_type: "market_timing"
+export interface PipelineProjectSummary {
+  id: string
   name: string
   description: string
-  market_factor: "MKT"
-  signals: TimingSignalConfig[]
-  position: {
-    min_exposure: number
-    max_exposure: number
-  }
-  execution: {
-    cost_bps: number
-    slippage_bps: number
-  }
-  implementation: StrategyImplementationConfig
-  metadata?: Record<string, unknown>
+  revision: number
+  built_in: boolean
+  editable: boolean
+  components: Record<PythonPipelineStage, PipelineComponentRef>
+  settings: Record<string, unknown>
 }
 
-export interface TimingStrategyTemplateDetail extends StrategyTemplate {
-  strategy_type: "market_timing"
-  yaml: string
-  config: TimingStrategyConfigPayload
-  python_source: string | null
-  python_source_sha256: string | null
+export interface PipelineProjectDetail extends PipelineProjectSummary {
+  source_sha256: string
+  component_manifest: PipelineComponentManifest[]
+  composed_source: string
 }
 
-export interface TimingStrategyValidationResult {
-  valid: boolean
-  strategy_type: "market_timing"
-  name: string
-  factors: string[]
-  signals: string[]
-  warnings: string[]
-  normalized_yaml: string
-  config: TimingStrategyConfigPayload
-  python_source: string | null
-  python_source_sha256: string | null
-  checks: StrategyValidationCheck[]
+export interface PipelinePreview {
+  project_id: string
+  revision: number
+  source_sha256: string
+  signal_date: string
+  targets: Record<string, number>
+  diagnostics: Record<string, unknown>
+  selection: Record<string, unknown>
+  stage_outputs: Record<PythonPipelineStage, unknown>
 }
 
-export interface TimingResearchResult {
-  strategy_id: string
-  strategy_type: "market_timing"
-  profile: "demo" | "runtime"
-  metrics: Record<string, number>
-  diagnostics: {
-    market_factor: string
-    frequency: "monthly"
-    periods: number
-    average_exposure: number
-    latest_exposure: number
-    latest_signal_date: string
-    turnover: number
-  }
-  series: Array<{
-    date: string
-    strategy: number
-    benchmark: number
-    exposure: number
+export interface StrategyPipelineManifest {
+  strategy_type: "python_pipeline"
+  order: PythonPipelineStage[]
+  python_stages: PythonPipelineStage[]
+  stages: Array<{
+    order: number
+    name: PythonPipelineStage
+    kind: "python"
+    entrypoint: string
+    runtime_function: string
+    timeout_seconds: number
+    contract: { input: string; output: string; hard_gate: string }
+    source: string
   }>
-  signals: Array<{
-    date: string
-    combined_score: number
-    exposure: number
-    signals: Record<string, number>
-  }>
+  composed_source: string
+  invariants: string[]
 }
 
 export interface BacktestRecord {
@@ -198,8 +102,11 @@ export interface BacktestRecord {
 
 export interface BacktestRunResult {
   id: string
+  project_id: string
   strategy_id: string
-  strategy_type: "stock_selection" | "market_timing"
+  strategy_type: "python_pipeline"
+  revision: number
+  source_sha256: string
   metrics: Record<string, number>
   returns: { date: string; value: number }[]
   weights_count: number
@@ -211,7 +118,7 @@ export interface ResearchProvenance {
   version?: number
   created_at?: string
   profile?: "demo" | "runtime"
-  strategy_sha256?: string | null
+  strategy_source_sha256?: string | null
   strategy_python_sha256?: string | null
   strategy_python?: { source: string; sha256: string } | null
   code?: {
@@ -273,8 +180,11 @@ export interface BacktestAnalysis {
   executions: BacktestExecution[]
   has_execution_audit: boolean
   strategy_snapshot: {
-    strategy_type: "stock_selection" | "market_timing"
-    implementation: "configured" | "python"
+    strategy_type: "python_pipeline"
+    implementation: "python"
+    python_stages: PythonPipelineStage[]
+    pipeline: Record<string, unknown>
+    pipeline_manifest: StrategyPipelineManifest
     name: string
     description: string
     factors: string[]

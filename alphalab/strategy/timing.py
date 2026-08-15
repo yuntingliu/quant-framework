@@ -3,12 +3,9 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 from typing import Any
 
-import yaml
-
-from alphalab.strategy.implementation import StrategyImplementationSpec
+from alphalab.strategy.pipeline import StrategyPipelineSpec
 
 TIMING_SIGNAL_KINDS = ("trend", "momentum", "volatility_control")
 
@@ -77,21 +74,9 @@ class TimingStrategyConfig:
     )
     position: TimingPositionSpec = field(default_factory=TimingPositionSpec)
     execution: TimingExecutionSpec = field(default_factory=TimingExecutionSpec)
-    implementation: StrategyImplementationSpec = field(
-        default_factory=StrategyImplementationSpec
-    )
+    pipeline: StrategyPipelineSpec = field(default_factory=StrategyPipelineSpec)
     metadata: dict[str, Any] = field(default_factory=dict)
     _source_path: str | None = field(default=None, repr=False, compare=False)
-
-    @classmethod
-    def from_yaml(cls, path: str | Path) -> "TimingStrategyConfig":
-        path = Path(path)
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        return cls._from_dict(raw, source_path=str(path))
-
-    @classmethod
-    def from_yaml_string(cls, text: str) -> "TimingStrategyConfig":
-        return cls._from_dict(yaml.safe_load(text) or {})
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "TimingStrategyConfig":
@@ -119,8 +104,9 @@ class TimingStrategyConfig:
             signals=signals,
             position=TimingPositionSpec(**raw.get("position", {})),
             execution=TimingExecutionSpec(**raw.get("execution", {})),
-            implementation=StrategyImplementationSpec(
-                **raw.get("implementation", {})
+            pipeline=StrategyPipelineSpec.from_dict(
+                raw.get("pipeline"),
+                legacy_implementation=raw.get("implementation"),
             ),
             metadata=dict(raw.get("metadata", {})),
             _source_path=source_path,
@@ -135,14 +121,11 @@ class TimingStrategyConfig:
             "signals": [asdict(signal) for signal in self.signals],
             "position": asdict(self.position),
             "execution": asdict(self.execution),
-            "implementation": asdict(self.implementation),
+            "pipeline": self.pipeline.to_dict(),
         }
         if self.metadata:
             payload["metadata"] = self.metadata
         return payload
-
-    def to_yaml(self) -> str:
-        return yaml.safe_dump(self.to_dict(), sort_keys=False, allow_unicode=True)
 
     @property
     def total_weight(self) -> float:
@@ -156,9 +139,13 @@ class TimingStrategyConfig:
         warnings: list[str] = []
         if self.market_factor != "MKT":
             warnings.append("Barebone timing research currently requires the MKT series")
-        if self.implementation.kind == "configured" and not self.signals:
+        needs_registered_signal = (
+            self.pipeline.signal.kind == "configured"
+            and self.pipeline.portfolio.kind != "python"
+        )
+        if needs_registered_signal and not self.signals:
             warnings.append("No timing signals defined")
-        if self.implementation.kind == "configured" and self.total_weight <= 0:
+        if needs_registered_signal and self.total_weight <= 0:
             warnings.append("Timing signal weights must sum to a positive value")
         return warnings
 

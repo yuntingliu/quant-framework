@@ -18,7 +18,7 @@ class ResearchArtifactRequest(BaseModel):
 
     profile: Literal["demo", "runtime"] = "demo"
     result: dict[str, Any]
-    strategy_yaml: str | None = Field(default=None, max_length=100_000)
+    strategy_source: str | None = Field(default=None, max_length=100_000)
 
 
 @router.get("")
@@ -47,7 +47,7 @@ def report(artifact_id: str) -> dict:
 @router.post("", status_code=201)
 def save_report(request: ResearchArtifactRequest) -> dict:
     result = _validate_result(request.result)
-    provenance = build_research_provenance(request.profile, request.strategy_yaml)
+    provenance = build_research_provenance(request.profile, request.strategy_source)
     artifact_id = str(result["requestId"])
     store = ResultStore()
     try:

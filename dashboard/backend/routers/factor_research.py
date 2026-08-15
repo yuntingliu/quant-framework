@@ -10,7 +10,7 @@ from alphalab.analytics import evaluate_factor
 from alphalab.dataio import MissingDataError
 from alphalab.factors import list_factors
 from alphalab.strategy import FactorSpec, UniverseSpec
-from dashboard.backend.services.framework_service import _engine
+from dashboard.backend.services.data_service import _engine
 
 router = APIRouter(prefix="/api/factor-research", tags=["factor-research"])
 

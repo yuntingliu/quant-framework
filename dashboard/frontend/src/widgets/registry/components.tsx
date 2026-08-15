@@ -7,10 +7,16 @@ import { BacktestWorkbenchWidget } from "../backtest/BacktestWorkbench"
 import { DataWorkbenchWidget } from "../data/DataWorkbench"
 import { PaperExecutionDeskWidget } from "../execution/PaperExecutionDesk"
 import { RiskConsoleWidget } from "../execution/RiskConsole"
-import { FactorWorkbenchWidget } from "../research/FactorWorkbench"
 import { ResearchAgentPanel } from "../research/ResearchAgent"
 import { ReportWorkbenchWidget } from "../research/ReportWorkbench"
-import { StrategyWorkbenchWidget } from "../research/StrategyWorkbench"
+import {
+  ExecutionWorkbenchWidget,
+  PortfolioWorkbenchWidget,
+  RiskWorkbenchWidget,
+  SelectionWorkbenchWidget,
+  TimingWorkbenchWidget,
+  UniverseWorkbenchWidget,
+} from "../pipeline/StageWorkbench"
 import { AdapterDisabledWidget } from "../system/AdapterDisabled"
 
 import { widgetCatalog, widgetCategory, widgetDescription, widgetTitleById } from "./catalog"
@@ -36,10 +42,14 @@ const disabledComponents = Object.fromEntries(
 export const widgetComponents: Record<string, ComponentType> = {
   ...disabledComponents,
 
-  // The five stage workstations exposed to the Research Agent.
+  // Parallel workstations backed by one sequential six-stage Python pipeline.
   "data.workbench": DataWorkbenchWidget,
-  "factor.workbench": FactorWorkbenchWidget,
-  "strategy.workbench": StrategyWorkbenchWidget,
+  "universe.workbench": UniverseWorkbenchWidget,
+  "selection.workbench": SelectionWorkbenchWidget,
+  "timing.workbench": TimingWorkbenchWidget,
+  "portfolio.workbench": PortfolioWorkbenchWidget,
+  "risk.workbench": RiskWorkbenchWidget,
+  "execution.workbench": ExecutionWorkbenchWidget,
   "backtest.workbench": BacktestWorkbenchWidget,
   "report.workbench": ReportWorkbenchWidget,
 

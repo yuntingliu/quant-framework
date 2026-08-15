@@ -1,0 +1,35 @@
+{
+  "toolName": "alphalab_manage_pipeline",
+  "description": "Create, clone, revise, or delete six-stage pipeline projects and Python component versions. Built-ins are immutable. Every mutation requires the matching explicit confirmation flag.",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["operation"],
+    "properties": {
+      "operation": { "type": "string", "enum": ["create_project", "clone_project", "update_project", "delete_project", "create_component", "clone_component", "save_component_version", "delete_component"] },
+      "project_id": { "type": "string", "minLength": 2, "maxLength": 64 },
+      "source_project_id": { "type": "string", "minLength": 2, "maxLength": 64 },
+      "target_project_id": { "type": "string", "minLength": 2, "maxLength": 64 },
+      "component_id": { "type": "string", "minLength": 2, "maxLength": 64 },
+      "source_component_id": { "type": "string", "minLength": 2, "maxLength": 64 },
+      "target_component_id": { "type": "string", "minLength": 2, "maxLength": 64 },
+      "stage": { "type": "string", "enum": ["universe", "selection", "timing", "portfolio", "risk", "execution"] },
+      "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+      "description": { "type": "string", "maxLength": 500 },
+      "source": { "type": "string", "minLength": 1, "maxLength": 100000 },
+      "parameters": { "type": "object" },
+      "components": { "type": "object" },
+      "settings": { "type": "object" },
+      "notes": { "type": "string", "maxLength": 500 },
+      "confirm_write": { "type": "boolean", "default": false },
+      "confirm_delete": { "type": "boolean", "default": false }
+    }
+  },
+  "outputSchema": { "type": "object" },
+  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function call(path,options={}){const response=await fetch(origin()+path,{headers:{Accept:'application/json','Content-Type':'application/json'},...options});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());return response.status===204?{}:response.json()}\nasync function run(input){const op=input.operation;if(op.startsWith('delete_')){if(input.confirm_delete!==true)throw new Error('Deletion requires an explicit user request and confirm_delete=true')}else if(input.confirm_write!==true){throw new Error('Pipeline mutation requires an explicit user request and confirm_write=true')}if(op==='create_project'){const id=String(input.project_id||'').trim();if(!id||!input.name||!input.components||!input.settings)throw new Error('project_id, name, components, and settings are required');return call('/api/pipeline/projects',{method:'POST',body:JSON.stringify({project_id:id,name:input.name,description:String(input.description||''),components:input.components,settings:input.settings})})}if(op==='clone_project'){const source=String(input.source_project_id||'').trim(),target=String(input.target_project_id||'').trim();if(!source||!target)throw new Error('source_project_id and target_project_id are required');return call('/api/pipeline/projects/'+encodeURIComponent(source)+'/clone',{method:'POST',body:JSON.stringify({target_id:target,...(input.name?{name:String(input.name)}:{})})})}if(op==='update_project'){const id=String(input.project_id||'').trim();if(!id||!input.name||!input.components||!input.settings)throw new Error('project_id, name, components, and settings are required');return call('/api/pipeline/projects/'+encodeURIComponent(id),{method:'PUT',body:JSON.stringify({name:input.name,description:String(input.description||''),components:input.components,settings:input.settings})})}if(op==='delete_project'){const id=String(input.project_id||'').trim();if(!id)throw new Error('project_id is required');await call('/api/pipeline/projects/'+encodeURIComponent(id),{method:'DELETE'});return{deleted:true,project_id:id}}if(op==='create_component'){if(!input.component_id||!input.stage||!input.name||!input.source)throw new Error('component_id, stage, name, and source are required');return call('/api/pipeline/components',{method:'POST',body:JSON.stringify({component_id:input.component_id,stage:input.stage,name:input.name,description:String(input.description||''),source:input.source,parameters:input.parameters||{},notes:String(input.notes||'')})})}if(op==='clone_component'){const source=String(input.source_component_id||'').trim(),target=String(input.target_component_id||'').trim();if(!source||!target)throw new Error('source_component_id and target_component_id are required');return call('/api/pipeline/components/'+encodeURIComponent(source)+'/clone',{method:'POST',body:JSON.stringify({target_id:target,...(input.name?{name:String(input.name)}:{})})})}if(op==='save_component_version'){const id=String(input.component_id||'').trim();if(!id||!input.source)throw new Error('component_id and source are required');return call('/api/pipeline/components/'+encodeURIComponent(id)+'/versions',{method:'POST',body:JSON.stringify({source:input.source,parameters:input.parameters||{},...(input.name?{name:String(input.name)}:{}),...(input.description!==undefined?{description:String(input.description)}:{}),notes:String(input.notes||'')})})}if(op==='delete_component'){const id=String(input.component_id||'').trim();if(!id)throw new Error('component_id is required');await call('/api/pipeline/components/'+encodeURIComponent(id),{method:'DELETE'});return{deleted:true,component_id:id}}throw new Error('unsupported operation')} ",
+  "timeoutMs": 60000,
+  "permissions": { "network": "alphalab-api" },
+  "sideEffects": "write"
+}

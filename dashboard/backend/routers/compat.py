@@ -4,10 +4,8 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from dashboard.backend.services.data_sync_service import get_health
-from dashboard.backend.services.framework_service import (
-    list_provider_status,
-    paper_account_summary,
-)
+from dashboard.backend.services.data_service import list_provider_status
+from dashboard.backend.services.result_service import paper_account_summary
 
 router = APIRouter(prefix="/api", tags=["status"])
 

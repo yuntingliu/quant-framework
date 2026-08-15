@@ -7,7 +7,7 @@ export interface LayoutPreset {
   apply: (api: DockviewApi) => void
 }
 
-export type WorkspaceMode = "data" | "factor" | "strategy" | "backtest" | "report"
+export type WorkspaceMode = "data" | "universe" | "selection" | "timing" | "portfolio" | "risk" | "execution" | "backtest" | "report"
 
 function clearAll(api: DockviewApi) {
   for (const panel of [...api.panels]) panel.api.close()
@@ -42,8 +42,12 @@ function createWorkbenchPreset(
 
 export const layoutPresets: Record<WorkspaceMode, LayoutPreset> = {
   data: createWorkbenchPreset("data", "数据", "数据获取、预览与质量校验", "data.workbench", "数据工作台"),
-  factor: createWorkbenchPreset("factor", "因子", "横截面因子、市场风险因子与择时信号", "factor.workbench", "因子工作台"),
-  strategy: createWorkbenchPreset("strategy", "策略", "策略编辑、校验与版本管理", "strategy.workbench", "策略工作台"),
+  universe: createWorkbenchPreset("universe", "标的池", "定义可交易的研究标的", "universe.workbench", "标的池工作台"),
+  selection: createWorkbenchPreset("selection", "选股", "横截面信号与选股规则", "selection.workbench", "选股工作台"),
+  timing: createWorkbenchPreset("timing", "择时", "时间序列市场仓位覆盖", "timing.workbench", "择时工作台"),
+  portfolio: createWorkbenchPreset("portfolio", "组合", "把选股和择时输出构造成组合", "portfolio.workbench", "组合工作台"),
+  risk: createWorkbenchPreset("risk", "风控", "仓位、集中度和回撤约束", "risk.workbench", "风控工作台"),
+  execution: createWorkbenchPreset("execution", "执行", "调仓频率、成本与成交假设", "execution.workbench", "执行工作台"),
   backtest: createWorkbenchPreset("backtest", "回测", "运行、历史、稳健性与对比", "backtest.workbench", "回测工作台"),
   report: createWorkbenchPreset("report", "报告", "Agent 文档、表格、图表与导出", "report.workbench", "报告工作台"),
 }
@@ -51,10 +55,10 @@ export const layoutPresets: Record<WorkspaceMode, LayoutPreset> = {
 export const DEFAULT_MODE: WorkspaceMode = "data"
 
 export function normalizeWorkspaceMode(value: unknown): WorkspaceMode {
-  if (value === "data" || value === "factor" || value === "strategy" || value === "backtest" || value === "report") {
+  if (value === "data" || value === "universe" || value === "selection" || value === "timing" || value === "portfolio" || value === "risk" || value === "execution" || value === "backtest" || value === "report") {
     return value
   }
   return DEFAULT_MODE
 }
 
-export const LAYOUT_VERSION = 70
+export const LAYOUT_VERSION = 80

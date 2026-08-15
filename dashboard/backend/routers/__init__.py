@@ -8,10 +8,8 @@ from dashboard.backend.routers import (
     factor_research,
     market,
     paper,
-    research,
+    pipeline,
     reports,
-    signals,
-    strategies,
     system,
 )
 
@@ -24,9 +22,7 @@ __all__ = [
     "factor_research",
     "market",
     "paper",
-    "research",
+    "pipeline",
     "reports",
-    "signals",
-    "strategies",
     "system",
 ]

@@ -1,288 +1,10 @@
 # AlphaLab Barebone Development Guide
 
-## Local Workflow
+Start with `docs/01_ARCHITECTURE.md` when deciding where code belongs. Keep the
+public facade small and use it from tests and scripts. Local data, generated
+artifacts, caches, scratch folders, and deployment credentials stay out of git.
 
-Run commands from the repository root:
-
-```powershell
-python -m pytest tests/contracts -q
-python scripts/check_facade_imports.py
-```
-
-Start the workstation:
-
-```powershell
-python -m uvicorn dashboard.backend.main:app --reload --port 8000
-npm --prefix dashboard/frontend run dev:web
-```
-
-## Runtime Data Workflow
-
-The repository ships a checked-in example bundle. Its immutable files and
-provenance are declared in `data/manifest.json`. RQ downloads, runtime
-partitions, task records, quality reports, and caches remain ignored below
-`data/runtime/`.
-
-Use the same service through CLI or FastAPI. Always preview first:
-
-```powershell
-alphalab data plan rq
-alphalab data sync rq --datasets instruments,bars,fundamentals,factors
-alphalab data validate
-```
-
-Sync code may write only through `RuntimeStore`; empty responses must never
-replace existing partitions. Provider-specific acquisition belongs in
-`rq_sync.py`, generic schemas and storage remain provider-neutral, and
-`available_date` must be enforced at historical query boundaries.
-
-Rebuild the maintained sample with:
-
-```powershell
-python scripts\build_example_data.py `
-  --source-root C:\Users\LYT\Documents\GitHub\quant-framework-factors
-```
-
-The builder reads the full workspace without modifying it, fixes the universe
-before the sample period, adjusts OHLC for corporate actions, uses first-release
-financial statements, seeds six backtests and signals, and writes only the
-canonical barebone files.
-
-Do not hard-code a vendor in the framework core. Create an adapter that
-implements the relevant provider protocol, then register it:
-
-```python
-from alphalab import DataEngine
-
-engine = DataEngine()
-engine.register_market("my_source", MyMarketProvider(), default=True)
-```
-
-The maintained RQ information adapter is optional:
-
-```python
-from alphalab import create_rq_engine_from_env
-
-engine = create_rq_engine_from_env()
-```
-
-Its credentials stay in the ignored local `.env`; tests must inject a fake RQ
-module and must never require a live vendor connection.
-
-For repeatable research, sync first and use the partitioned engine:
-
-```python
-from alphalab import create_runtime_engine
-
-engine = create_runtime_engine()
-```
-
-The typed registry in `alphalab.tools` is the canonical agent-facing data
-surface. The `/api/agent/data-tools` bridge describes and invokes that same
-registry; do not duplicate tool behavior in a separate agent adapter. Tools
-return bounded rows, counts, statuses, and references rather than large
-serialized DataFrames. Mutating tools require an explicit `confirm=true` at the
-bridge boundary. The published Conexus RQ-sync adapter supplies that trusted
-caller assertion internally under its autonomous synchronization policy; it is
-not a user-facing confirmation. The embedded LLM planner remains deliberately
-unconfigured; the optional Conexus Harness supplies external planning.
-
-Dashboard vendor pages should stay present as GUI slots, but they must remain
-mapped to disabled placeholders until a separate adapter/plugin package owns the
-real connection.
-
-## Adding Strategies
-
-Stock-selection templates live in `alphalab/strategies/`; market-timing templates
-live in `alphalab/timing_strategies/`. Built-in reusable behavior should remain
-registered framework code plus data-only YAML. A local strategy may instead own
-a Python hook. Every newly serialized strategy declares exactly one signal-type
-discriminator:
-
-- `strategy_type: stock_selection`
-- `strategy_type: market_timing`
-
-The workbench presents either type through the same four-stage research flow:
-signal design, portfolio construction, risk control, and trade execution. These
-stages are UI and analysis boundaries over one canonical config, not additional
-`strategy_type` values. For stock selection, top-N/coverage/rebalance belong to
-construction, concentration and investability gates belong to risk, and fill,
-participation and cost assumptions belong to execution. For market timing, the
-score-to-exposure mapping belongs to construction, exposure bounds belong to
-risk, and exposure-turnover costs belong to execution. Do not display a control
-as enforced unless the core engine reads and applies its config field.
-
-Existing selection YAML without `strategy_type` is the sole compatibility
-migration and is normalized to `stock_selection`. Do not add heuristic type
-detection or additional aliases.
-
-Every config also has one explicit implementation:
-
-- `implementation.kind: configured` uses registered factors or timing signals.
-- `implementation.kind: python` calls the configured public entrypoint, normally
-  `generate`, in a timeout-bounded child process.
-
-Omitted `implementation` is the narrow persisted-data migration to `configured`.
-Do not infer Python mode from a file or source field. The Python process is for
-trusted local code: `-I`, process separation, bounded captured logs, and a 0.1–30
-second timeout contain common failures, but do not form an OS security sandbox.
-
-Package templates are immutable through the API. Dashboard edits are stored as
-local YAML below `data/runtime/app/strategies` or
-`data/runtime/app/timing_strategies`, according to type. Python implementations
-store an adjacent same-stem `.py` sidecar. Both directories are ignored. Strategy
-ids are unique across all repositories and must match the YAML `name`. Saving,
-cloning, and deleting a Python strategy must handle YAML and source together.
-Validate every local definition before a backtest.
-
-`StrategyConfig.to_dict()` and `TimingStrategyConfig.to_dict()` are the canonical
-structured representations used by the Strategy Workbench; `to_yaml()` serializes
-those same payloads. Keep visual
-form changes and YAML synchronized through `POST /api/strategies/validate`
-instead of reproducing YAML serialization in the browser. The endpoint accepts
-either `{"config": ...}` or `{"yaml": "..."}` (never both), plus the optional
-`python_source`, and returns both normalized representations plus structured
-checks and the source hash. `PUT /api/strategies/{strategy_id}` accepts the same
-source beside YAML. Add new strategy fields to
-the dataclass, both representations, the frontend API type, and the workbench
-editor together. The workbench creates a new strategy as an in-memory blank
-stock-selection draft by validating `{"config": {"strategy_type":
-"stock_selection", "name": strategy_id}}`, a timing draft with
-`strategy_type: market_timing`; the first successful save uses the existing
-`PUT /api/strategies/{strategy_id}` path and must still
-pass the repository's executable-strategy gates.
-
-Python hooks have exact, type-specific contracts; do not add alternate names or
-compatibility fallbacks:
-
-```python
-# stock_selection
-def generate(context):
-    # context: strategy id/date, eligible candidates with PIT OHLCV histories
-    # and optional factor scores, current weights, limits, metadata
-    return {"weights": {"600519.SH": 0.10}}
-
-# market_timing
-def generate(context):
-    # context: strategy id/date, PIT monthly MKT returns, limits, metadata
-    return {"market_exposure": 0.50}
-
-```
-
-Selection output may contain only eligible symbols, non-negative finite weights,
-at most `selection.n_stocks`, no weight above `portfolio.max_weight`, and total
-weight at most one. Timing exposure must be finite and within the configured
-minimum/maximum. Empty Python selection output means cash; it must not silently
-reuse the prior portfolio. Preserve the one-period execution lag in both paths.
-
-`POST /api/strategies/selection-preview` is the canonical non-persisting stock
-selection check for both saved templates and unsaved workbench edits. It accepts
-the same exclusive `config` or `yaml` representation plus a data profile and
-optional as-of date. Keep its candidate ranks, factor contributions, cutoff,
-target weights, and exclusions sourced from `SignalEngine`; do not add a second
-frontend-only screener or reuse index-timing results as stock-selection output.
-
-`POST /api/strategies/timing-research` is the canonical non-persisting timing
-check. It accepts a `market_timing` config or YAML plus profile and date range.
-The current implementation times the monthly `MKT` return series with registered
-`trend`, `momentum`, and `volatility_control` signals. The combined 0–1 score maps
-to the configured exposure range; exposure is shifted one period before it earns
-returns, and turnover costs are applied when exposure changes. Keep this
-portfolio-level output separate from stock targets and paper-order generation.
-
-The Factor Workbench links directly to this market-timing editor for both
-parameterized signals and trusted-local Python timing. Custom market-risk factors
-are separate descriptive return-series expressions evaluated through
-`POST /api/market/custom-risk-factor/evaluate`. They may combine only
-MKT/SMB/HML/MOM/RMW/rf with addition, subtraction, scalar multiplication, and
-division by a non-zero scalar. Do not reuse cross-sectional `zscore`/`rank`
-semantics here, and do not label a derived series tradable without an explicit
-factor-mimicking portfolio implementation.
-
-Every persisted stock-selection backtest can produce a same-universe equal-weight
-benchmark; every timing backtest persists MKT as its benchmark. Both produce a
-robustness report. Selection signals use only information available at period end
-and execute on the next observed session; timing exposure is lagged by one month.
-The report checks data/weight integrity,
-calendar and rolling outcomes, turnover, concentration, 10/20/50 bps cost
-assumptions, a final 30% validation segment, bootstrap mean-excess intervals,
-Newey-West mean tests, moving-block bootstrap intervals, and a Bonferroni
-adjustment using `metadata.research_trials`. Its labels are
-research triage labels, not trading authorization.
-
-Keep Backtest Workbench run controls distinct from saved-result inspection: the
-selected strategy and dates describe the next run, while charts and metrics must
-be labeled from the selected persisted record. New runs persist benchmark and
-execution audit data. `/api/backtests/{id}/analysis` returns strategy, benchmark,
-excess, drawdown, snapshot, and audit-availability fields without recomputing
-missing history. Legacy benchmark reconstruction belongs to the explicit
-robustness path because it can be slow; absent execution audits must render as
-unknown, never as zero cost or zero constrained periods.
-
-Reported Sharpe uses the annualized arithmetic mean divided by sample standard
-deviation. Annual return remains the compounded CAGR; the two are intentionally
-not substituted for one another.
-
-Professional defaults and a safe custom factor can be declared entirely in
-YAML:
-
-```yaml
-universe:
-  pool: all
-  min_price: 3
-  min_history_days: 120
-  min_average_amount: 10000000
-factors:
-  - name: quality_momentum
-    source: expression
-    expression: zscore(roe) + zscore(momentum_60d) - 0.5 * zscore(volatility_20d)
-    weight: 1.0
-    winsorize: 0.01
-    neutralize: [market_cap]
-portfolio:
-  max_weight: 0.10
-  rebalance_freq: monthly
-execution:
-  execution_price: next_open
-  cost_bps: 10
-  slippage_bps: 5
-  impact_bps: 10
-  portfolio_value: 1000000
-  max_participation_rate: 0.10
-metadata:
-  research_trials: 1
-```
-
-Expressions accept only registered factor names, numeric operators and the
-whitelisted `abs`, `clip`, `log`, `rank`, `sqrt`, and `zscore` functions. They
-never execute Python. The Factor Workbench exposes these through a distinct
-Custom Factor view, and the Strategy Workbench configured-strategy builder can
-add the same expression factors directly. Their names and expressions persist
-inside the local strategy YAML rather than a second factor registry. Use the Factor Workbench or
-`POST /api/factor-research/evaluate` to inspect PIT coverage, Rank IC/ICIR,
-quantile returns, long-short returns, decay, top-bucket turnover and deterministic
-moving-block bootstrap intervals before adding a factor to a strategy.
-The workbench uses the shared Data Workbench profile over the full eligible
-universe; selecting one symbol for a K-line does not narrow a factor test.
-
-Missing daily amount blocks the affected trade because participation cannot be
-verified. Portfolio caps may deliberately leave cash. Each persisted backtest
-stores the execution audit, the exact Python source snapshot when applicable,
-and hashes of its YAML, Python source, exact input files and current Git
-commit/dirty state. Agent reports are saved through `/api/reports` with the
-same data/code provenance and also cached locally for offline startup.
-
-The deterministic research runner persists each step and supports cancel,
-retry, and restart interruption states. It may create a signal and paper
-rebalance preview, but only `/api/paper/rebalance/execute` with `confirm=true`
-can change the local paper account. The optional Harness mirrors this boundary:
-strategy writes, research-run mutations, paper rebalance execution, and manual
-paper orders each use a dedicated typed tool and explicit current-user
-confirmation. No Harness tool can reach a real broker.
-
-## Quality Gate
-
-Use the smallest useful gate first:
+## Local Gates
 
 ```powershell
 python -m pytest tests/contracts tests/dataio tests/strategy tests/dashboard -q
@@ -290,5 +12,129 @@ python scripts/check_facade_imports.py
 npm --prefix dashboard/frontend run build
 ```
 
-When a backtest produces unusually strong results, inspect alignment and
-lookahead risk before expanding the feature.
+Start the workstation with:
+
+```powershell
+python -m uvicorn dashboard.backend.main:app --reload --port 8000
+npm --prefix dashboard/frontend run dev:web
+```
+
+## Data Changes
+
+Provider-specific acquisition belongs in the adapter. Generic schema, atomic
+partition writes, catalog status, and point-in-time filtering belong in
+`alphalab/dataio`. Empty responses must never replace existing runtime data.
+Demo and runtime profiles must remain explicit.
+
+Use the same service through CLI or FastAPI and plan before syncing:
+
+```powershell
+alphalab data plan rq
+alphalab data sync rq --datasets instruments,bars,fundamentals,factors
+alphalab data validate
+```
+
+## Adding a Pipeline Component
+
+Every current strategy uses exactly these names and entrypoints:
+
+| Stage | Entrypoint | Required result |
+| --- | --- | --- |
+| `universe` | `build_universe(context)` | `{"symbols": [...]}` |
+| `selection` | `select_assets(context)` | `{"selected": [...], "scores": {...}}` |
+| `timing` | `compute_exposure(context)` | `{"exposure": number}` |
+| `portfolio` | `construct_portfolio(context)` | `{"weights": {...}}` |
+| `risk` | `apply_risk(context)` | `{"weights": {...}}` |
+| `execution` | `create_orders(context)` | `{"execution": {...}}` |
+
+Do not add alternate names, optional stages, configured/Python branches, or a
+second timing engine. Identity presets express pure-selection and pure-timing
+projects without changing the execution graph.
+
+Built-ins belong in `alphalab/pipeline/builtins.py` and must be deterministic,
+JSON-compatible, and free of hidden external state. Seeded built-ins are
+immutable. A user modification is a clone followed by a new immutable version.
+Never update an old component version in place.
+
+Projects pin all six versions. Changing a ref or project settings creates a new
+project revision and stores a newly composed source snapshot. Component default
+parameters are merged with project `stage_parameters`; all small configuration
+is JSON-compatible.
+
+## Python Runtime Rules
+
+Validate each component with its exact entrypoint, then validate the composed
+module with `run_strategy`. The child process supplies `-I`, a timeout, bounded
+logs, and crash containment. It is not a security sandbox. The core must validate
+all stage outputs again and must retain point-in-time, eligibility, exposure,
+liquidity, cash, cost, and next-period gates.
+
+Preview must execute the complete composed module and then expose the requested
+stage output. It must not call a separate mock implementation. Backtest must use
+the same source hash returned by project inspection and persist it with the six
+component versions.
+
+The candidate-history context is a performance-sensitive boundary. Convert
+frames to records with vectorized operations; never construct a pandas Series
+for every field of every row.
+
+## Persistence Rules
+
+Python source is the only strategy logic format. Store source, hashes, refs,
+parameters, and project settings in SQLite/JSON. Do not add YAML authoring,
+serialization, API fields, sidecars, or runtime fallbacks.
+
+`alphalab/pipeline/legacy_migration.py` is a narrow persisted-user-data import.
+It may read a pre-pipeline local file once, must record path and hash, and must
+emit current project objects. Do not broaden it into a dual runtime.
+
+Historical SQLite columns may remain for in-place compatibility. New writes
+must populate `strategy_source`, `component_manifest_json`, `settings_json`, and
+`pipeline_project_id`.
+
+## Frontend Rules
+
+The nine modes are:
+
+```text
+data, universe, selection, timing, portfolio, risk, execution, backtest, report
+```
+
+Each stage mode opens one `StageWorkbench` specialization and shares the selected
+project through `WorkspaceContext`. Each workbench must show:
+
+- project and pinned component version;
+- built-in and custom components;
+- full Python source and JSON parameters;
+- clone/save-version controls respecting immutability;
+- actual input and output from a complete-pipeline preview;
+- independent vertical/horizontal scrolling inside Dockview.
+
+Backtest selects a project, shows the complete composed source, and labels
+historical results from their saved snapshot. Do not resurrect a separate
+strategy overview, signal workbench, YAML editor, or monolithic strategy editor.
+
+## Agent Rules
+
+Conexus tools use current names only:
+
+- `alphalab_get_pipeline_project`
+- `alphalab_manage_pipeline`
+- `alphalab_preview_pipeline`
+- `alphalab_run_backtest`
+
+Do not keep old tool aliases. Update the Agent prompt, harness mode schema,
+frontend capabilities, docs, and contract tests together. Project/component
+mutation and Python execution require explicit current-user confirmation.
+
+## Review Checklist
+
+- Does the change fit one current stage or the core gate layer?
+- Are all six component versions pinned and inspectable?
+- Does preview/backtest execute the displayed composed source?
+- Are Python and JSON the only new persistence formats?
+- Are historical data boundaries and core risk gates still enforced?
+- Do API, frontend, Agent, docs, and tests use the same names?
+- Did frontend build and focused Python tests pass?
+
+Do not push unless the user explicitly asks.

@@ -14,9 +14,8 @@ import {
   type BacktestRunResult,
   type DataManifest,
   type ProviderStatus,
+  type PipelineProjectSummary,
   type RuntimeCatalog,
-  type ResearchRun,
-  type StrategyTemplate,
 } from "@/lib/api"
 import { useDataProfile, type DataProfile } from "@/lib/data-profile"
 import { formatNumber, formatPercent } from "@/lib/utils"
@@ -24,7 +23,7 @@ import { Widget } from "@/widgets/Widget"
 import { analyticsError } from "@/widgets/market/analytics-utils"
 import { BacktestCompareWidget } from "./BacktestCompare"
 
-type WorkbenchTab = "performance" | "robustness" | "execution" | "holdings"
+type WorkbenchTab = "pipeline" | "performance" | "robustness" | "execution" | "holdings"
 type WorkbenchView = "inspect" | "compare"
 
 function metric(value: number | null | undefined, kind: "pct" | "number"): string {
@@ -48,25 +47,25 @@ export function BacktestWorkbenchWidget() {
     title: "回测工作台",
     refresh: "刷新已保存的结果",
     mode: "回测工作台模式",
-    inspect: "运行与查看",
-    compare: "对比",
+    inspect: "完整策略回测",
+    compare: "策略对比",
     profile: "回测数据",
     demo: "演示数据",
     runtime: "本地 RQ",
-    strategy: "策略",
-    factorCount: "个因子",
+    strategy: "StrategySnapshot",
+    factorCount: "个横截面信号",
     signalCount: "个择时信号",
-    stockSelection: "选股策略",
-    marketTiming: "择时策略",
+    stockSelection: "纯选股",
+    marketTiming: "纯择时",
     startDate: "回测开始日期",
     endDate: "回测结束日期",
     running: "运行中",
     run: "运行",
-    quickRun: "快速回测",
+    quickRun: "运行完整策略回测",
     studying: "研究中",
-    study: "完整研究验证",
+    study: "回测 + 稳健性验证",
     runSettings: "运行设置",
-    runHint: "这里的设置只影响下一次运行，不会改变下方正在查看的历史结果。",
+    runHint: "这里选择版本固定的六阶段策略项目和数据区间；回测运行并保存工作台中看到的同一份总 Python 源码。",
     researchHint: "完整研究会运行回测、稳健性闸门和模拟调仓预览，但不会自动交易。",
     timingResearchHint: "完整研究会运行择时回测与稳健性闸门；择时只输出市场仓位，不生成个股模拟订单。",
     paperAwaiting: "模拟调仓等待用户确认",
@@ -75,7 +74,12 @@ export function BacktestWorkbenchWidget() {
     savedRun: "回测记录",
     noBacktests: "没有已保存的回测。",
     resultView: "回测结果视图",
-    performance: "收益",
+    pipeline: "策略快照",
+    pipelineSnapshot: "本次回测实际保存的策略管线",
+    pipelineHint: "按标的池、选股、择时、组合、风控、执行展示；六个组件版本、总 Python 源码、数据和代码指纹一起固化。",
+    customModule: "本次回测的自定义 Python 模块",
+    hardGate: "核心闸门",
+    performance: "收益与基准",
     robustness: "稳健性",
     holdings: "持仓",
     exposure: "仓位",
@@ -153,25 +157,25 @@ export function BacktestWorkbenchWidget() {
     title: "Backtest Workbench",
     refresh: "Refresh saved result",
     mode: "Backtest workbench mode",
-    inspect: "Run & Inspect",
-    compare: "Compare",
+    inspect: "Full Strategy Backtest",
+    compare: "Strategy Compare",
     profile: "Data profile",
     demo: "Demo",
     runtime: "Local RQ",
-    strategy: "Strategy",
-    factorCount: "factors",
+    strategy: "StrategySnapshot",
+    factorCount: "cross-sectional signals",
     signalCount: "timing signals",
-    stockSelection: "Stock selection",
-    marketTiming: "Market timing",
+    stockSelection: "Stock only",
+    marketTiming: "Timing only",
     startDate: "Backtest start date",
     endDate: "Backtest end date",
     running: "Running",
     run: "Run",
-    quickRun: "Quick backtest",
+    quickRun: "Run full strategy backtest",
     studying: "Studying",
-    study: "Full research validation",
+    study: "Backtest + robustness",
     runSettings: "Run setup",
-    runHint: "These settings affect the next run only; they do not describe the saved result below.",
+    runHint: "Choose a version-pinned six-stage project and data range. The run executes and persists the same complete Python source shown here.",
     researchHint: "Full research runs the backtest, robustness gates, and a paper rebalance preview, but never auto-trades.",
     timingResearchHint: "Full research runs timing backtests and robustness gates. Timing emits market exposure and never creates stock orders.",
     paperAwaiting: "paper rebalance awaits confirmation",
@@ -180,7 +184,12 @@ export function BacktestWorkbenchWidget() {
     savedRun: "Saved run",
     noBacktests: "has no persisted backtests.",
     resultView: "Backtest result view",
-    performance: "Performance",
+    pipeline: "Strategy Snapshot",
+    pipelineSnapshot: "Persisted pipeline used by this backtest",
+    pipelineHint: "Universe, selection, timing, portfolio, risk, and execution are shown in order with the frozen Python module, data, and code fingerprints.",
+    customModule: "Persisted custom Python module",
+    hardGate: "Core gate",
+    performance: "Returns & Benchmark",
     robustness: "Robustness",
     holdings: "Holdings",
     exposure: "Exposure",
@@ -261,9 +270,9 @@ export function BacktestWorkbenchWidget() {
   selectedStrategyRef.current = selectedStrategy
   selectedBacktestRef.current = selectedBacktest
   const [profile, setProfile] = useDataProfile()
-  const [strategies, setStrategies] = useState<StrategyTemplate[]>([])
+  const [strategies, setStrategies] = useState<PipelineProjectSummary[]>([])
   const [records, setRecords] = useState<BacktestRecord[]>([])
-  const [strategyId, setStrategyId] = useState(selectedStrategy ?? "balanced")
+  const [strategyId, setStrategyId] = useState(selectedStrategy ?? "six-stage-default")
   const [selectedId, setSelectedId] = useState(selectedBacktest ?? "")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
@@ -280,7 +289,7 @@ export function BacktestWorkbenchWidget() {
     setSetupError("")
     setSelectedId("")
     Promise.all([
-      api.get<StrategyTemplate[]>("/strategies"),
+      api.get<PipelineProjectSummary[]>("/pipeline/projects"),
       api.get<DataManifest>("/data/manifest"),
       api.get<ProviderStatus>("/data/providers"),
       api.get<RuntimeCatalog>("/data-sync/catalog"),
@@ -291,8 +300,8 @@ export function BacktestWorkbenchWidget() {
         const requestedStrategy = selectedStrategyRef.current
         const nextStrategy = requestedStrategy && templates.some((item) => item.id === requestedStrategy)
           ? requestedStrategy
-          : templates.some((item) => item.id === "balanced")
-            ? "balanced"
+          : templates.some((item) => item.id === "six-stage-default")
+            ? "six-stage-default"
             : templates[0]?.id ?? ""
         setStrategyId(nextStrategy)
         setSelectedStrategy(nextStrategy || null)
@@ -363,7 +372,7 @@ export function BacktestWorkbenchWidget() {
     setSetupError("")
     try {
       const result = await api.post<BacktestRunResult>("/backtests/run", {
-        strategy_id: strategyId,
+        project_id: strategyId,
         start_date: startDate,
         end_date: endDate,
         profile,
@@ -384,37 +393,21 @@ export function BacktestWorkbenchWidget() {
   async function runResearch() {
     setResearching(true)
     setSetupError("")
-    setResearchMessage("Research run queued")
+    setResearchMessage("Running frozen Python strategy")
     try {
-      let run = await api.post<ResearchRun>("/research/runs", {
-        strategy_id: strategyId,
+      const result = await api.post<BacktestRunResult>("/backtests/run", {
+        project_id: strategyId,
         start_date: startDate,
         end_date: endDate,
         profile,
-        account_id: "paper",
       })
-      while (run.status === "queued" || run.status === "running") {
-        const completed = run.steps.filter((step) => step.status === "succeeded").length
-        setResearchMessage(`${run.status} · ${completed}/${run.steps.length} steps`)
-        await new Promise((resolve) => window.setTimeout(resolve, 500))
-        run = await api.get<ResearchRun>(`/research/runs/${run.id}`)
-      }
-      if (run.status !== "succeeded" || !run.result) {
-        throw new Error(run.error || `Research run ${run.status}`)
-      }
       const saved = await api.get<BacktestRecord[]>("/backtests?limit=100")
       setRecords(saved.filter((item) => item.profile === profile))
-      setSelectedId(run.result.backtest_id)
+      setSelectedId(result.id)
       setSelectedStrategy(strategyId)
-      setSelectedBacktest(run.result.backtest_id)
+      setSelectedBacktest(result.id)
       setTab("robustness")
-      setResearchMessage(
-        `${researchStatusLabel(run.result.robustness_status, language)} · ${
-          selectedStrategyDefinition?.strategy_type === "market_timing"
-            ? copy.timingCompleted
-            : copy.paperAwaiting
-        }`,
-      )
+      setResearchMessage("回测已完成；正在基于保存的基准、持仓和成本记录计算稳健性")
     } catch (error) {
       setSetupError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -477,11 +470,8 @@ export function BacktestWorkbenchWidget() {
   const provenance = analysis.data?.provenance
   const selectedRecord = records.find((record) => record.id === selectedId)
   const selectedStrategyDefinition = strategies.find((strategy) => strategy.id === strategyId)
-  const isTimingSelection = selectedStrategyDefinition?.strategy_type === "market_timing"
-  const isTimingResult = analysis.data?.strategy_snapshot?.strategy_type === "market_timing"
-  const researchHint = isTimingSelection
-    ? copy.timingResearchHint
-    : copy.researchHint
+  const isTimingResult = false
+  const researchHint = copy.researchHint
   const invalidDateRange = Boolean(startDate && endDate && startDate > endDate)
   const failedChecks = robustness.data
     ? robustness.data.checks.filter((check) => !check.passed).length
@@ -520,13 +510,7 @@ export function BacktestWorkbenchWidget() {
           </div>
           {selectedStrategyDefinition && (
             <small>
-              {selectedStrategyDefinition.strategy_type === "market_timing" ? copy.marketTiming : copy.stockSelection}
-              {" · "}{selectedStrategyDefinition.name}{" · "}
-              {selectedStrategyDefinition.implementation === "python"
-                ? "Python"
-                : selectedStrategyDefinition.strategy_type === "market_timing"
-                ? `${selectedStrategyDefinition.signals?.length ?? 0} ${copy.signalCount}`
-                : `${selectedStrategyDefinition.factors.length} ${copy.factorCount}`}
+              六阶段 Python · {selectedStrategyDefinition.name} · revision {selectedStrategyDefinition.revision}
             </small>
           )}
         </div>
@@ -547,16 +531,9 @@ export function BacktestWorkbenchWidget() {
                 setSelectedStrategy(event.target.value)
               }}
             >
-              <optgroup label={copy.stockSelection}>
-                {strategies.filter((strategy) => strategy.strategy_type === "stock_selection").map((strategy) => (
-                  <option key={strategy.id} value={strategy.id}>{strategy.name}</option>
-                ))}
-              </optgroup>
-              <optgroup label={copy.marketTiming}>
-                {strategies.filter((strategy) => strategy.strategy_type === "market_timing").map((strategy) => (
-                  <option key={strategy.id} value={strategy.id}>{strategy.name}</option>
-                ))}
-              </optgroup>
+              {strategies.map((strategy) => (
+                <option key={strategy.id} value={strategy.id}>{strategy.name} · r{strategy.revision}</option>
+              ))}
             </select>
           </label>
           <label>
@@ -675,6 +652,14 @@ export function BacktestWorkbenchWidget() {
             <button
               type="button"
               role="tab"
+              aria-selected={tab === "pipeline"}
+              onClick={() => setTab("pipeline")}
+            >
+              {copy.pipeline}
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={tab === "performance"}
               onClick={() => setTab("performance")}
             >
@@ -705,7 +690,42 @@ export function BacktestWorkbenchWidget() {
               {isTimingResult ? copy.exposure : copy.holdings}
             </button>
           </div>
-          {tab === "performance" ? (
+          {tab === "pipeline" ? (
+            <div className="workbench-body backtest-pipeline-view">
+              <div className="backtest-section-heading">
+                <div><strong>{copy.pipelineSnapshot}</strong><span>{copy.pipelineHint}</span></div>
+              </div>
+              {analysis.data.strategy_snapshot?.pipeline_manifest ? (
+                <>
+                  <div className="backtest-pipeline-grid">
+                    {analysis.data.strategy_snapshot.pipeline_manifest.stages.map((pipelineStage) => (
+                      <section className="backtest-pipeline-stage" key={pipelineStage.name}>
+                        <div>
+                          <span>{pipelineStage.order}</span>
+                          <strong>{pipelineStage.name.toUpperCase()}</strong>
+                          <small>{pipelineStage.kind === "python" ? "Python" : "Configured"}</small>
+                        </div>
+                        <p>{pipelineStage.contract.input}</p>
+                        <code>{pipelineStage.contract.output}</code>
+                        <p><ShieldCheck size={12} /> {copy.hardGate}: {pipelineStage.contract.hard_gate}</p>
+                        <pre>{pipelineStage.source}</pre>
+                      </section>
+                    ))}
+                  </div>
+                  <section className="backtest-pipeline-source">
+                    <strong>run_pipeline</strong>
+                    <pre>{analysis.data.strategy_snapshot.pipeline_manifest.composed_source}</pre>
+                  </section>
+                  {analysis.data.provenance.strategy_python?.source && (
+                    <section className="backtest-pipeline-source">
+                      <strong>{copy.customModule}</strong>
+                      <pre>{analysis.data.provenance.strategy_python.source}</pre>
+                    </section>
+                  )}
+                </>
+              ) : <div className="analytics-empty">—</div>}
+            </div>
+          ) : tab === "performance" ? (
             <div className="workbench-body">
               <div className="analytics-kpi-grid workbench-kpis">
                 <div className="analytics-kpi"><span>{copy.totalReturn}</span><strong>{metric(analysis.data.metrics.total_return, "pct")}</strong></div>

@@ -8,10 +8,13 @@ from alphalab.strategy.config import (
     StrategyConfig,
     UniverseSpec,
 )
-from alphalab.strategy.repository import StrategyDefinition, StrategyRepository
-from alphalab.strategy.implementation import (
-    STRATEGY_IMPLEMENTATION_KINDS,
-    StrategyImplementationSpec,
+from alphalab.strategy.pipeline import (
+    DEFAULT_STAGE_ENTRYPOINTS,
+    PIPELINE_IMPLEMENTATION_KINDS,
+    PIPELINE_STAGE_NAMES,
+    PipelineStageSpec,
+    StrategyPipelineSpec,
+    pipeline_manifest,
 )
 from alphalab.strategy.python_runtime import (
     PythonStrategyError,
@@ -25,10 +28,6 @@ from alphalab.strategy.timing import (
     TimingSignalSpec,
     TimingStrategyConfig,
 )
-from alphalab.strategy.timing_repository import (
-    TimingStrategyDefinition,
-    TimingStrategyRepository,
-)
 
 __all__ = [
     "ExecutionSpec",
@@ -36,10 +35,12 @@ __all__ = [
     "PortfolioSpec",
     "SelectionSpec",
     "StrategyConfig",
-    "StrategyDefinition",
-    "StrategyRepository",
-    "STRATEGY_IMPLEMENTATION_KINDS",
-    "StrategyImplementationSpec",
+    "DEFAULT_STAGE_ENTRYPOINTS",
+    "PIPELINE_IMPLEMENTATION_KINDS",
+    "PIPELINE_STAGE_NAMES",
+    "PipelineStageSpec",
+    "StrategyPipelineSpec",
+    "pipeline_manifest",
     "PythonStrategyError",
     "execute_python_strategy",
     "validate_python_source",
@@ -48,7 +49,5 @@ __all__ = [
     "TimingPositionSpec",
     "TimingSignalSpec",
     "TimingStrategyConfig",
-    "TimingStrategyDefinition",
-    "TimingStrategyRepository",
     "UniverseSpec",
 ]

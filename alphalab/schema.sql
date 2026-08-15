@@ -29,6 +29,67 @@ CREATE TABLE IF NOT EXISTS backtests (
     execution_json TEXT
 );
 
+-- Python is the canonical strategy representation.  The legacy ``strategies``
+-- and ``config_yaml`` columns above are retained only so existing databases can
+-- be upgraded in place; new pipeline writes use the tables and snapshot fields
+-- below.
+CREATE TABLE IF NOT EXISTS pipeline_components (
+    id TEXT PRIMARY KEY,
+    stage TEXT NOT NULL CHECK(stage IN (
+        'universe', 'selection', 'timing', 'portfolio', 'risk', 'execution'
+    )),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    built_in INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_components_stage
+    ON pipeline_components(stage, built_in DESC, name);
+
+CREATE TABLE IF NOT EXISTS pipeline_component_versions (
+    component_id TEXT NOT NULL REFERENCES pipeline_components(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    entrypoint TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    parameters_json TEXT NOT NULL DEFAULT '{}',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (component_id, version)
+) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS pipeline_projects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    revision INTEGER NOT NULL DEFAULT 1,
+    component_refs_json TEXT NOT NULL,
+    settings_json TEXT NOT NULL DEFAULT '{}',
+    built_in INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_project_versions (
+    project_id TEXT NOT NULL REFERENCES pipeline_projects(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL,
+    component_refs_json TEXT NOT NULL,
+    settings_json TEXT NOT NULL,
+    composed_source TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (project_id, revision)
+) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS legacy_strategy_migrations (
+    source_path TEXT PRIMARY KEY,
+    source_sha256 TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    migrated_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_backtests_strategy ON backtests(strategy_id);
 CREATE INDEX IF NOT EXISTS idx_backtests_run_at ON backtests(run_at DESC);
 

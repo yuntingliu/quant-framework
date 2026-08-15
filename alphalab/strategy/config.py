@@ -1,14 +1,11 @@
-"""YAML strategy configuration for the barebone research loop."""
+"""Internal structured settings used by the guarded backtest core."""
 from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 from typing import Any
 
-import yaml
-
-from alphalab.strategy.implementation import StrategyImplementationSpec
+from alphalab.strategy.pipeline import StrategyPipelineSpec
 
 FACTOR_SOURCES = ("technical", "fundamental", "expression")
 
@@ -160,21 +157,9 @@ class StrategyConfig:
     selection: SelectionSpec = field(default_factory=SelectionSpec)
     portfolio: PortfolioSpec = field(default_factory=PortfolioSpec)
     execution: ExecutionSpec = field(default_factory=ExecutionSpec)
-    implementation: StrategyImplementationSpec = field(
-        default_factory=StrategyImplementationSpec
-    )
+    pipeline: StrategyPipelineSpec = field(default_factory=StrategyPipelineSpec)
     metadata: dict[str, Any] = field(default_factory=dict)
     _source_path: str | None = field(default=None, repr=False, compare=False)
-
-    @classmethod
-    def from_yaml(cls, path: str | Path) -> "StrategyConfig":
-        path = Path(path)
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        return cls._from_dict(raw, source_path=str(path))
-
-    @classmethod
-    def from_yaml_string(cls, text: str) -> "StrategyConfig":
-        return cls._from_dict(yaml.safe_load(text) or {})
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "StrategyConfig":
@@ -197,15 +182,16 @@ class StrategyConfig:
             selection=SelectionSpec(**raw.get("selection", {})),
             portfolio=PortfolioSpec(**raw.get("portfolio", {})),
             execution=ExecutionSpec(**raw.get("execution", {})),
-            implementation=StrategyImplementationSpec(
-                **raw.get("implementation", {})
+            pipeline=StrategyPipelineSpec.from_dict(
+                raw.get("pipeline"),
+                legacy_implementation=raw.get("implementation"),
             ),
             metadata=dict(raw.get("metadata", {})),
             _source_path=source_path,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Return the canonical JSON/YAML-compatible strategy representation."""
+        """Return the internal JSON-compatible settings representation."""
         payload = {
             "strategy_type": "stock_selection",
             "name": self.name,
@@ -215,15 +201,11 @@ class StrategyConfig:
             "selection": asdict(self.selection),
             "portfolio": asdict(self.portfolio),
             "execution": asdict(self.execution),
-            "implementation": asdict(self.implementation),
+            "pipeline": self.pipeline.to_dict(),
         }
         if self.metadata:
             payload["metadata"] = self.metadata
         return payload
-
-    def to_yaml(self) -> str:
-        payload = self.to_dict()
-        return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
 
     @property
     def factor_names(self) -> list[str]:
@@ -235,9 +217,13 @@ class StrategyConfig:
 
     def validate(self) -> list[str]:
         warnings: list[str] = []
-        if self.implementation.kind == "configured" and not self.factors:
+        needs_registered_signal = (
+            self.pipeline.signal.kind == "configured"
+            and self.pipeline.portfolio.kind != "python"
+        )
+        if needs_registered_signal and not self.factors:
             warnings.append("No factors defined")
-        if self.implementation.kind == "configured" and self.total_weight <= 0:
+        if needs_registered_signal and self.total_weight <= 0:
             warnings.append("Factor weights must sum to a positive value")
         if self.selection.n_stocks * self.portfolio.max_weight < 1:
             warnings.append("n_stocks * max_weight is below 100%; portfolio will hold cash")

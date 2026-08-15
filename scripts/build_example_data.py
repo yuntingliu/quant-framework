@@ -14,9 +14,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from alphalab import ResultStore, SignalEngine, StrategyConfig, create_default_engine, run_backtest
+from alphalab import (
+    PipelineRepository,
+    ResultStore,
+    create_default_engine,
+    preview_pipeline_project,
+    run_pipeline_project_backtest,
+)
 from alphalab.analytics import PerformanceMetrics
-from alphalab.strategies import list_strategy_files
 
 DEFAULT_SOURCE = Path(r"C:\Users\LYT\Documents\GitHub\quant-framework-factors")
 DEFAULT_TARGET = Path(__file__).resolve().parents[1]
@@ -385,36 +390,67 @@ def _seed_database(target_root: Path, cutoff: pd.Timestamp, sample_start: pd.Tim
     for suffix in ("", "-shm", "-wal"):
         (Path(str(db_path) + suffix)).unlink(missing_ok=True)
 
-    store = ResultStore(db_path)
     engine = create_default_engine(target_root / "data")
     summaries: dict[str, dict] = {}
     latest_targets: dict[str, float] = {}
     latest_signal_id = ""
+    repository = PipelineRepository(db_path)
     try:
-        for strategy_path in list_strategy_files():
-            cfg = StrategyConfig.from_yaml(strategy_path)
-            relative_path = strategy_path.relative_to(target_root).as_posix()
-            store.register_strategy(cfg.name, relative_path, cfg.description)
-            returns, weights = run_backtest(
-                cfg,
-                sample_start.strftime("%Y-%m-%d"),
-                cutoff.strftime("%Y-%m-%d"),
-                data_engine=engine,
+        project = repository.get_project("six-stage-default")
+        if project is None:
+            raise RuntimeError("default six-stage project was not seeded")
+        run = run_pipeline_project_backtest(
+            repository,
+            project["id"],
+            sample_start.strftime("%Y-%m-%d"),
+            cutoff.strftime("%Y-%m-%d"),
+            engine,
+        )
+        preview = preview_pipeline_project(
+            repository,
+            project["id"],
+            engine,
+            cutoff.strftime("%Y-%m-%d"),
+        )
+        metrics = PerformanceMetrics.summarize(run.result.returns)
+        store = ResultStore(db_path)
+        try:
+            store.ensure_backtest_subject(
+                project["id"],
+                f"sqlite:pipeline_projects/{project['id']}",
+                project["description"],
             )
-            metrics = PerformanceMetrics.summarize(returns)
             store.save_backtest(
-                cfg.to_yaml(), returns, metrics, strategy_id=cfg.name, weights=weights,
-                start_date=sample_start.strftime("%Y-%m-%d"), end_date=cutoff.strftime("%Y-%m-%d"),
-                tags=["bundled-example", "real-data"], notes="Bundled real-data demonstration run.",
+                run.result.returns,
+                metrics,
+                strategy_id=project["id"],
+                weights=run.result.weights,
+                start_date=sample_start.strftime("%Y-%m-%d"),
+                end_date=cutoff.strftime("%Y-%m-%d"),
+                tags=["bundled-example", "real-data", "strategy:python-pipeline"],
+                notes="Bundled six-stage Python demonstration run.",
+                executions=run.result.executions,
+                pipeline_project_id=project["id"],
+                strategy_source=run.composed.source,
+                component_manifest=list(run.composed.manifest),
+                settings=project["settings"],
             )
-            targets = SignalEngine(engine).generate_targets(cfg, cutoff.strftime("%Y-%m-%d"))
-            signal_id = store.save_signal(cfg.name, cutoff.strftime("%Y-%m-%d"), targets, status="paper")
-            summaries[cfg.name] = {"metrics": metrics, "target_count": len(targets)}
-            if cfg.name == "balanced":
-                latest_targets = targets
-                latest_signal_id = signal_id
+            latest_targets = preview["targets"]
+            latest_signal_id = store.save_signal(
+                project["id"],
+                cutoff.strftime("%Y-%m-%d"),
+                latest_targets,
+                status="paper",
+            )
+        finally:
+            store.close()
+        summaries[project["id"]] = {
+            "metrics": metrics,
+            "target_count": len(latest_targets),
+            "source_sha256": project["source_sha256"],
+        }
     finally:
-        store.close()
+        repository.close()
 
     if latest_targets:
         prices = (

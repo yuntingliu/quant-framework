@@ -54,6 +54,14 @@ class ResultStore:
             self._conn.execute("ALTER TABLE backtests ADD COLUMN provenance_json TEXT")
         if "execution_json" not in backtest_columns:
             self._conn.execute("ALTER TABLE backtests ADD COLUMN execution_json TEXT")
+        for name, sql_type in (
+            ("pipeline_project_id", "TEXT"),
+            ("strategy_source", "TEXT"),
+            ("component_manifest_json", "TEXT"),
+            ("settings_json", "TEXT"),
+        ):
+            if name not in backtest_columns:
+                self._conn.execute(f"ALTER TABLE backtests ADD COLUMN {name} {sql_type}")
         order_columns = {
             row["name"]
             for row in self._conn.execute("PRAGMA table_info(orders)").fetchall()
@@ -223,7 +231,14 @@ class ResultStore:
             fn()
             self._conn.commit()
 
-    def register_strategy(self, strategy_id: str, yaml_path: str, description: str = "") -> None:
+    def ensure_backtest_subject(
+        self,
+        subject_id: str,
+        storage_ref: str,
+        description: str = "",
+    ) -> None:
+        """Maintain the legacy foreign-key row required by upgraded databases."""
+
         def work() -> None:
             self._conn.execute(
                 """INSERT INTO strategies (id, yaml_path, description)
@@ -232,17 +247,13 @@ class ResultStore:
                      yaml_path = excluded.yaml_path,
                      description = excluded.description,
                      updated_at = datetime('now')""",
-                (strategy_id, yaml_path, description),
+                (subject_id, storage_ref, description),
             )
 
         self._write(work)
 
-    def list_strategies(self) -> pd.DataFrame:
-        return pd.read_sql("SELECT * FROM strategies ORDER BY id", self._conn)
-
     def save_backtest(
         self,
-        config_yaml: str,
         returns: pd.Series,
         metrics: dict,
         *,
@@ -256,6 +267,10 @@ class ResultStore:
         provenance: dict | None = None,
         executions: list[dict] | tuple[dict, ...] | None = None,
         persist_zero_weights: bool = False,
+        pipeline_project_id: str | None = None,
+        strategy_source: str | None = None,
+        component_manifest: dict | list | None = None,
+        settings: dict | None = None,
     ) -> str:
         backtest_id = _uuid()
         if start_date is None and not returns.empty:
@@ -268,12 +283,14 @@ class ResultStore:
                 """INSERT INTO backtests
                    (id, strategy_id, config_yaml, code_version, start_date, end_date,
                     total_return, annual_return, annual_vol, sharpe, max_drawdown,
-                    n_periods, tags, notes, provenance_json, execution_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    n_periods, tags, notes, provenance_json, execution_json,
+                    pipeline_project_id, strategy_source, component_manifest_json,
+                    settings_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     backtest_id,
                     strategy_id,
-                    config_yaml,
+                    "",
                     _git_hash(),
                     start_date,
                     end_date,
@@ -287,6 +304,10 @@ class ResultStore:
                     notes,
                     json.dumps(provenance, sort_keys=True) if provenance else None,
                     json.dumps(list(executions), sort_keys=True) if executions else None,
+                    pipeline_project_id,
+                    strategy_source,
+                    json.dumps(component_manifest, sort_keys=True) if component_manifest else None,
+                    json.dumps(settings, sort_keys=True) if settings else None,
                 ),
             )
             rows = []

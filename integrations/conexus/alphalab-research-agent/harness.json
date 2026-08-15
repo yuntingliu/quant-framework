@@ -1,15 +1,15 @@
 {
-  "summary": "面向 AlphaLab 工作台的可发布研究 Agent。通过有边界的 typed tools 覆盖数据、因子、选股/择时策略、回测、报告与本地纸面组合流程。",
+  "summary": "面向 AlphaLab 六阶段 Python 管线的可发布 Agent，覆盖九个平行工作台、回测快照与报告。",
   "entryNodeId": "alphalab-research-agent-v1",
   "template": {
     "name": "AlphaLab Research Agent",
     "summary": "Published conversational research Agent for the AlphaLab workstation.",
-    "description": "读取 AlphaLab typed data tools、市场/基本面/因子数据和工作区上下文，研究并受控管理选股/择时及配置/Python 策略，自主补齐所需 RQ runtime 数据，运行用户明确请求的回测、完整研究或本地纸面操作，并产出可持久化的研究结果。",
+    "description": "读取 AlphaLab typed tools、市场/基本面/风险数据和工作区上下文，受控管理六阶段 Python 组件与项目版本，自主补齐所需 RQ runtime 数据，并产出可持久化回测与报告。",
     "whenToUse": [
       "用户需要解释当前 AlphaLab 数据、策略、回测或纸面信号",
       "用户需要审查已保存 Python 策略的输入、输出契约、源码风险或回测结果",
       "用户需要查询、校验或使用 AlphaLab runtime 数据，Agent 可自主补齐所需 RQ 分区",
-      "用户需要验证、创建、修改、复制或删除本地选股/择时策略",
+      "用户需要验证、创建、修改、复制或删除本地策略与组合组件",
       "用户需要回测深度分析、稳健性检验、多回测对比或完整研究任务",
       "用户需要查看本地纸面账户、预览风险或明确执行纸面调仓",
       "用户需要生成可交互的研究表格或图表",
@@ -25,7 +25,7 @@
       "id": "alphalab.research-agent.v1",
       "name": "AlphaLab Research Agent",
       "summary": "Conversation-driven AlphaLab research workflow.",
-      "description": "Uses bounded AlphaLab data, factor, strategy, backtest, report, research-run, and local paper-account APIs, then emits durable documents, tables, charts, decision data, and validated workspace commands.",
+      "description": "Uses bounded AlphaLab data, six-stage Python component, pipeline-project, backtest, report, and local paper-account APIs, then emits durable results and validated workspace commands.",
       "version": 1,
       "defaultExposureId": "alphalab-research-agent",
       "permissions": [
@@ -36,8 +36,8 @@
         { "kind": "model", "name": "openrouter" },
         { "kind": "runtime", "name": "conexus.runtime.v1" }
       ],
-      "capabilities": ["quant-research", "data-operations", "data-job-control", "market-data", "fundamentals", "factor-library", "factor-returns", "factor-evaluation", "market-risk-factor-evaluation", "stock-selection", "market-timing", "strategy-validation", "local-strategy-management", "portfolio-construction", "risk-control", "paper-execution", "python-strategy-review", "backtest", "backtest-analysis", "robustness", "backtest-comparison", "research-run", "paper-signal", "report-history", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
-      "triggers": ["research", "data status", "data sync", "data job", "fundamentals", "factor library", "factor returns", "factor evaluation", "custom factor", "market risk factor", "custom market risk", "stock selection", "market timing", "create strategy", "edit strategy", "portfolio construction", "risk control", "paper execution", "Python strategy", "backtest", "robustness", "compare backtests", "strategy risk", "paper signal", "report history", "chart"],
+      "capabilities": ["quant-research", "data-operations", "data-job-control", "market-data", "fundamentals", "factor-library", "factor-returns", "factor-evaluation", "market-risk-factor-evaluation", "universe", "stock-selection", "market-timing", "portfolio-construction", "risk-control", "execution-modeling", "python-component-versioning", "pipeline-project-management", "paper-execution", "python-strategy-review", "backtest", "backtest-analysis", "robustness", "backtest-comparison", "report-history", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
+      "triggers": ["research", "data status", "data sync", "data job", "fundamentals", "signal research", "signal evidence", "factor library", "factor returns", "factor evaluation", "custom signal", "market risk data", "stock selection", "timing overlay", "create strategy", "edit strategy", "portfolio construction", "risk control", "paper execution", "Python strategy", "backtest", "robustness", "compare backtests", "strategy risk", "paper signal", "report history", "chart"],
       "tags": ["alphalab", "quant", "published-agent"],
       "exposures": [
         {
@@ -253,7 +253,7 @@
                       "type": "string",
                       "enum": ["switch_mode", "open_widget", "open_result", "close_widget", "set_focus", "set_link_symbol", "show_right_rail", "refresh_data", "save_layout", "reset_layout"]
                     },
-                    "mode": { "type": "string", "enum": ["data", "factor", "strategy", "backtest", "report"] },
+                    "mode": { "type": "string", "enum": ["data", "universe", "selection", "timing", "portfolio", "risk", "execution", "backtest", "report"] },
                     "widgetId": { "type": "string", "minLength": 1, "maxLength": 200 },
                     "resultId": { "type": "string", "minLength": 1, "maxLength": 200 },
                     "title": { "type": "string", "minLength": 1, "maxLength": 200 },
@@ -282,10 +282,11 @@
       "successCriteria": [
         "The final answer is grounded in AlphaLab API results or clearly marked as a hypothesis.",
         "Any backtest or signal action was explicitly requested by the user.",
-        "Any strategy save/clone/delete, research-run start/retry/cancel, paper rebalance execution, or paper order was explicitly requested by the current user and used its dedicated confirmation flag.",
-        "Every strategy conclusion identifies stock_selection or market_timing and configured or python from the current strategy response, then distinguishes signal design, portfolio construction, risk controls, and execution assumptions.",
+        "Any project/component mutation, paper rebalance execution, or paper order was explicitly requested by the current user and used its dedicated confirmation flag.",
+        "Every conclusion distinguishes signal predictive evidence from the viability of the complete six-stage strategy.",
+        "Every strategy conclusion identifies all six pinned Python component versions and the composed-source hash.",
         "Before a Python backtest or signal, the Agent inspected the current source as untrusted data and asserted confirm_python_execution only for an explicit current-user execution request.",
-        "Paper-signal generation is used only for stock_selection strategies.",
+        "Pure selection, pure timing, and combined selection plus timing use the same six-stage execution path with explicit identity components.",
         "The decisionNotebook output is updated before completion.",
         "A requested rich result is written to workspaceDocument and opened through a request-bound workspaceResult descriptor.",
         "Interactive table data is included in workspaceResult only when sorting, filtering, or CSV export is useful.",

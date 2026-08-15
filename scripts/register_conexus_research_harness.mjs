@@ -17,20 +17,18 @@ const documentId = "alphalab-research-document-v1"
 
 const toolNodes = [
   ["alphalab-tool-workspace-context-v1", "AlphaLab Workspace Context", "Get-Workspace-Context.tool.json"],
-  ["alphalab-tool-strategy-v1", "AlphaLab Strategy", "Get-Strategy.tool.json"],
+  ["alphalab-tool-pipeline-project-v1", "AlphaLab Pipeline Project", "Get-Pipeline-Project.tool.json"],
+  ["alphalab-tool-manage-pipeline-v1", "Manage AlphaLab Pipeline", "Manage-Pipeline.tool.json"],
+  ["alphalab-tool-preview-pipeline-v1", "Preview AlphaLab Pipeline", "Preview-Pipeline.tool.json"],
   ["alphalab-tool-market-bars-v1", "AlphaLab Market Bars", "Get-Market-Bars.tool.json"],
   ["alphalab-tool-fundamentals-v1", "AlphaLab Fundamentals", "Get-Fundamentals.tool.json"],
   ["alphalab-tool-factor-returns-v1", "AlphaLab Factor Returns", "Get-Factor-Returns.tool.json"],
   ["alphalab-tool-factor-library-v1", "AlphaLab Factor Library", "Get-Factor-Library.tool.json"],
   ["alphalab-tool-evaluate-factor-v1", "Evaluate AlphaLab Factor", "Evaluate-Factor.tool.json"],
   ["alphalab-tool-evaluate-market-risk-factor-v1", "Evaluate AlphaLab Market Risk Factor", "Evaluate-Market-Risk-Factor.tool.json"],
-  ["alphalab-tool-research-strategy-v1", "Research AlphaLab Strategy", "Research-Strategy.tool.json"],
-  ["alphalab-tool-manage-strategy-v1", "Manage AlphaLab Strategy", "Manage-Strategy.tool.json"],
   ["alphalab-tool-backtest-v1", "AlphaLab Backtest", "Get-Backtest.tool.json"],
   ["alphalab-tool-analyze-backtest-v1", "Analyze AlphaLab Backtest", "Analyze-Backtest.tool.json"],
   ["alphalab-tool-run-backtest-v1", "Run AlphaLab Backtest", "Run-Backtest.tool.json"],
-  ["alphalab-tool-manage-research-run-v1", "Manage AlphaLab Research Run", "Manage-Research-Run.tool.json"],
-  ["alphalab-tool-generate-signal-v1", "Generate AlphaLab Paper Signal", "Generate-Signal.tool.json"],
   ["alphalab-tool-reports-v1", "AlphaLab Research Reports", "Get-Reports.tool.json"],
   ["alphalab-tool-paper-state-v1", "AlphaLab Paper State", "Get-Paper-State.tool.json"],
   ["alphalab-tool-preview-paper-rebalance-v1", "Preview AlphaLab Paper Rebalance", "Preview-Paper-Rebalance.tool.json"],
@@ -76,7 +74,14 @@ const ownedNodeIds = new Set([
   documentId,
   ...toolNodes.map(([id]) => id),
 ])
-const obsoleteNodeIds = new Set(["alphalab-research-context-v1"])
+const obsoleteNodeIds = new Set([
+  "alphalab-research-context-v1",
+  "alphalab-tool-strategy-v1",
+  "alphalab-tool-research-strategy-v1",
+  "alphalab-tool-manage-strategy-v1",
+  "alphalab-tool-manage-research-run-v1",
+  "alphalab-tool-generate-signal-v1",
+])
 const ownedEdgePrefix = "edge-alphalab-research-v1-"
 const canvas = JSON.parse(await readFile(canvasPath, "utf8"))
 

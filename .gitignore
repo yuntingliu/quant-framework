@@ -52,6 +52,7 @@ scratch/
 codex_tmp/
 tmp_pytest/
 .pytest_tmp*/
+.pytest-*/
 tmp_runtime_probe/
 pytest-cache-files-*/
 

@@ -38,9 +38,9 @@ export function CustomMarketRiskFactor({ profile }: CustomMarketRiskFactorProps)
   const [running, setRunning] = useState(false)
   const copy = language === "zh"
     ? {
-        title: "自定义市场风险因子",
+        title: "自定义市场风险序列",
         hint: "用系统风险因子收益构造新的描述性收益序列。这里只允许线性组合，不把它当作选股因子或择时信号。",
-        name: "风险因子名称",
+        name: "风险序列名称",
         expression: "收益表达式",
         expressionHint: "可用输入：MKT、SMB、HML、MOM、RMW、rf；可用运算：+、-、乘以常数、除以非零常数。",
         run: "运行分析",
@@ -51,13 +51,13 @@ export function CustomMarketRiskFactor({ profile }: CustomMarketRiskFactorProps)
         sharpe: "Sharpe",
         maxDrawdown: "最大回撤",
         positiveRatio: "正收益占比",
-        cumulative: "自定义风险因子累计收益",
+        cumulative: "自定义风险序列累计收益",
         boundary: "这是研究用的派生收益序列；除非另行定义可交易的多空组合，否则不能直接下单。",
       }
     : {
-        title: "Custom market risk factor",
+        title: "Custom market risk series",
         hint: "Build a descriptive return series from registered risk-factor returns. Only linear combinations are allowed; this is neither a stock-ranking factor nor a timing signal.",
-        name: "Risk factor name",
+        name: "Risk series name",
         expression: "Return expression",
         expressionHint: "Inputs: MKT, SMB, HML, MOM, RMW, rf. Operators: +, -, scalar multiplication, and division by a non-zero scalar.",
         run: "Run analysis",
@@ -68,7 +68,7 @@ export function CustomMarketRiskFactor({ profile }: CustomMarketRiskFactorProps)
         sharpe: "Sharpe",
         maxDrawdown: "Max drawdown",
         positiveRatio: "Positive ratio",
-        cumulative: "Custom risk factor cumulative return",
+        cumulative: "Custom risk series cumulative return",
         boundary: "This is a derived research return series. It cannot place orders unless a separately defined tradable long-short portfolio implements it.",
       }
 

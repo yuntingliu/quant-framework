@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from dashboard.backend.services.framework_service import factor_returns
+from dashboard.backend.services.data_service import factor_returns
 
 DEFAULT_FACTORS = ("MKT", "SMB", "HML")
 AVAILABLE_RISK_FACTORS = ("MKT", "SMB", "HML", "MOM", "RMW", "rf")

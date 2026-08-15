@@ -5,14 +5,19 @@ import importlib
 import sys
 
 EXPECTED = [
+    "ComponentRef",
     "DataEngine",
+    "PipelineProject",
+    "PipelineRepository",
+    "STAGE_ENTRYPOINTS",
+    "STAGE_NAMES",
     "create_default_engine",
+    "create_runtime_engine",
     "create_rq_engine_from_env",
     "RQDataConfig",
     "RQDataProvider",
-    "StrategyConfig",
-    "SignalEngine",
-    "run_backtest",
+    "preview_pipeline_project",
+    "run_pipeline_project_backtest",
     "ResultStore",
     "list_factors",
     "compute_factor",

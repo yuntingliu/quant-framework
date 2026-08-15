@@ -10,17 +10,17 @@ from dashboard.backend.services.backtest_analytics_service import (
     analyze_robustness,
     compare_backtests,
 )
-from dashboard.backend.services.framework_service import (
+from dashboard.backend.services.result_service import (
     get_backtest,
     list_backtests,
-    run_strategy_backtest,
 )
+from dashboard.backend.services.pipeline_service import run_project_backtest
 
 router = APIRouter(prefix="/api/backtests", tags=["backtests"])
 
 
 class BacktestRequest(BaseModel):
-    strategy_id: str
+    project_id: str
     start_date: str
     end_date: str
     profile: str = "demo"
@@ -85,8 +85,8 @@ def backtest_robustness(backtest_id: str) -> dict:
 @router.post("/run")
 def run_backtest_job(request: BacktestRequest) -> dict:
     try:
-        return run_strategy_backtest(
-            request.strategy_id,
+        return run_project_backtest(
+            request.project_id,
             request.start_date,
             request.end_date,
             request.profile,

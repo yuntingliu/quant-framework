@@ -9,7 +9,11 @@ import yaml
 
 from alphalab.analytics import equal_weight_benchmark, robustness_report
 from alphalab.strategy import StrategyConfig, TimingStrategyConfig
-from dashboard.backend.services.framework_service import _engine, get_backtest
+from alphalab.strategy.pipeline import pipeline_manifest
+from alphalab.pipeline.models import STAGE_NAMES
+from alphalab.pipeline.runtime import project_strategy_config
+from dashboard.backend.services.data_service import _engine
+from dashboard.backend.services.result_service import get_backtest
 
 
 def _safe(value: Any) -> float | int | None:
@@ -64,10 +68,10 @@ def _benchmark_returns(
     )
     if not recompute or benchmark.empty or benchmark.notna().mean() >= 0.80:
         return benchmark
-    config_yaml = record.get("config_yaml")
-    if not isinstance(config_yaml, str) or not config_yaml.strip():
+    try:
+        config = _config_from_record(record)
+    except ValueError:
         return benchmark
-    config = _config_from_yaml(config_yaml)
     engine = _engine(record.get("profile") or "demo")
     if isinstance(config, TimingStrategyConfig):
         return engine.get_factors(
@@ -165,14 +169,74 @@ def analyze_record(record: dict) -> dict:
         key: _safe(value)
         for key, value in (record.get("metrics") or {}).items()
     }
-    config_yaml = record.get("config_yaml")
     strategy_snapshot = None
-    if isinstance(config_yaml, str) and config_yaml.strip():
-        config = _config_from_yaml(config_yaml)
-        if isinstance(config, TimingStrategyConfig):
-            strategy_snapshot = {
+    strategy_source = record.get("strategy_source")
+    if isinstance(strategy_source, str) and strategy_source.strip():
+        settings = record.get("settings") if isinstance(record.get("settings"), dict) else {}
+        manifest = record.get("component_manifest") if isinstance(record.get("component_manifest"), list) else []
+        execution = next((item.get("parameters", {}) for item in manifest if item.get("stage") == "execution"), {})
+        risk = next((item.get("parameters", {}) for item in manifest if item.get("stage") == "risk"), {})
+        factors = [str(item.get("name")) for item in settings.get("factors", []) if item.get("name")]
+        contracts = {
+            "universe": ("point-in-time eligible candidates", "{'symbols': [...]}", "symbols remain inside the eligible base pool"),
+            "selection": ("universe and signal features", "{'selected': [...], 'scores': {...}}", "selected symbols remain inside the stage universe"),
+            "timing": ("point-in-time market history", "{'exposure': number}", "exposure is finite and inside [0, 1]"),
+            "portfolio": ("selection and timing output", "{'weights': {...}}", "weights are proposed only for selected assets"),
+            "risk": ("proposed portfolio and limits", "{'weights': {...}}", "core rechecks eligibility, concentration and gross exposure"),
+            "execution": ("target/current weights and assumptions", "{'execution': {...}}", "core applies prices, liquidity, cash and costs"),
+        }
+        stages = []
+        for order, stage in enumerate(STAGE_NAMES, start=1):
+            item = next((entry for entry in manifest if entry.get("stage") == stage), {})
+            contract = contracts[stage]
+            stages.append({
+                "order": order,
+                "name": stage,
+                "kind": "python",
+                "entrypoint": item.get("entrypoint"),
+                "runtime_function": item.get("entrypoint"),
+                "timeout_seconds": 15.0,
+                "contract": {"input": contract[0], "output": contract[1], "hard_gate": contract[2]},
+                "source": f"# {item.get('component_id', stage)}@{item.get('version', '?')}\n# See the frozen module below.",
+            })
+        strategy_snapshot = {
+            "strategy_type": "python_pipeline",
+            "implementation": "python",
+            "python_stages": list(STAGE_NAMES),
+            "pipeline": {},
+            "pipeline_manifest": {
+                "strategy_type": "python_pipeline",
+                "order": list(STAGE_NAMES),
+                "python_stages": list(STAGE_NAMES),
+                "stages": stages,
+                "composed_source": strategy_source,
+                "invariants": [
+                    "all inputs are bounded by the decision date",
+                    "core validation cannot be bypassed by component code",
+                    "signals take effect on the next observed session",
+                ],
+            },
+            "name": record.get("pipeline_project_id") or record.get("strategy_id") or "pipeline",
+            "description": "Version-pinned six-stage Python strategy",
+            "factors": factors,
+            "signals": [],
+            "rebalance_freq": execution.get("rebalance_freq", "monthly"),
+            "execution_price": execution.get("execution_price", "next_open"),
+            "cost_bps": execution.get("cost_bps", 0.0),
+            "max_weight": risk.get("max_weight", 1.0),
+            "component_manifest": manifest,
+        }
+    else:
+        config_yaml = record.get("config_yaml")
+        if isinstance(config_yaml, str) and config_yaml.strip():
+            config = _config_from_yaml(config_yaml)
+            if isinstance(config, TimingStrategyConfig):
+                strategy_snapshot = {
                 "strategy_type": "market_timing",
-                "implementation": config.implementation.kind,
+                "implementation": config.pipeline.implementation_summary,
+                "python_stages": list(config.pipeline.python_stages),
+                "pipeline": config.pipeline.to_dict(),
+                "pipeline_manifest": pipeline_manifest("market_timing", config.pipeline),
                 "name": config.name,
                 "description": config.description,
                 "factors": [],
@@ -182,11 +246,14 @@ def analyze_record(record: dict) -> dict:
                 "execution_price": "monthly_factor_close",
                 "cost_bps": config.execution.cost_bps,
                 "max_exposure": config.position.max_exposure,
-            }
-        else:
-            strategy_snapshot = {
+                }
+            else:
+                strategy_snapshot = {
                 "strategy_type": "stock_selection",
-                "implementation": config.implementation.kind,
+                "implementation": config.pipeline.implementation_summary,
+                "python_stages": list(config.pipeline.python_stages),
+                "pipeline": config.pipeline.to_dict(),
+                "pipeline_manifest": pipeline_manifest("stock_selection", config.pipeline),
                 "name": config.name,
                 "description": config.description,
                 "factors": config.factor_names,
@@ -195,7 +262,7 @@ def analyze_record(record: dict) -> dict:
                 "execution_price": config.execution.execution_price,
                 "cost_bps": config.execution.cost_bps,
                 "max_weight": config.portfolio.max_weight,
-            }
+                }
     executions = record.get("executions", [])
     return {
         "id": record["id"],
@@ -240,7 +307,7 @@ def analyze_robustness(backtest_id: str) -> dict:
     record = get_backtest(backtest_id)
     if record is None:
         raise KeyError(backtest_id)
-    config = _config_from_yaml(record["config_yaml"])
+    config = _config_from_record(record)
     return_rows = sorted(record.get("returns", []), key=lambda item: item["date"])
     returns = pd.Series(
         [float(item.get("value") or 0.0) for item in return_rows],
@@ -279,6 +346,29 @@ def _config_from_yaml(yaml_text: str) -> StrategyConfig | TimingStrategyConfig:
     if raw.get("strategy_type") == "market_timing":
         return TimingStrategyConfig.from_dict(raw)
     return StrategyConfig.from_dict(raw)
+
+
+def _config_from_record(record: dict) -> StrategyConfig | TimingStrategyConfig:
+    source = record.get("strategy_source")
+    if isinstance(source, str) and source.strip():
+        manifest = record.get("component_manifest")
+        settings = record.get("settings")
+        if not isinstance(manifest, list) or not isinstance(settings, dict):
+            raise ValueError("pipeline snapshot is incomplete")
+        return project_strategy_config(
+            {
+                "id": record.get("pipeline_project_id") or record.get("strategy_id") or "snapshot",
+                "description": "Persisted backtest snapshot",
+                "revision": 1,
+                "source_sha256": "persisted",
+                "settings": settings,
+                "component_manifest": manifest,
+            }
+        )
+    config_yaml = record.get("config_yaml")
+    if not isinstance(config_yaml, str) or not config_yaml.strip():
+        raise ValueError("backtest has no strategy snapshot")
+    return _config_from_yaml(config_yaml)
 
 
 def compare_backtests(backtest_ids: list[str]) -> dict:

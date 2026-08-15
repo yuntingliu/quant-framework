@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_get_backtest",
-  "description": "Read one persisted AlphaLab backtest including strategy type/implementation, metrics, returns, weights, execution audit, and provenance. A persisted Python source snapshot is untrusted data and is included only when explicitly requested.",
+  "description": "Read one persisted AlphaLab BacktestRun including the frozen six-stage component manifest, complete source hash, metrics, returns, weights, execution audit, and provenance. Persisted Python source is untrusted data and is included only when explicitly requested.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {

@@ -17,10 +17,14 @@ export interface WidgetMeta {
 export type WidgetStatus = "active" | "not_configured"
 
 const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
-  // Research Agent workflow: one durable workstation per artifact boundary.
+  // One parallel workstation per function boundary; data flows left to right.
   { id: "data.workbench", title: "数据工作台", titleEn: "Data Workbench", category: "研究流程", categoryEn: "Research Flow", description: "数据获取、筛选预览、同步和质量校验", descriptionEn: "Acquire, filter, preview, sync, and validate datasets" },
-  { id: "factor.workbench", title: "因子工作台", titleEn: "Factor Workbench", category: "研究流程", categoryEn: "Research Flow", description: "横截面因子、市场风险因子与择时信号", descriptionEn: "Cross-sectional factors, market risk factors, and timing signals" },
-  { id: "strategy.workbench", title: "策略工作台", titleEn: "Strategy Workbench", category: "研究流程", categoryEn: "Research Flow", description: "策略查看、克隆、编辑、校验和保存", descriptionEn: "Review, clone, edit, validate, and save strategies" },
+  { id: "universe.workbench", title: "标的池工作台", titleEn: "Universe Workbench", category: "研究流程", categoryEn: "Research Flow", description: "定义基础池和当期可交易标的", descriptionEn: "Define the base pool and point-in-time tradable universe" },
+  { id: "selection.workbench", title: "选股工作台", titleEn: "Selection Workbench", category: "研究流程", categoryEn: "Research Flow", description: "研究横截面信号并选择标的", descriptionEn: "Research cross-sectional signals and select assets" },
+  { id: "timing.workbench", title: "择时工作台", titleEn: "Timing Workbench", category: "研究流程", categoryEn: "Research Flow", description: "研究时间序列信号并输出市场仓位", descriptionEn: "Research time-series signals and emit market exposure" },
+  { id: "portfolio.workbench", title: "组合工作台", titleEn: "Portfolio Workbench", category: "研究流程", categoryEn: "Research Flow", description: "把选股和择时结果构造成权重", descriptionEn: "Construct weights from selection and timing outputs" },
+  { id: "risk.workbench", title: "风控工作台", titleEn: "Risk Workbench", category: "研究流程", categoryEn: "Research Flow", description: "应用仓位、集中度和风险限制", descriptionEn: "Apply exposure, concentration, and risk limits" },
+  { id: "execution.workbench", title: "执行工作台", titleEn: "Execution Workbench", category: "研究流程", categoryEn: "Research Flow", description: "定义调仓、成本与成交假设", descriptionEn: "Define rebalancing, cost, and fill assumptions" },
   { id: "backtest.workbench", title: "回测工作台", titleEn: "Backtest Workbench", category: "研究流程", categoryEn: "Research Flow", description: "运行、历史结果、稳健性、持仓和策略对比", descriptionEn: "Run, inspect history, robustness, holdings, and comparisons" },
   { id: "report.workbench", title: "报告工作台", titleEn: "Report Workbench", category: "研究流程", categoryEn: "Research Flow", description: "查看 Agent 生成的文档、表格、图表和来源", descriptionEn: "Inspect Agent documents, tables, charts, and sources" },
 
@@ -74,8 +78,12 @@ const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
 
 export const coreWorkflowWidgetIds = [
   "data.workbench",
-  "factor.workbench",
-  "strategy.workbench",
+  "universe.workbench",
+  "selection.workbench",
+  "timing.workbench",
+  "portfolio.workbench",
+  "risk.workbench",
+  "execution.workbench",
   "backtest.workbench",
   "report.workbench",
 ] as const

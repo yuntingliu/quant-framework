@@ -18,17 +18,15 @@ from dashboard.backend.routers import (
     factor_research,
     market,
     paper,
-    research,
+    pipeline,
     reports,
-    signals,
-    strategies,
     system,
 )
 
 app = FastAPI(
     title="AlphaLab Barebone API",
     description="Provider-first quant framework workstation API",
-    version="0.4.0",
+    version="0.5.0",
 )
 app.state.loaded_env_files = tuple(str(path) for path in LOADED_ENV_FILES)
 
@@ -50,11 +48,9 @@ app.include_router(agent_tools.router)
 app.include_router(data_sync.router)
 app.include_router(factor_research.router)
 app.include_router(market.router)
-app.include_router(strategies.router)
+app.include_router(pipeline.router)
 app.include_router(backtests.router)
-app.include_router(signals.router)
 app.include_router(paper.router)
-app.include_router(research.router)
 app.include_router(reports.router)
 app.include_router(system.router)
 app.include_router(compat.router)

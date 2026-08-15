@@ -8,7 +8,7 @@ const MODE_KEY = "alphalab-active-mode"
 // Startup always lands on the Data workbench. Users can switch workstations
 // during the session or request another one explicitly through the URL.
 const DEFAULT_MODE_VERSION_KEY = "alphalab-default-mode-version"
-const DEFAULT_MODE_VERSION = "6"
+const DEFAULT_MODE_VERSION = "7"
 
 /** Symbol link channels. Panels assigned to the same group follow
  * the same symbol; `null` group falls back to the global selectedSymbol. */

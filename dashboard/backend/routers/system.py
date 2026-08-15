@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from dashboard.backend.services.framework_service import store_stats
+from dashboard.backend.services.data_service import store_stats
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 

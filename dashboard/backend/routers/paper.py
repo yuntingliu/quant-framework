@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from alphalab.dataio import MissingDataError
 from dashboard.backend.models import PaperOrderRequest, PaperRebalanceRequest
-from dashboard.backend.services.framework_service import (
+from dashboard.backend.services.result_service import (
     create_paper_order,
     execute_paper_rebalance,
     list_paper_fills,

@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_get_factor_library",
-  "description": "List the registered stock-ranking factors, safe expression functions, and supported neutralizers exposed by the AlphaLab Factor Workbench.",
+  "description": "List registered factor inputs, safe expression functions, and neutralizers available to the selection-stage Python context and factor-evidence API.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {

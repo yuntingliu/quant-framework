@@ -15,7 +15,7 @@ from alphalab.utils.paths import DATA_DIR, RUNTIME_DIR
 
 def build_research_provenance(
     profile: str,
-    strategy_yaml: str | None = None,
+    strategy_source: str | None = None,
     *,
     strategy_python: str | None = None,
     data_root: str | Path | None = None,
@@ -24,8 +24,8 @@ def build_research_provenance(
     if profile not in {"demo", "runtime"}:
         raise ValueError("profile must be demo or runtime")
     strategy_hash = (
-        hashlib.sha256(strategy_yaml.encode("utf-8")).hexdigest()
-        if strategy_yaml
+        hashlib.sha256(strategy_source.encode("utf-8")).hexdigest()
+        if strategy_source
         else None
     )
     strategy_python_hash = (
@@ -37,7 +37,7 @@ def build_research_provenance(
         "version": 1,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "profile": profile,
-        "strategy_sha256": strategy_hash,
+        "strategy_source_sha256": strategy_hash,
         "strategy_python_sha256": strategy_python_hash,
         "strategy_python": (
             {

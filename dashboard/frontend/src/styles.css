@@ -907,6 +907,261 @@ button {
   min-width: 680px;
 }
 
+/* Six-stage workbench layout; visual controls reuse the shared workstation styles. */
+.python-stage-workbench {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pipeline-stage-tabs {
+  flex: 0 0 auto;
+  overflow-x: auto;
+}
+
+.pipeline-stage-tabs button {
+  min-width: 5.75rem;
+  flex: 1 0 auto;
+  white-space: nowrap;
+}
+
+.pipeline-stage-setup {
+  flex: 0 0 auto;
+}
+
+.backtest-run-controls.pipeline-stage-controls {
+  grid-template-columns: minmax(12rem, 1fr) auto auto;
+}
+
+.pipeline-stage-controls .status-pill {
+  height: 1.875rem;
+  box-sizing: border-box;
+  align-self: end;
+  justify-content: center;
+}
+
+.pipeline-workbench-layout {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.pipeline-workbench-sidebar {
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid hsl(var(--border));
+}
+
+.pipeline-project-info {
+  display: grid;
+  gap: 0.2rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid hsl(var(--border));
+  padding-bottom: 0.7rem;
+}
+
+.pipeline-project-info strong {
+  font-size: 0.75rem;
+}
+
+.pipeline-project-info span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.625rem;
+  line-height: 1.45;
+}
+
+.pipeline-component-group + .pipeline-component-group {
+  margin-top: 0.75rem;
+}
+
+.pipeline-component-group h4 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 0.4rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.625rem;
+  font-weight: 600;
+}
+
+.pipeline-component-group h4 span {
+  font-variant-numeric: tabular-nums;
+}
+
+.pipeline-component-list button {
+  display: block;
+  width: 100%;
+}
+
+.pipeline-component-list strong,
+.pipeline-component-list small {
+  display: block;
+}
+
+.pipeline-component-list strong {
+  overflow: hidden;
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pipeline-component-list span,
+.pipeline-component-list small {
+  overflow: hidden;
+  color: hsl(var(--muted-foreground));
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.5625rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pipeline-component-list button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.backtest-run-controls.pipeline-inline-form {
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 0.75rem;
+  border-top: 1px solid hsl(var(--border));
+  padding-top: 0.75rem;
+}
+
+.pipeline-inline-form .secondary-command {
+  width: 100%;
+}
+
+.pipeline-workbench-main {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.backtest-run-controls.pipeline-component-bar {
+  flex: 0 0 auto;
+  grid-template-columns: minmax(0, 1fr) 5.5rem auto;
+  border-bottom: 1px solid hsl(var(--border));
+  padding: 0.5rem;
+}
+
+.pipeline-component-bar > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.pipeline-component-bar > div > span,
+.pipeline-component-bar > div > small {
+  overflow: hidden;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.625rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pipeline-component-bar > div > strong {
+  overflow: hidden;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pipeline-editor-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.pipeline-editor-body > section {
+  min-height: 100%;
+}
+
+.pipeline-code-editor {
+  min-height: 23rem;
+  border-radius: 0.375rem;
+  tab-size: 4;
+}
+
+.pipeline-code-editor:focus {
+  border-color: hsl(var(--primary) / 0.55);
+  outline: 2px solid hsl(var(--primary) / 0.1);
+  outline-offset: 0;
+}
+
+.pipeline-code-editor:read-only {
+  color: hsl(var(--muted-foreground));
+}
+
+.pipeline-settings-save {
+  margin-top: 0.5rem;
+}
+
+.pipeline-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.pipeline-preview-grid article {
+  min-width: 0;
+}
+
+.pipeline-preview-grid .code-view {
+  max-height: 28rem;
+  min-height: 18rem;
+  word-break: break-word;
+}
+
+.pipeline-preview-meta {
+  margin-top: 0.5rem;
+  justify-content: flex-start;
+  border-bottom: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+}
+
+@media (max-width: 900px) {
+  .pipeline-workbench-layout {
+    grid-template-columns: minmax(12rem, 14rem) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 680px) {
+  .python-stage-workbench {
+    overflow: auto;
+  }
+
+  .backtest-run-controls.pipeline-stage-controls,
+  .backtest-run-controls.pipeline-component-bar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pipeline-workbench-layout {
+    display: block;
+    overflow: visible;
+  }
+
+  .pipeline-workbench-sidebar {
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid hsl(var(--border));
+  }
+
+  .pipeline-workbench-main {
+    min-height: 38rem;
+    overflow: visible;
+  }
+
+  .pipeline-preview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .runtime-table button.table-row {
   width: 100%;
   cursor: pointer;
@@ -1076,7 +1331,79 @@ button {
   margin: 0 0 10px;
 }
 
+.backtest-pipeline-view {
+  gap: 1rem;
+}
+
+.backtest-pipeline-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.backtest-pipeline-stage,
+.backtest-pipeline-source {
+  min-width: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.55rem;
+  background: hsl(var(--card));
+  padding: 0.8rem;
+}
+
+.backtest-pipeline-stage > div {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.backtest-pipeline-stage > div > span {
+  display: grid;
+  width: 1.4rem;
+  height: 1.4rem;
+  place-items: center;
+  border-radius: 50%;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-size: 0.72rem;
+}
+
+.backtest-pipeline-stage > div > small {
+  margin-left: auto;
+  color: hsl(var(--muted-foreground));
+}
+
+.backtest-pipeline-stage p {
+  display: flex;
+  gap: 0.3rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.backtest-pipeline-stage code {
+  display: block;
+  overflow-wrap: anywhere;
+  color: hsl(var(--foreground));
+  font-size: 0.72rem;
+}
+
+.backtest-pipeline-stage pre,
+.backtest-pipeline-source pre {
+  max-height: 22rem;
+  margin: 0.65rem 0 0;
+  overflow: auto;
+  border-radius: 0.4rem;
+  background: hsl(var(--muted) / 0.55);
+  padding: 0.7rem;
+  color: hsl(var(--foreground));
+  font: 0.72rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 1100px) {
+  .backtest-pipeline-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .app-shell {
     grid-template-columns: 58px 220px minmax(0, 1fr);
   }
@@ -1093,6 +1420,9 @@ button {
 }
 
 @media (max-width: 760px) {
+  .backtest-pipeline-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .alphalab-status-bar {
     display: none;
   }
@@ -2800,7 +3130,7 @@ button {
   }
 }
 
-/* Strategy workbench: visual strategy assembly with a synchronized YAML view. */
+/* Retained layout primitives for optional inactive strategy-extension widgets. */
 .strategy-domain-shell {
   display: flex;
   height: 100%;
@@ -2814,12 +3144,64 @@ button {
   display: grid;
   min-width: 0;
   flex: 0 0 auto;
-  grid-template-columns: auto minmax(24rem, 1fr) minmax(10rem, auto);
+  grid-template-columns: minmax(12rem, 0.85fr) minmax(22rem, 1.5fr) minmax(14rem, 0.9fr);
   gap: 0.55rem;
   align-items: center;
   border-bottom: 1px solid hsl(var(--border));
   background: hsl(var(--card));
   padding: 0.45rem 0.6rem;
+}
+
+.strategy-workflow-title,
+.strategy-stage-context {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.strategy-workflow-title strong {
+  color: hsl(var(--foreground));
+  font-size: 0.72rem;
+}
+
+.strategy-workflow-title span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.58rem;
+  line-height: 1.35;
+}
+
+.strategy-composition-status {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  overflow-x: auto;
+  font-size: 0.58rem;
+  white-space: nowrap;
+}
+
+.strategy-composition-status > span {
+  color: hsl(var(--muted-foreground));
+}
+
+.strategy-composition-status > strong,
+.strategy-composition-status > em {
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  padding: 0.2rem 0.45rem;
+  font-style: normal;
+}
+
+.strategy-composition-status > strong {
+  border-color: hsl(var(--primary) / 0.35);
+  background: hsl(var(--primary) / 0.08);
+  color: hsl(var(--primary));
+}
+
+.strategy-composition-status > em {
+  color: hsl(var(--muted-foreground));
 }
 
 .strategy-signal-switch,
@@ -2854,6 +3236,7 @@ button {
 }
 
 .strategy-stage-tabs {
+  grid-column: 1 / span 2;
   min-width: 0;
   justify-content: center;
 }
@@ -2884,13 +3267,6 @@ button {
 .strategy-stage-tabs button.active small {
   background: hsl(var(--primary));
   color: hsl(var(--primary-foreground));
-}
-
-.strategy-stage-context {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 0.1rem;
 }
 
 .strategy-stage-context strong {
@@ -3896,9 +4272,14 @@ button {
   }
 
   .strategy-signal-switch,
+  .strategy-composition-status,
   .strategy-stage-tabs {
     overflow-x: auto;
     justify-content: flex-start;
+  }
+
+  .strategy-stage-tabs {
+    grid-column: auto;
   }
 
   .strategy-stage-tabs button {

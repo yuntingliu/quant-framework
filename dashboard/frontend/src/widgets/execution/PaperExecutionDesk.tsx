@@ -6,7 +6,7 @@ import {
   type PaperAccountPayload,
   type PaperOrder,
   type PaperRebalancePreview,
-  type StrategyTemplate,
+  type PipelineProjectSummary,
 } from "../../lib/api"
 import { useDataProfile, type DataProfile } from "../../lib/data-profile"
 import { SymbolCombobox } from "../../components/shared/SymbolCombobox"
@@ -19,8 +19,8 @@ function money(value: number | "" | undefined): string {
 
 export function PaperExecutionDeskWidget() {
   const [profile, setProfile] = useDataProfile()
-  const [strategies, setStrategies] = useState<StrategyTemplate[]>([])
-  const [strategyId, setStrategyId] = useState("balanced")
+  const [strategies, setStrategies] = useState<PipelineProjectSummary[]>([])
+  const [strategyId, setStrategyId] = useState("six-stage-default")
   const [symbols, setSymbols] = useState<string[]>([])
   const [orders, setOrders] = useState<PaperOrder[]>([])
   const [account, setAccount] = useState<PaperAccountPayload | null>(null)
@@ -35,7 +35,7 @@ export function PaperExecutionDeskWidget() {
   const refresh = useCallback(async () => {
     setError("")
     const [templates, symbolPayload, orderRows, accountPayload] = await Promise.all([
-      api.get<StrategyTemplate[]>("/strategies"),
+      api.get<PipelineProjectSummary[]>("/pipeline/projects"),
       api.get<{ symbols: string[] }>(`/data/market/symbols?profile=${profile}`),
       api.get<PaperOrder[]>("/paper/orders"),
       api.get<PaperAccountPayload>(`/paper/account?profile=${profile}`),

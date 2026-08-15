@@ -59,13 +59,32 @@ def test_seed_database_is_complete():
         counts = {
             table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             for table in (
-                "strategies", "backtests", "backtest_returns", "backtest_weights",
-                "signals", "signal_targets", "orders",
+                "pipeline_components",
+                "pipeline_component_versions",
+                "pipeline_projects",
+                "pipeline_project_versions",
+                "backtests",
+                "backtest_returns",
+                "backtest_weights",
+                "orders",
             )
         }
-    assert counts["strategies"] == 6
-    assert counts["backtests"] == 6
-    assert counts["backtest_returns"] == 360
-    assert counts["signals"] == 6
-    assert counts["signal_targets"] == 60
+        stages = {
+            row[0]
+            for row in connection.execute(
+                "SELECT DISTINCT stage FROM pipeline_components"
+            )
+        }
+        default_project = connection.execute(
+            "SELECT built_in, revision FROM pipeline_projects WHERE id = 'six-stage-default'"
+        ).fetchone()
+    assert counts["pipeline_components"] >= 9
+    assert counts["pipeline_component_versions"] >= counts["pipeline_components"]
+    assert counts["pipeline_projects"] >= 1
+    assert counts["pipeline_project_versions"] >= counts["pipeline_projects"]
+    assert stages == {"universe", "selection", "timing", "portfolio", "risk", "execution"}
+    assert default_project == (1, 1)
+    assert counts["backtests"] >= 6
+    assert counts["backtest_returns"] >= 360
+    assert counts["backtest_weights"] > 0
     assert counts["orders"] > 0

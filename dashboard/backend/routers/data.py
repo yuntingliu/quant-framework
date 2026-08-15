@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 
 from alphalab.dataio import MissingDataError
-from dashboard.backend.services.framework_service import (
+from dashboard.backend.services.data_service import (
     factor_returns,
     fundamentals,
     list_provider_status,

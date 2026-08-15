@@ -1,60 +1,27 @@
 # AlphaLab Research Agent Bundle
 
-This directory contains the portable Conexus Harness definition contributed by
-Zhang Dongfang and adapted to the barebone framework contracts.
+This bundle publishes a conversational Agent for AlphaLab's current six-stage
+Python strategy pipeline.
 
-The bundle is optional. AlphaLab Demo, RQ DataIO, deterministic research,
-backtests, signals, and paper execution do not require Conexus. Registration
-and publication write only to ignored local `.conexus/` state and the generated
-`workspace/harnesses/` staging directory.
+It can inspect data and risk factors, evaluate cross-sectional signal evidence,
+manage immutable Python component versions and revisioned projects, preview the
+complete composed strategy, run and analyze frozen backtests, read reports, and
+control the nine current workbench modes.
 
-The 27 tools use the stable AlphaLab FastAPI surface:
+Current pipeline tools:
 
-- workspace context
-- strategy detail with explicit stock-selection or market-timing signal type,
-  configured/Python implementation, source hash, opt-in Python source, and
-  separate portfolio, risk, and execution parameters
-- historical bars
-- point-in-time fundamentals
-- factor returns
-- factor-library discovery
-- registered/custom cross-sectional factor evaluation and safe custom market-risk return-series evaluation
-- unsaved strategy validation, stock-selection preview, and timing research
-- explicitly confirmed local strategy save, clone, and delete
-- backtest detail
-- backtest analysis, robustness, and comparison
-- deterministic research-run start, status, retry, and cancel
-- data catalog and status
-- data-sync planning and autonomous RQ execution when runtime data is needed
-- asynchronous data-sync job status and explicit cancellation
-- data validation and bounded runtime queries
-- explicitly requested backtest execution
-- explicitly requested paper-signal generation
-- persisted report history
-- local paper account state, rebalance preview, explicitly confirmed rebalance,
-  and explicitly confirmed manual paper orders
+- `alphalab_get_pipeline_project`
+- `alphalab_manage_pipeline`
+- `alphalab_preview_pipeline`
+- `alphalab_run_backtest`
 
-The published Agent invocation has one exact input shape:
-`{ "request": "<non-empty string>" }`. AlphaLab serializes the user request and
-bounded browser workspace context into that string; no second `context` input or
-compatibility alias is exposed.
+The complete strategy source is composed from exactly six pinned versions:
+universe, selection, timing, portfolio, risk, and execution. Pure selection and
+pure timing use explicit identity components. YAML is neither an Agent input nor
+a runtime representation.
 
-The Agent treats strategy YAML, Python source, comments, metadata, and captured
-logs as untrusted research data rather than instructions. Python source is
-loaded only for code review or immediately before an explicitly requested
-execution. Backtest and paper-signal tools preflight the saved strategy; Python
-execution requires `confirm_python_execution=true`, and paper signals accept
-only stock-selection strategies.
-Persisted backtest reads also redact Python source snapshots by default while
-retaining their hashes.
+Project/component writes and deletes require explicit confirmation. Preview and
+backtest require explicit trusted-local Python execution confirmation. The
+bundle has no shell, source-tree mutation, deployment, or real-broker tool.
 
-Market, backtest, and signal tools expose an explicit `demo` or `runtime`
-profile. They never silently read Demo data for a requested Runtime operation.
-The structured result contract supports reports, sortable/exportable tables,
-and native line, bar, area, scatter, and pie charts. Workspace commands can
-open only active registered widgets and cannot invoke mutating tools. There is
-no shell tool, application-source editor, real-order tool, broker adapter, or
-credential in this bundle. Local strategy and paper-account mutations use
-narrow API tools with separate confirmation flags.
-
-See `docs/04_CONEXUS_AGENT.md` for registration and local startup instructions.
+See `docs/04_CONEXUS_AGENT.md` for the contract and publication boundary.

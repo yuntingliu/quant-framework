@@ -46,7 +46,7 @@ function customNodePayload(value: unknown, expectedType: string): unknown {
 }
 
 const WORKSPACE_CAPABILITIES = {
-  modes: ["data", "factor", "strategy", "backtest", "report"],
+  modes: ["data", "universe", "selection", "timing", "portfolio", "risk", "execution", "backtest", "report"],
   widgets: agentWorkspaceWidgetIds,
   commandTypes: [
     "switch_mode",
@@ -124,15 +124,16 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   update_nodes: { zh: "更新决策笔记", en: "Update decision notebook" },
   commit_harness_outputs: { zh: "原子提交研究结果", en: "Commit research outputs atomically" },
   list_nodes: { zh: "检查工作台节点", en: "Inspect workspace nodes" },
-  alphalab_get_workspace_context: { zh: "读取策略与数据目录", en: "Read strategy and data catalog" },
-  alphalab_get_strategy: { zh: "读取策略定义", en: "Read strategy definition" },
+  alphalab_get_workspace_context: { zh: "读取项目与数据目录", en: "Read project and data catalog" },
+  alphalab_get_pipeline_project: { zh: "读取六阶段项目", en: "Read six-stage project" },
+  alphalab_manage_pipeline: { zh: "管理组件与项目", en: "Manage components and projects" },
+  alphalab_preview_pipeline: { zh: "预览完整策略", en: "Preview complete strategy" },
   alphalab_get_market_bars: { zh: "读取历史行情", en: "Read historical bars" },
   alphalab_get_fundamentals: { zh: "读取点时基本面", en: "Read point-in-time fundamentals" },
   alphalab_get_factor_returns: { zh: "读取因子收益", en: "Read factor returns" },
   alphalab_evaluate_factor: { zh: "评估因子", en: "Evaluate factor" },
   alphalab_get_backtest: { zh: "读取回测结果", en: "Read backtest result" },
   alphalab_run_backtest: { zh: "运行回测", en: "Run backtest" },
-  alphalab_generate_signal: { zh: "生成纸面信号", en: "Generate paper signal" },
   alphalab_data_catalog: { zh: "读取数据目录", en: "Read data catalog" },
   alphalab_data_status: { zh: "检查数据状态", en: "Check data status" },
   alphalab_data_plan_sync: { zh: "规划数据同步", en: "Plan data sync" },
