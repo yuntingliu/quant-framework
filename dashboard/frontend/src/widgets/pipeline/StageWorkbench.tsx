@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
 import {
   Check,
-  Copy,
   Eye,
   GitCommitHorizontal,
   Play,
+  Plus,
   Save,
 } from "lucide-react"
 
@@ -63,14 +63,6 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   const [busy, setBusy] = useState(false)
 
   const supportsSettings = stage === "universe" || stage === "selection"
-  const builtInComponents = useMemo(
-    () => components.filter((item) => item.built_in),
-    [components],
-  )
-  const customComponents = useMemo(
-    () => components.filter((item) => !item.built_in),
-    [components],
-  )
 
   async function refreshProjects(preferred?: string) {
     const values = await api.get<PipelineProjectSummary[]>("/pipeline/projects")
@@ -161,7 +153,7 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
     }
   }
 
-  async function cloneComponent() {
+  async function addComponent() {
     if (!component) return
     setBusy(true)
     setError("")
@@ -178,9 +170,9 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
       setActiveTab("code")
       if (project?.editable) {
         await updateProject(value, value.version)
-        setMessage(`已创建并应用可编辑组件 ${value.id}`)
+        setMessage(`已添加并应用组件 ${value.id}`)
       } else {
-        setMessage(`已创建组件 ${value.id}；请先创建自己的项目再应用`)
+        setMessage(`已添加组件 ${value.id}；请先创建自己的项目再应用`)
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -195,7 +187,7 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
     nextSettings?: Record<string, unknown>,
   ) {
     if (!project || !nextComponent || !nextVersion) return
-    if (!project.editable) throw new Error("内置项目不可修改，请先创建自己的策略项目")
+    if (!project.editable) throw new Error("系统预置项目不可修改，请先创建自己的策略项目")
     const refs = {
       ...project.components,
       [stage]: { component_id: nextComponent.id, version: nextVersion },
@@ -225,7 +217,7 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
         await updateProject(detail, detail.version)
         setMessage(`项目已固定到 ${detail.id}@${detail.version}`)
       } else {
-        setMessage(`当前仅查看 ${detail.id}@${detail.version}；内置项目不会被改动`)
+        setMessage(`当前仅查看 ${detail.id}@${detail.version}；系统预置项目不会被改动`)
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -297,30 +289,6 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
     }
   }
 
-  function componentGroup(title: string, values: PipelineComponentSummary[]) {
-    if (values.length === 0) return null
-    return (
-      <section className="pipeline-component-group">
-        <h4>{title}<span>{values.length}</span></h4>
-        <div className="editor-list pipeline-component-list">
-          {values.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={component?.id === item.id ? "active" : ""}
-              onClick={() => void applyComponent(item.id)}
-              disabled={busy}
-            >
-              <strong>{item.name}</strong>
-              <span>{item.id}</span>
-              <small>v{item.latest_version} · {item.version_count} 个版本</small>
-            </button>
-          ))}
-        </div>
-      </section>
-    )
-  }
-
   const tabs: Array<{ id: WorkbenchTab; label: string }> = [
     { id: "code", label: "Python 代码" },
     { id: "parameters", label: "组件参数" },
@@ -366,7 +334,7 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
               </select>
             </label>
             <span className={`status-pill ${project?.built_in ? "neutral" : "ready"}`}>
-              {project?.built_in ? "内置只读" : "我的项目"}
+              {project?.built_in ? "系统预置项目" : "用户项目"}
             </span>
             <button
               className="primary-command"
@@ -387,9 +355,10 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
             <div className="workbench-body">
               <div className="backtest-section-heading">
                 <div>
-                  <strong>{meta.title}函数</strong>
-                  <span>选择组件后，项目固定引用具体版本。</span>
+                  <strong>{meta.title}组件库</strong>
+                  <span>系统预置和用户添加统一收录；项目固定引用所选版本。</span>
                 </div>
+                <small>{components.length} 个组件</small>
               </div>
 
               <div className="pipeline-project-info">
@@ -397,12 +366,31 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
                 <span>{project?.description || "六个组件版本共同组成完整策略。"}</span>
               </div>
 
-              {componentGroup("内置模板", builtInComponents)}
-              {componentGroup("我的组件", customComponents)}
+              {components.length > 0 ? (
+                <div className="editor-list pipeline-component-list">
+                  {components.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={component?.id === item.id ? "active" : ""}
+                      onClick={() => void applyComponent(item.id)}
+                      disabled={busy}
+                    >
+                      <strong>{item.name}</strong>
+                      <span>{item.id}</span>
+                      <small>
+                        {item.built_in ? "系统预置" : "用户添加"} · v{item.latest_version} · {item.version_count} 个版本
+                      </small>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="workbench-message">组件库暂无内容</div>
+              )}
 
               <div className="backtest-run-controls pipeline-inline-form">
                 <label>
-                  <span>组件副本 ID</span>
+                  <span>新组件 ID</span>
                   <input
                     value={componentTargetId}
                     onChange={(event) => setComponentTargetId(event.target.value)}
@@ -411,10 +399,10 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
                 <button
                   className="secondary-command"
                   type="button"
-                  onClick={() => void cloneComponent()}
+                  onClick={() => void addComponent()}
                   disabled={busy || !component}
                 >
-                  <Copy size={14} />创建组件副本
+                  <Plus size={14} />添加新组件
                 </button>
               </div>
 
@@ -461,7 +449,7 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
                 type="button"
                 onClick={() => void saveVersion()}
                 disabled={busy || !component?.editable}
-                title={component?.editable ? "保存为不可变新版本" : "内置组件需先创建副本"}
+                title={component?.editable ? "保存为不可变新版本" : "系统预置组件需先添加为新组件"}
               >
                 <Save size={14} />保存新版本
               </button>
@@ -498,7 +486,9 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
                     onChange={(event) => setSource(event.target.value)}
                   />
                   {!component?.editable && (
-                    <div className="workbench-message">这是内置只读版本。需要修改时，请在左侧创建组件副本。</div>
+                    <div className="workbench-message">
+                      这是组件库的系统预置版本。请在左侧输入新 ID，以当前组件为起点添加可编辑组件。
+                    </div>
                   )}
                 </section>
               )}

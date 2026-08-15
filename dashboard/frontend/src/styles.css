@@ -974,24 +974,6 @@ button {
   line-height: 1.45;
 }
 
-.pipeline-component-group + .pipeline-component-group {
-  margin-top: 0.75rem;
-}
-
-.pipeline-component-group h4 {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 0 0 0.4rem;
-  color: hsl(var(--muted-foreground));
-  font-size: 0.625rem;
-  font-weight: 600;
-}
-
-.pipeline-component-group h4 span {
-  font-variant-numeric: tabular-nums;
-}
-
 .pipeline-component-list button {
   display: block;
   width: 100%;

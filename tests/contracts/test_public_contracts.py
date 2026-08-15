@@ -86,7 +86,7 @@ def test_stage_workbench_supports_versions_code_and_real_preview():
     for text in (
         "Python 源码",
         "唯一逻辑来源",
-        "cloneComponent",
+        "addComponent",
         "saveVersion",
         "cloneProject",
         "/preview",
