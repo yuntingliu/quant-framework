@@ -94,13 +94,15 @@ real connection.
 ## Adding Strategies
 
 Stock-selection templates live in `alphalab/strategies/`; market-timing templates
-live in `alphalab/timing_strategies/`. Built-in reusable behavior should remain
+live in `alphalab/timing_strategies/`; allocation-rotation templates live in
+`alphalab/rotation_strategies/`. Built-in reusable behavior should remain
 registered framework code plus data-only YAML. A local strategy may instead own
 a Python hook. Every newly serialized strategy declares exactly one domain
 discriminator:
 
 - `strategy_type: stock_selection`
 - `strategy_type: market_timing`
+- `strategy_type: allocation_rotation`
 
 Existing selection YAML without `strategy_type` is the sole compatibility
 migration and is normalized to `stock_selection`. Do not add heuristic type
@@ -108,7 +110,8 @@ detection or additional aliases.
 
 Every config also has one explicit implementation:
 
-- `implementation.kind: configured` uses registered factors or timing signals.
+- `implementation.kind: configured` uses registered factors, timing signals, or
+  lagged style-sleeve ranking.
 - `implementation.kind: python` calls the configured public entrypoint, normally
   `generate`, in a timeout-bounded child process.
 
@@ -119,13 +122,15 @@ second timeout contain common failures, but do not form an OS security sandbox.
 
 Package templates are immutable through the API. Dashboard edits are stored as
 local YAML below `data/runtime/app/strategies` or
-`data/runtime/app/timing_strategies`, according to type. Python implementations
-store an adjacent same-stem `.py` sidecar. Both directories are ignored. Strategy
-ids are unique across both repositories and must match the YAML `name`. Saving,
+`data/runtime/app/timing_strategies`, or
+`data/runtime/app/rotation_strategies`, according to type. Python implementations
+store an adjacent same-stem `.py` sidecar. All three directories are ignored. Strategy
+ids are unique across all repositories and must match the YAML `name`. Saving,
 cloning, and deleting a Python strategy must handle YAML and source together.
 Validate every local definition before a backtest.
 
-`StrategyConfig.to_dict()` and `TimingStrategyConfig.to_dict()` are the canonical
+`StrategyConfig.to_dict()`, `TimingStrategyConfig.to_dict()`, and
+`RotationStrategyConfig.to_dict()` are the canonical
 structured representations used by the Strategy Workbench; `to_yaml()` serializes
 those same payloads. Keep visual
 form changes and YAML synchronized through `POST /api/strategies/validate`
@@ -137,8 +142,9 @@ source beside YAML. Add new strategy fields to
 the dataclass, both representations, the frontend API type, and the workbench
 editor together. The workbench creates a new strategy as an in-memory blank
 stock-selection draft by validating `{"config": {"strategy_type":
-"stock_selection", "name": strategy_id}}`, or a timing draft with
-`strategy_type: market_timing`; the first successful
+"stock_selection", "name": strategy_id}}`, a timing draft with
+`strategy_type: market_timing`, or a rotation draft with
+`strategy_type: allocation_rotation`; the first successful
 save uses the existing `PUT /api/strategies/{strategy_id}` path and must still
 pass the repository's executable-strategy gates.
 
@@ -156,13 +162,22 @@ def generate(context):
 def generate(context):
     # context: strategy id/date, PIT monthly MKT returns, limits, metadata
     return {"market_exposure": 0.50}
+
+# allocation_rotation
+def generate(context):
+    # context: strategy id/date, PIT monthly histories for configured style
+    # sleeves, allocation limits, metadata
+    return {"weights": {"MKT": 0.50, "MOM": 0.50}}
 ```
 
 Selection output may contain only eligible symbols, non-negative finite weights,
 at most `selection.n_stocks`, no weight above `portfolio.max_weight`, and total
 weight at most one. Timing exposure must be finite and within the configured
 minimum/maximum. Empty Python selection output means cash; it must not silently
-reuse the prior portfolio. Preserve the one-period execution lag in both paths.
+reuse the prior portfolio. Rotation output may contain only configured sleeves,
+non-negative finite weights, at most `selection.top_k` positions, no weight above
+`portfolio.max_weight`, and total weight at most one. Preserve the one-period
+execution lag in all three paths.
 
 `POST /api/strategies/selection-preview` is the canonical non-persisting stock
 selection check for both saved templates and unsaved workbench edits. It accepts
@@ -179,10 +194,19 @@ to the configured exposure range; exposure is shifted one period before it earns
 returns, and turnover costs are applied when exposure changes. Keep this
 portfolio-level output separate from stock targets and paper-order generation.
 
+`POST /api/strategies/rotation-research` is the canonical non-persisting
+allocation-rotation check. It returns equity, benchmark, applied sleeve weights,
+cash and point-in-time scores. The built-in MKT/SMB/HML/MOM/RMW sleeves are
+factor-mimicking research series, not directly tradable instruments. Configured
+and Python target weights are shifted one month before earning returns, and they
+never produce paper stock orders.
+
 Every persisted stock-selection backtest can produce a same-universe equal-weight
-benchmark; every timing backtest persists MKT as its benchmark. Both produce a
+benchmark; every timing backtest persists MKT as its benchmark; every rotation
+backtest persists its configured style benchmark. All three produce a
 robustness report. Selection signals use only information available at period end
-and execute on the next observed session; timing exposure is lagged by one month.
+and execute on the next observed session; timing exposure and rotation weights
+are lagged by one month.
 The report checks data/weight integrity,
 calendar and rolling outcomes, turnover, concentration, 10/20/50 bps cost
 assumptions, a final 30% validation segment, bootstrap mean-excess intervals,

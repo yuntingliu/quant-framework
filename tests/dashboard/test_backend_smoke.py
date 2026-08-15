@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import pandas as pd
 from fastapi.testclient import TestClient
 
 from alphalab import ResultStore
-from alphalab.strategy import StrategyRepository, TimingStrategyRepository
+from alphalab.strategy import (
+    RotationStrategyRepository,
+    StrategyRepository,
+    TimingStrategyRepository,
+)
 from dashboard.backend.main import app
 from dashboard.backend.routers import conexus, reports
 from dashboard.backend.services import framework_service, research_service
@@ -25,6 +30,7 @@ def test_backend_smoke_endpoints():
     assert {item["strategy_type"] for item in strategies.json()} == {
         "stock_selection",
         "market_timing",
+        "allocation_rotation",
     }
     assert client.get("/api/system/logs").status_code == 200
     health = client.get("/api/data-sync/health")
@@ -53,8 +59,16 @@ def test_optional_conexus_status_contract(monkeypatch):
 
 def test_real_data_endpoints():
     client = TestClient(app)
-    symbols = client.get("/api/data/market/symbols").json()["symbols"]
+    symbol_payload = client.get("/api/data/market/symbols").json()
+    symbols = symbol_payload["symbols"]
     assert len(symbols) == 300
+    assert [item["symbol"] for item in symbol_payload["instruments"]] == symbols
+    assert all(set(item) == {"symbol", "name"} for item in symbol_payload["instruments"])
+    assert all(item["name"] for item in symbol_payload["instruments"])
+    instrument_names = {
+        item["symbol"]: item["name"] for item in symbol_payload["instruments"]
+    }
+    assert instrument_names["600519.SH"] == "贵州茅台"
     bars = client.get(f"/api/data/market/bars?symbol={symbols[0]}&start=2026-01-01")
     assert bars.status_code == 200
     assert bars.json()["rows"]
@@ -63,6 +77,30 @@ def test_real_data_endpoints():
     assert factors.json()["names"] == ["MKT", "SMB", "HML", "MOM", "RMW", "rf"]
     assert client.get("/api/data/market/bars?symbol=NOT-A-SYMBOL").status_code == 404
     assert client.get("/api/data/market/symbols?profile=unknown").status_code == 422
+
+
+def test_market_symbol_options_include_instrument_names(monkeypatch):
+    class FakeEngine:
+        def get_symbols(self):
+            return ["000001.SZ", "600000.SH"]
+
+        def get_latest_date(self):
+            return "2026-08-14"
+
+        def get_instruments(self, asof_date):
+            assert asof_date == "2026-08-14"
+            return pd.DataFrame(
+                [
+                    {"symbol": "000001.sz", "name": "平安银行"},
+                    {"symbol": "600000.SH", "name": "浦发银行"},
+                ]
+            )
+
+    monkeypatch.setattr(framework_service, "_engine", lambda _profile: FakeEngine())
+    assert framework_service.market_symbol_options("demo") == [
+        {"symbol": "000001.SZ", "name": "平安银行"},
+        {"symbol": "600000.SH", "name": "浦发银行"},
+    ]
 
 
 def test_fundamentals_endpoint_is_bounded_and_point_in_time():
@@ -451,6 +489,7 @@ def test_saved_python_strategy_runs_with_source_snapshot(tmp_path, monkeypatch):
     monkeypatch.setattr(framework_service, "StrategyRepository", LocalSelectionRepository)
     monkeypatch.setattr(framework_service, "TimingStrategyRepository", LocalTimingRepository)
     monkeypatch.setattr(framework_service, "ResultStore", lambda: ResultStore(database))
+    monkeypatch.setattr(research_service, "ResultStore", lambda: ResultStore(database))
     client = TestClient(app)
     source = (
         "def generate(context):\n"
@@ -501,6 +540,24 @@ def test_saved_python_strategy_runs_with_source_snapshot(tmp_path, monkeypatch):
     provenance = backtest.json()["provenance"]
     assert provenance["strategy_python"]["source"] == source
     assert provenance["strategy_python"]["sha256"] == provenance["strategy_python_sha256"]
+
+    research_run = research_service.ResearchRunManager().run_now(
+        {
+            "strategy_id": "python_saved",
+            "profile": "demo",
+            "start_date": "2025-01-01",
+            "end_date": "2025-04-30",
+            "account_id": "paper",
+        }
+    )
+    assert research_run["status"] == "succeeded"
+    strategy_step = next(
+        step for step in research_run["steps"] if step["name"] == "strategy_validate"
+    )
+    assert strategy_step["detail"]["implementation"] == "python"
+    assert strategy_step["detail"]["python_source_sha256"] == provenance[
+        "strategy_python_sha256"
+    ]
 
 
 def test_timing_strategy_research_and_backtest_contract(tmp_path, monkeypatch):
@@ -578,8 +635,96 @@ def test_timing_strategy_research_and_backtest_contract(tmp_path, monkeypatch):
     assert run["result"]["signal_id"] is None
     assert run["result"]["preview_id"] is None
     assert run["result"]["paper_execution"] == "not_applicable_for_market_timing"
+    strategy_step = next(
+        step for step in run["steps"] if step["name"] == "strategy_validate"
+    )
+    assert strategy_step["detail"]["strategy_type"] == "market_timing"
+    assert strategy_step["detail"]["implementation"] == "configured"
+    assert strategy_step["detail"]["python_source_sha256"] is None
     assert next(step for step in run["steps"] if step["name"] == "signal")["status"] == "succeeded"
     assert next(step for step in run["steps"] if step["name"] == "risk_preview")["status"] == "skipped"
+
+
+def test_rotation_strategy_research_backtest_and_pipeline_contract(tmp_path, monkeypatch):
+    database = tmp_path / "rotation.db"
+
+    def factory():
+        return ResultStore(database)
+
+    monkeypatch.setattr(framework_service, "ResultStore", factory)
+    monkeypatch.setattr(research_service, "ResultStore", factory)
+    client = TestClient(app)
+    strategy = client.get("/api/strategies/style_momentum_rotation")
+    assert strategy.status_code == 200
+    payload = strategy.json()
+    assert payload["strategy_type"] == "allocation_rotation"
+    assert payload["sleeves"] == ["MKT", "SMB", "HML", "MOM", "RMW"]
+
+    validation = client.post(
+        "/api/strategies/validate",
+        json={"config": payload["config"]},
+    )
+    assert validation.status_code == 200
+    assert validation.json()["valid"] is True
+    assert any(
+        check["code"] == "research_instrument" and check["status"] == "warning"
+        for check in validation.json()["checks"]
+    )
+
+    research = client.post(
+        "/api/strategies/rotation-research",
+        json={
+            "config": payload["config"],
+            "profile": "demo",
+            "start_date": "2022-01-01",
+            "end_date": "2025-12-31",
+        },
+    )
+    assert research.status_code == 200, research.text
+    assert len(research.json()["series"]) == 48
+    assert research.json()["allocations"]
+    assert research.json()["diagnostics"]["latest_targets"]
+
+    backtest = client.post(
+        "/api/backtests/run",
+        json={
+            "strategy_id": "style_momentum_rotation",
+            "start_date": "2022-01-01",
+            "end_date": "2025-12-31",
+            "profile": "demo",
+        },
+    )
+    assert backtest.status_code == 200, backtest.text
+    result = backtest.json()
+    assert result["strategy_type"] == "allocation_rotation"
+    assert result["execution"]["latest_targets"]
+
+    analysis = client.get(f"/api/backtests/{result['id']}/analysis")
+    assert analysis.status_code == 200, analysis.text
+    snapshot = analysis.json()["strategy_snapshot"]
+    assert snapshot["strategy_type"] == "allocation_rotation"
+    assert snapshot["sleeves"] == ["MKT", "SMB", "HML", "MOM", "RMW"]
+    robustness = client.get(f"/api/backtests/{result['id']}/robustness")
+    assert robustness.status_code == 200, robustness.text
+
+    run = research_service.ResearchRunManager().run_now(
+        {
+            "strategy_id": "style_momentum_rotation",
+            "profile": "demo",
+            "start_date": "2022-01-01",
+            "end_date": "2025-12-31",
+            "account_id": "paper",
+        }
+    )
+    assert run["status"] == "succeeded"
+    assert run["result"]["signal_id"] is None
+    assert run["result"]["preview_id"] is None
+    assert run["result"]["paper_execution"] == "not_applicable_for_style_rotation"
+    strategy_step = next(
+        step for step in run["steps"] if step["name"] == "strategy_validate"
+    )
+    assert strategy_step["detail"]["strategy_type"] == "allocation_rotation"
+    assert strategy_step["detail"]["sleeves"] == ["MKT", "SMB", "HML", "MOM", "RMW"]
 
 
 def test_deterministic_research_run_stops_before_paper_execution(
@@ -613,3 +758,57 @@ def test_deterministic_research_run_stops_before_paper_execution(
         assert store.list_orders(account_id="paper").empty
     finally:
         store.close()
+
+
+def test_deterministic_research_rejects_missing_python_source_before_backtest(
+    tmp_path,
+    monkeypatch,
+):
+    database = tmp_path / "python-research-validation.db"
+
+    def factory():
+        return ResultStore(database)
+
+    backtest_calls = []
+    monkeypatch.setattr(research_service, "ResultStore", factory)
+    monkeypatch.setattr(
+        research_service,
+        "get_strategy_template",
+        lambda _strategy_id: {
+            "id": "python_missing",
+            "strategy_type": "stock_selection",
+            "yaml": (
+                "strategy_type: stock_selection\n"
+                "name: python_missing\n"
+                "factors: []\n"
+                "implementation:\n"
+                "  kind: python\n"
+                "  entrypoint: generate\n"
+                "  timeout_seconds: 5\n"
+            ),
+            "python_source": None,
+        },
+    )
+    monkeypatch.setattr(
+        research_service,
+        "run_strategy_backtest",
+        lambda *args, **kwargs: backtest_calls.append((args, kwargs)),
+    )
+
+    result = research_service.ResearchRunManager().run_now(
+        {
+            "strategy_id": "python_missing",
+            "profile": "demo",
+            "start_date": "2023-01-01",
+            "end_date": "2023-12-31",
+            "account_id": "paper",
+        }
+    )
+
+    assert result["status"] == "failed"
+    validation_step = next(
+        step for step in result["steps"] if step["name"] == "strategy_validate"
+    )
+    assert validation_step["status"] == "failed"
+    assert "python_source must not be empty" in validation_step["detail"]["error"]
+    assert backtest_calls == []

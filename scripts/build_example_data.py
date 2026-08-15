@@ -62,7 +62,11 @@ def _first_release(frame: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def _select_universe(source_data: Path, sample_start: pd.Timestamp, count: int) -> tuple[list[str], dict]:
+def _select_universe(
+    source_data: Path,
+    sample_start: pd.Timestamp,
+    count: int,
+) -> tuple[list[str], dict, dict[str, str]]:
     qmt_dir = source_data / "qmt"
     rq_dir = source_data / "rq"
     stock_info = pd.read_parquet(qmt_dir / "stock_info.parquet")
@@ -99,13 +103,29 @@ def _select_universe(source_data: Path, sample_start: pd.Timestamp, count: int) 
     symbols = ranking.head(count).index.astype(str).tolist()
     if len(symbols) != count:
         raise RuntimeError(f"Expected {count} eligible symbols, found {len(symbols)}")
+    name_column = next(
+        (
+            column
+            for column in ("name", "stock_name", "display_name", "short_name", "证券简称")
+            if column in stock_info
+        ),
+        None,
+    )
+    symbol_names = {}
+    if name_column is not None:
+        name_rows = stock_info.loc[stock_info["stock"].isin(symbols), ["stock", name_column]]
+        symbol_names = {
+            str(symbol): "".join(str(name).split())
+            for symbol, name in name_rows.dropna(subset=[name_column]).itertuples(index=False)
+            if str(name).strip()
+        }
     return symbols, {
         "method": "top median daily amount before sample start",
         "training_start": training_start.strftime("%Y-%m-%d"),
         "training_end": training_end.strftime("%Y-%m-%d"),
         "minimum_training_coverage": 0.90,
         "excluded": ["ST", "financial", "listed less than one year before sample"],
-    }
+    }, symbol_names
 
 
 def _load_adjustment_factor(qmt_dir: Path, index: pd.DatetimeIndex, symbols: list[str]) -> pd.DataFrame:
@@ -436,7 +456,11 @@ def build(source_root: Path, target_root: Path, symbol_count: int = 300) -> dict
     cutoff = pd.Timestamp(close_probe.index.max()).normalize()
     sample_start = cutoff - pd.DateOffset(years=5) + pd.Timedelta(days=1)
 
-    symbols, universe_method = _select_universe(source_data, sample_start, symbol_count)
+    symbols, universe_method, symbol_names = _select_universe(
+        source_data,
+        sample_start,
+        symbol_count,
+    )
     bars, raw_close, adjusted_close = _build_market(
         source_data, target_data, symbols, sample_start, cutoff
     )
@@ -465,6 +489,9 @@ def build(source_root: Path, target_root: Path, symbol_count: int = 300) -> dict
         "cutoff_date": cutoff.strftime("%Y-%m-%d"),
         "symbol_count": symbol_count,
         "symbols": symbols,
+        "symbol_names_as_of": cutoff.strftime("%Y-%m-%d"),
+        "symbol_names_source": "QMT stock_info display metadata only",
+        "symbol_names": symbol_names,
         "universe": universe_method,
         "price_adjustment": "QMT dr cumulative adjustment applied to OHLC; volume and amount remain raw",
         "fundamental_timing": "first release only; available_date must be on or before decision date",

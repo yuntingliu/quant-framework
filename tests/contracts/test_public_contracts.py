@@ -35,6 +35,10 @@ def test_public_facade_exports_core_loop():
         "TimingBacktestResult",
         "evaluate_timing_signals",
         "run_timing_backtest",
+        "RotationStrategyConfig",
+        "RotationBacktestResult",
+        "evaluate_rotation_targets",
+        "run_rotation_backtest",
     ]:
         assert hasattr(alphalab, name)
 
@@ -111,6 +115,7 @@ def test_primary_workbench_surfaces_subscribe_to_language_context():
         "widgets/research/FactorResearchLab.tsx",
         "widgets/research/FactorLibrary.tsx",
         "widgets/research/StrategyWorkbench.tsx",
+        "widgets/research/RotationStrategyWorkbench.tsx",
         "widgets/backtest/BacktestWorkbench.tsx",
         "widgets/backtest/BacktestCompare.tsx",
         "widgets/research/ReportWorkbench.tsx",
@@ -137,8 +142,8 @@ def test_workspace_theme_switch_covers_dockview_and_legacy_surfaces():
     dockview_css = (frontend / "index.css").read_text(encoding="utf-8")
     legacy_css = (frontend / "styles.css").read_text(encoding="utf-8")
 
-    assert 'theme === "dark" ? "dockview-theme-abyss" : "dockview-theme-light"' in workspace
-    assert ".dockview-theme-abyss,\n.dockview-theme-light" in dockview_css
+    assert 'className="dockview-theme-light alphalab-dockview"' in workspace
+    assert ".alphalab-dockview .dv-tabs-and-actions-container" in dockview_css
     for dark_only_color in ["#101114", "#191b20", "#22252c", "#e9edf1", "#8f99a6"]:
         assert dark_only_color not in legacy_css
 

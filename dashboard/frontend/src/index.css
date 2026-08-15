@@ -528,9 +528,8 @@ input[type="number"]:focus {
   }
 }
 
-/* ── Dockview theme: match our dark/light design tokens ───── */
-.dockview-theme-abyss,
-.dockview-theme-light {
+/* ── Dockview theme: follow AlphaLab tokens, independent of Dockview presets ── */
+.alphalab-dockview {
   --dv-background-color: hsl(var(--background));
   --dv-paneview-header-border-color: hsl(var(--border));
   --dv-tabs-and-actions-container-background-color: hsl(var(--card));
@@ -546,6 +545,28 @@ input[type="number"]:focus {
   --dv-separator-border: hsl(var(--border));
   --dv-group-view-background-color: hsl(var(--background));
   height: 100%;
+}
+
+.alphalab-dockview.dv-dockview,
+.alphalab-dockview .dv-groupview,
+.alphalab-dockview .dv-content-container {
+  background-color: hsl(var(--background));
+}
+
+.alphalab-dockview .dv-tabs-and-actions-container {
+  border-bottom: 1px solid hsl(var(--border));
+  background-color: hsl(var(--card)) !important;
+  color: hsl(var(--foreground));
+}
+
+.alphalab-dockview .dv-groupview .dv-tabs-container > .dv-tab.dv-active-tab {
+  background-color: hsl(var(--card)) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+.alphalab-dockview .dv-groupview .dv-tabs-container > .dv-tab.dv-inactive-tab {
+  background-color: hsl(var(--muted)) !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 /* Hide lightweight-charts branding */

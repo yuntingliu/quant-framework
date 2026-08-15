@@ -10,7 +10,7 @@ from dashboard.backend.services.framework_service import (
     list_provider_status,
     load_manifest,
     market_bars,
-    market_symbols,
+    market_symbol_options,
 )
 
 router = APIRouter(prefix="/api/data", tags=["data"])
@@ -35,7 +35,12 @@ def manifest() -> dict:
 @router.get("/market/symbols")
 def symbols(profile: str = "demo") -> dict:
     try:
-        return {"profile": profile, "symbols": market_symbols(profile)}
+        instruments = market_symbol_options(profile)
+        return {
+            "profile": profile,
+            "symbols": [item["symbol"] for item in instruments],
+            "instruments": instruments,
+        }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except MissingDataError as exc:

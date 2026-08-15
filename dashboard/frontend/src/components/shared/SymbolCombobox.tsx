@@ -1,11 +1,16 @@
-import { useMemo, useRef, useState } from "react"
+import { useId, useMemo, useRef, useState } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { Search } from "lucide-react"
 
 import { useLanguage } from "@/contexts/LanguageContext"
 
+export interface SymbolOption {
+  symbol: string
+  name?: string | null
+}
+
 interface SymbolComboboxProps {
-  symbols: string[]
+  symbols: Array<string | SymbolOption>
   value: string
   onChange: (value: string) => void
   ariaLabel?: string
@@ -19,21 +24,37 @@ export function SymbolCombobox({
 }: SymbolComboboxProps) {
   const { language } = useLanguage()
   const copy = language === "zh"
-    ? { symbol: "证券代码", search: "搜索证券代码", empty: "没有匹配的证券代码" }
-    : { symbol: "Symbol", search: "Search symbol", empty: "No symbols" }
+    ? { symbol: "证券代码或名称", search: "搜索代码或名称", empty: "没有匹配的证券" }
+    : { symbol: "Symbol or name", search: "Search symbol or name", empty: "No matching symbols" }
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
+  const listId = useId()
+  const options = useMemo(() => {
+    const unique = new Map<string, SymbolOption>()
+    for (const item of symbols) {
+      const option = typeof item === "string" ? { symbol: item } : item
+      const symbol = option.symbol.trim().toUpperCase()
+      if (!symbol) continue
+      unique.set(symbol, { symbol, name: option.name?.trim() || null })
+    }
+    return [...unique.values()]
+  }, [symbols])
   const filtered = useMemo(() => {
     const needle = query.trim().toUpperCase()
     return needle
-      ? symbols.filter((symbol) => symbol.includes(needle))
-      : symbols
-  }, [query, symbols])
+      ? options.filter((option) => (
+          option.symbol.includes(needle)
+          || option.name?.toUpperCase().includes(needle)
+        ))
+      : options
+  }, [options, query])
+  const selected = options.find((option) => option.symbol === value)
+  const selectedLabel = selected?.name ? `${selected.symbol}  ${selected.name}` : value
   const virtualizer = useVirtualizer({
     count: filtered.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 30,
+    estimateSize: () => 40,
     overscan: 6,
   })
 
@@ -49,11 +70,11 @@ export function SymbolCombobox({
       <input
         aria-label={ariaLabel ?? copy.symbol}
         aria-expanded={open}
-        aria-controls="symbol-combobox-list"
+        aria-controls={listId}
         role="combobox"
         autoComplete="off"
-        placeholder={value || copy.search}
-        value={open ? query : value}
+        placeholder={selectedLabel || copy.search}
+        value={open ? query : selectedLabel}
         onChange={(event) => {
           setQuery(event.target.value)
           setOpen(true)
@@ -63,7 +84,7 @@ export function SymbolCombobox({
         onKeyDown={(event) => {
           if (event.key === "Enter" && filtered[0]) {
             event.preventDefault()
-            select(filtered[0])
+            select(filtered[0].symbol)
           }
           if (event.key === "Escape") setOpen(false)
         }}
@@ -71,7 +92,7 @@ export function SymbolCombobox({
       {open && (
         <div
           ref={scrollRef}
-          id="symbol-combobox-list"
+          id={listId}
           className="symbol-combobox-list"
           role="listbox"
         >
@@ -81,22 +102,23 @@ export function SymbolCombobox({
               style={{ height: `${virtualizer.getTotalSize()}px` }}
             >
               {virtualizer.getVirtualItems().map((row) => {
-                const symbol = filtered[row.index]
+                const option = filtered[row.index]
                 return (
                   <button
-                    key={symbol}
+                    key={option.symbol}
                     type="button"
                     role="option"
-                    aria-selected={symbol === value}
-                    className={symbol === value ? "selected" : ""}
+                    aria-selected={option.symbol === value}
+                    className={option.symbol === value ? "selected" : ""}
                     style={{
                       height: `${row.size}px`,
                       transform: `translateY(${row.start}px)`,
                     }}
                     onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => select(symbol)}
+                    onClick={() => select(option.symbol)}
                   >
-                    {symbol}
+                    <strong>{option.symbol}</strong>
+                    {option.name ? <span>{option.name}</span> : null}
                   </button>
                 )
               })}

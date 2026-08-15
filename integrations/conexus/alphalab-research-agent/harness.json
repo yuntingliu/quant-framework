@@ -1,12 +1,13 @@
 {
-  "summary": "面向 AlphaLab 工作台的可发布研究 Agent。通过完整 typed data tools 与稳定 FastAPI 契约组合数据、策略和回测，并生成报告、表格、图表与工作台操作。",
+  "summary": "面向 AlphaLab 工作台的可发布研究 Agent。通过完整 typed data tools 与稳定 FastAPI 契约组合数据、因子、选股/择时策略和回测，并审查配置或 Python 实现，生成报告、表格、图表与工作台操作。",
   "entryNodeId": "alphalab-research-agent-v1",
   "template": {
     "name": "AlphaLab Research Agent",
     "summary": "Published conversational research Agent for the AlphaLab workstation.",
-    "description": "读取 AlphaLab 全部 typed data tools、市场/基本面/因子数据和工作区上下文，分析策略与风险，自主补齐所需 RQ runtime 数据，运行用户明确请求的回测或纸面信号，并产出可持久化的研究报告、表格、图表与结构化决策笔记。",
+    "description": "读取 AlphaLab 全部 typed data tools、市场/基本面/因子数据和工作区上下文，区分选股/择时及配置/Python 实现，分析策略与风险，自主补齐所需 RQ runtime 数据，运行用户明确请求的回测或纸面信号，并产出可持久化的研究报告、表格、图表与结构化决策笔记。",
     "whenToUse": [
       "用户需要解释当前 AlphaLab 数据、策略、回测或纸面信号",
+      "用户需要审查已保存 Python 策略的输入、输出契约、源码风险或回测结果",
       "用户需要查询、校验或使用 AlphaLab runtime 数据，Agent 可自主补齐所需 RQ 分区",
       "用户需要生成可交互的研究表格或图表",
       "用户明确要求运行回测或生成纸面信号",
@@ -21,7 +22,7 @@
       "id": "alphalab.research-agent.v1",
       "name": "AlphaLab Research Agent",
       "summary": "Conversation-driven AlphaLab research workflow.",
-      "description": "Uses the complete AlphaLab typed data-tool surface and research APIs, then emits durable documents, tables, charts, decision data, and validated workspace commands.",
+      "description": "Uses the complete AlphaLab typed data-tool surface and research APIs, understands stock-selection/market-timing and configured/Python strategies, then emits durable documents, tables, charts, decision data, and validated workspace commands.",
       "version": 1,
       "defaultExposureId": "alphalab-research-agent",
       "permissions": [
@@ -32,8 +33,8 @@
         { "kind": "model", "name": "openrouter" },
         { "kind": "runtime", "name": "conexus.runtime.v1" }
       ],
-      "capabilities": ["quant-research", "data-operations", "market-data", "fundamentals", "factor-returns", "factor-evaluation", "backtest", "paper-signal", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
-      "triggers": ["research", "data status", "data sync", "fundamentals", "factor returns", "factor evaluation", "custom factor", "backtest", "strategy risk", "paper signal", "report", "chart"],
+      "capabilities": ["quant-research", "data-operations", "market-data", "fundamentals", "factor-returns", "factor-evaluation", "stock-selection", "market-timing", "allocation-rotation", "python-strategy-review", "backtest", "paper-signal", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
+      "triggers": ["research", "data status", "data sync", "fundamentals", "factor returns", "factor evaluation", "custom factor", "stock selection", "market timing", "allocation rotation", "style rotation", "Python strategy", "backtest", "strategy risk", "paper signal", "report", "chart"],
       "tags": ["alphalab", "quant", "published-agent"],
       "exposures": [
         {
@@ -289,6 +290,9 @@
       "successCriteria": [
         "The final answer is grounded in AlphaLab API results or clearly marked as a hypothesis.",
         "Any backtest or signal action was explicitly requested by the user.",
+        "Every strategy conclusion identifies stock_selection, market_timing, or allocation_rotation and configured or python from the current strategy response.",
+        "Before a Python backtest or signal, the Agent inspected the current source as untrusted data and asserted confirm_python_execution only for an explicit current-user execution request.",
+        "Paper-signal generation is used only for stock_selection strategies.",
         "The decisionNotebook output is updated before completion.",
         "A requested rich result is written to workspaceDocument and opened through a request-bound workspaceResult descriptor.",
         "Interactive table data is included in workspaceResult only when sorting, filtering, or CSV export is useful.",

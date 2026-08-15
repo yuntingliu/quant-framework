@@ -56,8 +56,10 @@ export function BacktestWorkbenchWidget() {
     strategy: "策略",
     factorCount: "个因子",
     signalCount: "个择时信号",
+    sleeveCount: "个风格袖套",
     stockSelection: "选股策略",
     marketTiming: "择时策略",
+    allocationRotation: "配置与轮动",
     startDate: "回测开始日期",
     endDate: "回测结束日期",
     running: "运行中",
@@ -69,8 +71,10 @@ export function BacktestWorkbenchWidget() {
     runHint: "这里的设置只影响下一次运行，不会改变下方正在查看的历史结果。",
     researchHint: "完整研究会运行回测、稳健性闸门和模拟调仓预览，但不会自动交易。",
     timingResearchHint: "完整研究会运行择时回测与稳健性闸门；择时只输出市场仓位，不生成个股模拟订单。",
+    rotationResearchHint: "完整研究会运行风格轮动回测与稳健性闸门；风格袖套是研究收益序列，不生成个股模拟订单。",
     paperAwaiting: "模拟调仓等待用户确认",
     timingCompleted: "最新市场仓位已生成，不涉及个股订单",
+    rotationCompleted: "最新风格配置已生成，不涉及个股订单",
     savedBacktest: "已保存的回测",
     savedRun: "回测记录",
     noBacktests: "没有已保存的回测。",
@@ -86,6 +90,7 @@ export function BacktestWorkbenchWidget() {
     strategySnapshot: "策略快照",
     benchmark: "等权基准",
     marketBenchmark: "MKT 市场基准",
+    styleBenchmark: "风格轮动基准",
     benchmarkMissing: "该历史记录未保存基准序列，无法自动给出研究结论。",
     verdictUnavailable: "基准缺失",
     rebuildBenchmark: "重建基准并评估",
@@ -148,6 +153,7 @@ export function BacktestWorkbenchWidget() {
     exportHoldings: "导出持仓",
     symbol: "证券代码",
     marketExposure: "市场仓位",
+    sleeveNames: "个袖套",
     weight: "权重",
   } : {
     title: "Backtest Workbench",
@@ -161,8 +167,10 @@ export function BacktestWorkbenchWidget() {
     strategy: "Strategy",
     factorCount: "factors",
     signalCount: "timing signals",
+    sleeveCount: "style sleeves",
     stockSelection: "Stock selection",
     marketTiming: "Market timing",
+    allocationRotation: "Allocation & rotation",
     startDate: "Backtest start date",
     endDate: "Backtest end date",
     running: "Running",
@@ -174,8 +182,10 @@ export function BacktestWorkbenchWidget() {
     runHint: "These settings affect the next run only; they do not describe the saved result below.",
     researchHint: "Full research runs the backtest, robustness gates, and a paper rebalance preview, but never auto-trades.",
     timingResearchHint: "Full research runs timing backtests and robustness gates. Timing emits market exposure and never creates stock orders.",
+    rotationResearchHint: "Full research runs style-rotation backtests and robustness gates. Research sleeves do not create stock orders.",
     paperAwaiting: "paper rebalance awaits confirmation",
     timingCompleted: "latest market exposure generated; no stock orders",
+    rotationCompleted: "latest style allocation generated; no stock orders",
     savedBacktest: "Saved backtest",
     savedRun: "Saved run",
     noBacktests: "has no persisted backtests.",
@@ -191,6 +201,7 @@ export function BacktestWorkbenchWidget() {
     strategySnapshot: "Strategy snapshot",
     benchmark: "Equal-weight benchmark",
     marketBenchmark: "MKT benchmark",
+    styleBenchmark: "Style-rotation benchmark",
     benchmarkMissing: "This legacy result did not persist a benchmark series, so a verdict cannot be produced automatically.",
     verdictUnavailable: "Benchmark unavailable",
     rebuildBenchmark: "Rebuild benchmark and evaluate",
@@ -253,6 +264,7 @@ export function BacktestWorkbenchWidget() {
     exportHoldings: "Export holdings",
     symbol: "Symbol",
     marketExposure: "Market exposure",
+    sleeveNames: "sleeves",
     weight: "Weight",
   }
   const { selectedStrategy, setSelectedStrategy, selectedBacktest, setSelectedBacktest } = useWorkspace()
@@ -412,6 +424,8 @@ export function BacktestWorkbenchWidget() {
         `${researchStatusLabel(run.result.robustness_status, language)} · ${
           selectedStrategyDefinition?.strategy_type === "market_timing"
             ? copy.timingCompleted
+            : selectedStrategyDefinition?.strategy_type === "allocation_rotation"
+              ? copy.rotationCompleted
             : copy.paperAwaiting
         }`,
       )
@@ -478,7 +492,21 @@ export function BacktestWorkbenchWidget() {
   const selectedRecord = records.find((record) => record.id === selectedId)
   const selectedStrategyDefinition = strategies.find((strategy) => strategy.id === strategyId)
   const isTimingSelection = selectedStrategyDefinition?.strategy_type === "market_timing"
+  const isRotationSelection = selectedStrategyDefinition?.strategy_type === "allocation_rotation"
   const isTimingResult = analysis.data?.strategy_snapshot?.strategy_type === "market_timing"
+  const isRotationResult = analysis.data?.strategy_snapshot?.strategy_type === "allocation_rotation"
+  const strategyTypeLabel = (strategyType: StrategyTemplate["strategy_type"]) => (
+    strategyType === "market_timing"
+      ? copy.marketTiming
+      : strategyType === "allocation_rotation"
+        ? copy.allocationRotation
+        : copy.stockSelection
+  )
+  const researchHint = isTimingSelection
+    ? copy.timingResearchHint
+    : isRotationSelection
+      ? copy.rotationResearchHint
+      : copy.researchHint
   const invalidDateRange = Boolean(startDate && endDate && startDate > endDate)
   const failedChecks = robustness.data
     ? robustness.data.checks.filter((check) => !check.passed).length
@@ -517,12 +545,14 @@ export function BacktestWorkbenchWidget() {
           </div>
           {selectedStrategyDefinition && (
             <small>
-              {selectedStrategyDefinition.strategy_type === "market_timing" ? copy.marketTiming : copy.stockSelection}
+              {strategyTypeLabel(selectedStrategyDefinition.strategy_type)}
               {" · "}{selectedStrategyDefinition.name}{" · "}
               {selectedStrategyDefinition.implementation === "python"
                 ? "Python"
                 : selectedStrategyDefinition.strategy_type === "market_timing"
                 ? `${selectedStrategyDefinition.signals?.length ?? 0} ${copy.signalCount}`
+                : selectedStrategyDefinition.strategy_type === "allocation_rotation"
+                ? `${selectedStrategyDefinition.sleeves?.length ?? 0} ${copy.sleeveCount}`
                 : `${selectedStrategyDefinition.factors.length} ${copy.factorCount}`}
             </small>
           )}
@@ -554,6 +584,11 @@ export function BacktestWorkbenchWidget() {
                   <option key={strategy.id} value={strategy.id}>{strategy.name}</option>
                 ))}
               </optgroup>
+              <optgroup label={copy.allocationRotation}>
+                {strategies.filter((strategy) => strategy.strategy_type === "allocation_rotation").map((strategy) => (
+                  <option key={strategy.id} value={strategy.id}>{strategy.name}</option>
+                ))}
+              </optgroup>
             </select>
           </label>
           <label>
@@ -577,7 +612,7 @@ export function BacktestWorkbenchWidget() {
             <button
               className="secondary-command"
               type="button"
-              title={isTimingSelection ? copy.timingResearchHint : copy.researchHint}
+              title={researchHint}
               onClick={runResearch}
               disabled={researching || running || !startDate || !endDate || invalidDateRange}
             >
@@ -586,7 +621,7 @@ export function BacktestWorkbenchWidget() {
             </button>
           </div>
         </div>
-        <div className="backtest-research-hint">{isTimingSelection ? copy.timingResearchHint : copy.researchHint}</div>
+        <div className="backtest-research-hint">{researchHint}</div>
       </section>
       {invalidDateRange && <div className="workbench-message error">{copy.invalidRange}</div>}
       {setupError && <div className="workbench-message error">{setupError}</div>}
@@ -606,15 +641,21 @@ export function BacktestWorkbenchWidget() {
           {analysis.data?.strategy_snapshot && (
             <div
               className="backtest-snapshot-summary"
-              title={(isTimingResult ? analysis.data.strategy_snapshot.signals : analysis.data.strategy_snapshot.factors).join(", ")}
+              title={(isTimingResult
+                ? analysis.data.strategy_snapshot.signals
+                : isRotationResult
+                  ? analysis.data.strategy_snapshot.sleeves ?? []
+                  : analysis.data.strategy_snapshot.factors).join(", ")}
             >
               <Database size={13} />
               <span>
-                {copy.strategySnapshot}: {isTimingResult ? copy.marketTiming : copy.stockSelection}{" · "}
+                {copy.strategySnapshot}: {strategyTypeLabel(analysis.data.strategy_snapshot.strategy_type)}{" · "}
                 {analysis.data.strategy_snapshot.implementation === "python"
                   ? "Python"
                   : isTimingResult
                   ? `${analysis.data.strategy_snapshot.signals.length} ${copy.signalCount}`
+                  : isRotationResult
+                  ? `${analysis.data.strategy_snapshot.sleeves?.length ?? 0} ${copy.sleeveCount}`
                   : `${analysis.data.strategy_snapshot.factors.length} ${copy.factorCount}`}
                 {" · "}{analysis.data.strategy_snapshot.rebalance_freq}
               </span>
@@ -743,7 +784,7 @@ export function BacktestWorkbenchWidget() {
                   { key: "strategy", name: copy.strategyCurve },
                   ...(analysis.data.benchmark_coverage
                     ? [
-                        { key: "benchmark", name: isTimingResult ? copy.marketBenchmark : copy.benchmark },
+                        { key: "benchmark", name: isTimingResult ? copy.marketBenchmark : isRotationResult ? copy.styleBenchmark : copy.benchmark },
                         { key: "excess", name: copy.excess },
                       ]
                     : []),
@@ -927,7 +968,7 @@ export function BacktestWorkbenchWidget() {
                     <option key={item.date} value={item.date}>{item.date}</option>
                   ))}
                 </select>
-                <span>{isTimingResult ? copy.marketExposure : `${snapshot?.holdings_count ?? 0} ${copy.names}`}</span>
+                <span>{isTimingResult ? copy.marketExposure : `${snapshot?.holdings_count ?? 0} ${isRotationResult ? copy.sleeveNames : copy.names}`}</span>
                 <span>{copy.gross} {metric(snapshot?.gross_exposure, "pct")}</span>
                 <span>{copy.max} {metric(snapshot?.max_weight, "pct")}</span>
                 <span>HHI {metric(snapshot?.concentration, "number")}</span>

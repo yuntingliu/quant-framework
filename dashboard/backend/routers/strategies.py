@@ -14,6 +14,7 @@ from dashboard.backend.services.framework_service import (
     get_strategy_template,
     list_strategy_templates,
     preview_strategy_selection,
+    research_rotation_strategy,
     research_timing_strategy,
     save_strategy,
     validate_strategy_config,
@@ -59,6 +60,10 @@ class TimingResearchRequest(StrategyValidationRequest):
         if self.start_date >= self.end_date:
             raise ValueError("start_date must be before end_date")
         return self
+
+
+class RotationResearchRequest(TimingResearchRequest):
+    pass
 
 
 class StrategyCloneRequest(BaseModel):
@@ -111,6 +116,23 @@ def selection_preview(request: StrategySelectionPreviewRequest) -> dict:
 def timing_research(request: TimingResearchRequest) -> dict:
     try:
         return research_timing_strategy(
+            yaml_text=request.yaml,
+            config=request.config,
+            python_source=request.python_source,
+            start_date=request.start_date.isoformat(),
+            end_date=request.end_date.isoformat(),
+            profile=request.profile,
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except MissingDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/rotation-research")
+def rotation_research(request: RotationResearchRequest) -> dict:
+    try:
+        return research_rotation_strategy(
             yaml_text=request.yaml,
             config=request.config,
             python_source=request.python_source,

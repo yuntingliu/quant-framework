@@ -7,6 +7,7 @@ import {
   Copy,
   FileCode2,
   FlaskConical,
+  Layers3,
   ListChecks,
   Play,
   Plus,
@@ -31,6 +32,7 @@ import {
 } from "../../lib/api"
 import { useDataProfile, type DataProfile } from "../../lib/data-profile"
 import { TimingStrategyWorkbenchWidget } from "./TimingStrategyWorkbench"
+import { RotationStrategyWorkbenchWidget } from "./RotationStrategyWorkbench"
 
 type EditorView = "builder" | "selection" | "python" | "yaml"
 type CreateMode = "new" | "clone"
@@ -1069,12 +1071,14 @@ function StockSelectionStrategyWorkbenchWidget() {
 
 export function StrategyWorkbenchWidget() {
   const { language } = useLanguage()
-  const [strategyDomain, setStrategyDomain] = useState<"stock_selection" | "market_timing">(() => (
-    typeof window !== "undefined"
-    && new URLSearchParams(window.location.search).get("strategyType") === "market_timing"
-      ? "market_timing"
+  const [strategyDomain, setStrategyDomain] = useState<"stock_selection" | "market_timing" | "allocation_rotation">(() => {
+    const requested = typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("strategyType")
+      : null
+    return requested === "market_timing" || requested === "allocation_rotation"
+      ? requested
       : "stock_selection"
-  ))
+  })
 
   return (
     <div className="strategy-domain-shell">
@@ -1097,10 +1101,21 @@ export function StrategyWorkbenchWidget() {
           <span>{language === "zh" ? "择时策略" : "Market timing"}</span>
           <small>{language === "zh" ? "决定市场仓位与进退" : "When and how much exposure"}</small>
         </button>
+        <button
+          type="button"
+          className={strategyDomain === "allocation_rotation" ? "active" : ""}
+          onClick={() => setStrategyDomain("allocation_rotation")}
+        >
+          <Layers3 size={15} />
+          <span>{language === "zh" ? "配置与轮动" : "Allocation & rotation"}</span>
+          <small>{language === "zh" ? "决定风格之间如何配置" : "How to allocate across styles"}</small>
+        </button>
       </nav>
       {strategyDomain === "stock_selection"
         ? <StockSelectionStrategyWorkbenchWidget />
-        : <TimingStrategyWorkbenchWidget />}
+        : strategyDomain === "market_timing"
+          ? <TimingStrategyWorkbenchWidget />
+          : <RotationStrategyWorkbenchWidget />}
     </div>
   )
 }

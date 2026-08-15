@@ -22,6 +22,7 @@ const toolNodes = [
   ["alphalab-tool-market-bars-v1", "AlphaLab Market Bars", "Get-Market-Bars.tool.json"],
   ["alphalab-tool-fundamentals-v1", "AlphaLab Fundamentals", "Get-Fundamentals.tool.json"],
   ["alphalab-tool-factor-returns-v1", "AlphaLab Factor Returns", "Get-Factor-Returns.tool.json"],
+  ["alphalab-tool-evaluate-factor-v1", "Evaluate AlphaLab Factor", "Evaluate-Factor.tool.json"],
   ["alphalab-tool-backtest-v1", "AlphaLab Backtest", "Get-Backtest.tool.json"],
   ["alphalab-tool-run-backtest-v1", "Run AlphaLab Backtest", "Run-Backtest.tool.json"],
   ["alphalab-tool-generate-signal-v1", "Generate AlphaLab Paper Signal", "Generate-Signal.tool.json"],

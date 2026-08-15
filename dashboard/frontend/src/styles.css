@@ -949,7 +949,7 @@ button {
 
 .symbol-combobox {
   position: relative;
-  min-width: 150px;
+  min-width: 190px;
 }
 
 .symbol-combobox > svg {
@@ -966,8 +966,26 @@ button {
 
 .symbol-combobox > input {
   width: 100%;
+  height: 30px;
   min-width: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 5px;
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
   padding-left: 30px;
+  padding-right: 9px;
+  caret-color: hsl(var(--foreground));
+}
+
+.symbol-combobox > input::placeholder {
+  color: hsl(var(--muted-foreground));
+  opacity: 1;
+}
+
+.symbol-combobox > input:focus {
+  border-color: hsl(var(--primary) / 0.55);
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
 }
 
 .symbol-combobox-list {
@@ -975,8 +993,8 @@ button {
   z-index: 40;
   top: calc(100% + 4px);
   left: 0;
-  width: 100%;
-  max-height: 210px;
+  width: max(100%, 280px);
+  max-height: 240px;
   overflow-y: auto;
   border: 1px solid hsl(var(--border));
   border-radius: 4px;
@@ -993,6 +1011,10 @@ button {
   position: absolute;
   top: 0;
   left: 0;
+  display: grid;
+  grid-template-columns: minmax(92px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
   width: 100%;
   padding: 0 10px;
   border: 0;
@@ -1002,10 +1024,29 @@ button {
   text-align: left;
 }
 
+.symbol-combobox-list button strong {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.symbol-combobox-list button span {
+  overflow: hidden;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .symbol-combobox-list button:hover,
 .symbol-combobox-list button.selected {
   background: hsl(var(--muted));
   color: hsl(var(--primary));
+}
+
+.symbol-combobox-list button:hover span,
+.symbol-combobox-list button.selected span {
+  color: inherit;
 }
 
 .symbol-combobox-empty {
@@ -1781,6 +1822,147 @@ button {
   font-size: 11px;
 }
 
+.watchlist-toggle {
+  display: inline-flex;
+  height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 5px;
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  padding: 0 9px;
+  font-size: 11px;
+}
+
+.watchlist-toggle:hover:not(:disabled),
+.watchlist-toggle.active {
+  border-color: hsl(var(--primary) / 0.45);
+  background: hsl(var(--primary) / 0.08);
+  color: hsl(var(--primary));
+}
+
+.watchlist-toggle:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.data-watchlist {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--muted) / 0.28);
+  padding: 6px 8px;
+}
+
+.data-watchlist-heading {
+  display: grid;
+  gap: 2px;
+  min-width: 112px;
+}
+
+.data-watchlist-heading strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.data-watchlist-heading span,
+.data-watchlist-empty {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+}
+
+.data-watchlist-list {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.data-watchlist-item {
+  display: flex;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 5px;
+  background: hsl(var(--card));
+}
+
+.data-watchlist-item.active {
+  border-color: hsl(var(--primary) / 0.55);
+  box-shadow: inset 2px 0 hsl(var(--primary));
+}
+
+.data-watchlist-select {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-width: 160px;
+  max-width: 230px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  padding: 0 8px;
+  text-align: left;
+}
+
+.data-watchlist-select:hover:not(:disabled) {
+  background: hsl(var(--muted));
+}
+
+.data-watchlist-select:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.data-watchlist-select strong {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+}
+
+.data-watchlist-select span {
+  overflow: hidden;
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-watchlist-remove {
+  display: inline-flex;
+  width: 27px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-left: 1px solid hsl(var(--border));
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+}
+
+.data-watchlist-remove:hover {
+  background: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
+}
+
+.data-watchlist-empty {
+  margin: 0;
+}
+
 .market-refresh-button:hover:not(:disabled) {
   border-color: hsl(var(--primary) / 0.45);
   color: hsl(var(--primary));
@@ -2073,6 +2255,10 @@ button {
 
   .market-kline-toolbar .symbol-combobox {
     width: 100%;
+  }
+
+  .data-watchlist {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .data-management > summary {
@@ -2591,7 +2777,7 @@ button {
 .strategy-domain-tabs {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.4rem;
   border-bottom: 1px solid hsl(var(--border));
   background: hsl(var(--card));
@@ -2651,6 +2837,57 @@ button {
 
 .strategy-domain-shell > .strategy-workbench {
   flex: 1 1 auto;
+}
+
+.rotation-sleeve-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.rotation-sleeve-grid label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 0.4rem;
+  align-items: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.4rem;
+  background: hsl(var(--background));
+  cursor: pointer;
+  padding: 0.55rem;
+}
+
+.rotation-sleeve-grid label.selected {
+  border-color: hsl(var(--primary) / 0.45);
+  background: hsl(var(--primary) / 0.08);
+}
+
+.rotation-sleeve-grid input {
+  grid-row: 1 / 3;
+  margin: 0;
+}
+
+.rotation-sleeve-grid strong {
+  font-size: 0.72rem;
+}
+
+.rotation-sleeve-grid small {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.6rem;
+}
+
+.rotation-benchmark-row {
+  margin-top: 0.65rem;
+}
+
+@media (max-width: 850px) {
+  .strategy-domain-tabs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rotation-sleeve-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .strategy-workbench-heading {

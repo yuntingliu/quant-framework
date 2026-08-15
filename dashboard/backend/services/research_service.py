@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 
-from alphalab import ResultStore, StrategyConfig, TimingStrategyConfig
+from alphalab import ResultStore
 from alphalab.dataio import DataLoadError
 from dashboard.backend.services.backtest_analytics_service import analyze_robustness
 from dashboard.backend.services.framework_service import (
@@ -13,6 +13,7 @@ from dashboard.backend.services.framework_service import (
     get_strategy_template,
     preview_paper_rebalance,
     run_strategy_backtest,
+    validate_strategy_yaml,
 )
 
 
@@ -132,36 +133,37 @@ class ResearchRunManager:
             strategy = get_strategy_template(request["strategy_id"])
             if strategy is None:
                 raise KeyError(request["strategy_id"])
-            is_timing = strategy["strategy_type"] == "market_timing"
-            if is_timing:
-                config = TimingStrategyConfig.from_yaml_string(strategy["yaml"])
-                hard_error_messages = {
-                    "Barebone timing research currently requires the MKT series",
-                    "No timing signals defined",
-                    "Timing signal weights must sum to a positive value",
-                }
-                research_inputs = {"signals": config.signal_names}
-            else:
-                config = StrategyConfig.from_yaml_string(strategy["yaml"])
-                hard_error_messages = {
-                    "No factors defined",
-                    "Factor weights must sum to a positive value",
-                }
-                research_inputs = {"factors": config.factor_names}
-            hard_errors = [
-                item for item in config.validate() if item in hard_error_messages
-            ]
-            if hard_errors:
-                raise ValueError("; ".join(hard_errors))
+            validation = validate_strategy_yaml(
+                strategy["yaml"],
+                strategy.get("python_source"),
+            )
+            if not validation["valid"]:
+                failures = [
+                    check["message"]
+                    for check in validation["checks"]
+                    if check["status"] == "failed"
+                ]
+                raise ValueError("; ".join(failures) or "strategy is not executable")
+            is_timing = validation["strategy_type"] == "market_timing"
+            is_rotation = validation["strategy_type"] == "allocation_rotation"
+            research_inputs = (
+                {"signals": validation.get("signals", [])}
+                if is_timing
+                else {"sleeves": validation.get("sleeves", [])}
+                if is_rotation
+                else {"factors": validation.get("factors", [])}
+            )
             self._finish_step(
                 store,
                 run_id,
                 current_step,
                 {
                     "strategy_id": request["strategy_id"],
-                    "strategy_type": strategy["strategy_type"],
+                    "strategy_type": validation["strategy_type"],
+                    "implementation": validation["implementation"],
+                    "python_source_sha256": validation.get("python_source_sha256"),
                     **research_inputs,
-                    "warnings": config.validate(),
+                    "warnings": validation["warnings"],
                 },
             )
             self._check_cancel(store, run_id)
@@ -196,31 +198,49 @@ class ResearchRunManager:
             )
             self._check_cancel(store, run_id)
 
-            if is_timing:
+            if is_timing or is_rotation:
                 current_step = "signal"
                 self._start_step(store, run_id, current_step)
                 execution = backtest.get("execution", {})
+                signal_detail = (
+                    {
+                        "signal_date": execution.get("latest_signal_date"),
+                        "market_exposure": execution.get("latest_exposure"),
+                    }
+                    if is_timing
+                    else {
+                        "signal_date": execution.get("latest_signal_date"),
+                        "sleeve_targets": execution.get("latest_targets", {}),
+                    }
+                )
                 self._finish_step(
                     store,
                     run_id,
                     current_step,
-                    {
-                        "signal_date": execution.get("latest_signal_date"),
-                        "market_exposure": execution.get("latest_exposure"),
-                    },
+                    signal_detail,
                 )
                 store.update_research_step(
                     run_id,
                     "risk_preview",
                     "skipped",
-                    {"reason": "market timing produces aggregate exposure, not stock orders"},
+                    {
+                        "reason": (
+                            "market timing produces aggregate exposure, not stock orders"
+                            if is_timing
+                            else "style sleeves are research returns, not tradable stock orders"
+                        )
+                    },
                 )
                 result = {
                     "backtest_id": backtest["id"],
                     "robustness_status": robustness["status"],
                     "signal_id": None,
                     "preview_id": None,
-                    "paper_execution": "not_applicable_for_market_timing",
+                    "paper_execution": (
+                        "not_applicable_for_market_timing"
+                        if is_timing
+                        else "not_applicable_for_style_rotation"
+                    ),
                 }
                 store.update_research_run(run_id, status="succeeded", result=result)
                 return store.get_research_run(run_id) or result

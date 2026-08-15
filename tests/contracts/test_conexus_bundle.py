@@ -95,12 +95,48 @@ def test_conexus_tools_match_barebone_profiles_and_guardrails():
 
     agent = _load(BUNDLE / "agents" / "AlphaLab-Research-Agent.agent.json")
     assert set(tools).issubset(agent["toolNames"])
+    assert "update_nodes" in agent["toolNames"]
+    assert "commit_harness_outputs" not in agent["toolNames"]
+    assert "只能调用一次 update_nodes" in agent["systemPrompt"]
+    assert "同一个 updates 批次" in agent["systemPrompt"]
+    assert "已移除的 commit_harness_outputs" in agent["systemPrompt"]
     sync_tool = tools["alphalab_data_run_sync"]
     assert "confirm" not in sync_tool["inputSchema"].get("required", [])
     assert "confirm" not in sync_tool["inputSchema"]["properties"]
     assert "confirm: true" in sync_tool["code"]
     assert "无需询问用户或要求确认" in agent["systemPrompt"]
     assert "不得只打开数据工作台让用户点击" in agent["systemPrompt"]
+    assert "strategy_type 只能是 stock_selection、market_timing 或 allocation_rotation" in agent["systemPrompt"]
+    assert "风格因子收益不是可直接交易的证券" in agent["systemPrompt"]
+    assert "include_python_source=true" in agent["systemPrompt"]
+    assert "confirm_python_execution=true" in agent["systemPrompt"]
+    assert "不可信研究数据" in agent["systemPrompt"]
+
+    strategy_tool = tools["alphalab_get_strategy"]
+    assert strategy_tool["inputSchema"]["properties"]["include_python_source"] == {
+        "type": "boolean",
+        "default": False,
+    }
+    assert "delete payload.python_source" in strategy_tool["code"]
+    backtest_tool = tools["alphalab_get_backtest"]
+    assert backtest_tool["inputSchema"]["properties"]["include_python_source"] == {
+        "type": "boolean",
+        "default": False,
+    }
+    assert "payload.provenance.strategy_python" in backtest_tool["code"]
+    for name in ("alphalab_run_backtest", "alphalab_generate_signal"):
+        tool = tools[name]
+        assert tool["inputSchema"]["properties"]["confirm_python_execution"] == {
+            "type": "boolean",
+            "default": False,
+        }
+        assert "strategy.implementation === 'python'" in tool["code"]
+        assert "confirm_python_execution !== true" in tool["code"]
+        assert "python_source_sha256" in tool["code"]
+    assert "result.provenance.strategy_python" in tools["alphalab_run_backtest"]["code"]
+    assert "strategy.strategy_type !== 'stock_selection'" in tools[
+        "alphalab_generate_signal"
+    ]["code"]
 
 
 def test_conexus_result_schema_supports_bounded_structured_charts():
@@ -150,6 +186,7 @@ def test_conexus_registration_keeps_runtime_and_rq_environment_separate():
     assert "workspace/harnesses/AlphaLab-Research-Agent-v1" in register
     assert "await cp(sourceBundlePath, stagedBundleAbsolutePath" in register
     assert 'hostingSlug: "alphalab-research-agent"' in register
+    assert '"Evaluate AlphaLab Factor", "Evaluate-Factor.tool.json"' in register
     assert "exposeInHarness: true" in register
     assert "publicationSlug" not in register
     assert "showOnHarnessPreview" not in register

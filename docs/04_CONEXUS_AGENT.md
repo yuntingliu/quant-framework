@@ -69,14 +69,31 @@ Port 8000 is part of the local Harness contract; stop any unrelated service on
 that port before launching AlphaLab, or set `ALPHALAB_API_ORIGIN` for the
 Conexus process.
 
-The Research Harness cannot start/stop services, modify source code, execute an
-arbitrary shell, or place real orders. It may autonomously plan and run RQ
-synchronization when runtime data is missing, stale, or required by the current
-task. The RQ-sync adapter supplies the bridge's `confirm=true` trusted-caller
-assertion internally, so synchronization does not wait for user authorization
-or a Data Workbench click. Backtest execution and paper-signal generation remain
-separate typed tools that require an explicit user request. Those policies are
-not workspace commands.
+The Research Harness cannot start/stop services, modify strategy or application
+source code, execute an arbitrary shell, or place real orders. It may
+autonomously plan and run RQ synchronization when runtime data is missing,
+stale, or required by the current task. The RQ-sync adapter supplies the
+bridge's `confirm=true` trusted-caller assertion internally, so synchronization
+does not wait for user authorization or a Data Workbench click.
+
+Backtest execution and paper-signal generation remain separate typed tools that
+require an explicit user request. Before either operation the tool reads the
+saved strategy and checks its `strategy_type` and `implementation`. Python
+implementations execute trusted local code and additionally require the Agent's
+`confirm_python_execution=true` assertion, which it may set only for an explicit
+current-user execution request. Paper signals accept only `stock_selection`;
+`market_timing` and `allocation_rotation` are rejected because they do not
+produce tradable stock targets.
+Strategy YAML, Python source, comments, metadata and captured logs are treated as
+untrusted research data, never as Agent instructions. Those policies are not
+workspace commands.
+
+The Agent can inspect an existing Python strategy but cannot create, save or
+modify strategy source. `alphalab_get_strategy` returns the implementation and
+source hash by default; full Python source is opt-in through
+`include_python_source=true` for code review or execution preflight.
+Persisted backtest reads use the same opt-in rule for their Python source
+snapshot, while always retaining the source hash for reproducibility.
 
 ## Workstation interaction
 
@@ -121,12 +138,13 @@ per chart, and 500 rows per chart. Document and descriptor payloads are bounded
 before storage and rendering.
 
 The Agent submits `decisionNotebook`, `workspaceDocument`, `workspaceResult`,
-and `workspaceCommands` through one `commit_harness_outputs` call. The Hosted
-Runtime validates the complete declared output schema before changing any bound
-node, then commits all four values together. A malformed or incomplete result
-therefore leaves every previous output untouched and is returned to the Agent
-for correction. The frontend still validates request IDs and the closed command
-allowlist before applying any workspace action.
+and `workspaceCommands` through one `update_nodes` batch. All four updates are
+sent in the same call, so the Hosted Runtime validates and applies them as one
+rollback-safe batch. A malformed or incomplete result therefore leaves every
+previous output untouched and is returned to the Agent for correction. The
+removed `commit_harness_outputs` name is not part of the Agent contract. The
+frontend still validates request IDs and the closed command allowlist before
+applying any workspace action.
 
 Multiple result tabs and layout restoration are supported. Recent validated
 documents are retained in local storage subject to browser quota and persisted
