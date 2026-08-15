@@ -74,18 +74,7 @@ def test_stage_workbench_supports_versions_code_and_real_preview():
     source = (ROOT / "dashboard/frontend/src/widgets/pipeline/StageWorkbench.tsx").read_text(
         encoding="utf-8"
     )
-    for entrypoint in (
-        "build_universe",
-        "select_assets",
-        "compute_exposure",
-        "construct_portfolio",
-        "apply_risk",
-        "create_orders",
-    ):
-        assert entrypoint in source
     for text in (
-        "Python 源码",
-        "唯一逻辑来源",
         "addComponent",
         "saveComponent",
         "cloneProject",
@@ -96,7 +85,6 @@ def test_stage_workbench_supports_versions_code_and_real_preview():
         "createInternalId",
         "应用到项目",
         "保存并应用",
-        "完整执行当前项目的冻结源码",
     ):
         assert text in source
     assert "pipeline-stage-tabs" not in source
@@ -109,6 +97,14 @@ def test_stage_workbench_supports_versions_code_and_real_preview():
     assert "research-message" not in source
     assert "meta.contract" not in source
     assert "阶段 {stageNumber}" not in source
+    assert "Python 源码" not in source
+    assert "唯一逻辑来源" not in source
+    assert "入口必须是" not in source
+    assert "组件参数 JSON" not in source
+    assert "参数与组件源码一同保存" not in source
+    assert "阶段输入与输出" not in source
+    assert "完整执行当前项目的冻结源码" not in source
+    assert "刷新阶段结果" not in source
     assert '<Widget headerless>' in source
     assert 'title={`${meta.title}工作台`}' not in source
     for implementation_term in (

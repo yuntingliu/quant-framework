@@ -34,14 +34,13 @@ type WorkbenchTab = "code" | "parameters" | "preview"
 const STAGES: Array<{
   id: PythonPipelineStage
   title: string
-  verb: string
 }> = [
-    { id: "universe", title: "标的池", verb: "build_universe" },
-    { id: "selection", title: "选股", verb: "select_assets" },
-    { id: "timing", title: "择时", verb: "compute_exposure" },
-    { id: "portfolio", title: "组合", verb: "construct_portfolio" },
-    { id: "risk", title: "风控", verb: "apply_risk" },
-    { id: "execution", title: "执行", verb: "create_orders" },
+  { id: "universe", title: "标的池" },
+  { id: "selection", title: "选股" },
+  { id: "timing", title: "择时" },
+  { id: "portfolio", title: "组合" },
+  { id: "risk", title: "风控" },
+  { id: "execution", title: "执行" },
   ]
 
 const stageMeta = (stage: PythonPipelineStage) => STAGES.find((item) => item.id === stage)!
@@ -507,12 +506,6 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
               <div className="workbench-body pipeline-editor-body">
                 {activeTab === "code" && (
                   <section>
-                    <div className="backtest-section-heading">
-                      <div>
-                        <strong>Python 源码</strong>
-                        <span>唯一逻辑来源 · 入口必须是 {meta.verb}(context)</span>
-                      </div>
-                    </div>
                     <textarea
                       className="code-view code-editor pipeline-code-editor"
                       spellCheck={false}
@@ -525,12 +518,6 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
 
                 {activeTab === "parameters" && (
                   <section>
-                    <div className="backtest-section-heading">
-                      <div>
-                        <strong>组件参数 JSON</strong>
-                        <span>参数与组件源码一同保存；策略逻辑仍只存在于 Python 函数中。</span>
-                      </div>
-                    </div>
                     <textarea
                       className="code-view code-editor pipeline-code-editor"
                       spellCheck={false}
@@ -543,20 +530,6 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
 
                 {activeTab === "preview" && (
                   <section>
-                    <div className="backtest-section-heading">
-                      <div>
-                        <strong>{meta.title}阶段输入与输出</strong>
-                        <span>完整执行当前项目的冻结源码，只展示本阶段的真实结果。</span>
-                      </div>
-                      <button
-                        className="secondary-command"
-                        type="button"
-                        onClick={() => void runPreview()}
-                        disabled={busy || !project}
-                      >
-                        <Play size={14} />{preview ? "刷新阶段结果" : "运行阶段预览"}
-                      </button>
-                    </div>
                     <div className="pipeline-preview-grid">
                       <article>
                         <div className="detail-strip"><strong>输入</strong></div>
