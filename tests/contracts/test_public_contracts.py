@@ -54,8 +54,11 @@ def test_frontend_exposes_nine_parallel_workbench_modes():
     mode_config = (ROOT / "dashboard/frontend/src/workspace/modes.ts").read_text(encoding="utf-8")
     expected_union = " | ".join(f'\"{mode}\"' for mode in MODES)
     assert f"export type WorkspaceMode = {expected_union}" in presets
-    for mode in MODES:
+    for mode in ("data", "backtest", "report"):
         assert f'{mode}: createWorkbenchPreset("{mode}"' in presets
+    for mode in STAGES:
+        assert f'{mode}: createStagePreset("{mode}"' in presets
+    for mode in MODES:
         assert f"{mode}: {{ icon:" in mode_config
     assert 'export const DEFAULT_MODE: WorkspaceMode = "data"' in presets
 
@@ -74,11 +77,13 @@ def test_stage_workbench_supports_versions_code_and_real_preview():
     source = (ROOT / "dashboard/frontend/src/widgets/pipeline/StageWorkbench.tsx").read_text(
         encoding="utf-8"
     )
+    run_hook = (ROOT / "dashboard/frontend/src/hooks/use-pipeline-stage-run.ts").read_text(
+        encoding="utf-8"
+    )
     for text in (
         "addComponent",
         "saveComponent",
         "cloneProject",
-        "/preview",
         "搜索组件",
         "组件名称",
         "项目名称",
@@ -87,6 +92,11 @@ def test_stage_workbench_supports_versions_code_and_real_preview():
         "保存并应用",
     ):
         assert text in source
+    assert "/preview" in run_hook
+    assert "/analysis" in run_hook
+    assert "Promise.all" in run_hook
+    assert "projectId, stage" in run_hook
+    assert "{ stage, profile:" in run_hook
     assert "pipeline-stage-tabs" not in source
     assert "setActiveMode" not in source
     assert "版本详情" not in source
@@ -120,6 +130,33 @@ def test_stage_workbench_supports_versions_code_and_real_preview():
     assert ".python-stage-workbench" in styles
     assert ".pipeline-preview-grid" in styles
     assert "overflow: auto" in styles
+
+
+def test_stage_modes_use_distinct_multi_panel_dockview_layouts():
+    presets = (ROOT / "dashboard/frontend/src/layouts/presets.ts").read_text(encoding="utf-8")
+    components = (ROOT / "dashboard/frontend/src/widgets/registry/components.tsx").read_text(
+        encoding="utf-8"
+    )
+    panels = (ROOT / "dashboard/frontend/src/widgets/pipeline/StageResultPanels.tsx").read_text(
+        encoding="utf-8"
+    )
+    expected = {
+        "universe": ("universe.members", "universe.chart"),
+        "selection": ("selection.ranking", "selection.chart"),
+        "timing": ("timing.chart", "timing.events"),
+        "portfolio": ("portfolio.weights", "portfolio.history"),
+        "risk": ("risk.limits", "risk.history"),
+        "execution": ("execution.settings", "execution.history"),
+    }
+    assert "position?:" in presets
+    for widget_ids in expected.values():
+        for widget_id in widget_ids:
+            assert f'componentId: "{widget_id}"' in presets
+            assert f'"{widget_id}"' in components
+    assert "CandlestickChart" in panels
+    assert "createSeriesMarkers" in (
+        ROOT / "dashboard/frontend/src/components/charts/CandlestickChart.tsx"
+    ).read_text(encoding="utf-8")
 
 
 def test_backtest_shows_and_runs_the_frozen_complete_module():

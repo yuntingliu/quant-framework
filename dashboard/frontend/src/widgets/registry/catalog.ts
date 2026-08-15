@@ -25,6 +25,18 @@ const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
   { id: "portfolio.workbench", title: "组合工作台", titleEn: "Portfolio Workbench", category: "研究流程", categoryEn: "Research Flow", description: "把选股和择时结果构造成权重", descriptionEn: "Construct weights from selection and timing outputs" },
   { id: "risk.workbench", title: "风控工作台", titleEn: "Risk Workbench", category: "研究流程", categoryEn: "Research Flow", description: "应用仓位、集中度和风险限制", descriptionEn: "Apply exposure, concentration, and risk limits" },
   { id: "execution.workbench", title: "执行工作台", titleEn: "Execution Workbench", category: "研究流程", categoryEn: "Research Flow", description: "定义调仓、成本与成交假设", descriptionEn: "Define rebalancing, cost, and fill assumptions" },
+  { id: "universe.members", title: "标的池", titleEn: "Universe Members", category: "标的池", categoryEn: "Universe", description: "查看当前阶段保留的证券", descriptionEn: "Inspect securities retained by the current universe stage" },
+  { id: "universe.chart", title: "证券行情", titleEn: "Security Chart", category: "标的池", categoryEn: "Universe", description: "联动查看池内证券历史行情", descriptionEn: "Inspect linked price history for universe members" },
+  { id: "selection.ranking", title: "选股排名", titleEn: "Selection Ranking", category: "选股", categoryEn: "Selection", description: "查看真实得分、排名与入选结果", descriptionEn: "Inspect actual scores, ranks, and selections" },
+  { id: "selection.chart", title: "入选证券行情", titleEn: "Selected Security Chart", category: "选股", categoryEn: "Selection", description: "联动查看入选证券行情", descriptionEn: "Inspect linked price history for selected securities" },
+  { id: "timing.chart", title: "择时行情与仓位点", titleEn: "Timing Chart", category: "择时", categoryEn: "Timing", description: "在行情上标注真实仓位变化", descriptionEn: "Annotate actual exposure changes on price history" },
+  { id: "timing.events", title: "仓位轨迹", titleEn: "Exposure Trace", category: "择时", categoryEn: "Timing", description: "查看历史市场仓位与信号", descriptionEn: "Inspect historical market exposure and signals" },
+  { id: "portfolio.weights", title: "目标权重", titleEn: "Target Weights", category: "组合", categoryEn: "Portfolio", description: "查看组合阶段生成的目标权重", descriptionEn: "Inspect target weights emitted by portfolio construction" },
+  { id: "portfolio.history", title: "组合轨迹", titleEn: "Portfolio Trace", category: "组合", categoryEn: "Portfolio", description: "查看历史标的数、仓位与集中度", descriptionEn: "Inspect historical names, exposure, and concentration" },
+  { id: "risk.limits", title: "约束前后", titleEn: "Before and After Risk", category: "风控", categoryEn: "Risk", description: "比较风险约束前后的权重", descriptionEn: "Compare weights before and after risk limits" },
+  { id: "risk.history", title: "风险后仓位", titleEn: "Post-risk Exposure", category: "风控", categoryEn: "Risk", description: "查看风险后仓位与现金", descriptionEn: "Inspect post-risk exposure and cash" },
+  { id: "execution.settings", title: "执行设置", titleEn: "Execution Settings", category: "执行", categoryEn: "Execution", description: "查看策略实际输出的成交假设", descriptionEn: "Inspect actual fill assumptions emitted by the strategy" },
+  { id: "execution.history", title: "调仓与成本", titleEn: "Rebalances and Costs", category: "执行", categoryEn: "Execution", description: "查看历史调仓、换手与模拟成本", descriptionEn: "Inspect historical rebalances, turnover, and modeled costs" },
   { id: "backtest.workbench", title: "回测工作台", titleEn: "Backtest Workbench", category: "研究流程", categoryEn: "Research Flow", description: "运行、历史结果、稳健性、持仓和策略对比", descriptionEn: "Run, inspect history, robustness, holdings, and comparisons" },
   { id: "report.workbench", title: "报告工作台", titleEn: "Report Workbench", category: "研究流程", categoryEn: "Research Flow", description: "查看 Agent 生成的文档、表格、图表和来源", descriptionEn: "Inspect Agent documents, tables, charts, and sources" },
 
@@ -88,8 +100,18 @@ export const coreWorkflowWidgetIds = [
   "report.workbench",
 ] as const
 
+export const stageResultWidgetIds = [
+  "universe.members", "universe.chart",
+  "selection.ranking", "selection.chart",
+  "timing.chart", "timing.events",
+  "portfolio.weights", "portfolio.history",
+  "risk.limits", "risk.history",
+  "execution.settings", "execution.history",
+] as const
+
 const activeWidgetIds = new Set<string>([
   ...coreWorkflowWidgetIds,
+  ...stageResultWidgetIds,
   "trading.rebalance",
   "trading.alerts",
 ])
@@ -99,7 +121,7 @@ export const widgetCatalog: WidgetMeta[] = widgetDefinitions.map((widget) => ({
   status: activeWidgetIds.has(widget.id) ? "active" : "not_configured",
 }))
 
-export const agentWorkspaceWidgetIds: string[] = [...coreWorkflowWidgetIds]
+export const agentWorkspaceWidgetIds: string[] = [...coreWorkflowWidgetIds, ...stageResultWidgetIds]
 
 export function isActiveWidgetId(widgetId: string): boolean {
   return activeWidgetIds.has(widgetId)

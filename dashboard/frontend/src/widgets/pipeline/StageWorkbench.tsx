@@ -22,11 +22,11 @@ import {
   api,
   type PipelineComponentDetail,
   type PipelineComponentSummary,
-  type PipelinePreview,
   type PipelineProjectDetail,
   type PipelineProjectSummary,
   type PythonPipelineStage,
 } from "@/lib/api"
+import { usePipelineStageRun } from "@/hooks/use-pipeline-stage-run"
 import { Widget } from "@/widgets/Widget"
 
 type WorkbenchTab = "code" | "parameters" | "preview"
@@ -66,7 +66,6 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   const [settings, setSettings] = useState("{}")
   const [projectName, setProjectName] = useState("我的策略")
   const [componentName, setComponentName] = useState(`自定义${meta.title}`)
-  const [preview, setPreview] = useState<PipelinePreview | null>(null)
   const [activeTab, setActiveTab] = useState<WorkbenchTab>("code")
   const [componentQuery, setComponentQuery] = useState("")
   const [newComponentOpen, setNewComponentOpen] = useState(false)
@@ -74,6 +73,7 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false)
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
+  const stageRun = usePipelineStageRun(selectedStrategy, stage)
 
   async function refreshProjects(preferred?: string) {
     const values = await api.get<PipelineProjectSummary[]>("/pipeline/projects")
@@ -106,7 +106,6 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
 
   useEffect(() => {
     if (!selectedStrategy) return
-    setPreview(null)
     api.get<PipelineProjectDetail>(`/pipeline/projects/${selectedStrategy}`)
       .then((value) => {
         setProject(value)
@@ -158,10 +157,12 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
       : isApplied ? "已应用" : "应用到项目"
   const primaryComponentActionDisabled = Boolean(
     busy
+    || stageRun.isRunning
     || !component
     || (component.editable && !isDirty && (isApplied || !project?.editable)),
   )
 
+  const preview = stageRun.preview
   const output = useMemo(() => preview?.stage_outputs?.[stage], [preview, stage])
   const input = useMemo(() => {
     if (!preview) return null
@@ -233,6 +234,7 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
       settings: nextSettings,
     })
     setProject(value)
+    await stageRun.clear()
     await refreshProjects(value.id)
   }
 
@@ -262,7 +264,6 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
         ...project.components,
         [stage]: { component_id: component.id, version: component.version },
       }, project.settings)
-      setPreview(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -291,7 +292,6 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
           ...project.components,
           [stage]: { component_id: value.id, version: value.version },
         }, project.settings)
-        setPreview(null)
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -336,18 +336,11 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   async function runPreview() {
     if (!project) return
     setActiveTab("preview")
-    setBusy(true)
     setError("")
     try {
-      const value = await api.post<PipelinePreview>(
-        `/pipeline/projects/${project.id}/preview`,
-        { profile: "demo" },
-      )
-      setPreview(value)
+      await stageRun.run()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setBusy(false)
     }
   }
 
@@ -385,7 +378,7 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
                   title="项目设置"
                   aria-label="项目设置"
                   onClick={openProjectSettings}
-                  disabled={!project}
+                  disabled={!project || stageRun.isRunning}
                 >
                   <Settings2 size={14} />
                 </button>
@@ -393,7 +386,7 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
                   className="secondary-command"
                   type="button"
                   onClick={() => setNewProjectOpen(true)}
-                  disabled={!project}
+                  disabled={!project || stageRun.isRunning}
                 >
                   <Plus size={14} />新建项目
                 </button>
@@ -401,9 +394,9 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
                   className="primary-command"
                   type="button"
                   onClick={() => void runPreview()}
-                  disabled={busy || !project}
+                  disabled={busy || stageRun.isRunning || !project}
                 >
-                  <Play size={14} />{busy ? "运行中…" : "运行阶段预览"}
+                  <Play size={14} />{stageRun.isRunning ? "运行中…" : `运行至${meta.title}`}
                 </button>
               </div>
             </div>
@@ -543,7 +536,7 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
                     {preview && (
                       <div className="detail-strip pipeline-preview-meta">
                         <Eye size={12} />
-                        {preview.signal_date} · {Object.keys(preview.targets).length} 个最终持仓
+                        {preview.signal_date} · {preview.executed_stages.map((item) => stageMeta(item).title).join(" → ")}
                       </div>
                     )}
                   </section>

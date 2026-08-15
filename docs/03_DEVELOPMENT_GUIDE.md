@@ -69,10 +69,13 @@ logs, and crash containment. It is not a security sandbox. The core must validat
 all stage outputs again and must retain point-in-time, eligibility, exposure,
 liquidity, cash, cost, and next-period gates.
 
-Preview must execute the complete composed module and then expose the requested
-stage output. It must not call a separate mock implementation. Backtest must use
-the same source hash returned by project inspection and persist it with the six
-component versions.
+Stage preview must execute the composed module through `run_stage`, running only
+the requested stage and the upstream stages needed for its inputs. For example,
+selection executes universe then selection and must not execute timing,
+portfolio, risk, or execution. Execution preview and backtest reach all six
+stages; backtest uses `run_strategy`. Preview must not call a mock implementation.
+Backtest must use the same source hash returned by project inspection and persist
+it with the six component versions.
 
 The candidate-history context is a performance-sensitive boundary. Convert
 frames to records with vectorized operations; never construct a pandas Series
@@ -100,8 +103,13 @@ The nine modes are:
 data, universe, selection, timing, portfolio, risk, execution, backtest, report
 ```
 
-Each stage mode opens one `StageWorkbench` specialization and shares the selected
-project through `WorkspaceContext`. Each workbench must show:
+Each stage mode opens a distinct multi-panel Dockview preset. Its strategy panel
+uses the `StageWorkbench` specialization and shares the selected project through
+`WorkspaceContext`. Result panels share preview and bounded historical-analysis
+queries keyed by project and target stage; only the strategy panel owns authoring
+state. Do not nest another Dockview inside a panel.
+
+The strategy panel must show:
 
 - project and its currently applied component;
 - one searchable component library;
@@ -109,8 +117,24 @@ project through `WorkspaceContext`. Each workbench must show:
 - add, save, save-and-apply, and explicit apply actions respecting immutability;
 - read-only library browsing that never changes the project;
 - project creation and project settings outside the component editor tabs;
-- actual input and output from a complete-pipeline preview;
+- actual input and output from the current stage-prefix preview;
 - independent vertical/horizontal scrolling inside Dockview.
+
+Stage result panels must visualize the real stage-prefix output rather than
+reimplementing stage logic in TypeScript:
+
+- universe: members and linked security history;
+- selection: scores/ranks, selected names, and linked security history;
+- timing: reference price history with exposure-change markers and an exposure trace;
+- portfolio: target weights and historical concentration;
+- risk: before/after weights and post-risk exposure/cash;
+- execution: emitted assumptions plus simulated turnover and costs.
+
+`POST /api/pipeline/projects/{id}/analysis` requires a target stage and is
+read-only and bounded. It may run that frozen stage prefix across recent
+rebalance points, but must use the same guarded data/scheduling core and source
+hash as a full backtest, must not execute downstream stages, and must not save a
+result row.
 
 Immutable component revisions remain an internal persistence and audit detail.
 The authoring UI must not expose version counters, selectors, hashes, or a

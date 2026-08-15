@@ -127,7 +127,7 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   alphalab_get_workspace_context: { zh: "读取项目与数据目录", en: "Read project and data catalog" },
   alphalab_get_pipeline_project: { zh: "读取六阶段项目", en: "Read six-stage project" },
   alphalab_manage_pipeline: { zh: "管理组件与项目", en: "Manage components and projects" },
-  alphalab_preview_pipeline: { zh: "预览完整策略", en: "Preview complete strategy" },
+  alphalab_preview_pipeline: { zh: "运行阶段预览", en: "Preview pipeline stage" },
   alphalab_get_market_bars: { zh: "读取历史行情", en: "Read historical bars" },
   alphalab_get_fundamentals: { zh: "读取点时基本面", en: "Read point-in-time fundamentals" },
   alphalab_get_factor_returns: { zh: "读取因子收益", en: "Read factor returns" },

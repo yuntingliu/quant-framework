@@ -95,6 +95,10 @@ def test_conexus_tools_match_the_python_pipeline_contract():
         assert "confirm_python_execution" in tool["inputSchema"]["properties"]
         assert "confirm_python_execution!==true" in tool["code"]
         assert "source_sha256" in tool["code"]
+    preview = tools["alphalab_preview_pipeline"]
+    assert "stage" in preview["inputSchema"]["required"]
+    assert preview["inputSchema"]["properties"]["stage"]["enum"] == STAGES
+    assert "JSON.stringify({stage," in preview["code"]
     assert "component_manifest.length!==6" in tools["alphalab_run_backtest"]["code"]
 
 
@@ -118,6 +122,7 @@ def test_agent_and_harness_use_only_the_nine_workbenches():
         "纯选股使用 timing-always-on",
         "纯择时使用 selection-pass-through",
         "不得声称 Python 能绕过核心闸门",
+        "不得为选股预览继续运行 timing、portfolio、risk 或 execution",
         "只能调用一次 update_nodes",
     ):
         assert text in prompt

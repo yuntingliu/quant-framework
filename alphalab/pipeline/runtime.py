@@ -7,6 +7,7 @@ from typing import Any
 from alphalab.dataio import DataEngine
 from alphalab.engine import BacktestResult, SignalEngine, run_backtest_detailed
 from alphalab.pipeline.compose import ComposedStrategy
+from alphalab.pipeline.models import STAGE_NAMES
 from alphalab.pipeline.repository import PipelineRepository
 from alphalab.strategy.config import StrategyConfig
 
@@ -68,7 +69,11 @@ def preview_pipeline_project(
     project_id: str,
     data_engine: DataEngine,
     as_of_date: str,
+    *,
+    stage: str,
 ) -> dict[str, Any]:
+    if stage not in STAGE_NAMES:
+        raise ValueError(f"stage must be one of {STAGE_NAMES}")
     project = repository.get_project(project_id)
     if project is None:
         raise KeyError(project_id)
@@ -83,21 +88,65 @@ def preview_pipeline_project(
         as_of_date,
         lookback_days=int(project["settings"].get("lookback_days", 120)),
         complete_python_source=project["composed_source"],
+        complete_pipeline_stage=stage,
         stage_parameters=stage_parameters,
     )
+    reached = engine.diagnostics.get("complete_pipeline", {})
+    stage_index = STAGE_NAMES.index(stage)
     return {
         "project_id": project_id,
         "revision": project["revision"],
         "source_sha256": project["source_sha256"],
         "signal_date": engine.diagnostics.get("as_of_date", as_of_date),
-        "targets": targets,
+        "requested_stage": stage,
+        "executed_stages": list(STAGE_NAMES[: stage_index + 1]),
+        "targets": targets if stage in {"risk", "execution"} else {},
         "diagnostics": engine.diagnostics,
         "selection": engine.selection_snapshot,
         "stage_outputs": {
-            stage: dict(engine.diagnostics.get("complete_pipeline", {}).get(stage) or {})
-            for stage in ("universe", "selection", "timing", "portfolio", "risk", "execution")
+            reached_stage: dict(reached.get(reached_stage) or {})
+            for reached_stage in STAGE_NAMES[: stage_index + 1]
         },
     }
+
+
+def analyze_pipeline_project_stage(
+    repository: PipelineRepository,
+    project_id: str,
+    stage: str,
+    start_date: str,
+    end_date: str,
+    data_engine: DataEngine,
+) -> PipelineBacktestResult:
+    """Run only a stage and its upstream dependencies over rebalance history."""
+
+    if stage not in STAGE_NAMES:
+        raise ValueError(f"stage must be one of {STAGE_NAMES}")
+    project = repository.get_project(project_id)
+    if project is None:
+        raise KeyError(project_id)
+    config = project_strategy_config(project)
+    composed = repository.compose(project_id)
+    stage_parameters = {
+        item["stage"]: dict(item["parameters"])
+        for item in project["component_manifest"]
+    }
+    result = run_backtest_detailed(
+        config,
+        start_date,
+        end_date,
+        data_engine=data_engine,
+        lookback_days=int(project["settings"].get("lookback_days", 120)),
+        complete_python_source=composed.source,
+        complete_pipeline_stage=stage,
+        stage_parameters=stage_parameters,
+    )
+    return PipelineBacktestResult(
+        project=project,
+        config=config,
+        composed=composed,
+        result=result,
+    )
 
 
 def run_pipeline_project_backtest(
@@ -135,6 +184,7 @@ def run_pipeline_project_backtest(
 
 __all__ = [
     "PipelineBacktestResult",
+    "analyze_pipeline_project_stage",
     "preview_pipeline_project",
     "project_strategy_config",
     "run_pipeline_project_backtest",

@@ -7,6 +7,8 @@ import pandas as pd
 
 from alphalab.analytics import PerformanceMetrics, equal_weight_benchmark
 from alphalab.pipeline import PipelineRepository, preview_pipeline_project, run_pipeline_project_backtest
+from alphalab.pipeline.models import STAGE_NAMES
+from alphalab.pipeline.runtime import analyze_pipeline_project_stage
 from alphalab.provenance import build_research_provenance
 from alphalab.store import ResultStore
 from dashboard.backend.services.data_service import _engine, _profile_range
@@ -112,7 +114,13 @@ def delete_project(project_id: str) -> bool:
         repo.close()
 
 
-def preview_project(project_id: str, *, profile: str, as_of_date: str | None) -> dict[str, Any]:
+def preview_project(
+    project_id: str,
+    *,
+    stage: str,
+    profile: str,
+    as_of_date: str | None,
+) -> dict[str, Any]:
     if profile not in {"demo", "runtime"}:
         raise ValueError("profile must be demo or runtime")
     _, profile_end = _profile_range(profile)
@@ -121,9 +129,77 @@ def preview_project(project_id: str, *, profile: str, as_of_date: str | None) ->
         decision_date = profile_end
     repo = repository()
     try:
-        return preview_pipeline_project(repo, project_id, _engine(profile), decision_date)
+        return preview_pipeline_project(
+            repo,
+            project_id,
+            _engine(profile),
+            decision_date,
+            stage=stage,
+        )
     finally:
         repo.close()
+
+
+def analyze_project(
+    project_id: str,
+    *,
+    stage: str,
+    profile: str,
+    months: int,
+) -> dict[str, Any]:
+    """Run the frozen project over a bounded window and expose stage traces.
+
+    This is intentionally a read-only analysis path.  It uses the same complete
+    Python source and guarded backtest core as a saved backtest, but does not
+    create a ResultStore record.
+    """
+
+    if profile not in {"demo", "runtime"}:
+        raise ValueError("profile must be demo or runtime")
+    if not 3 <= months <= 60:
+        raise ValueError("months must be between 3 and 60")
+    profile_start, profile_end = _profile_range(profile)
+    end = pd.Timestamp(profile_end)
+    start = max(pd.Timestamp(profile_start), end - pd.DateOffset(months=months))
+    if start >= end:
+        raise ValueError("profile does not contain enough history for stage analysis")
+    repo = repository()
+    try:
+        pipeline = analyze_pipeline_project_stage(
+            repo,
+            project_id,
+            stage,
+            start.strftime("%Y-%m-%d"),
+            end.strftime("%Y-%m-%d"),
+            _engine(profile),
+        )
+    finally:
+        repo.close()
+    points = []
+    for execution in pipeline.result.executions:
+        points.append(
+            {
+                "signal_date": execution.get("signal_date"),
+                "entry_date": execution.get("entry_date"),
+                "exit_date": execution.get("exit_date"),
+                "stage_outputs": dict(execution.get("stage_outputs") or {}),
+                "turnover": float(execution.get("turnover", 0.0)),
+                "total_cost": float(execution.get("total_cost", 0.0)),
+                "cash_weight": float(execution.get("cash_weight", 0.0)),
+                "restrictions": list(execution.get("restrictions") or []),
+            }
+        )
+    return {
+        "project_id": project_id,
+        "revision": pipeline.project["revision"],
+        "source_sha256": pipeline.composed.source_sha256,
+        "profile": profile,
+        "requested_stage": stage,
+        "executed_stages": list(STAGE_NAMES[: STAGE_NAMES.index(stage) + 1]),
+        "start_date": start.strftime("%Y-%m-%d"),
+        "end_date": end.strftime("%Y-%m-%d"),
+        "points": points,
+    }
 
 
 def run_project_backtest(
@@ -207,6 +283,7 @@ def run_project_backtest(
 
 
 __all__ = [
+    "analyze_project",
     "clone_component",
     "clone_project",
     "create_component",

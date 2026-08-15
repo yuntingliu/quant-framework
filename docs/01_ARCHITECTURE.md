@@ -11,6 +11,15 @@ The top-level workbenches are parallel navigation destinations:
 Data | Universe | Selection | Timing | Portfolio | Risk | Execution | Backtest | Report
 ```
 
+The six strategy-stage destinations are top-level Dockview layouts rather than
+single editor screens. Every layout contains one shared component/Python editor
+and stage-specific result panels. Universe and selection link security lists to
+price charts; timing links exposure changes to price markers and an exposure
+trace; portfolio, risk, and execution show weights, constraint deltas, turnover,
+and modeled costs. Panels observe one run cache keyed by project and target
+stage, so running selection cannot populate or execute timing, portfolio, risk,
+or execution workspaces.
+
 Their data dependency is sequential:
 
 ```text
@@ -50,10 +59,17 @@ parameter JSON, notes, and SHA-256. A project revision stores all six refs,
 settings, the composed source, and its SHA-256.
 
 `compose_strategy()` concatenates the six reviewed component sources and adds
-one `run_strategy(context)` function. Preview and backtest execute that exact
-module in the existing isolated child process. A backtest freezes the composed
-source and component manifest; inspecting a historical run never substitutes a
-newer project revision.
+`run_stage(context)` plus `run_strategy(context)`. A stage preview calls
+`run_stage` and stops after the requested stage; required upstream stages run to
+provide its inputs. A backtest calls `run_strategy` and executes all six stages.
+Both execute the exact composed module in the isolated child process. A backtest
+freezes the composed source and component manifest; inspecting a historical run
+never substitutes a newer project revision.
+
+Stage analysis is a read-only, bounded run through the same scheduling and data
+core. At every rebalance point it executes only the requested stage prefix and
+returns those actual outputs for visualization. It does not persist a backtest
+record and is not a second strategy engine.
 
 Python is trusted local code with timeout and crash containment, not an OS
 security sandbox. The framework still owns non-bypassable controls:
@@ -143,7 +159,8 @@ Strategy workstations use:
 - `GET/POST /api/pipeline/projects`
 - `GET/PUT/DELETE /api/pipeline/projects/{id}`
 - `POST /api/pipeline/projects/{id}/clone`
-- `POST /api/pipeline/projects/{id}/preview`
+- `POST /api/pipeline/projects/{id}/preview` with required `stage`
+- `POST /api/pipeline/projects/{id}/analysis` with required `stage`
 - `POST /api/backtests/run` with `project_id`
 - backtest detail, analysis, robustness, comparison, data, report, and paper APIs.
 

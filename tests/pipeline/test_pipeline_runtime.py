@@ -19,6 +19,7 @@ def test_default_project_preview_runs_the_complete_module(tmp_path):
             "six-stage-default",
             create_default_engine(),
             "2024-12-31",
+            stage="execution",
         )
     finally:
         repository.close()
@@ -29,6 +30,26 @@ def test_default_project_preview_runs_the_complete_module(tmp_path):
     assert sum(preview["targets"].values()) <= 1.0 + 1e-9
     assert max(preview["targets"].values()) <= 0.1 + 1e-9
     assert preview["diagnostics"]["complete_pipeline"]["timing"]["exposure"] == 1.0
+    assert preview["executed_stages"] == list(STAGE_NAMES)
+
+
+def test_stage_preview_stops_before_downstream_components(tmp_path):
+    repository = PipelineRepository(tmp_path / "pipeline.db")
+    try:
+        preview = preview_pipeline_project(
+            repository,
+            "six-stage-default",
+            create_default_engine(),
+            "2024-12-31",
+            stage="selection",
+        )
+    finally:
+        repository.close()
+
+    assert preview["requested_stage"] == "selection"
+    assert preview["executed_stages"] == ["universe", "selection"]
+    assert tuple(preview["stage_outputs"]) == ("universe", "selection")
+    assert "timing" not in preview["diagnostics"]["complete_pipeline"]
 
 
 def test_short_backtest_uses_the_same_frozen_source(tmp_path):
@@ -52,6 +73,7 @@ def test_short_backtest_uses_the_same_frozen_source(tmp_path):
     assert len(result.result.returns) >= 2
     assert not result.result.weights.empty
     assert result.result.executions
+    assert tuple(result.result.executions[0]["stage_outputs"]) == STAGE_NAMES
     assert result.result.diagnostics["complete_python_source_sha256"] == project["source_sha256"]
 
 
@@ -99,6 +121,7 @@ def test_core_rejects_a_component_that_escapes_the_universe(tmp_path):
                 "invalid-project",
                 create_default_engine(),
                 "2024-12-31",
+                stage="selection",
             )
     finally:
         repository.close()

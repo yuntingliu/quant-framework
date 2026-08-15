@@ -62,10 +62,35 @@ export interface PipelinePreview {
   revision: number
   source_sha256: string
   signal_date: string
+  requested_stage: PythonPipelineStage
+  executed_stages: PythonPipelineStage[]
   targets: Record<string, number>
   diagnostics: Record<string, unknown>
   selection: Record<string, unknown>
-  stage_outputs: Record<PythonPipelineStage, unknown>
+  stage_outputs: Partial<Record<PythonPipelineStage, unknown>>
+}
+
+export interface PipelineAnalysisPoint {
+  signal_date: string
+  entry_date: string
+  exit_date: string
+  stage_outputs: Partial<Record<PythonPipelineStage, unknown>>
+  turnover: number
+  total_cost: number
+  cash_weight: number
+  restrictions: string[]
+}
+
+export interface PipelineAnalysis {
+  project_id: string
+  revision: number
+  source_sha256: string
+  profile: "demo" | "runtime"
+  requested_stage: PythonPipelineStage
+  executed_stages: PythonPipelineStage[]
+  start_date: string
+  end_date: string
+  points: PipelineAnalysisPoint[]
 }
 
 export interface StrategyPipelineManifest {

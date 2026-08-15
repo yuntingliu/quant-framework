@@ -4,9 +4,11 @@ import {
   ColorType,
   CrosshairMode,
   HistogramSeries,
+  createSeriesMarkers,
   createChart,
   type CandlestickData,
   type HistogramData,
+  type SeriesMarker,
   type Time,
 } from "lightweight-charts"
 
@@ -18,10 +20,19 @@ import { useTheme } from "@/contexts/ThemeContext"
 interface CandlestickChartProps {
   rows: MarketBar[]
   selectedIndicators: IndicatorId[]
+  markers?: CandlestickMarker[]
   height?: number
 }
 
-export function CandlestickChart({ rows, selectedIndicators, height = 420 }: CandlestickChartProps) {
+export interface CandlestickMarker {
+  time: string
+  position: "aboveBar" | "belowBar" | "inBar"
+  shape: "circle" | "square" | "arrowUp" | "arrowDown"
+  color: string
+  text?: string
+}
+
+export function CandlestickChart({ rows, selectedIndicators, markers = [], height = 420 }: CandlestickChartProps) {
   const { theme } = useTheme()
   const containerRef = useRef<HTMLDivElement>(null)
   const orderedRows = useMemo(
@@ -97,6 +108,12 @@ export function CandlestickChart({ rows, selectedIndicators, height = 420 }: Can
       low: row.low,
       close: row.close,
     })) as CandlestickData<Time>[])
+    const availableDates = new Set(orderedRows.map((row) => row.date))
+    const visibleMarkers = markers
+      .filter((marker) => availableDates.has(marker.time))
+      .sort((left, right) => left.time.localeCompare(right.time))
+      .map((marker) => ({ ...marker, time: marker.time as Time })) as SeriesMarker<Time>[]
+    if (visibleMarkers.length) createSeriesMarkers(candles, visibleMarkers)
 
     addIndicatorSeries(
       chart,
@@ -130,7 +147,7 @@ export function CandlestickChart({ rows, selectedIndicators, height = 420 }: Can
       resizeObserver.disconnect()
       chart.remove()
     }
-  }, [height, orderedRows, selectedIndicators, theme])
+  }, [height, markers, orderedRows, selectedIndicators, theme])
 
   return <div ref={containerRef} className="candlestick-chart" style={{ height }} />
 }

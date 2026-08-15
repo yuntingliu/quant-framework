@@ -72,6 +72,7 @@ class SignalEngine:
         python_source: str | None = None,
         current_weights: dict[str, float] | None = None,
         complete_python_source: str | None = None,
+        complete_pipeline_stage: str = "execution",
         stage_parameters: dict[str, dict] | None = None,
         bars_override: pd.DataFrame | None = None,
     ) -> dict[str, float]:
@@ -177,6 +178,7 @@ class SignalEngine:
                 config,
                 context,
                 complete_python_source,
+                complete_pipeline_stage,
                 stage_parameters or {},
                 eligible_symbols,
                 factor_scores,
@@ -262,23 +264,63 @@ class SignalEngine:
         config: StrategyConfig,
         context: dict,
         source: str,
+        target_stage: str,
         stage_parameters: dict[str, dict],
         eligible_symbols: list[str],
         factor_scores: pd.DataFrame,
         as_of: pd.Timestamp,
     ) -> dict[str, float]:
-        """Execute the frozen six-stage module once and enforce core invariants."""
+        """Execute a frozen stage prefix and enforce every reached boundary."""
+
+        stage_order = ("universe", "selection", "timing", "portfolio", "risk", "execution")
+        if target_stage not in stage_order:
+            raise ValueError(f"complete_pipeline_stage must be one of {stage_order}")
 
         complete_context = {
             **context,
             "strategy_type": "six_stage",
+            "target_stage": target_stage,
             "stage_parameters": stage_parameters,
             "market_returns": self._market_returns_context(as_of),
         }
-        execution = execute_python_strategy(source, "run_strategy", [complete_context], 15.0)
+        entrypoint = "run_strategy" if target_stage == "execution" else "run_stage"
+        execution = execute_python_strategy(source, entrypoint, [complete_context], 15.0)
         value = execution.values[0]
         if not isinstance(value, dict):
-            raise ValueError("run_strategy must return a mapping")
+            raise ValueError(f"{entrypoint} must return a mapping")
+        runtime = {
+            "entrypoint": entrypoint,
+            "source_sha256": execution.source_sha256,
+            "duration_seconds": execution.duration_seconds,
+            "stdout": execution.stdout,
+            "stderr": execution.stderr,
+        }
+
+        def finish(
+            weights: dict[str, float],
+            ordered_scores: dict[str, float] | None = None,
+            coverage: pd.Series | None = None,
+        ) -> dict[str, float]:
+            if ordered_scores is not None and coverage is not None:
+                self._finish_selection_snapshot(
+                    config,
+                    ordered_scores,
+                    factor_scores,
+                    coverage,
+                    weights,
+                    {"stage": runtime},
+                )
+            self._diagnostics.update(
+                {
+                    "implementation": "python",
+                    "pipeline_kind": "stage_prefix",
+                    "pipeline_target_stage": target_stage,
+                    "complete_pipeline": value,
+                    "python": {"stage": runtime},
+                }
+            )
+            return weights
+
         universe = value.get("universe")
         if not isinstance(universe, dict) or not isinstance(universe.get("symbols"), list):
             raise ValueError("build_universe must return {'symbols': [...]}")
@@ -290,6 +332,10 @@ class SignalEngine:
                 raise ValueError(f"Universe stage returned an ineligible symbol: {symbol}")
             if symbol not in universe_symbols:
                 universe_symbols.append(symbol)
+        self._diagnostics["universe_count"] = len(universe_symbols)
+        if target_stage == "universe":
+            return finish({})
+
         selection = value.get("selection")
         if not isinstance(selection, dict):
             raise ValueError("select_assets must return a mapping")
@@ -305,6 +351,16 @@ class SignalEngine:
             {"scores": selection.get("scores") or {symbol: 1.0 for symbol in selected_symbols}},
             universe_set,
         )
+        coverage = (
+            factor_scores.notna().mean(axis=1)
+            if not factor_scores.empty
+            else pd.Series(1.0, index=universe_symbols, dtype=float)
+        )
+        ordered_scores = dict(sorted(scores.items(), key=lambda item: item[1], reverse=True))
+        selected_membership = {symbol: 0.0 for symbol in selected_symbols}
+        if target_stage == "selection":
+            return finish(selected_membership, ordered_scores, coverage)
+
         timing = value.get("timing")
         if not isinstance(timing, dict):
             raise ValueError("compute_exposure must return {'exposure': number}")
@@ -314,42 +370,35 @@ class SignalEngine:
             raise ValueError("Timing exposure must be numeric") from exc
         if not np.isfinite(exposure) or not 0 <= exposure <= 1:
             raise ValueError("Timing exposure must be finite and in [0, 1]")
+        self._diagnostics["timing_exposure"] = exposure
+        if target_stage == "timing":
+            return finish(selected_membership, ordered_scores, coverage)
+
+        portfolio = value.get("portfolio")
+        if not isinstance(portfolio, dict):
+            raise ValueError("construct_portfolio must return {'weights': {...}}")
+        proposed = self._coerce_weights(
+            {"weights": portfolio.get("weights")}, universe_set, label="portfolio"
+        )
+        if target_stage == "portfolio":
+            return finish(proposed, ordered_scores, coverage)
+
+        risk = value.get("risk")
+        if not isinstance(risk, dict):
+            raise ValueError("apply_risk must return {'weights': {...}}")
         weights = self._coerce_weights(
-            {"weights": value.get("weights")}, universe_set, label="risk"
+            {"weights": risk.get("weights")}, universe_set, label="risk"
         )
         weights = self._validate_target_weights(config, weights, universe_set)
-        coverage = (
-            factor_scores.notna().mean(axis=1)
-            if not factor_scores.empty
-            else pd.Series(1.0, index=universe_symbols, dtype=float)
-        )
-        ordered_scores = dict(sorted(scores.items(), key=lambda item: item[1], reverse=True))
-        runtime = {
-            "entrypoint": "run_strategy",
-            "source_sha256": execution.source_sha256,
-            "duration_seconds": execution.duration_seconds,
-            "stdout": execution.stdout,
-            "stderr": execution.stderr,
-        }
-        self._finish_selection_snapshot(
-            config,
-            ordered_scores,
-            factor_scores,
-            coverage,
-            weights,
-            {"complete": runtime},
-        )
-        self._diagnostics.update(
-            {
-                "implementation": "python",
-                "pipeline_kind": "six_stage",
-                "universe_count": len(universe_symbols),
-                "timing_exposure": exposure,
-                "complete_pipeline": value,
-                "python": {"complete": runtime},
-            }
-        )
-        return weights
+        if target_stage == "risk":
+            return finish(weights, ordered_scores, coverage)
+
+        execution_stage = value.get("execution")
+        if not isinstance(execution_stage, dict) or not isinstance(
+            execution_stage.get("execution"), dict
+        ):
+            raise ValueError("create_orders must return {'execution': {...}}")
+        return finish(weights, ordered_scores, coverage)
 
     def _market_returns_context(self, as_of: pd.Timestamp) -> list[dict]:
         start = (as_of - pd.DateOffset(months=48)).strftime("%Y-%m-%d")
@@ -669,6 +718,7 @@ def run_backtest(
     lookback_days: int = 120,
     python_source: str | None = None,
     complete_python_source: str | None = None,
+    complete_pipeline_stage: str = "execution",
     stage_parameters: dict[str, dict] | None = None,
 ) -> tuple[pd.Series, pd.DataFrame]:
     """Run the configured backtest and return its net returns and holdings."""
@@ -681,6 +731,7 @@ def run_backtest(
         lookback_days=lookback_days,
         python_source=python_source,
         complete_python_source=complete_python_source,
+        complete_pipeline_stage=complete_pipeline_stage,
         stage_parameters=stage_parameters,
     )
     return result.returns, result.weights
@@ -694,6 +745,7 @@ def run_backtest_detailed(
     lookback_days: int = 120,
     python_source: str | None = None,
     complete_python_source: str | None = None,
+    complete_pipeline_stage: str = "execution",
     stage_parameters: dict[str, dict] | None = None,
 ) -> BacktestResult:
     """Run a PIT rebalance simulation with next-session execution constraints.
@@ -746,6 +798,7 @@ def run_backtest_detailed(
             python_source=python_source,
             current_weights=previous,
             complete_python_source=complete_python_source,
+            complete_pipeline_stage=complete_pipeline_stage,
             stage_parameters=stage_parameters,
             bars_override=bars,
         )
@@ -765,6 +818,32 @@ def run_backtest_detailed(
             warnings.add(
                 "instrument metadata snapshot post-dates at least one signal date"
             )
+        if complete_python_source is not None and complete_pipeline_stage != "execution":
+            reached = signal_diagnostics.get("complete_pipeline") or {}
+            executions.append(
+                {
+                    "signal_date": signal_date.strftime("%Y-%m-%d"),
+                    "entry_date": entry_date.strftime("%Y-%m-%d"),
+                    "exit_date": exit_date.strftime("%Y-%m-%d"),
+                    "stage_outputs": {
+                        stage: dict(reached.get(stage) or {})
+                        for stage in (
+                            "universe",
+                            "selection",
+                            "timing",
+                            "portfolio",
+                            "risk",
+                            "execution",
+                        )
+                        if stage in reached
+                    },
+                    "turnover": 0.0,
+                    "total_cost": 0.0,
+                    "cash_weight": 1.0,
+                    "restrictions": [],
+                }
+            )
+            continue
         if complete_python_source is not None:
             period_cfg, execution_runtime = _complete_execution_config_for_period(
                 cfg, signal_diagnostics.get("complete_pipeline")
@@ -820,6 +899,24 @@ def run_backtest_detailed(
                 "execution_price": period_cfg.execution.execution_price,
                 "execution_settings": asdict(period_cfg.execution),
                 "pipeline_execution": execution_runtime,
+                "stage_outputs": (
+                    {
+                        stage: dict(
+                            (signal_diagnostics.get("complete_pipeline") or {}).get(stage)
+                            or {}
+                        )
+                        for stage in (
+                            "universe",
+                            "selection",
+                            "timing",
+                            "portfolio",
+                            "risk",
+                            "execution",
+                        )
+                    }
+                    if complete_python_source is not None
+                    else {}
+                ),
                 "gross_return": float(
                     sum(executed.get(symbol, 0.0) * value for symbol, value in asset_returns.items())
                 ),
@@ -852,6 +949,9 @@ def run_backtest_detailed(
             "execution": asdict(cfg.execution),
             "pipeline": cfg.pipeline.to_dict(),
             "pipeline_kind": "six_stage" if complete_python_source is not None else "internal",
+            "pipeline_target_stage": (
+                complete_pipeline_stage if complete_python_source is not None else None
+            ),
             "complete_python_source_sha256": (
                 python_source_sha256(complete_python_source)
                 if complete_python_source is not None

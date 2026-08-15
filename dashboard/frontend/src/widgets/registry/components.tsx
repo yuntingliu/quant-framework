@@ -17,6 +17,20 @@ import {
   TimingWorkbenchWidget,
   UniverseWorkbenchWidget,
 } from "../pipeline/StageWorkbench"
+import {
+  ExecutionHistoryWidget,
+  ExecutionSettingsWidget,
+  PortfolioHistoryWidget,
+  PortfolioWeightsWidget,
+  RiskHistoryWidget,
+  RiskLimitsWidget,
+  SelectionChartWidget,
+  SelectionRankingWidget,
+  TimingChartWidget,
+  TimingEventsWidget,
+  UniverseChartWidget,
+  UniverseMembersWidget,
+} from "../pipeline/StageResultPanels"
 import { AdapterDisabledWidget } from "../system/AdapterDisabled"
 
 import { widgetCatalog, widgetCategory, widgetDescription, widgetTitleById } from "./catalog"
@@ -50,6 +64,18 @@ export const widgetComponents: Record<string, ComponentType> = {
   "portfolio.workbench": PortfolioWorkbenchWidget,
   "risk.workbench": RiskWorkbenchWidget,
   "execution.workbench": ExecutionWorkbenchWidget,
+  "universe.members": UniverseMembersWidget,
+  "universe.chart": UniverseChartWidget,
+  "selection.ranking": SelectionRankingWidget,
+  "selection.chart": SelectionChartWidget,
+  "timing.chart": TimingChartWidget,
+  "timing.events": TimingEventsWidget,
+  "portfolio.weights": PortfolioWeightsWidget,
+  "portfolio.history": PortfolioHistoryWidget,
+  "risk.limits": RiskLimitsWidget,
+  "risk.history": RiskHistoryWidget,
+  "execution.settings": ExecutionSettingsWidget,
+  "execution.history": ExecutionHistoryWidget,
   "backtest.workbench": BacktestWorkbenchWidget,
   "report.workbench": ReportWorkbenchWidget,
 

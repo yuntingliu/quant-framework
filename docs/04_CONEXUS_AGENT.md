@@ -26,6 +26,10 @@ Current strategy tools are:
 - `alphalab_get_backtest`
 - `alphalab_analyze_backtest`
 
+`alphalab_preview_pipeline` requires a target stage. It executes that stage and
+only its upstream dependencies; `alphalab_run_backtest` remains the complete
+six-stage run.
+
 There are no compatibility aliases for the removed strategy-template tools.
 
 ## Safety Boundary

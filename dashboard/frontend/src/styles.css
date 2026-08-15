@@ -1163,6 +1163,270 @@ button {
   border-radius: 0.375rem;
 }
 
+/* Stage-specific Dockview result panels share one cached complete-pipeline run. */
+.pipeline-stage-panel {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.stage-panel-toolbar {
+  display: flex;
+  min-height: 2.25rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  padding: 0.35rem 0.55rem;
+}
+
+.stage-panel-toolbar > span,
+.stage-panel-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.625rem;
+}
+
+.stage-panel-toolbar > span {
+  color: hsl(var(--muted-foreground));
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.stage-panel-toolbar button {
+  min-height: 1.65rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.3rem;
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  padding: 0 0.5rem;
+}
+
+.stage-panel-toolbar button:hover:not(:disabled) {
+  border-color: hsl(var(--primary) / 0.4);
+  color: hsl(var(--primary));
+}
+
+.stage-panel-toolbar button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.stage-panel-toolbar .spin {
+  animation: stage-panel-spin 0.8s linear infinite;
+}
+
+@keyframes stage-panel-spin {
+  to { transform: rotate(360deg); }
+}
+
+.stage-panel-body {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 0.55rem;
+}
+
+.stage-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.stage-kpi-grid > div,
+.stage-settings-grid > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.35rem;
+  background: hsl(var(--muted) / 0.35);
+  padding: 0.5rem;
+}
+
+.stage-kpi-grid span,
+.stage-settings-grid span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.5625rem;
+  font-weight: 600;
+}
+
+.stage-kpi-grid strong,
+.stage-settings-grid strong {
+  overflow: hidden;
+  font: 600 0.8rem/1.25 "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-overflow: ellipsis;
+}
+
+.stage-filter {
+  display: block;
+  margin-bottom: 0.45rem;
+}
+
+.stage-filter input {
+  width: 100%;
+  height: 1.9rem;
+  box-sizing: border-box;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.3rem;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  padding: 0 0.5rem;
+  font-size: 0.6875rem;
+}
+
+.stage-symbol-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.35rem;
+}
+
+.stage-symbol-grid button {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.3rem;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  padding: 0.4rem 0.45rem;
+  text-align: left;
+}
+
+.stage-symbol-grid button:hover,
+.stage-symbol-grid button.active {
+  border-color: hsl(var(--primary) / 0.5);
+  background: hsl(var(--primary) / 0.07);
+}
+
+.stage-symbol-grid strong,
+.stage-symbol-grid span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stage-symbol-grid strong {
+  font: 600 0.6875rem/1.2 "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.stage-symbol-grid span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.5625rem;
+}
+
+.stage-table-wrap {
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.35rem;
+}
+
+.stage-table-wrap.compact {
+  max-height: 15rem;
+}
+
+.stage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.625rem;
+  white-space: nowrap;
+}
+
+.stage-table th,
+.stage-table td {
+  border-bottom: 1px solid hsl(var(--border));
+  padding: 0.4rem 0.45rem;
+  text-align: right;
+}
+
+.stage-table th:first-child,
+.stage-table td:first-child,
+.stage-table th:nth-child(2),
+.stage-table td:nth-child(2) {
+  text-align: left;
+}
+
+.stage-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  font-weight: 600;
+}
+
+.stage-table tbody tr {
+  cursor: default;
+}
+
+.stage-table tbody tr:hover,
+.stage-table tbody tr.active {
+  background: hsl(var(--primary) / 0.06);
+}
+
+.stage-table td strong,
+.stage-table td small {
+  display: block;
+}
+
+.stage-table td small {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.525rem;
+}
+
+.stage-table td em {
+  color: hsl(var(--chart-2));
+  font-style: normal;
+  font-weight: 600;
+}
+
+.stage-table td.negative {
+  color: hsl(var(--destructive));
+}
+
+.stage-chart-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.5rem;
+}
+
+.stage-chart-toolbar .symbol-combobox {
+  min-width: 12rem;
+  flex: 1 1 18rem;
+}
+
+.stage-kline-frame {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.35rem;
+}
+
+.stage-history-chart {
+  min-width: 0;
+  margin-bottom: 0.5rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.35rem;
+  padding: 0.35rem;
+}
+
+.stage-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.45rem;
+}
+
 @container (max-width: 900px) {
   .backtest-run-controls.pipeline-stage-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
