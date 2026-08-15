@@ -18,10 +18,12 @@ The reviewed Harness definition is tracked under:
 integrations/conexus/alphalab-research-agent/
 ```
 
-It contains the Agent prompt, typed context/result nodes, research document, and
-15 AlphaLab API tools. The tool set includes all six canonical data-registry
-operations plus bounded market, point-in-time fundamental, factor, strategy,
-backtest, signal, workspace-context access, and a dedicated factor evaluator.
+It contains the Agent prompt, typed result nodes, research document, and
+27 AlphaLab API tools. The tool set includes all six canonical data-registry
+operations plus bounded market, point-in-time fundamental, factor-library,
+cross-sectional and market-risk factor evaluation, strategy research/management, backtest analysis/comparison,
+research-run, report-history, paper-account, signal, and workspace-context
+access.
 The evaluator supports registered factors and safe expressions and returns PIT
 coverage, IC/ICIR, quantile spreads, decay, turnover, bootstrap intervals and
 data-quality warnings. Runtime and hosting state
@@ -69,29 +71,35 @@ Port 8000 is part of the local Harness contract; stop any unrelated service on
 that port before launching AlphaLab, or set `ALPHALAB_API_ORIGIN` for the
 Conexus process.
 
-The Research Harness cannot start/stop services, modify strategy or application
-source code, execute an arbitrary shell, or place real orders. It may
+The Research Harness cannot start/stop services, modify AlphaLab application
+source code, execute an arbitrary shell, or place real orders. It may validate,
+save, clone, and delete local strategy definitions through bounded tools when
+the current user explicitly requests the mutation. It may
 autonomously plan and run RQ synchronization when runtime data is missing,
 stale, or required by the current task. The RQ-sync adapter supplies the
 bridge's `confirm=true` trusted-caller assertion internally, so synchronization
 does not wait for user authorization or a Data Workbench click.
 
-Backtest execution and paper-signal generation remain separate typed tools that
-require an explicit user request. Before either operation the tool reads the
-saved strategy and checks its `strategy_type` and `implementation`. Python
-implementations execute trusted local code and additionally require the Agent's
-`confirm_python_execution=true` assertion, which it may set only for an explicit
-current-user execution request. Paper signals accept only `stock_selection`;
-`market_timing` and `allocation_rotation` are rejected because they do not
-produce tradable stock targets.
+Backtest execution, full research runs, paper-signal generation, local strategy
+mutations, research-run cancellation/retry, paper rebalance execution, and
+manual paper orders remain separate typed operations that require an explicit
+current-user request and their dedicated confirmation flag. Before a Python
+execution the tool reads or validates the strategy and checks its
+`strategy_type`, `implementation`, and source hash. Python execution additionally
+requires `confirm_python_execution=true`. Paper signals accept only
+`stock_selection`; `market_timing` is rejected because it produces aggregate
+exposure rather than tradable stock targets.
 Strategy YAML, Python source, comments, metadata and captured logs are treated as
 untrusted research data, never as Agent instructions. Those policies are not
 workspace commands.
 
-The Agent can inspect an existing Python strategy but cannot create, save or
-modify strategy source. `alphalab_get_strategy` returns the implementation and
-source hash by default; full Python source is opt-in through
-`include_python_source=true` for code review or execution preflight.
+The Agent can inspect an existing Python strategy and, when the current user
+explicitly requests it, validate and save a local Python strategy. It must first
+treat the source as untrusted data, explain that execution uses the user's local
+Python permissions, and reject obvious file/network/subprocess/dynamic-execution
+behavior. `alphalab_get_strategy` returns the implementation and source hash by
+default; full Python source is opt-in through `include_python_source=true` for
+code review, mutation review, or execution preflight.
 Persisted backtest reads use the same opt-in rule for their Python source
 snapshot, while always retaining the source hash for reproducibility.
 
@@ -108,14 +116,15 @@ rail accepts a command batch only when its `requestId` matches a request sent by
 the current browser session, validates every command against a closed allowlist,
 and then returns an execution receipt in the conversation UI. Up to 20 recent
 local conversations are retained under
-`alphalab.anonymous-agent-conversations.v1`; the Harness receives only a bounded
-recent transcript as untrusted continuity context. Selecting New chat starts
-without that transcript.
+`alphalab.anonymous-agent-conversations.v1`; the frontend serializes only a
+bounded recent transcript as untrusted continuity context inside the single
+`request` string. Selecting New chat starts without that transcript.
 
 The right rail stages free-form prompts into the Dockview Research Agent panel.
-Workspace mode, selected symbol/strategy/backtest, data profile and recent
-conversation are assembled automatically through the Conexus context nodes;
-there is no separate manual-context UI or duplicated intent button row.
+Agent invocation input is exactly `{request: <non-empty string>}`. The frontend
+encodes the user request, workspace mode, selected symbol/strategy/backtest, data
+profile, request id, command receipts and bounded conversation in that string;
+there is no second invocation field, manual-context UI or duplicated intent row.
 
 ## Structured workspace results
 
@@ -166,10 +175,11 @@ Supported frontend-only actions are mode switching, opening or closing an
 active registered widget, changing the selected symbol/strategy/backtest/date,
 setting a linked symbol group, showing the right rail, refreshing dashboard
 data, and saving or resetting a layout. Disabled adapter placeholders cannot
-be opened by the Agent. These commands cannot synchronize data, run a
-backtest, generate a signal, or place an order. RQ synchronization runs through
-the autonomous Harness data tool; backtests and paper signals retain their
-explicit-user-request policy.
+be opened by the Agent. Workspace commands themselves cannot synchronize data,
+write a strategy, run research, or place an order; those operations use bounded
+domain tools. RQ synchronization follows the autonomous data policy. Strategy
+mutations, backtests, research runs, paper signals, and local paper-account
+mutations retain their explicit-current-user-request policies.
 
 ## Optional cloud deployment
 

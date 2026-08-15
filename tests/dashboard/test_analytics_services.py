@@ -61,6 +61,8 @@ def test_market_analytics_kpi_stats_and_empty_frame(monkeypatch, factor_frame):
     stats = market_analytics_service.compute_factor_stats()
     assert {row["factor"] for row in stats["stats"]} == {"MKT", "SMB", "HML"}
     assert all(row["max_dd"] is not None for row in stats["stats"])
+    selected_stats = market_analytics_service.compute_factor_stats(factors=["SMB"])
+    assert [row["factor"] for row in selected_stats["stats"]] == ["SMB"]
 
     monkeypatch.setattr(
         market_analytics_service,
@@ -70,6 +72,33 @@ def test_market_analytics_kpi_stats_and_empty_frame(monkeypatch, factor_frame):
     empty = market_analytics_service.compute_cumulative_returns()
     assert empty["dates"] == []
     assert empty["series"] == {"MKT": [], "SMB": [], "HML": []}
+
+
+def test_custom_market_risk_factor_is_a_safe_linear_return_combination(
+    monkeypatch,
+    factor_frame,
+):
+    _install_factor_frame(monkeypatch, factor_frame)
+
+    result = market_analytics_service.compute_custom_risk_factor(
+        "market_plus_size",
+        "0.75 * MKT + 0.25 * SMB",
+    )
+
+    expected = 0.75 * factor_frame["MKT"] + 0.25 * factor_frame["SMB"]
+    assert result["dependencies"] == ["MKT", "SMB"]
+    assert result["returns"] == pytest.approx(expected.tolist())
+    assert result["summary"]["observations"] == len(factor_frame)
+    assert result["summary"]["annual_volatility"] is not None
+
+    with pytest.raises(ValueError, match="multiply two return series"):
+        market_analytics_service.compute_custom_risk_factor("invalid", "MKT * SMB")
+    with pytest.raises(ValueError, match="unknown market risk return inputs"):
+        market_analytics_service.compute_custom_risk_factor("invalid", "UNKNOWN + MKT")
+
+
+def test_market_factor_parser_preserves_canonical_lowercase_risk_free_name():
+    assert market_analytics_service._parse_factors(["mkt", "RF", "rf"]) == ["MKT", "rf"]
 
 
 def test_backtest_analysis_derives_equity_turnover_and_holdings():

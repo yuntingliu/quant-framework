@@ -2364,6 +2364,10 @@ button {
   font-size: 0.6875rem;
 }
 
+.factor-risk-expression-controls {
+  grid-template-columns: minmax(12rem, 1fr) auto;
+}
+
 .inline-check {
   display: inline-flex;
   align-items: center;
@@ -2485,6 +2489,38 @@ button {
   border-radius: 0.375rem;
   background: hsl(var(--chart-1) / 0.06);
   padding: 0.625rem 0.75rem;
+}
+
+.factor-custom-context {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.625rem;
+  margin-bottom: 0.625rem;
+  border: 1px solid hsl(var(--primary) / 0.3);
+  border-radius: 0.375rem;
+  background: hsl(var(--primary) / 0.06);
+  padding: 0.625rem 0.75rem;
+}
+
+.factor-custom-context > svg {
+  color: hsl(var(--primary));
+}
+
+.factor-custom-context strong,
+.factor-custom-context span {
+  display: block;
+}
+
+.factor-custom-context strong {
+  color: hsl(var(--foreground));
+  font-size: 0.75rem;
+}
+
+.factor-custom-context span {
+  margin-top: 0.2rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.6875rem;
 }
 
 .factor-data-context > svg {
@@ -2774,54 +2810,100 @@ button {
   overflow: hidden;
 }
 
-.strategy-domain-tabs {
+.strategy-workflow-header {
   display: grid;
+  min-width: 0;
   flex: 0 0 auto;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.4rem;
+  grid-template-columns: auto minmax(24rem, 1fr) minmax(10rem, auto);
+  gap: 0.55rem;
+  align-items: center;
   border-bottom: 1px solid hsl(var(--border));
   background: hsl(var(--card));
   padding: 0.45rem 0.6rem;
 }
 
-.strategy-domain-tabs button {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-rows: auto auto;
-  column-gap: 0.4rem;
+.strategy-signal-switch,
+.strategy-stage-tabs {
+  display: flex;
   align-items: center;
+  gap: 0.3rem;
+}
+
+.strategy-signal-switch > span {
+  margin-right: 0.15rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.625rem;
+  font-weight: 650;
+}
+
+.strategy-signal-switch button,
+.strategy-stage-tabs button {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
   border: 1px solid hsl(var(--border));
   border-radius: 0.4rem;
   background: hsl(var(--background));
   color: hsl(var(--muted-foreground));
   cursor: pointer;
-  padding: 0.42rem 0.55rem;
-  text-align: left;
-}
-
-.strategy-domain-tabs button svg {
-  grid-row: 1 / 3;
-}
-
-.strategy-domain-tabs button span {
-  color: hsl(var(--foreground));
-  font-size: 0.7rem;
-  font-weight: 650;
-}
-
-.strategy-domain-tabs button small {
-  overflow: hidden;
-  font-size: 0.58rem;
-  text-overflow: ellipsis;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.65rem;
   white-space: nowrap;
 }
 
-.strategy-domain-tabs button:hover,
-.strategy-domain-tabs button.active {
+.strategy-stage-tabs {
+  min-width: 0;
+  justify-content: center;
+}
+
+.strategy-stage-tabs button {
+  flex: 1 1 0;
+}
+
+.strategy-stage-tabs button small {
+  display: inline-grid;
+  width: 1rem;
+  height: 1rem;
+  place-items: center;
+  border-radius: 50%;
+  background: hsl(var(--muted));
+  font-size: 0.55rem;
+}
+
+.strategy-signal-switch button:hover,
+.strategy-signal-switch button.active,
+.strategy-stage-tabs button:hover,
+.strategy-stage-tabs button.active {
   border-color: hsl(var(--primary) / 0.42);
   background: hsl(var(--primary) / 0.09);
   color: hsl(var(--primary));
+}
+
+.strategy-stage-tabs button.active small {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.strategy-stage-context {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.strategy-stage-context strong {
+  color: hsl(var(--foreground));
+  font-size: 0.65rem;
+}
+
+.strategy-stage-context span {
+  overflow: hidden;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.58rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .strategy-workbench {
@@ -2837,56 +2919,16 @@ button {
 
 .strategy-domain-shell > .strategy-workbench {
   flex: 1 1 auto;
+  height: auto;
 }
 
-.rotation-sleeve-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0.4rem;
-}
-
-.rotation-sleeve-grid label {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  column-gap: 0.4rem;
-  align-items: center;
-  border: 1px solid hsl(var(--border));
-  border-radius: 0.4rem;
-  background: hsl(var(--background));
-  cursor: pointer;
-  padding: 0.55rem;
-}
-
-.rotation-sleeve-grid label.selected {
-  border-color: hsl(var(--primary) / 0.45);
-  background: hsl(var(--primary) / 0.08);
-}
-
-.rotation-sleeve-grid input {
-  grid-row: 1 / 3;
-  margin: 0;
-}
-
-.rotation-sleeve-grid strong {
-  font-size: 0.72rem;
-}
-
-.rotation-sleeve-grid small {
-  color: hsl(var(--muted-foreground));
-  font-size: 0.6rem;
-}
-
-.rotation-benchmark-row {
-  margin-top: 0.65rem;
-}
-
-@media (max-width: 850px) {
-  .strategy-domain-tabs {
-    grid-template-columns: minmax(0, 1fr);
+@container (max-width: 1000px) {
+  .strategy-workflow-header {
+    grid-template-columns: auto minmax(22rem, 1fr);
   }
 
-  .rotation-sleeve-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .strategy-stage-context {
+    display: none;
   }
 }
 
@@ -3250,6 +3292,49 @@ button {
   grid-column: 1 / -1;
 }
 
+.strategy-stage-audit {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
+
+.strategy-stage-audit > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.15rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.35rem;
+  background: hsl(var(--background));
+  padding: 0.5rem;
+}
+
+.strategy-stage-audit span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.59rem;
+}
+
+.strategy-stage-audit strong {
+  overflow: hidden;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.strategy-enforced-pill {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid hsl(var(--chart-2) / 0.35);
+  border-radius: 999px;
+  color: hsl(var(--chart-2));
+  padding: 0.2rem 0.4rem;
+  font-size: 0.58rem;
+  font-weight: 650;
+}
+
 .strategy-section-heading {
   display: flex;
   align-items: flex-start;
@@ -3307,7 +3392,7 @@ button {
 
 .strategy-factor-toolbar {
   display: grid;
-  grid-template-columns: minmax(8rem, 1fr) auto auto auto;
+  grid-template-columns: minmax(8rem, 1fr) auto auto auto auto;
   gap: 0.35rem;
   align-items: center;
   margin-bottom: 0.5rem;
@@ -3399,6 +3484,36 @@ button {
 
 .strategy-factor-row + .strategy-factor-row {
   border-top: 1px solid hsl(var(--border));
+}
+
+.strategy-factor-expression + .strategy-factor-row {
+  border-top: 1px solid hsl(var(--border));
+}
+
+.strategy-factor-expression {
+  display: grid;
+  gap: 0.3rem;
+  border-top: 1px dashed hsl(var(--border));
+  background: hsl(var(--background) / 0.55);
+  padding: 0.5rem;
+}
+
+.strategy-factor-expression span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.625rem;
+  font-weight: 600;
+}
+
+.strategy-factor-expression textarea {
+  min-height: 3.75rem;
+  resize: vertical;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.3rem;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  padding: 0.45rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.6875rem;
 }
 
 .strategy-factor-name strong,
@@ -3776,6 +3891,20 @@ button {
 }
 
 @container (max-width: 760px) {
+  .strategy-workflow-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .strategy-signal-switch,
+  .strategy-stage-tabs {
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+
+  .strategy-stage-tabs button {
+    flex: 0 0 auto;
+  }
+
   .strategy-workbench-layout {
     grid-template-columns: 8.5rem minmax(0, 1fr);
   }

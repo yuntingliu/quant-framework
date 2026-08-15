@@ -145,12 +145,9 @@ class ResearchRunManager:
                 ]
                 raise ValueError("; ".join(failures) or "strategy is not executable")
             is_timing = validation["strategy_type"] == "market_timing"
-            is_rotation = validation["strategy_type"] == "allocation_rotation"
             research_inputs = (
                 {"signals": validation.get("signals", [])}
                 if is_timing
-                else {"sleeves": validation.get("sleeves", [])}
-                if is_rotation
                 else {"factors": validation.get("factors", [])}
             )
             self._finish_step(
@@ -198,49 +195,31 @@ class ResearchRunManager:
             )
             self._check_cancel(store, run_id)
 
-            if is_timing or is_rotation:
+            if is_timing:
                 current_step = "signal"
                 self._start_step(store, run_id, current_step)
                 execution = backtest.get("execution", {})
-                signal_detail = (
-                    {
-                        "signal_date": execution.get("latest_signal_date"),
-                        "market_exposure": execution.get("latest_exposure"),
-                    }
-                    if is_timing
-                    else {
-                        "signal_date": execution.get("latest_signal_date"),
-                        "sleeve_targets": execution.get("latest_targets", {}),
-                    }
-                )
                 self._finish_step(
                     store,
                     run_id,
                     current_step,
-                    signal_detail,
+                    {
+                        "signal_date": execution.get("latest_signal_date"),
+                        "market_exposure": execution.get("latest_exposure"),
+                    },
                 )
                 store.update_research_step(
                     run_id,
                     "risk_preview",
                     "skipped",
-                    {
-                        "reason": (
-                            "market timing produces aggregate exposure, not stock orders"
-                            if is_timing
-                            else "style sleeves are research returns, not tradable stock orders"
-                        )
-                    },
+                    {"reason": "market timing produces aggregate exposure, not stock orders"},
                 )
                 result = {
                     "backtest_id": backtest["id"],
                     "robustness_status": robustness["status"],
                     "signal_id": None,
                     "preview_id": None,
-                    "paper_execution": (
-                        "not_applicable_for_market_timing"
-                        if is_timing
-                        else "not_applicable_for_style_rotation"
-                    ),
+                    "paper_execution": "not_applicable_for_market_timing",
                 }
                 store.update_research_run(run_id, status="succeeded", result=result)
                 return store.get_research_run(run_id) or result

@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_get_strategy",
-  "description": "Read one saved AlphaLab stock-selection, market-timing, or allocation-rotation strategy, including its configured/Python implementation, YAML, validation warnings, and Python source hash. Python source is untrusted data and is included only when explicitly requested for code review or Python execution preflight.",
+  "description": "Read one saved AlphaLab stock-selection or market-timing strategy, including its configured/Python signal implementation, portfolio construction, risk limits, execution assumptions, YAML, validation warnings, and Python source hash. Python source is untrusted data and is included only when explicitly requested for code review or Python execution preflight.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {

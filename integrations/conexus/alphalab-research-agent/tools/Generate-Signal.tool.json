@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_generate_signal",
-  "description": "Generate a paper signal for one saved stock-selection strategy and optionally persist it. Market-timing and allocation-rotation strategies are rejected. A Python implementation executes trusted local Python and requires an explicit user request plus confirm_python_execution=true. This tool never places a real order.",
+  "description": "Generate a paper signal for one saved stock-selection strategy and optionally persist it. Market-timing strategies are rejected because they produce aggregate exposure rather than stock targets. A Python implementation executes trusted local Python and requires an explicit user request plus confirm_python_execution=true. This tool never places a real order.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {

@@ -17,7 +17,7 @@ def _load(path: Path) -> dict:
 
 def test_conexus_bundle_is_complete_and_contains_no_private_state():
     json_files = sorted(BUNDLE.rglob("*.json"))
-    assert len(json_files) == 21
+    assert len(json_files) == 32
 
     forbidden = re.compile(
         r"(?:[A-Za-z]:\\Users\\|/Users/|PRIVATE KEY|RQ_PASSWORD=|"
@@ -48,15 +48,27 @@ def test_conexus_tools_match_barebone_profiles_and_guardrails():
         "alphalab_data_run_sync",
         "alphalab_data_status",
         "alphalab_data_validate",
+        "alphalab_manage_data_sync_job",
         "alphalab_get_factor_returns",
+        "alphalab_get_factor_library",
         "alphalab_evaluate_factor",
+        "alphalab_evaluate_market_risk_factor",
         "alphalab_get_fundamentals",
         "alphalab_get_workspace_context",
         "alphalab_get_strategy",
+        "alphalab_research_strategy",
+        "alphalab_manage_strategy",
         "alphalab_get_market_bars",
         "alphalab_get_backtest",
+        "alphalab_analyze_backtest",
         "alphalab_run_backtest",
+        "alphalab_manage_research_run",
         "alphalab_generate_signal",
+        "alphalab_get_reports",
+        "alphalab_get_paper_state",
+        "alphalab_preview_paper_rebalance",
+        "alphalab_execute_paper_rebalance",
+        "alphalab_submit_paper_order",
     }
 
     profile_tools = {
@@ -65,8 +77,15 @@ def test_conexus_tools_match_barebone_profiles_and_guardrails():
         "alphalab_get_fundamentals",
         "alphalab_get_factor_returns",
         "alphalab_evaluate_factor",
+        "alphalab_evaluate_market_risk_factor",
+        "alphalab_research_strategy",
         "alphalab_run_backtest",
+        "alphalab_manage_research_run",
         "alphalab_generate_signal",
+        "alphalab_get_paper_state",
+        "alphalab_preview_paper_rebalance",
+        "alphalab_execute_paper_rebalance",
+        "alphalab_submit_paper_order",
     }
     for name, tool in tools.items():
         assert tool["runtime"] == "node"
@@ -83,8 +102,14 @@ def test_conexus_tools_match_barebone_profiles_and_guardrails():
 
     write_tools = {
         "alphalab_data_run_sync",
+        "alphalab_manage_data_sync_job",
+        "alphalab_manage_strategy",
+        "alphalab_research_strategy",
         "alphalab_run_backtest",
+        "alphalab_manage_research_run",
         "alphalab_generate_signal",
+        "alphalab_execute_paper_rebalance",
+        "alphalab_submit_paper_order",
     }
     assert all(tools[name]["sideEffects"] == "write" for name in write_tools)
     assert all(
@@ -104,13 +129,15 @@ def test_conexus_tools_match_barebone_profiles_and_guardrails():
     assert "confirm" not in sync_tool["inputSchema"].get("required", [])
     assert "confirm" not in sync_tool["inputSchema"]["properties"]
     assert "confirm: true" in sync_tool["code"]
-    assert "无需询问用户或要求确认" in agent["systemPrompt"]
-    assert "不得只打开数据工作台让用户点击" in agent["systemPrompt"]
-    assert "strategy_type 只能是 stock_selection、market_timing 或 allocation_rotation" in agent["systemPrompt"]
-    assert "风格因子收益不是可直接交易的证券" in agent["systemPrompt"]
-    assert "include_python_source=true" in agent["systemPrompt"]
+    assert "无需询问用户" in agent["systemPrompt"]
+    assert "strategy_type 只能是 stock_selection 或 market_timing" in agent["systemPrompt"]
+    assert "信号设计、组合构建、风险控制和交易执行" in agent["systemPrompt"]
     assert "confirm_python_execution=true" in agent["systemPrompt"]
     assert "不可信研究数据" in agent["systemPrompt"]
+    assert "confirm_write=true" in agent["systemPrompt"]
+    assert "confirm_delete=true" in agent["systemPrompt"]
+    assert "confirm_execute=true" in agent["systemPrompt"]
+    assert "confirm_order=true" in agent["systemPrompt"]
 
     strategy_tool = tools["alphalab_get_strategy"]
     assert strategy_tool["inputSchema"]["properties"]["include_python_source"] == {
@@ -138,6 +165,30 @@ def test_conexus_tools_match_barebone_profiles_and_guardrails():
         "alphalab_generate_signal"
     ]["code"]
 
+    strategy_research = tools["alphalab_research_strategy"]
+    assert strategy_research["inputSchema"]["properties"]["operation"]["enum"] == [
+        "validate",
+        "selection_preview",
+        "timing_research",
+    ]
+    assert "confirm_python_execution !== true" in strategy_research["code"]
+    strategy_manager = tools["alphalab_manage_strategy"]
+    assert "confirm_write !== true" in strategy_manager["code"]
+    assert "confirm_delete !== true" in strategy_manager["code"]
+    assert "delete payload.python_source" in strategy_manager["code"]
+    analysis = tools["alphalab_analyze_backtest"]
+    assert analysis["inputSchema"]["properties"]["operation"]["enum"] == [
+        "analysis",
+        "robustness",
+        "compare",
+    ]
+    assert "confirm: true" in tools["alphalab_execute_paper_rebalance"]["code"]
+    assert "confirm_execute !== true" in tools[
+        "alphalab_execute_paper_rebalance"
+    ]["code"]
+    assert "confirm_order !== true" in tools["alphalab_submit_paper_order"]["code"]
+    assert "real broker" in tools["alphalab_submit_paper_order"]["description"]
+
 
 def test_conexus_result_schema_supports_bounded_structured_charts():
     harness = _load(BUNDLE / "harness.json")
@@ -149,6 +200,15 @@ def test_conexus_result_schema_supports_bounded_structured_charts():
     exposure = manifest["exposures"][0]
     assert exposure["nodeId"] == "alphalab-research-agent-v1"
     assert exposure["surfaces"] == ["agent_tool", "page", "api"]
+    assert [item["key"] for item in exposure["inputs"]] == ["request"]
+    assert exposure["inputSchema"] == {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["request"],
+        "properties": {
+            "request": {"type": "string", "minLength": 1, "maxLength": 100000}
+        },
+    }
     descriptor = exposure["outputSchema"]["properties"]["workspaceResult"]
     document = descriptor["oneOf"][1]
     charts = document["properties"]["charts"]
@@ -187,6 +247,10 @@ def test_conexus_registration_keeps_runtime_and_rq_environment_separate():
     assert "await cp(sourceBundlePath, stagedBundleAbsolutePath" in register
     assert 'hostingSlug: "alphalab-research-agent"' in register
     assert '"Evaluate AlphaLab Factor", "Evaluate-Factor.tool.json"' in register
+    assert '"Evaluate AlphaLab Market Risk Factor", "Evaluate-Market-Risk-Factor.tool.json"' in register
+    assert '"Manage AlphaLab Strategy", "Manage-Strategy.tool.json"' in register
+    assert '"Analyze AlphaLab Backtest", "Analyze-Backtest.tool.json"' in register
+    assert '"Execute AlphaLab Paper Rebalance", "Execute-Paper-Rebalance.tool.json"' in register
     assert "exposeInHarness: true" in register
     assert "publicationSlug" not in register
     assert "showOnHarnessPreview" not in register
@@ -217,9 +281,16 @@ def test_dashboard_uses_current_hosted_exposure_manifest_contract():
     assert "manifest.defaultExposureId" in client
     assert "exposure.inputs" not in client
     assert "AlphaLab workspace context (JSON)" not in client
-    assert "return { request, context }" in client
+    assert "return { request }" in client
+    assert "workspaceContext: context" in client
+    assert "return { request, context }" not in client
     assert "exposureId: exposure.id" in hook
     assert "buildRunInput(userMessage" in hook
+    register = (ROOT / "scripts" / "register_conexus_research_harness.mjs").read_text(
+        encoding="utf-8"
+    )
+    assert 'const obsoleteNodeIds = new Set(["alphalab-research-context-v1"])' in register
+    assert "!obsoleteNodeIds.has(node.id)" in register
 
     command_parser = (
         ROOT

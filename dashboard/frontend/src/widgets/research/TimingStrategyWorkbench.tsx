@@ -40,6 +40,7 @@ import {
 } from "../../lib/api"
 import { CHART_COLORS } from "../../lib/constants"
 import { useDataProfile } from "../../lib/data-profile"
+import type { StrategyStage } from "./strategy-workbench-types"
 
 type TimingView = "builder" | "research" | "python" | "yaml"
 type CreateMode = "new" | "clone"
@@ -63,7 +64,7 @@ function percent(value: number | null | undefined, digits = 1): string {
   return value == null ? "—" : `${(value * 100).toFixed(digits)}%`
 }
 
-export function TimingStrategyWorkbenchWidget() {
+export function TimingStrategyWorkbenchWidget({ stage }: { stage: StrategyStage }) {
   const { language } = useLanguage()
   const refreshRevision = useWorkspaceRefresh()
   const { selectedStrategy, setSelectedStrategy } = useWorkspace()
@@ -112,9 +113,18 @@ export function TimingStrategyWorkbenchWidget() {
     volatility_control: "波动率控制",
     noSignals: "尚未添加信号。至少需要一个正权重信号。",
     position: "仓位映射",
+    portfolioHint: "当前组合引擎把加权信号分数线性映射成整体市场仓位；它不产生个股持仓。",
+    mappingMethod: "线性仓位映射",
+    signalRange: "综合信号范围",
     minExposure: "最低市场仓位",
     maxExposure: "最高市场仓位",
+    risk: "风险控制",
+    riskHint: "仓位上下限是引擎强制执行的风险边界；波动率控制目前是参与打分的信号，不是假装成独立优化器。",
+    cashFloor: "最低现金比例",
+    volatilitySignals: "波动率控制信号",
+    enforced: "引擎强制执行",
     execution: "换仓成本",
+    executionHint: "择时信号在月末形成并滞后一期开启新仓位；成本与滑点按仓位变化扣除。",
     cost: "交易成本（bps）",
     slippage: "滑点（bps）",
     validation: "策略校验",
@@ -196,9 +206,18 @@ export function TimingStrategyWorkbenchWidget() {
     volatility_control: "Volatility control",
     noSignals: "No signals yet. Add at least one signal with positive weight.",
     position: "Exposure mapping",
+    portfolioHint: "The current portfolio engine linearly maps the weighted signal score into aggregate market exposure; it does not create stock holdings.",
+    mappingMethod: "Linear exposure mapping",
+    signalRange: "Combined signal range",
     minExposure: "Minimum exposure",
     maxExposure: "Maximum exposure",
+    risk: "Risk controls",
+    riskHint: "Exposure bounds are enforced by the engine. Volatility control currently contributes to the score; it is not presented as a separate optimizer.",
+    cashFloor: "Minimum cash allocation",
+    volatilitySignals: "Volatility-control signals",
+    enforced: "Enforced by engine",
     execution: "Turnover costs",
+    executionHint: "Signals form at month-end and change exposure one period later. Costs and slippage are charged on exposure turnover.",
     cost: "Trading cost (bps)",
     slippage: "Slippage (bps)",
     validation: "Strategy validation",
@@ -264,6 +283,10 @@ export function TimingStrategyWorkbenchWidget() {
     () => config?.signals.reduce((total, signal) => total + signal.weight, 0) ?? 0,
     [config?.signals],
   )
+
+  useEffect(() => {
+    setView("builder")
+  }, [stage])
 
   async function fetchTimingStrategies(): Promise<StrategyTemplate[]> {
     const allStrategies = await api.get<StrategyTemplate[]>("/strategies")
@@ -669,29 +692,30 @@ export function TimingStrategyWorkbenchWidget() {
           <div className="strategy-editor-scroll">
             {view === "builder" && config && (
               <div className="strategy-builder">
-                <section className="strategy-section strategy-section-wide">
+                {stage === "signal" && <section className="strategy-section strategy-section-wide">
                   <div className="strategy-section-heading"><div><h3>{copy.overview}</h3></div></div>
                   <div className="strategy-field-grid">
                     <label><span>{copy.descriptionLabel}</span><input value={config.description} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, description: event.target.value }))} /></label>
                     <label><span>{copy.implementation}</span><select value={config.implementation.kind} disabled={!editable} onChange={(event) => updateImplementation(event.target.value as "configured" | "python")}><option value="configured">{copy.configuredImplementation}</option><option value="python">{copy.pythonImplementation}</option></select></label>
                     <label><span>{copy.timeout}</span><input type="number" min="0.1" max="30" step="0.5" value={config.implementation.timeout_seconds} disabled={!editable || !pythonEnabled} onChange={(event) => updateConfig((current) => ({ ...current, implementation: { ...current.implementation, timeout_seconds: numberValue(event.target.value) } }))} /></label>
                   </div>
-                </section>
-                <section className="strategy-section">
+                </section>}
+                {stage === "signal" && <section className="strategy-section strategy-section-wide">
                   <div className="strategy-section-heading"><div><h3>{copy.market}</h3><p>{copy.marketHint}</p></div></div>
                   <div className="strategy-field-grid two">
                     <label><span>{copy.marketFactor}</span><input value={config.market_factor} disabled /></label>
                     <label><span>{copy.frequency}</span><input value={copy.monthly} disabled /></label>
                   </div>
-                </section>
-                <section className="strategy-section">
-                  <div className="strategy-section-heading"><div><h3>{copy.position}</h3></div></div>
-                  <div className="strategy-field-grid two">
-                    <label><span>{copy.minExposure}</span><input type="number" min="0" max="1" step="0.05" value={config.position.min_exposure} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, position: { ...current.position, min_exposure: numberValue(event.target.value) } }))} /></label>
-                    <label><span>{copy.maxExposure}</span><input type="number" min="0" max="1" step="0.05" value={config.position.max_exposure} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, position: { ...current.position, max_exposure: numberValue(event.target.value) } }))} /></label>
+                </section>}
+                {stage === "portfolio" && <section className="strategy-section strategy-section-wide">
+                  <div className="strategy-section-heading"><div><h3>{copy.position}</h3><p>{copy.portfolioHint}</p></div></div>
+                  <div className="strategy-stage-audit">
+                    <div><span>{copy.mappingMethod}</span><strong>score → exposure</strong></div>
+                    <div><span>{copy.signalRange}</span><strong>0 → 1</strong></div>
+                    <div><span>{copy.minExposure} → {copy.maxExposure}</span><strong>{percent(config.position.min_exposure, 0)} → {percent(config.position.max_exposure, 0)}</strong></div>
                   </div>
-                </section>
-                {!pythonEnabled && <section className="strategy-section strategy-section-wide timing-signal-section">
+                </section>}
+                {stage === "signal" && !pythonEnabled && <section className="strategy-section strategy-section-wide timing-signal-section">
                   <div className="strategy-section-heading"><div><h3>{copy.signals}</h3><p>{copy.signalHint}</p></div></div>
                   <div className="strategy-factor-toolbar">
                     <button type="button" onClick={addSignal} disabled={!editable}><Plus size={13} />{copy.addSignal}</button>
@@ -716,14 +740,27 @@ export function TimingStrategyWorkbenchWidget() {
                     </div>
                   )}
                 </section>}
-                <section className="strategy-section">
-                  <div className="strategy-section-heading"><div><h3>{copy.execution}</h3></div></div>
+                {stage === "risk" && <section className="strategy-section strategy-section-wide">
+                  <div className="strategy-section-heading"><div><h3>{copy.risk}</h3><p>{copy.riskHint}</p></div><span className="strategy-enforced-pill"><CheckCircle2 size={12} />{copy.enforced}</span></div>
+                  <div className="strategy-field-grid two">
+                    <label><span>{copy.minExposure}</span><input type="number" min="0" max="1" step="0.05" value={config.position.min_exposure} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, position: { ...current.position, min_exposure: numberValue(event.target.value) } }))} /></label>
+                    <label><span>{copy.maxExposure}</span><input type="number" min="0" max="1" step="0.05" value={config.position.max_exposure} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, position: { ...current.position, max_exposure: numberValue(event.target.value) } }))} /></label>
+                  </div>
+                  <div className="strategy-stage-audit">
+                    <div><span>{copy.minExposure}</span><strong>{percent(config.position.min_exposure, 0)}</strong></div>
+                    <div><span>{copy.maxExposure}</span><strong>{percent(config.position.max_exposure, 0)}</strong></div>
+                    <div><span>{copy.cashFloor}</span><strong>{percent(1 - config.position.max_exposure, 0)}</strong></div>
+                    <div><span>{copy.volatilitySignals}</span><strong>{pythonEnabled ? "Python" : config.signals.filter((signal) => signal.kind === "volatility_control").length}</strong></div>
+                  </div>
+                </section>}
+                {stage === "execution" && <section className="strategy-section strategy-section-wide">
+                  <div className="strategy-section-heading"><div><h3>{copy.execution}</h3><p>{copy.executionHint}</p></div></div>
                   <div className="strategy-field-grid two">
                     <label><span>{copy.cost}</span><input type="number" min="0" step="1" value={config.execution.cost_bps} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, execution: { ...current.execution, cost_bps: numberValue(event.target.value) } }))} /></label>
                     <label><span>{copy.slippage}</span><input type="number" min="0" step="1" value={config.execution.slippage_bps} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, execution: { ...current.execution, slippage_bps: numberValue(event.target.value) } }))} /></label>
                   </div>
-                </section>
-                <section className="strategy-section">
+                </section>}
+                <section className="strategy-section strategy-section-wide">
                   <div className="strategy-section-heading"><div><h3>{copy.validation}</h3></div></div>
                   <div className="strategy-checks">
                     {validation?.checks.map((check) => <div className={`strategy-check ${check.status}`} key={check.code}>{check.status === "passed" ? <CheckCircle2 size={13} /> : <CircleAlert size={13} />}<span>{check.message}</span></div>)}

@@ -10,8 +10,8 @@ interface FactorLibraryWidgetProps {
 export function FactorLibraryWidget({ onEvaluate }: FactorLibraryWidgetProps) {
   const { language } = useLanguage()
   const copy = language === 'zh'
-    ? { title: '选股因子库', description: '可供个股横截面检验、策略和安全自定义表达式使用的基础因子。', factors: '个因子', evaluate: '立即检验', technical: '技术面', fundamental: '基本面' }
-    : { title: 'Signal Factor Library', description: 'Base factors available to cross-sectional tests, strategies, and safe custom expressions.', factors: 'factors', evaluate: 'Test factor', technical: 'Technical', fundamental: 'Fundamental' }
+    ? { title: '股票横截面因子库', description: '用于在同一时点给股票排序，可供横截面检验、选股策略和安全自定义表达式使用。', factors: '个因子', evaluate: '立即检验', technical: '技术面', fundamental: '基本面' }
+    : { title: 'Stock Cross-sectional Factor Library', description: 'Factors for ranking stocks at the same point in time, available to cross-sectional tests, stock-selection strategies, and safe custom expressions.', factors: 'factors', evaluate: 'Test factor', technical: 'Technical', fundamental: 'Fundamental' }
   const [library, setLibrary] = useState<FactorResearchLibrary | null>(null)
   const [error, setError] = useState('')
 

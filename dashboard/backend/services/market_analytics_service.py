@@ -1,6 +1,7 @@
 """Profile-aware market analytics derived from factor-return data."""
 from __future__ import annotations
 
+import ast
 from collections.abc import Iterable
 from typing import Any
 
@@ -10,6 +11,7 @@ import pandas as pd
 from dashboard.backend.services.framework_service import factor_returns
 
 DEFAULT_FACTORS = ("MKT", "SMB", "HML")
+AVAILABLE_RISK_FACTORS = ("MKT", "SMB", "HML", "MOM", "RMW", "rf")
 PERIODS_PER_YEAR = 12
 VOLATILITY_WINDOW = 12
 
@@ -31,7 +33,13 @@ def _validate_dates(start: str | None, end: str | None) -> None:
 def _parse_factors(factors: Iterable[str] | None) -> list[str] | None:
     if factors is None:
         return None
-    parsed = [str(factor).strip().upper() for factor in factors if str(factor).strip()]
+    parsed = []
+    for factor in factors:
+        value = str(factor).strip()
+        if not value:
+            continue
+        normalized = value.upper()
+        parsed.append("rf" if normalized == "RF" else normalized)
     if not parsed:
         raise ValueError("at least one factor is required")
     return list(dict.fromkeys(parsed))
@@ -103,6 +111,137 @@ def _series_payload(frame: pd.DataFrame) -> dict:
             column: [_safe(value) for value in frame[column].tolist()]
             for column in frame.columns
         },
+    }
+
+
+def _risk_expression_dependencies(expression: str) -> tuple[str, ...]:
+    text = str(expression).strip()
+    if not text:
+        raise ValueError("market risk expression must not be empty")
+    if len(text) > 500:
+        raise ValueError("market risk expression must be at most 500 characters")
+    try:
+        tree = ast.parse(text, mode="eval")
+    except SyntaxError as exc:
+        raise ValueError(f"invalid market risk expression: {exc.msg}") from exc
+    nodes = list(ast.walk(tree))
+    if len(nodes) > 100:
+        raise ValueError("market risk expression is too complex")
+    allowed_nodes = (
+        ast.Expression,
+        ast.Load,
+        ast.Name,
+        ast.Constant,
+        ast.BinOp,
+        ast.UnaryOp,
+        ast.Add,
+        ast.Sub,
+        ast.Mult,
+        ast.Div,
+        ast.UAdd,
+        ast.USub,
+    )
+    if any(not isinstance(node, allowed_nodes) for node in nodes):
+        raise ValueError(
+            "market risk expression supports only names, numeric constants, +, -, *, and /"
+        )
+    dependencies = tuple(
+        sorted({node.id for node in nodes if isinstance(node, ast.Name)})
+    )
+    if not dependencies:
+        raise ValueError("market risk expression must reference at least one return series")
+    unknown = sorted(set(dependencies) - set(AVAILABLE_RISK_FACTORS))
+    if unknown:
+        raise ValueError(f"unknown market risk return inputs: {unknown}")
+    return dependencies
+
+
+def _evaluate_risk_expression_node(
+    node: ast.AST,
+    values: dict[str, pd.Series],
+) -> tuple[pd.Series | float, bool]:
+    if isinstance(node, ast.Name):
+        return pd.to_numeric(values[node.id], errors="coerce"), True
+    if isinstance(node, ast.Constant):
+        if not isinstance(node.value, (int, float)) or isinstance(node.value, bool):
+            raise ValueError("market risk expression constants must be numeric")
+        value = float(node.value)
+        if not np.isfinite(value) or abs(value) > 1_000_000:
+            raise ValueError("market risk expression constant is outside the supported range")
+        return value, False
+    if isinstance(node, ast.UnaryOp):
+        value, is_series = _evaluate_risk_expression_node(node.operand, values)
+        return (-value if isinstance(node.op, ast.USub) else value), is_series
+    if isinstance(node, ast.BinOp):
+        left, left_is_series = _evaluate_risk_expression_node(node.left, values)
+        right, right_is_series = _evaluate_risk_expression_node(node.right, values)
+        if isinstance(node.op, (ast.Add, ast.Sub)):
+            if left_is_series != right_is_series:
+                raise ValueError("market risk expressions cannot add a constant to a return series")
+            result = left + right if isinstance(node.op, ast.Add) else left - right
+            return result, left_is_series
+        if isinstance(node.op, ast.Mult):
+            if left_is_series and right_is_series:
+                raise ValueError("market risk expressions cannot multiply two return series")
+            return left * right, left_is_series or right_is_series
+        if right_is_series:
+            raise ValueError("market risk expressions can divide only by a scalar constant")
+        if float(right) == 0:
+            raise ValueError("market risk expression divides by zero")
+        return left / right, left_is_series
+    raise ValueError(f"unsupported market risk expression element: {type(node).__name__}")
+
+
+def compute_custom_risk_factor(
+    name: str,
+    expression: str,
+    profile: str = "demo",
+    start: str | None = None,
+    end: str | None = None,
+) -> dict:
+    """Evaluate a safe linear combination of registered risk-factor returns."""
+
+    normalized_name = str(name).strip()
+    if not normalized_name:
+        raise ValueError("custom market risk factor name must not be empty")
+    if normalized_name in AVAILABLE_RISK_FACTORS:
+        raise ValueError("custom market risk factor name must not shadow a registered series")
+    dependencies = _risk_expression_dependencies(expression)
+    frame = _load_factor_frame(profile, start, end, dependencies)
+    tree = ast.parse(str(expression).strip(), mode="eval")
+    evaluated, is_series = _evaluate_risk_expression_node(
+        tree.body,
+        {dependency: frame[dependency] for dependency in dependencies},
+    )
+    if not is_series or not isinstance(evaluated, pd.Series):
+        raise ValueError("market risk expression must produce a return series")
+    returns = pd.to_numeric(evaluated, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+    if returns.empty:
+        raise ValueError("market risk expression produced no finite observations")
+    cumulative = (1.0 + returns).cumprod() - 1.0
+    drawdown = _drawdown_series(returns)
+    warnings = [
+        "This is a descriptive derived return series, not a tradable portfolio or timing signal."
+    ]
+    if bool(returns.le(-1.0).any()):
+        warnings.append("At least one derived period return is at or below -100%.")
+    return {
+        "profile": profile,
+        "name": normalized_name,
+        "expression": str(expression).strip(),
+        "dependencies": list(dependencies),
+        "dates": [timestamp.strftime("%Y-%m-%d") for timestamp in returns.index],
+        "returns": [_safe(value) for value in returns.tolist()],
+        "cumulative": [_safe(value) for value in cumulative.tolist()],
+        "summary": {
+            "observations": int(len(returns)),
+            "annual_return": _annualized_return(returns),
+            "annual_volatility": _annualized_volatility(returns),
+            "sharpe": _annualized_sharpe(returns),
+            "max_drawdown": _safe(drawdown.min()) if not drawdown.empty else None,
+            "positive_ratio": _safe((returns > 0).mean()),
+        },
+        "warnings": warnings,
     }
 
 
@@ -197,10 +336,12 @@ def compute_factor_stats(
     profile: str = "demo",
     start: str | None = None,
     end: str | None = None,
+    factors: Iterable[str] | None = None,
 ) -> dict:
-    frame = _load_factor_frame(profile, start, end)
+    frame = _load_factor_frame(profile, start, end, factors)
     rows = []
-    for factor in _default_factor_names(frame):
+    names = _default_factor_names(frame) if factors is None else list(frame.columns)
+    for factor in names:
         series = frame[factor].dropna()
         rows.append(
             {

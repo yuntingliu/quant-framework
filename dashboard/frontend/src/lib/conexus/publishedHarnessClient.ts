@@ -76,14 +76,18 @@ export function selectRunExposure(manifest: HostedHarnessManifest): HostedHarnes
 export function buildRunInput(
   message: string,
   context: Record<string, unknown>,
-): Record<string, unknown> {
-  const request = message.trim()
-  if (!request) throw new Error("Hosted AlphaLab Agent request is empty.")
-  const workspaceContext = JSON.stringify(context)
-  if (request.length + workspaceContext.length > 100_000) {
+): { request: string } {
+  const userRequest = message.trim()
+  if (!userRequest) throw new Error("Hosted AlphaLab Agent request is empty.")
+  const request = JSON.stringify({
+    version: 1,
+    userRequest,
+    workspaceContext: context,
+  })
+  if (request.length > 100_000) {
     throw new Error("Hosted AlphaLab Agent request exceeds 100000 characters.")
   }
-  return { request, context }
+  return { request }
 }
 
 export async function createRun(params: {

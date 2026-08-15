@@ -70,12 +70,22 @@ export function useAnnualReturns(
   })
 }
 
-export function useFactorStats(profile: DataProfile, start?: string, end?: string) {
+export function useFactorStats(
+  profile: DataProfile,
+  start?: string,
+  end?: string,
+  factors?: string[],
+) {
   return useQuery({
-    queryKey: ["market", "factor-stats", profile, start, end],
+    queryKey: ["market", "factor-stats", profile, start, end, factors],
     queryFn: () =>
       api.get<FactorStats>(
-        `/market/factor-stats${buildParams({ profile, start, end })}`
+        `/market/factor-stats${buildParams({
+          profile,
+          start,
+          end,
+          factors: factors?.join(","),
+        })}`
       ),
     staleTime: STALE_TIME.SHORT,
   })

@@ -35,10 +35,6 @@ def test_public_facade_exports_core_loop():
         "TimingBacktestResult",
         "evaluate_timing_signals",
         "run_timing_backtest",
-        "RotationStrategyConfig",
-        "RotationBacktestResult",
-        "evaluate_rotation_targets",
-        "run_rotation_backtest",
     ]:
         assert hasattr(alphalab, name)
 
@@ -114,8 +110,8 @@ def test_primary_workbench_surfaces_subscribe_to_language_context():
         "widgets/research/FactorWorkbench.tsx",
         "widgets/research/FactorResearchLab.tsx",
         "widgets/research/FactorLibrary.tsx",
+        "widgets/research/CustomMarketRiskFactor.tsx",
         "widgets/research/StrategyWorkbench.tsx",
-        "widgets/research/RotationStrategyWorkbench.tsx",
         "widgets/backtest/BacktestWorkbench.tsx",
         "widgets/backtest/BacktestCompare.tsx",
         "widgets/research/ReportWorkbench.tsx",
@@ -133,6 +129,50 @@ def test_primary_workbench_surfaces_subscribe_to_language_context():
         if "useLanguage" not in (frontend / path).read_text(encoding="utf-8")
     ]
     assert missing == []
+
+
+def test_factor_workbench_separates_factor_research_objects():
+    root = Path(__file__).resolve().parents[2]
+    research = root / "dashboard" / "frontend" / "src" / "widgets" / "research"
+    workbench = (research / "FactorWorkbench.tsx").read_text(encoding="utf-8")
+    lab = (research / "FactorResearchLab.tsx").read_text(encoding="utf-8")
+    library = (research / "FactorLibrary.tsx").read_text(encoding="utf-8")
+    custom_risk = (research / "CustomMarketRiskFactor.tsx").read_text(encoding="utf-8")
+
+    assert 'type FactorWorkbenchTab = "cross_section" | "market" | "timing"' in workbench
+    for label in ("股票横截面因子", "市场风险因子", "择时信号"):
+        assert label in workbench
+    assert '"evaluate" | "custom" | "library"' in workbench
+    assert "自定义因子" in workbench
+    for label in ("趋势", "动量", "波动率控制"):
+        assert label in workbench
+    assert 'CustomEvent("alphalab:switchMode", { detail: "strategy" })' in workbench
+    assert "完整合格股票池" in workbench
+    assert "股票横截面因子" in lab
+    assert 'mode?: "builtin" | "custom"' in lab
+    assert "表达式不会执行任意 Python" in lab
+    assert "股票横截面因子库" in library
+    assert "自定义市场风险因子" in custom_risk
+    assert "/market/custom-risk-factor/evaluate" in custom_risk
+    assert 'url.searchParams.set("strategyType", "market_timing")' in workbench
+
+
+def test_strategy_workbench_exposes_first_principles_research_stages():
+    root = Path(__file__).resolve().parents[2]
+    research = root / "dashboard" / "frontend" / "src" / "widgets" / "research"
+    workbench = (research / "StrategyWorkbench.tsx").read_text(encoding="utf-8")
+    timing = (research / "TimingStrategyWorkbench.tsx").read_text(encoding="utf-8")
+    stage_types = (research / "strategy-workbench-types.ts").read_text(encoding="utf-8")
+
+    assert '"signal" | "portfolio" | "risk" | "execution"' in stage_types
+    for label in ("信号设计", "组合构建", "风险控制", "交易执行"):
+        assert label in workbench
+    for stage in ("portfolio", "risk", "execution"):
+        assert f'stage === "{stage}"' in workbench
+        assert f'stage === "{stage}"' in timing
+    assert "添加自定义因子" in workbench
+    assert 'source: "expression"' in workbench
+    assert "strategy-factor-expression" in workbench
 
 
 def test_workspace_theme_switch_covers_dockview_and_legacy_surfaces():

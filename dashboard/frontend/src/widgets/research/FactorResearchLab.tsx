@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { AlertTriangle, ChevronDown, Database, FlaskConical, Play } from "lucide-react"
+import { AlertTriangle, ChevronDown, Database, FlaskConical, Play, Sigma } from "lucide-react"
 import {
   Bar,
   BarChart,
@@ -32,6 +32,7 @@ export interface FactorResearchSelection {
 
 interface FactorResearchLabProps {
   requestedFactor?: FactorResearchSelection | null
+  mode?: "builtin" | "custom"
 }
 
 function monthStart(value: string): string {
@@ -65,7 +66,7 @@ function researchVerdict(result: FactorResearchResult): "candidate" | "watch" | 
   return "watch"
 }
 
-export function FactorResearchLab({ requestedFactor }: FactorResearchLabProps) {
+export function FactorResearchLab({ requestedFactor, mode = "builtin" }: FactorResearchLabProps) {
   const { language } = useLanguage()
   const copy = language === "zh" ? {
     source: "因子来源",
@@ -74,7 +75,9 @@ export function FactorResearchLab({ requestedFactor }: FactorResearchLabProps) {
     expression: "表达式",
     customName: "自定义因子名称",
     factorName: "因子名称",
-    baseFactor: "选股因子",
+    customTitle: "定义自定义横截面因子",
+    customHint: "组合已注册的技术面和基本面输入，先运行点时检验，再把表达式加入选股策略。表达式不会执行任意 Python。",
+    baseFactor: "股票横截面因子",
     direction: "因子方向",
     higher: "数值越高越好",
     lower: "数值越低越好",
@@ -96,8 +99,8 @@ export function FactorResearchLab({ requestedFactor }: FactorResearchLabProps) {
     date: "日期",
     observations: "样本数",
     longShort: "多空收益",
-    empty: "选择或定义一个选股因子，然后运行点时横截面检验。",
-    dataContext: "检验使用的数据",
+    empty: "选择或定义一个股票横截面因子，然后运行点时横截面检验。",
+    dataContext: "横截面检验使用的数据",
     demoProfile: "演示数据",
     runtimeProfile: "本地 RQ 数据",
     dataThrough: "更新至",
@@ -135,7 +138,9 @@ export function FactorResearchLab({ requestedFactor }: FactorResearchLabProps) {
     expression: "Expression",
     customName: "Custom factor name",
     factorName: "Factor name",
-    baseFactor: "Signal factor",
+    customTitle: "Define a custom cross-sectional factor",
+    customHint: "Combine registered technical and fundamental inputs, run a point-in-time test, then use the expression in a stock-selection strategy. Expressions never execute arbitrary Python.",
+    baseFactor: "Stock cross-sectional factor",
     direction: "Factor direction",
     higher: "Higher is better",
     lower: "Lower is better",
@@ -157,8 +162,8 @@ export function FactorResearchLab({ requestedFactor }: FactorResearchLabProps) {
     date: "Date",
     observations: "Obs",
     longShort: "Long-short",
-    empty: "Choose or define a signal factor, then run point-in-time cross-sectional diagnostics.",
-    dataContext: "Data used by this test",
+    empty: "Choose or define a stock cross-sectional factor, then run point-in-time cross-sectional diagnostics.",
+    dataContext: "Data used by this cross-sectional test",
     demoProfile: "Demo data",
     runtimeProfile: "Local RQ data",
     dataThrough: "through",
@@ -194,8 +199,8 @@ export function FactorResearchLab({ requestedFactor }: FactorResearchLabProps) {
   const [profile] = useDataProfile()
   const [library, setLibrary] = useState<FactorResearchLibrary | null>(null)
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null)
-  const [source, setSource] = useState<"technical" | "fundamental" | "expression">("technical")
-  const [name, setName] = useState("momentum_20d")
+  const [source, setSource] = useState<"technical" | "fundamental" | "expression">(mode === "custom" ? "expression" : "technical")
+  const [name, setName] = useState(mode === "custom" ? "custom_factor" : "momentum_20d")
   const [expression, setExpression] = useState("zscore(momentum_60d) - 0.5 * zscore(volatility_20d)")
   const [direction, setDirection] = useState<"long" | "short">("long")
   const [neutralizeMarketCap, setNeutralizeMarketCap] = useState(false)
@@ -222,12 +227,20 @@ export function FactorResearchLab({ requestedFactor }: FactorResearchLabProps) {
   }, [])
 
   useEffect(() => {
-    if (!requestedFactor) return
+    if (!requestedFactor || mode === "custom") return
     setSource(requestedFactor.source)
     setName(requestedFactor.name)
     setResult(null)
     setError("")
-  }, [requestedFactor])
+  }, [mode, requestedFactor])
+
+  useEffect(() => {
+    if (mode !== "custom") return
+    setSource("expression")
+    setName("custom_factor")
+    setResult(null)
+    setError("")
+  }, [mode])
 
   const candidates = useMemo(
     () => library?.factors.filter((factor) => factor.source === source) ?? [],
@@ -284,10 +297,7 @@ export function FactorResearchLab({ requestedFactor }: FactorResearchLabProps) {
   )
 
   useEffect(() => {
-    if (source === "expression") {
-      setName("custom_factor")
-      return
-    }
+    if (source === "expression") return
     if (!candidates.some((factor) => factor.name === name) && candidates[0]) {
       setName(candidates[0].name)
     }
@@ -343,13 +353,21 @@ export function FactorResearchLab({ requestedFactor }: FactorResearchLabProps) {
         </small>
       </div>
 
+      {mode === "custom" && (
+        <div className="factor-custom-context">
+          <Sigma aria-hidden="true" />
+          <div><strong>{copy.customTitle}</strong><span>{copy.customHint}</span></div>
+        </div>
+      )}
+
       <div className="workbench-controls factor-evaluation-controls">
-        <select aria-label={copy.source} value={source} onChange={(event) => setSource(event.target.value as typeof source)}>
-          <option value="technical">{copy.technical}</option>
-          <option value="fundamental">{copy.fundamental}</option>
-          <option value="expression">{copy.expression}</option>
-        </select>
-        {source === "expression" ? (
+        {mode === "builtin" && (
+          <select aria-label={copy.source} value={source} onChange={(event) => setSource(event.target.value as typeof source)}>
+            <option value="technical">{copy.technical}</option>
+            <option value="fundamental">{copy.fundamental}</option>
+          </select>
+        )}
+        {mode === "custom" ? (
           <input aria-label={copy.customName} value={name} onChange={(event) => setName(event.target.value)} placeholder={copy.factorName} />
         ) : (
           <select aria-label={copy.baseFactor} value={name} onChange={(event) => setName(event.target.value)}>
@@ -370,7 +388,7 @@ export function FactorResearchLab({ requestedFactor }: FactorResearchLabProps) {
         </button>
       </div>
 
-      {source === "expression" && (
+      {mode === "custom" && (
         <div className="factor-expression-editor">
           <label htmlFor="factor-expression">{copy.safeExpression}</label>
           <textarea id="factor-expression" value={expression} onChange={(event) => setExpression(event.target.value)} spellCheck={false} />

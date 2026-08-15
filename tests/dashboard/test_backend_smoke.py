@@ -5,7 +5,6 @@ from fastapi.testclient import TestClient
 
 from alphalab import ResultStore
 from alphalab.strategy import (
-    RotationStrategyRepository,
     StrategyRepository,
     TimingStrategyRepository,
 )
@@ -30,7 +29,6 @@ def test_backend_smoke_endpoints():
     assert {item["strategy_type"] for item in strategies.json()} == {
         "stock_selection",
         "market_timing",
-        "allocation_rotation",
     }
     assert client.get("/api/system/logs").status_code == 200
     health = client.get("/api/data-sync/health")
@@ -194,6 +192,32 @@ def test_factor_research_library_and_expression_guardrails():
             "expression": "__import__('os').system('whoami')",
             "start_date": "2022-01-01",
             "end_date": "2024-01-01",
+        },
+    )
+    assert rejected.status_code == 422
+
+
+def test_custom_market_risk_factor_endpoint_and_guardrails():
+    client = TestClient(app)
+    accepted = client.post(
+        "/api/market/custom-risk-factor/evaluate",
+        json={
+            "name": "market_style_blend",
+            "expression": "0.75 * MKT + 0.25 * SMB - rf",
+            "profile": "demo",
+            "start_date": "2022-01-01",
+            "end_date": "2024-01-01",
+        },
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["dependencies"] == ["MKT", "SMB", "rf"]
+    assert accepted.json()["summary"]["observations"] > 0
+
+    rejected = client.post(
+        "/api/market/custom-risk-factor/evaluate",
+        json={
+            "name": "unsafe",
+            "expression": "__import__('os').system('whoami')",
         },
     )
     assert rejected.status_code == 422
@@ -643,88 +667,6 @@ def test_timing_strategy_research_and_backtest_contract(tmp_path, monkeypatch):
     assert strategy_step["detail"]["python_source_sha256"] is None
     assert next(step for step in run["steps"] if step["name"] == "signal")["status"] == "succeeded"
     assert next(step for step in run["steps"] if step["name"] == "risk_preview")["status"] == "skipped"
-
-
-def test_rotation_strategy_research_backtest_and_pipeline_contract(tmp_path, monkeypatch):
-    database = tmp_path / "rotation.db"
-
-    def factory():
-        return ResultStore(database)
-
-    monkeypatch.setattr(framework_service, "ResultStore", factory)
-    monkeypatch.setattr(research_service, "ResultStore", factory)
-    client = TestClient(app)
-    strategy = client.get("/api/strategies/style_momentum_rotation")
-    assert strategy.status_code == 200
-    payload = strategy.json()
-    assert payload["strategy_type"] == "allocation_rotation"
-    assert payload["sleeves"] == ["MKT", "SMB", "HML", "MOM", "RMW"]
-
-    validation = client.post(
-        "/api/strategies/validate",
-        json={"config": payload["config"]},
-    )
-    assert validation.status_code == 200
-    assert validation.json()["valid"] is True
-    assert any(
-        check["code"] == "research_instrument" and check["status"] == "warning"
-        for check in validation.json()["checks"]
-    )
-
-    research = client.post(
-        "/api/strategies/rotation-research",
-        json={
-            "config": payload["config"],
-            "profile": "demo",
-            "start_date": "2022-01-01",
-            "end_date": "2025-12-31",
-        },
-    )
-    assert research.status_code == 200, research.text
-    assert len(research.json()["series"]) == 48
-    assert research.json()["allocations"]
-    assert research.json()["diagnostics"]["latest_targets"]
-
-    backtest = client.post(
-        "/api/backtests/run",
-        json={
-            "strategy_id": "style_momentum_rotation",
-            "start_date": "2022-01-01",
-            "end_date": "2025-12-31",
-            "profile": "demo",
-        },
-    )
-    assert backtest.status_code == 200, backtest.text
-    result = backtest.json()
-    assert result["strategy_type"] == "allocation_rotation"
-    assert result["execution"]["latest_targets"]
-
-    analysis = client.get(f"/api/backtests/{result['id']}/analysis")
-    assert analysis.status_code == 200, analysis.text
-    snapshot = analysis.json()["strategy_snapshot"]
-    assert snapshot["strategy_type"] == "allocation_rotation"
-    assert snapshot["sleeves"] == ["MKT", "SMB", "HML", "MOM", "RMW"]
-    robustness = client.get(f"/api/backtests/{result['id']}/robustness")
-    assert robustness.status_code == 200, robustness.text
-
-    run = research_service.ResearchRunManager().run_now(
-        {
-            "strategy_id": "style_momentum_rotation",
-            "profile": "demo",
-            "start_date": "2022-01-01",
-            "end_date": "2025-12-31",
-            "account_id": "paper",
-        }
-    )
-    assert run["status"] == "succeeded"
-    assert run["result"]["signal_id"] is None
-    assert run["result"]["preview_id"] is None
-    assert run["result"]["paper_execution"] == "not_applicable_for_style_rotation"
-    strategy_step = next(
-        step for step in run["steps"] if step["name"] == "strategy_validate"
-    )
-    assert strategy_step["detail"]["strategy_type"] == "allocation_rotation"
-    assert strategy_step["detail"]["sleeves"] == ["MKT", "SMB", "HML", "MOM", "RMW"]
 
 
 def test_deterministic_research_run_stops_before_paper_execution(

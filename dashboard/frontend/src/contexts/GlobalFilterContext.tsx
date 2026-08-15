@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback } from "react"
 import type { FactorName } from "@/lib/constants"
-import { ALL_FACTORS } from "@/lib/constants"
+import { DEFAULT_FACTORS } from "@/lib/constants"
 
 interface GlobalFilterState {
   /** Start date filter (YYYY-MM format). Empty string = no filter. */
@@ -22,7 +22,7 @@ interface GlobalFilterContextType extends GlobalFilterState {
 const defaultState: GlobalFilterState = {
   startDate: "",
   endDate: "",
-  selectedFactors: [...ALL_FACTORS],
+  selectedFactors: [...DEFAULT_FACTORS],
 }
 
 const GlobalFilterContext = createContext<GlobalFilterContextType | undefined>(
@@ -54,7 +54,7 @@ export function GlobalFilterProvider({ children }: GlobalFilterProviderProps) {
   const resetFilters = useCallback(() => {
     setStartDate(defaultState.startDate)
     setEndDate(defaultState.endDate)
-    setSelectedFactors([...ALL_FACTORS])
+    setSelectedFactors([...DEFAULT_FACTORS])
   }, [])
 
   return (

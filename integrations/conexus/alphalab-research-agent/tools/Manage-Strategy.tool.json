@@ -1,0 +1,26 @@
+{
+  "toolName": "alphalab_manage_strategy",
+  "description": "Save, clone, or delete a local AlphaLab strategy. Every mutation requires an explicit current-user request and the matching confirmation flag. Built-in strategies remain immutable. Saved Python source is trusted local code but is not executed by this tool.",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["operation"],
+    "properties": {
+      "operation": { "type": "string", "enum": ["save", "clone", "delete"] },
+      "strategy_id": { "type": "string", "minLength": 2, "maxLength": 64 },
+      "source_strategy_id": { "type": "string", "minLength": 2, "maxLength": 64 },
+      "target_strategy_id": { "type": "string", "minLength": 2, "maxLength": 64 },
+      "yaml": { "type": "string", "minLength": 1, "maxLength": 100000 },
+      "python_source": { "type": "string", "minLength": 1, "maxLength": 100000 },
+      "confirm_write": { "type": "boolean", "default": false },
+      "confirm_delete": { "type": "boolean", "default": false }
+    }
+  },
+  "outputSchema": { "type": "object" },
+  "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function request(path, options) {\n  const response = await fetch(apiOrigin() + path, { headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, ...options })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  if (response.status === 204) return {}\n  return response.json()\n}\n\nfunction redact(payload) {\n  if (payload && typeof payload === 'object' && typeof payload.python_source === 'string') delete payload.python_source\n  return payload\n}\n\nasync function run(input) {\n  if (input.operation === 'save') {\n    if (input.confirm_write !== true) throw new Error('Saving a strategy requires an explicit user request and confirm_write=true')\n    const id = String(input.strategy_id || '').trim()\n    const yaml = String(input.yaml || '').trim()\n    if (!id || !yaml) throw new Error('strategy_id and yaml are required for save')\n    const validation = await request('/api/strategies/validate', { method: 'POST', body: JSON.stringify({ yaml, ...(input.python_source !== undefined ? { python_source: String(input.python_source) } : {}) }) })\n    if (!validation.valid) throw new Error('Strategy validation failed')\n    if (validation.name !== id) throw new Error('strategy_id must match the strategy name in yaml')\n    const payload = await request('/api/strategies/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ yaml: validation.normalized_yaml, ...(input.python_source !== undefined ? { python_source: String(input.python_source) } : {}) }) })\n    return redact(payload)\n  }\n  if (input.operation === 'clone') {\n    if (input.confirm_write !== true) throw new Error('Cloning a strategy requires an explicit user request and confirm_write=true')\n    const source = String(input.source_strategy_id || '').trim()\n    const target = String(input.target_strategy_id || '').trim()\n    if (!source || !target) throw new Error('source_strategy_id and target_strategy_id are required for clone')\n    const payload = await request('/api/strategies/' + encodeURIComponent(source) + '/clone', { method: 'POST', body: JSON.stringify({ target_id: target }) })\n    return redact(payload)\n  }\n  if (input.operation === 'delete') {\n    if (input.confirm_delete !== true) throw new Error('Deleting a strategy requires an explicit user request and confirm_delete=true')\n    const id = String(input.strategy_id || '').trim()\n    if (!id) throw new Error('strategy_id is required for delete')\n    await request('/api/strategies/' + encodeURIComponent(id), { method: 'DELETE' })\n    return { deleted: true, strategy_id: id }\n  }\n  throw new Error('Unsupported strategy mutation operation')\n}",
+  "timeoutMs": 60000,
+  "permissions": { "network": "alphalab-api" },
+  "sideEffects": "write"
+}

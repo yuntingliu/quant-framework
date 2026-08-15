@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { Fragment, useEffect, useMemo, useState } from "react"
 import {
   Braces,
   CheckCircle2,
@@ -12,8 +12,11 @@ import {
   Play,
   Plus,
   Save,
+  ShieldCheck,
+  Sigma,
   Target,
   Trash2,
+  Workflow,
   X,
 } from "lucide-react"
 
@@ -32,7 +35,7 @@ import {
 } from "../../lib/api"
 import { useDataProfile, type DataProfile } from "../../lib/data-profile"
 import { TimingStrategyWorkbenchWidget } from "./TimingStrategyWorkbench"
-import { RotationStrategyWorkbenchWidget } from "./RotationStrategyWorkbench"
+import type { StrategyStage } from "./strategy-workbench-types"
 
 type EditorView = "builder" | "selection" | "python" | "yaml"
 type CreateMode = "new" | "clone"
@@ -59,7 +62,7 @@ function numeric(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-function StockSelectionStrategyWorkbenchWidget() {
+function StockSelectionStrategyWorkbenchWidget({ stage }: { stage: StrategyStage }) {
   const { language } = useLanguage()
   const refreshRevision = useWorkspaceRefresh()
   const { selectedStrategy, setSelectedStrategy } = useWorkspace()
@@ -90,7 +93,7 @@ function StockSelectionStrategyWorkbenchWidget() {
     pythonHint: "代码在独立子进程运行并受超时约束，但属于可信本地代码，不是恶意代码安全沙箱。只能返回候选股票的非负目标权重。",
     pythonContract: "入口必须为 generate(context)，返回 {'weights': {'股票代码': 权重}}。context 包含截至当日的候选股票历史、因子分数、当前权重和组合上限。",
     universe: "股票池与数据门槛",
-    universeHint: "这些条件决定每个调仓日哪些股票可以进入因子排名。留空代码表示使用整个数据池。",
+    universeHint: "选择信号覆盖的股票池与所需历史长度；留空代码表示使用整个数据池。",
     pool: "数据池",
     symbols: "股票代码（逗号分隔）",
     minPrice: "最低价格",
@@ -101,6 +104,8 @@ function StockSelectionStrategyWorkbenchWidget() {
     factorMix: "因子组合",
     factorHint: "因子先分别打分，再按方向和权重合成为一个选股分数。这里展示的是策略引用，因子检验结果尚未持久绑定。",
     addFactor: "添加注册因子",
+    addCustomFactor: "添加自定义因子",
+    customExpression: "自定义因子表达式",
     add: "添加",
     normalize: "权重归一化",
     factorName: "因子",
@@ -116,13 +121,21 @@ function StockSelectionStrategyWorkbenchWidget() {
     selection: "选股与组合",
     coverage: "最低因子覆盖率",
     stockCount: "持股数量",
+    fullSelectionWeight: "满额入选时单股权重",
     maxWeight: "单股权重上限",
     rebalance: "调仓频率",
     monthly: "每月",
     weekly: "每周",
     optimizer: "组合方式",
     equalWeight: "等权",
+    portfolioHint: "把横截面分数转成可回测的持仓。当前引擎真实执行前 N 名等权组合。",
+    risk: "风险控制",
+    riskHint: "这些是回测引擎真正执行的硬约束：可交易性门槛、单股集中度和数据新鲜度。",
+    riskCapacity: "理论最高股票仓位",
+    riskCash: "至少保留现金",
+    enforced: "引擎强制执行",
     execution: "交易与成本假设",
+    executionHint: "信号在调仓日形成，按下一交易日价格成交，并受资金容量、成交参与率和成本约束。",
     cost: "交易成本（bps）",
     slippage: "滑点（bps）",
     impact: "冲击成本（bps）",
@@ -225,6 +238,8 @@ function StockSelectionStrategyWorkbenchWidget() {
     factorMix: "Factor mix",
     factorHint: "Factors are scored separately and combined by direction and weight. This is a strategy reference; persisted factor evidence is not bound yet.",
     addFactor: "Add registered factor",
+    addCustomFactor: "Add custom factor",
+    customExpression: "Custom factor expression",
     add: "Add",
     normalize: "Normalize weights",
     factorName: "Factor",
@@ -240,13 +255,21 @@ function StockSelectionStrategyWorkbenchWidget() {
     selection: "Selection and portfolio",
     coverage: "Minimum factor coverage",
     stockCount: "Number of stocks",
+    fullSelectionWeight: "Per-stock weight at full selection",
     maxWeight: "Maximum stock weight",
     rebalance: "Rebalance frequency",
     monthly: "Monthly",
     weekly: "Weekly",
     optimizer: "Portfolio method",
     equalWeight: "Equal weight",
+    portfolioHint: "Translate cross-sectional scores into backtestable holdings. The current engine actually executes an equal-weight top-N portfolio.",
+    risk: "Risk controls",
+    riskHint: "These are hard constraints enforced by the backtest engine: investability gates, single-name concentration, and data freshness.",
+    riskCapacity: "Maximum theoretical stock exposure",
+    riskCash: "Minimum residual cash",
+    enforced: "Enforced by engine",
     execution: "Execution and cost assumptions",
+    executionHint: "Signals form on rebalance dates, trade on the next session, and remain subject to capital, participation, and cost constraints.",
     cost: "Trading cost (bps)",
     slippage: "Slippage (bps)",
     impact: "Impact (bps)",
@@ -345,6 +368,10 @@ function StockSelectionStrategyWorkbenchWidget() {
     () => library?.factors.filter((item) => !config?.factors.some((factor) => factor.name === item.name)) ?? [],
     [config?.factors, library?.factors],
   )
+
+  useEffect(() => {
+    setView("builder")
+  }, [stage])
 
   useEffect(() => {
     if (!availableFactors.some((factor) => factor.name === factorToAdd)) {
@@ -470,6 +497,33 @@ function StockSelectionStrategyWorkbenchWidget() {
         {
           name: registered.name,
           source: registered.source,
+          direction: "long",
+          weight: remainingWeight > 0 ? Number(remainingWeight.toFixed(6)) : 0.1,
+          winsorize: 0.01,
+          neutralize: [],
+        },
+      ],
+    }))
+  }
+
+  function addCustomFactor() {
+    if (!config) return
+    let suffix = 1
+    let customName = "custom_factor"
+    const existingNames = new Set(config.factors.map((factor) => factor.name))
+    while (existingNames.has(customName)) {
+      suffix += 1
+      customName = `custom_factor_${suffix}`
+    }
+    const remainingWeight = Math.max(0, 1 - factorWeight)
+    updateConfig((current) => ({
+      ...current,
+      factors: [
+        ...current.factors,
+        {
+          name: customName,
+          source: "expression",
+          expression: "zscore(momentum_60d) - 0.5 * zscore(volatility_20d)",
           direction: "long",
           weight: remainingWeight > 0 ? Number(remainingWeight.toFixed(6)) : 0.1,
           winsorize: 0.01,
@@ -834,7 +888,7 @@ function StockSelectionStrategyWorkbenchWidget() {
           <div className="strategy-editor-scroll">
             {view === "builder" && config && (
               <div className="strategy-builder">
-                <section className="strategy-section strategy-section-wide">
+                {stage === "signal" && <section className="strategy-section strategy-section-wide">
                   <div className="strategy-section-heading">
                     <div><h3>{copy.overview}</h3><p>{copy.overviewHint}</p></div>
                   </div>
@@ -844,24 +898,20 @@ function StockSelectionStrategyWorkbenchWidget() {
                     <label><span>{copy.implementation}</span><select value={config.implementation.kind} disabled={!editable} onChange={(event) => updateImplementation(event.target.value as "configured" | "python")}><option value="configured">{copy.configuredImplementation}</option><option value="python">{copy.pythonImplementation}</option></select></label>
                     <label><span>{copy.timeout}</span><input type="number" min="0.1" max="30" step="0.5" value={config.implementation.timeout_seconds} disabled={!editable || !pythonEnabled} onChange={(event) => updateConfig((current) => ({ ...current, implementation: { ...current.implementation, timeout_seconds: numeric(event.target.value) } }))} /></label>
                   </div>
-                </section>
+                </section>}
 
-                <section className="strategy-section strategy-section-wide">
+                {stage === "signal" && <section className="strategy-section strategy-section-wide">
                   <div className="strategy-section-heading">
                     <div><h3>{copy.universe}</h3><p>{copy.universeHint}</p></div>
                   </div>
                   <div className="strategy-field-grid three">
                     <label><span>{copy.pool}</span><input value={config.universe.pool} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, universe: { ...current.universe, pool: event.target.value } }))} /></label>
                     <label className="span-two"><span>{copy.symbols}</span><input placeholder="000001.XSHE, 600000.XSHG" value={config.universe.symbols.join(", ")} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, universe: { ...current.universe, symbols: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) } }))} /></label>
-                    <label><span>{copy.minPrice}</span><input type="number" min="0" step="0.01" value={config.universe.min_price} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, universe: { ...current.universe, min_price: numeric(event.target.value) } }))} /></label>
                     <label><span>{copy.minHistory}</span><input type="number" min="2" step="1" value={config.universe.min_history_days} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, universe: { ...current.universe, min_history_days: numeric(event.target.value) } }))} /></label>
-                    <label><span>{copy.minAmount}</span><input type="number" min="0" step="1000" value={config.universe.min_average_amount} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, universe: { ...current.universe, min_average_amount: numeric(event.target.value) } }))} /></label>
-                    <label><span>{copy.maxStale}</span><input type="number" min="0" step="1" value={config.universe.max_stale_days} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, universe: { ...current.universe, max_stale_days: numeric(event.target.value) } }))} /></label>
-                    <label className="strategy-checkbox"><input type="checkbox" checked={config.universe.require_positive_volume} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, universe: { ...current.universe, require_positive_volume: event.target.checked } }))} /><span>{copy.positiveVolume}</span></label>
                   </div>
-                </section>
+                </section>}
 
-                <section className="strategy-section strategy-section-wide">
+                {stage === "signal" && <section className="strategy-section strategy-section-wide">
                   <div className="strategy-section-heading factor-heading">
                     <div><h3>{copy.factorMix}</h3><p>{copy.factorHint}</p></div>
                     <button type="button" className="strategy-link-button" onClick={openFactorWorkbench}><FlaskConical size={13} />{copy.testFactor}</button>
@@ -871,6 +921,7 @@ function StockSelectionStrategyWorkbenchWidget() {
                       {availableFactors.map((factor) => <option key={factor.name} value={factor.name}>{factor.name} · {factor.source}</option>)}
                     </select>
                     <button type="button" onClick={addFactor} disabled={!editable || !factorToAdd || availableFactors.length === 0}><Plus size={13} />{copy.add}</button>
+                    <button type="button" onClick={addCustomFactor} disabled={!editable}><Sigma size={13} />{copy.addCustomFactor}</button>
                     <button type="button" onClick={normalizeWeights} disabled={!editable || factorWeight <= 0}>{copy.normalize}</button>
                     <span>Σ {factorWeight.toFixed(4)}</span>
                   </div>
@@ -880,8 +931,14 @@ function StockSelectionStrategyWorkbenchWidget() {
                         <span>{copy.factorName}</span><span>{copy.direction}</span><span>{copy.weight}</span><span>{copy.winsorize}</span><span>{copy.neutralize}</span><span>{copy.evidence}</span><span />
                       </div>
                       {config.factors.map((factor, index) => (
-                        <div className="strategy-factor-row" key={`${factor.name}-${index}`}>
-                          <div className="strategy-factor-name"><strong>{factor.name}</strong><span>{factor.source}</span></div>
+                        <Fragment key={`${factor.source}-${index}`}>
+                        <div className="strategy-factor-row">
+                          <div className="strategy-factor-name">
+                            {factor.source === "expression"
+                              ? <input aria-label={copy.factorName} value={factor.name} disabled={!editable} onChange={(event) => updateFactor(index, { name: event.target.value })} />
+                              : <strong>{factor.name}</strong>}
+                            <span>{factor.source}</span>
+                          </div>
                           <select value={factor.direction} disabled={!editable} onChange={(event) => updateFactor(index, { direction: event.target.value as "long" | "short" })}><option value="long">{copy.long}</option><option value="short">{copy.short}</option></select>
                           <input aria-label={`${factor.name} ${copy.weight}`} type="number" min="0" step="0.05" value={factor.weight} disabled={!editable} onChange={(event) => updateFactor(index, { weight: numeric(event.target.value) })} />
                           <input aria-label={`${factor.name} ${copy.winsorize}`} type="number" min="0" max="0.249" step="0.005" value={factor.winsorize} disabled={!editable} onChange={(event) => updateFactor(index, { winsorize: numeric(event.target.value) })} />
@@ -889,24 +946,51 @@ function StockSelectionStrategyWorkbenchWidget() {
                           <span className="strategy-evidence">{copy.noEvidence}</span>
                           <button type="button" className="strategy-remove-factor" title={copy.remove} disabled={!editable} onClick={() => updateConfig((current) => ({ ...current, factors: current.factors.filter((_, factorIndex) => factorIndex !== index) }))}><X size={13} /></button>
                         </div>
+                        {factor.source === "expression" && (
+                          <label className="strategy-factor-expression">
+                            <span>{copy.customExpression}</span>
+                            <textarea value={factor.expression ?? ""} disabled={!editable} spellCheck={false} onChange={(event) => updateFactor(index, { expression: event.target.value })} />
+                          </label>
+                        )}
+                        </Fragment>
                       ))}
                     </div>
                   )}
-                </section>
+                </section>}
 
-                <section className="strategy-section">
-                  <div className="strategy-section-heading"><div><h3>{copy.selection}</h3></div></div>
+                {stage === "portfolio" && <section className="strategy-section strategy-section-wide">
+                  <div className="strategy-section-heading"><div><h3>{copy.selection}</h3><p>{copy.portfolioHint}</p></div></div>
                   <div className="strategy-field-grid two">
                     <label><span>{copy.coverage}</span><input type="number" min="0" max="1" step="0.05" value={config.selection.min_factor_coverage} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, selection: { ...current.selection, min_factor_coverage: numeric(event.target.value) } }))} /></label>
                     <label><span>{copy.stockCount}</span><input type="number" min="1" step="1" value={config.selection.n_stocks} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, selection: { ...current.selection, n_stocks: numeric(event.target.value) } }))} /></label>
-                    <label><span>{copy.maxWeight}</span><input type="number" min="0.001" max="1" step="0.01" value={config.portfolio.max_weight} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, portfolio: { ...current.portfolio, max_weight: numeric(event.target.value) } }))} /></label>
                     <label><span>{copy.rebalance}</span><select value={config.portfolio.rebalance_freq} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, portfolio: { ...current.portfolio, rebalance_freq: event.target.value as "monthly" | "weekly" } }))}><option value="monthly">{copy.monthly}</option><option value="weekly">{copy.weekly}</option></select></label>
-                    <label className="span-two"><span>{copy.optimizer}</span><select value={config.portfolio.optimizer} disabled><option value="equal_weight">{copy.equalWeight}</option></select></label>
+                    <label><span>{copy.optimizer}</span><select value={config.portfolio.optimizer} disabled><option value="equal_weight">{copy.equalWeight}</option></select></label>
                   </div>
-                </section>
+                  <div className="strategy-stage-audit">
+                    <div><span>{copy.stockCount}</span><strong>{config.selection.n_stocks}</strong></div>
+                    <div><span>{copy.fullSelectionWeight}</span><strong>{config.selection.n_stocks > 0 ? `${(Math.min(1 / config.selection.n_stocks, config.portfolio.max_weight) * 100).toFixed(1)}%` : "—"}</strong></div>
+                    <div><span>{copy.rebalance}</span><strong>{config.portfolio.rebalance_freq === "monthly" ? copy.monthly : copy.weekly}</strong></div>
+                  </div>
+                </section>}
 
-                <section className="strategy-section">
-                  <div className="strategy-section-heading"><div><h3>{copy.execution}</h3></div></div>
+                {stage === "risk" && <section className="strategy-section strategy-section-wide">
+                  <div className="strategy-section-heading"><div><h3>{copy.risk}</h3><p>{copy.riskHint}</p></div><span className="strategy-enforced-pill"><ShieldCheck size={12} />{copy.enforced}</span></div>
+                  <div className="strategy-field-grid three">
+                    <label><span>{copy.maxWeight}</span><input type="number" min="0.001" max="1" step="0.01" value={config.portfolio.max_weight} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, portfolio: { ...current.portfolio, max_weight: numeric(event.target.value) } }))} /></label>
+                    <label><span>{copy.minPrice}</span><input type="number" min="0" step="0.01" value={config.universe.min_price} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, universe: { ...current.universe, min_price: numeric(event.target.value) } }))} /></label>
+                    <label><span>{copy.minAmount}</span><input type="number" min="0" step="1000" value={config.universe.min_average_amount} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, universe: { ...current.universe, min_average_amount: numeric(event.target.value) } }))} /></label>
+                    <label><span>{copy.maxStale}</span><input type="number" min="0" step="1" value={config.universe.max_stale_days} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, universe: { ...current.universe, max_stale_days: numeric(event.target.value) } }))} /></label>
+                    <label className="strategy-checkbox"><input type="checkbox" checked={config.universe.require_positive_volume} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, universe: { ...current.universe, require_positive_volume: event.target.checked } }))} /><span>{copy.positiveVolume}</span></label>
+                  </div>
+                  <div className="strategy-stage-audit">
+                    <div><span>{copy.riskCapacity}</span><strong>{`${(Math.min(1, config.selection.n_stocks * config.portfolio.max_weight) * 100).toFixed(1)}%`}</strong></div>
+                    <div><span>{copy.riskCash}</span><strong>{`${(Math.max(0, 1 - config.selection.n_stocks * config.portfolio.max_weight) * 100).toFixed(1)}%`}</strong></div>
+                    <div><span>{copy.maxWeight}</span><strong>{`${(config.portfolio.max_weight * 100).toFixed(1)}%`}</strong></div>
+                  </div>
+                </section>}
+
+                {stage === "execution" && <section className="strategy-section strategy-section-wide">
+                  <div className="strategy-section-heading"><div><h3>{copy.execution}</h3><p>{copy.executionHint}</p></div></div>
                   <div className="strategy-field-grid two">
                     <label><span>{copy.cost}</span><input type="number" min="0" step="1" value={config.execution.cost_bps} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, execution: { ...current.execution, cost_bps: numeric(event.target.value) } }))} /></label>
                     <label><span>{copy.slippage}</span><input type="number" min="0" step="1" value={config.execution.slippage_bps} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, execution: { ...current.execution, slippage_bps: numeric(event.target.value) } }))} /></label>
@@ -915,7 +999,7 @@ function StockSelectionStrategyWorkbenchWidget() {
                     <label><span>{copy.capital}</span><input type="number" min="1" step="10000" value={config.execution.portfolio_value} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, execution: { ...current.execution, portfolio_value: numeric(event.target.value) } }))} /></label>
                     <label><span>{copy.participation}</span><input type="number" min="0.001" max="1" step="0.01" value={config.execution.max_participation_rate} disabled={!editable} onChange={(event) => updateConfig((current) => ({ ...current, execution: { ...current.execution, max_participation_rate: numeric(event.target.value) } }))} /></label>
                   </div>
-                </section>
+                </section>}
 
                 <section className="strategy-section strategy-section-wide">
                   <div className="strategy-section-heading"><div><h3>{copy.validation}</h3><p>{validation ? (validation.valid ? copy.valid : copy.invalid) : copy.notValidated}</p></div></div>
@@ -1071,51 +1155,47 @@ function StockSelectionStrategyWorkbenchWidget() {
 
 export function StrategyWorkbenchWidget() {
   const { language } = useLanguage()
-  const [strategyDomain, setStrategyDomain] = useState<"stock_selection" | "market_timing" | "allocation_rotation">(() => {
+  const [strategyDomain, setStrategyDomain] = useState<"stock_selection" | "market_timing">(() => {
     const requested = typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("strategyType")
       : null
-    return requested === "market_timing" || requested === "allocation_rotation"
-      ? requested
-      : "stock_selection"
+    return requested === "market_timing" ? requested : "stock_selection"
   })
+  const [stage, setStage] = useState<StrategyStage>("signal")
+  const stages: Array<{ id: StrategyStage; title: string; description: string; icon: typeof Workflow }> = language === "zh"
+    ? [
+        { id: "signal", title: "信号设计", description: "研究买什么或何时持有", icon: Workflow },
+        { id: "portfolio", title: "组合构建", description: "把分数转成权重与仓位", icon: Layers3 },
+        { id: "risk", title: "风险控制", description: "设置引擎强制执行的边界", icon: ShieldCheck },
+        { id: "execution", title: "交易执行", description: "定义成交、容量与成本", icon: Play },
+      ]
+    : [
+        { id: "signal", title: "Signal design", description: "Research what or when to own", icon: Workflow },
+        { id: "portfolio", title: "Portfolio construction", description: "Translate scores into weights", icon: Layers3 },
+        { id: "risk", title: "Risk controls", description: "Set engine-enforced boundaries", icon: ShieldCheck },
+        { id: "execution", title: "Trade execution", description: "Define fills, capacity, and costs", icon: Play },
+      ]
+  const activeStage = stages.find((item) => item.id === stage) ?? stages[0]
 
   return (
     <div className="strategy-domain-shell">
-      <nav className="strategy-domain-tabs" aria-label={language === "zh" ? "策略类型" : "Strategy type"}>
-        <button
-          type="button"
-          className={strategyDomain === "stock_selection" ? "active" : ""}
-          onClick={() => setStrategyDomain("stock_selection")}
-        >
-          <Target size={15} />
-          <span>{language === "zh" ? "选股策略" : "Stock selection"}</span>
-          <small>{language === "zh" ? "决定买什么、买多少" : "What to own and how much"}</small>
-        </button>
-        <button
-          type="button"
-          className={strategyDomain === "market_timing" ? "active" : ""}
-          onClick={() => setStrategyDomain("market_timing")}
-        >
-          <FlaskConical size={15} />
-          <span>{language === "zh" ? "择时策略" : "Market timing"}</span>
-          <small>{language === "zh" ? "决定市场仓位与进退" : "When and how much exposure"}</small>
-        </button>
-        <button
-          type="button"
-          className={strategyDomain === "allocation_rotation" ? "active" : ""}
-          onClick={() => setStrategyDomain("allocation_rotation")}
-        >
-          <Layers3 size={15} />
-          <span>{language === "zh" ? "配置与轮动" : "Allocation & rotation"}</span>
-          <small>{language === "zh" ? "决定风格之间如何配置" : "How to allocate across styles"}</small>
-        </button>
-      </nav>
+      <header className="strategy-workflow-header">
+        <div className="strategy-signal-switch" role="group" aria-label={language === "zh" ? "信号类型" : "Signal type"}>
+          <span>{language === "zh" ? "信号类型" : "Signal type"}</span>
+          <button type="button" className={strategyDomain === "stock_selection" ? "active" : ""} onClick={() => setStrategyDomain("stock_selection")}><Target size={14} />{language === "zh" ? "选股信号" : "Stock selection"}</button>
+          <button type="button" className={strategyDomain === "market_timing" ? "active" : ""} onClick={() => setStrategyDomain("market_timing")}><FlaskConical size={14} />{language === "zh" ? "择时信号" : "Market timing"}</button>
+        </div>
+        <nav className="strategy-stage-tabs" aria-label={language === "zh" ? "研究流程" : "Research workflow"}>
+          {stages.map((item, index) => {
+            const Icon = item.icon
+            return <button key={item.id} type="button" className={stage === item.id ? "active" : ""} aria-current={stage === item.id ? "step" : undefined} onClick={() => setStage(item.id)}><small>{index + 1}</small><Icon size={14} /><span>{item.title}</span></button>
+          })}
+        </nav>
+        <div className="strategy-stage-context"><strong>{activeStage.title}</strong><span>{activeStage.description}</span></div>
+      </header>
       {strategyDomain === "stock_selection"
-        ? <StockSelectionStrategyWorkbenchWidget />
-        : strategyDomain === "market_timing"
-          ? <TimingStrategyWorkbenchWidget />
-          : <RotationStrategyWorkbenchWidget />}
+        ? <StockSelectionStrategyWorkbenchWidget stage={stage} />
+        : <TimingStrategyWorkbenchWidget stage={stage} />}
     </div>
   )
 }

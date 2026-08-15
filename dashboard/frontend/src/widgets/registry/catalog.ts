@@ -19,7 +19,7 @@ export type WidgetStatus = "active" | "not_configured"
 const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
   // Research Agent workflow: one durable workstation per artifact boundary.
   { id: "data.workbench", title: "数据工作台", titleEn: "Data Workbench", category: "研究流程", categoryEn: "Research Flow", description: "数据获取、筛选预览、同步和质量校验", descriptionEn: "Acquire, filter, preview, sync, and validate datasets" },
-  { id: "factor.workbench", title: "因子工作台", titleEn: "Factor Workbench", category: "研究流程", categoryEn: "Research Flow", description: "因子选择、定义检查与集中分析", descriptionEn: "Factor selection, definition review, and consolidated analytics" },
+  { id: "factor.workbench", title: "因子工作台", titleEn: "Factor Workbench", category: "研究流程", categoryEn: "Research Flow", description: "横截面因子、市场风险因子与择时信号", descriptionEn: "Cross-sectional factors, market risk factors, and timing signals" },
   { id: "strategy.workbench", title: "策略工作台", titleEn: "Strategy Workbench", category: "研究流程", categoryEn: "Research Flow", description: "策略查看、克隆、编辑、校验和保存", descriptionEn: "Review, clone, edit, validate, and save strategies" },
   { id: "backtest.workbench", title: "回测工作台", titleEn: "Backtest Workbench", category: "研究流程", categoryEn: "Research Flow", description: "运行、历史结果、稳健性、持仓和策略对比", descriptionEn: "Run, inspect history, robustness, holdings, and comparisons" },
   { id: "report.workbench", title: "报告工作台", titleEn: "Report Workbench", category: "研究流程", categoryEn: "Research Flow", description: "查看 Agent 生成的文档、表格、图表和来源", descriptionEn: "Inspect Agent documents, tables, charts, and sources" },

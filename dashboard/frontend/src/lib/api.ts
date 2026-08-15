@@ -6,13 +6,12 @@ interface ElectronApiBridge {
 
 export interface StrategyTemplate {
   id: string
-  strategy_type: "stock_selection" | "market_timing" | "allocation_rotation"
+  strategy_type: "stock_selection" | "market_timing"
   name: string
   description: string
   path: string
   factors: string[]
   signals?: string[]
-  sleeves?: string[]
   implementation: "configured" | "python"
   warnings: string[]
   built_in: boolean
@@ -183,85 +182,6 @@ export interface TimingResearchResult {
   }>
 }
 
-export interface RotationStrategyConfigPayload {
-  strategy_type: "allocation_rotation"
-  name: string
-  description: string
-  sleeves: Array<"MKT" | "SMB" | "HML" | "MOM" | "RMW">
-  benchmark: "MKT" | "SMB" | "HML" | "MOM" | "RMW"
-  signal: {
-    kind: "momentum"
-    lookback: number
-    skip: number
-  }
-  selection: { top_k: number }
-  portfolio: {
-    max_weight: number
-    optimizer: "equal_weight"
-  }
-  execution: {
-    cost_bps: number
-    slippage_bps: number
-  }
-  implementation: StrategyImplementationConfig
-  metadata?: Record<string, unknown>
-}
-
-export interface RotationStrategyTemplateDetail extends StrategyTemplate {
-  strategy_type: "allocation_rotation"
-  yaml: string
-  config: RotationStrategyConfigPayload
-  python_source: string | null
-  python_source_sha256: string | null
-}
-
-export interface RotationStrategyValidationResult {
-  valid: boolean
-  strategy_type: "allocation_rotation"
-  implementation: "configured" | "python"
-  name: string
-  factors: string[]
-  signals: string[]
-  sleeves: string[]
-  warnings: string[]
-  normalized_yaml: string
-  config: RotationStrategyConfigPayload
-  python_source: string | null
-  python_source_sha256: string | null
-  checks: StrategyValidationCheck[]
-}
-
-export interface RotationResearchResult {
-  strategy_id: string
-  strategy_type: "allocation_rotation"
-  profile: "demo" | "runtime"
-  metrics: Record<string, number>
-  diagnostics: {
-    frequency: "monthly"
-    periods: number
-    sleeves: string[]
-    benchmark: string
-    lookback: number
-    top_k: number
-    average_invested: number
-    latest_signal_date: string
-    latest_targets: Record<string, number>
-    turnover: number
-  }
-  series: Array<{
-    date: string
-    strategy: number
-    benchmark: number
-    invested: number
-  }>
-  allocations: Array<{
-    date: string
-    cash: number
-    weights: Record<string, number>
-    scores: Record<string, number | null>
-  }>
-}
-
 export interface BacktestRecord {
   id: string
   strategy_id: string
@@ -279,7 +199,7 @@ export interface BacktestRecord {
 export interface BacktestRunResult {
   id: string
   strategy_id: string
-  strategy_type: "stock_selection" | "market_timing" | "allocation_rotation"
+  strategy_type: "stock_selection" | "market_timing"
   metrics: Record<string, number>
   returns: { date: string; value: number }[]
   weights_count: number
@@ -353,15 +273,13 @@ export interface BacktestAnalysis {
   executions: BacktestExecution[]
   has_execution_audit: boolean
   strategy_snapshot: {
-    strategy_type: "stock_selection" | "market_timing" | "allocation_rotation"
+    strategy_type: "stock_selection" | "market_timing"
     implementation: "configured" | "python"
     name: string
     description: string
     factors: string[]
     signals: string[]
     market_factor?: string
-    sleeves?: string[]
-    benchmark?: string
     rebalance_freq: "monthly" | "weekly"
     execution_price: "next_open" | "next_close" | "monthly_factor_close"
     cost_bps: number
@@ -556,6 +474,25 @@ export interface MarketInstrument {
 export interface FactorReturnsPayload {
   names: string[]
   rows: Array<Record<string, string | number>>
+}
+
+export interface CustomRiskFactorResult {
+  profile: "demo" | "runtime"
+  name: string
+  expression: string
+  dependencies: string[]
+  dates: string[]
+  returns: Array<number | null>
+  cumulative: Array<number | null>
+  summary: {
+    observations: number
+    annual_return: number | null
+    annual_volatility: number | null
+    sharpe: number | null
+    max_drawdown: number | null
+    positive_ratio: number | null
+  }
+  warnings: string[]
 }
 
 export interface RobustnessPeriodMetrics {

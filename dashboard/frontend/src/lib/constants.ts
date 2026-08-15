@@ -2,6 +2,9 @@ export const FACTOR_COLORS = {
   MKT: '#2962FF',
   SMB: '#00C853',
   HML: '#FF6D00',
+  MOM: '#AB47BC',
+  RMW: '#26A69A',
+  rf: '#78909C',
 } as const
 
 export const CHART_COLORS = [
@@ -9,7 +12,8 @@ export const CHART_COLORS = [
   '#EC407A', '#7E57C2', '#5C6BC0', '#00897B', '#F4511E',
 ] as const
 
-export const ALL_FACTORS = ['MKT', 'SMB', 'HML'] as const
+export const ALL_FACTORS = ['MKT', 'SMB', 'HML', 'MOM', 'RMW', 'rf'] as const
+export const DEFAULT_FACTORS: FactorName[] = ['MKT', 'SMB', 'HML']
 export type FactorName = (typeof ALL_FACTORS)[number]
 
 export const PAGE_ROUTES = {

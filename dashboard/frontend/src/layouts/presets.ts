@@ -42,7 +42,7 @@ function createWorkbenchPreset(
 
 export const layoutPresets: Record<WorkspaceMode, LayoutPreset> = {
   data: createWorkbenchPreset("data", "数据", "数据获取、预览与质量校验", "data.workbench", "数据工作台"),
-  factor: createWorkbenchPreset("factor", "因子", "因子选择、定义与表现分析", "factor.workbench", "因子工作台"),
+  factor: createWorkbenchPreset("factor", "因子", "横截面因子、市场风险因子与择时信号", "factor.workbench", "因子工作台"),
   strategy: createWorkbenchPreset("strategy", "策略", "策略编辑、校验与版本管理", "strategy.workbench", "策略工作台"),
   backtest: createWorkbenchPreset("backtest", "回测", "运行、历史、稳健性与对比", "backtest.workbench", "回测工作台"),
   report: createWorkbenchPreset("report", "报告", "Agent 文档、表格、图表与导出", "report.workbench", "报告工作台"),

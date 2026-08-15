@@ -10,7 +10,6 @@ const sourceBundlePath = resolve(projectRoot, bundlePath)
 const stagedBundleAbsolutePath = resolve(projectRoot, stagedBundlePath)
 const harnessId = "alphalab-research-harness-v1"
 const agentId = "alphalab-research-agent-v1"
-const contextId = "alphalab-research-context-v1"
 const notebookId = "alphalab-decision-notebook-v1"
 const commandsId = "alphalab-workspace-commands-v1"
 const resultId = "alphalab-workspace-result-v1"
@@ -22,16 +21,28 @@ const toolNodes = [
   ["alphalab-tool-market-bars-v1", "AlphaLab Market Bars", "Get-Market-Bars.tool.json"],
   ["alphalab-tool-fundamentals-v1", "AlphaLab Fundamentals", "Get-Fundamentals.tool.json"],
   ["alphalab-tool-factor-returns-v1", "AlphaLab Factor Returns", "Get-Factor-Returns.tool.json"],
+  ["alphalab-tool-factor-library-v1", "AlphaLab Factor Library", "Get-Factor-Library.tool.json"],
   ["alphalab-tool-evaluate-factor-v1", "Evaluate AlphaLab Factor", "Evaluate-Factor.tool.json"],
+  ["alphalab-tool-evaluate-market-risk-factor-v1", "Evaluate AlphaLab Market Risk Factor", "Evaluate-Market-Risk-Factor.tool.json"],
+  ["alphalab-tool-research-strategy-v1", "Research AlphaLab Strategy", "Research-Strategy.tool.json"],
+  ["alphalab-tool-manage-strategy-v1", "Manage AlphaLab Strategy", "Manage-Strategy.tool.json"],
   ["alphalab-tool-backtest-v1", "AlphaLab Backtest", "Get-Backtest.tool.json"],
+  ["alphalab-tool-analyze-backtest-v1", "Analyze AlphaLab Backtest", "Analyze-Backtest.tool.json"],
   ["alphalab-tool-run-backtest-v1", "Run AlphaLab Backtest", "Run-Backtest.tool.json"],
+  ["alphalab-tool-manage-research-run-v1", "Manage AlphaLab Research Run", "Manage-Research-Run.tool.json"],
   ["alphalab-tool-generate-signal-v1", "Generate AlphaLab Paper Signal", "Generate-Signal.tool.json"],
+  ["alphalab-tool-reports-v1", "AlphaLab Research Reports", "Get-Reports.tool.json"],
+  ["alphalab-tool-paper-state-v1", "AlphaLab Paper State", "Get-Paper-State.tool.json"],
+  ["alphalab-tool-preview-paper-rebalance-v1", "Preview AlphaLab Paper Rebalance", "Preview-Paper-Rebalance.tool.json"],
+  ["alphalab-tool-execute-paper-rebalance-v1", "Execute AlphaLab Paper Rebalance", "Execute-Paper-Rebalance.tool.json"],
+  ["alphalab-tool-submit-paper-order-v1", "Submit AlphaLab Paper Order", "Submit-Paper-Order.tool.json"],
   ["alphalab-tool-data-catalog-v1", "AlphaLab Data Catalog", "Data-Catalog.tool.json"],
   ["alphalab-tool-data-status-v1", "AlphaLab Data Status", "Data-Status.tool.json"],
   ["alphalab-tool-data-plan-sync-v1", "Plan AlphaLab Data Sync", "Plan-Data-Sync.tool.json"],
   ["alphalab-tool-data-run-sync-v1", "Run AlphaLab Data Sync", "Run-Data-Sync.tool.json"],
   ["alphalab-tool-data-validate-v1", "Validate AlphaLab Data", "Validate-Data.tool.json"],
   ["alphalab-tool-data-query-v1", "Query AlphaLab Runtime Data", "Query-Runtime-Data.tool.json"],
+  ["alphalab-tool-data-sync-job-v1", "Manage AlphaLab Data Sync Job", "Manage-Data-Sync-Job.tool.json"],
 ]
 
 await mkdir(resolve(projectRoot, ".conexus"), { recursive: true })
@@ -59,13 +70,13 @@ await cp(sourceBundlePath, stagedBundleAbsolutePath, { recursive: true, force: t
 const ownedNodeIds = new Set([
   harnessId,
   agentId,
-  contextId,
   notebookId,
   commandsId,
   resultId,
   documentId,
   ...toolNodes.map(([id]) => id),
 ])
+const obsoleteNodeIds = new Set(["alphalab-research-context-v1"])
 const ownedEdgePrefix = "edge-alphalab-research-v1-"
 const canvas = JSON.parse(await readFile(canvasPath, "utf8"))
 
@@ -96,8 +107,8 @@ const nodes = [
       backingPath: `${stagedBundlePath}/harness.json`,
     },
     width: 1600,
-    height: 1600,
-    style: { width: 1600, height: 1600 },
+    height: 2600,
+    style: { width: 1600, height: 2600 },
   },
   child(agentId, "agent", { x: 32, y: 72 }, {
     label: "AlphaLab Research Agent",
@@ -105,11 +116,6 @@ const nodes = [
     exposeInHarness: true,
     backingPath: `${stagedBundlePath}/agents/AlphaLab-Research-Agent.agent.json`,
   }, { width: 360, height: 264 }),
-  child(contextId, "custom", { x: 424, y: 72 }, {
-    label: "Workspace Context",
-    description: "Structured context supplied by the AlphaLab workstation.",
-    backingPath: `${stagedBundlePath}/data/Workspace-Context.custom.json`,
-  }),
   child(notebookId, "custom", { x: 816, y: 72 }, {
     label: "Decision Notebook",
     description: "Structured output consumed by the AlphaLab right rail.",
@@ -141,7 +147,6 @@ const nodes = [
 ]
 
 const targets = [
-  contextId,
   notebookId,
   resultId,
   commandsId,
@@ -154,7 +159,10 @@ const edges = targets.map((target, index) => ({
   target,
 }))
 
-canvas.nodes = [...canvas.nodes.filter((node) => !ownedNodeIds.has(node.id)), ...nodes]
+canvas.nodes = [
+  ...canvas.nodes.filter((node) => !ownedNodeIds.has(node.id) && !obsoleteNodeIds.has(node.id)),
+  ...nodes,
+]
 canvas.edges = [...canvas.edges.filter((edge) => !edge.id.startsWith(ownedEdgePrefix)), ...edges]
 canvas.metadata = { ...(canvas.metadata ?? {}), savedAt: new Date().toISOString() }
 await writeFile(canvasPath, `${JSON.stringify(canvas, null, 2)}\n`, "utf8")

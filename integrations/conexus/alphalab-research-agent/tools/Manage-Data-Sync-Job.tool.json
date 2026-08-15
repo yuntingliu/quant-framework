@@ -1,0 +1,38 @@
+{
+  "toolName": "alphalab_manage_data_sync_job",
+  "description": "List, inspect, submit, or cancel asynchronous RQ synchronization jobs used by the Data Workbench. Submission follows the Agent's autonomous runtime-data policy; cancellation requires an explicit user request plus confirm_cancel=true.",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["operation"],
+    "properties": {
+      "operation": { "type": "string", "enum": ["list", "get", "submit", "cancel"] },
+      "job_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 20 },
+      "datasets": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 4,
+        "uniqueItems": true,
+        "items": { "type": "string", "enum": ["instruments", "bars", "fundamentals", "factors"] }
+      },
+      "symbols": {
+        "type": "array",
+        "maxItems": 2000,
+        "uniqueItems": true,
+        "items": { "type": "string", "minLength": 1 }
+      },
+      "start": { "type": "string", "minLength": 10 },
+      "end": { "type": "string", "minLength": 10 },
+      "force": { "type": "boolean", "default": false },
+      "confirm_cancel": { "type": "boolean", "default": false }
+    }
+  },
+  "outputSchema": { "type": ["object", "array"] },
+  "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const base = apiOrigin() + '/api/data-sync/jobs'\n  let url = base\n  let options = { headers: { Accept: 'application/json', 'Content-Type': 'application/json' } }\n  if (input.operation === 'list') {\n    url += '?limit=' + Math.max(1, Math.min(200, Number(input.limit || 20)))\n  } else if (input.operation === 'get') {\n    const id = String(input.job_id || '').trim()\n    if (!id) throw new Error('job_id is required for get')\n    url += '/' + encodeURIComponent(id)\n  } else if (input.operation === 'submit') {\n    const body = { source: 'rq', datasets: input.datasets || ['instruments', 'bars', 'fundamentals', 'factors'], force: input.force === true }\n    if (input.symbols) body.symbols = input.symbols.map(String)\n    if (input.start) body.start = String(input.start)\n    if (input.end) body.end = String(input.end)\n    options = { ...options, method: 'POST', body: JSON.stringify(body) }\n  } else if (input.operation === 'cancel') {\n    if (input.confirm_cancel !== true) throw new Error('Cancelling a sync job requires an explicit user request and confirm_cancel=true')\n    const id = String(input.job_id || '').trim()\n    if (!id) throw new Error('job_id is required for cancel')\n    url += '/' + encodeURIComponent(id) + '/cancel'\n    options = { ...options, method: 'POST', body: '{}' }\n  } else {\n    throw new Error('Unsupported data sync job operation')\n  }\n  const response = await fetch(url, options)\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+  "timeoutMs": 60000,
+  "permissions": { "network": "alphalab-api" },
+  "sideEffects": "write"
+}

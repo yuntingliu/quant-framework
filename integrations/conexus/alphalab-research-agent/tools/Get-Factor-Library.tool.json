@@ -1,0 +1,16 @@
+{
+  "toolName": "alphalab_get_factor_library",
+  "description": "List the registered stock-ranking factors, safe expression functions, and supported neutralizers exposed by the AlphaLab Factor Workbench.",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "outputSchema": { "type": "object" },
+  "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run() {\n  const response = await fetch(apiOrigin() + '/api/factor-research/library', { headers: { Accept: 'application/json' } })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+  "timeoutMs": 30000,
+  "permissions": { "network": "alphalab-api" },
+  "sideEffects": "read"
+}

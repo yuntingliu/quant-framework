@@ -22,8 +22,8 @@ export function FactorStatsWidget() {
     ? { title: "因子统计", factor: "因子", annual: "年化收益", volatility: "波动率", maxDrawdown: "最大回撤", positive: "正收益占比", skew: "偏度", kurtosis: "峰度" }
     : { title: "Factor Statistics", factor: "Factor", annual: "Annual", volatility: "Volatility", maxDrawdown: "Max DD", positive: "Positive", skew: "Skew", kurtosis: "Kurtosis" }
   const [profile, setProfile] = useDataProfile()
-  const { startDate, endDate } = useGlobalFilter()
-  const query = useFactorStats(profile, startDate, endDate)
+  const { startDate, endDate, selectedFactors } = useGlobalFilter()
+  const query = useFactorStats(profile, startDate, endDate, selectedFactors)
   return (
     <Widget
       title={copy.title}

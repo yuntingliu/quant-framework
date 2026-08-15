@@ -11,14 +11,12 @@ import yaml
 
 from alphalab import (
     ResultStore,
-    RotationStrategyConfig,
     SignalEngine,
     StrategyConfig,
     TimingStrategyConfig,
     create_default_engine,
     create_runtime_engine,
     run_timing_backtest,
-    run_rotation_backtest,
 )
 from alphalab.analytics import PerformanceMetrics, equal_weight_benchmark
 from alphalab.dataio import DataEngine, MissingDataError
@@ -26,11 +24,7 @@ from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.fundamentals import CANONICAL_FIELDS
 from alphalab.engine import run_backtest_detailed
 from alphalab.provenance import build_research_provenance
-from alphalab.strategy import (
-    RotationStrategyRepository,
-    StrategyRepository,
-    TimingStrategyRepository,
-)
+from alphalab.strategy import StrategyRepository, TimingStrategyRepository
 from alphalab.utils.paths import APP_DATA_DIR, DATA_DIR, FACTOR_DIR, FUNDAMENTAL_DIR, MARKET_DIR
 
 FUNDAMENTAL_FIELDS = ("shares", "market_cap", *CANONICAL_FIELDS)
@@ -308,7 +302,6 @@ def list_strategy_templates() -> list[dict]:
     definitions = [
         *StrategyRepository().list(),
         *TimingStrategyRepository().list(),
-        *RotationStrategyRepository().list(),
     ]
     for definition in definitions:
         item = definition.as_dict()
@@ -317,11 +310,7 @@ def list_strategy_templates() -> list[dict]:
     return sorted(
         rows,
         key=lambda item: (
-            {
-                "stock_selection": 0,
-                "market_timing": 1,
-                "allocation_rotation": 2,
-            }[item["strategy_type"]],
+            item["strategy_type"],
             not item["built_in"],
             item["id"],
         ),
@@ -332,8 +321,6 @@ def get_strategy_template(strategy_id: str) -> dict | None:
     definition = StrategyRepository().get(strategy_id)
     if definition is None:
         definition = TimingStrategyRepository().get(strategy_id)
-    if definition is None:
-        definition = RotationStrategyRepository().get(strategy_id)
     if definition is None:
         return None
     item = definition.as_dict(include_yaml=True)
@@ -348,8 +335,6 @@ def validate_strategy_yaml(
     strategy_type = _strategy_type_from_yaml(yaml_text)
     if strategy_type == "market_timing":
         return TimingStrategyRepository.validate_yaml(yaml_text, python_source)
-    if strategy_type == "allocation_rotation":
-        return RotationStrategyRepository.validate_yaml(yaml_text, python_source)
     return StrategyRepository.validate_yaml(yaml_text, python_source)
 
 
@@ -360,8 +345,6 @@ def validate_strategy_config(
     strategy_type = _strategy_type_from_dict(config)
     if strategy_type == "market_timing":
         return TimingStrategyRepository.validate_dict(config, python_source)
-    if strategy_type == "allocation_rotation":
-        return RotationStrategyRepository.validate_dict(config, python_source)
     return StrategyRepository.validate_dict(config, python_source)
 
 
@@ -371,7 +354,11 @@ def clone_strategy(strategy_id: str, target_id: str) -> dict:
         raise KeyError(strategy_id)
     if get_strategy_template(target_id) is not None:
         raise FileExistsError(target_id)
-    repository = _strategy_repository(source["strategy_type"])
+    repository = (
+        TimingStrategyRepository()
+        if source["strategy_type"] == "market_timing"
+        else StrategyRepository()
+    )
     return repository.clone(strategy_id, target_id).as_dict(include_yaml=True)
 
 
@@ -385,14 +372,18 @@ def save_strategy(
     if existing is not None and existing["strategy_type"] != strategy_type:
         raise ValueError("strategy_type cannot be changed for an existing strategy")
     if existing is None:
-        for other_type in {
-            "stock_selection",
-            "market_timing",
-            "allocation_rotation",
-        } - {strategy_type}:
-            if _strategy_repository(other_type).get(strategy_id) is not None:
-                raise FileExistsError(strategy_id)
-    repository = _strategy_repository(strategy_type)
+        other = (
+            StrategyRepository().get(strategy_id)
+            if strategy_type == "market_timing"
+            else TimingStrategyRepository().get(strategy_id)
+        )
+        if other is not None:
+            raise FileExistsError(strategy_id)
+    repository = (
+        TimingStrategyRepository()
+        if strategy_type == "market_timing"
+        else StrategyRepository()
+    )
     return repository.save(
         strategy_id,
         yaml_text,
@@ -404,7 +395,11 @@ def delete_strategy(strategy_id: str) -> bool:
     definition = get_strategy_template(strategy_id)
     if definition is None:
         return False
-    repository = _strategy_repository(definition["strategy_type"])
+    repository = (
+        TimingStrategyRepository()
+        if definition["strategy_type"] == "market_timing"
+        else StrategyRepository()
+    )
     return repository.delete(strategy_id)
 
 
@@ -418,19 +413,9 @@ def _strategy_type_from_yaml(yaml_text: str) -> str:
 def _strategy_type_from_dict(config: dict) -> str:
     # Existing saved selection strategies predate this discriminator.
     strategy_type = str(config.get("strategy_type", "stock_selection"))
-    if strategy_type not in {"stock_selection", "market_timing", "allocation_rotation"}:
-        raise ValueError(
-            "strategy_type must be stock_selection, market_timing, or allocation_rotation"
-        )
+    if strategy_type not in {"stock_selection", "market_timing"}:
+        raise ValueError("strategy_type must be stock_selection or market_timing")
     return strategy_type
-
-
-def _strategy_repository(strategy_type: str):
-    if strategy_type == "market_timing":
-        return TimingStrategyRepository()
-    if strategy_type == "allocation_rotation":
-        return RotationStrategyRepository()
-    return StrategyRepository()
 
 
 def run_strategy_backtest(
@@ -444,13 +429,6 @@ def run_strategy_backtest(
         raise KeyError(strategy_id)
     if strategy["strategy_type"] == "market_timing":
         return _run_timing_strategy_backtest(
-            strategy,
-            start_date,
-            end_date,
-            profile,
-        )
-    if strategy["strategy_type"] == "allocation_rotation":
-        return _run_rotation_strategy_backtest(
             strategy,
             start_date,
             end_date,
@@ -586,66 +564,6 @@ def _run_timing_strategy_backtest(
     }
 
 
-def _run_rotation_strategy_backtest(
-    strategy: dict,
-    start_date: str,
-    end_date: str,
-    profile: str,
-) -> dict:
-    cfg = RotationStrategyConfig.from_yaml(strategy["path"])
-    backtest = run_rotation_backtest(
-        cfg,
-        start_date,
-        end_date,
-        _engine(profile),
-        strategy.get("python_source"),
-    )
-    metrics = PerformanceMetrics.summarize(backtest.returns, 12)
-    config_yaml = cfg.to_yaml()
-    provenance = build_research_provenance(
-        profile,
-        config_yaml,
-        strategy_python=strategy.get("python_source"),
-    )
-    store = ResultStore()
-    try:
-        store.register_strategy(cfg.name, strategy["path"], cfg.description)
-        backtest_id = store.save_backtest(
-            config_yaml,
-            backtest.returns,
-            metrics,
-            strategy_id=cfg.name,
-            benchmark=backtest.benchmark,
-            weights=backtest.weights,
-            start_date=start_date,
-            end_date=end_date,
-            tags=[f"profile:{profile}", "strategy_type:allocation_rotation"],
-            provenance=provenance,
-            executions=backtest.executions,
-            persist_zero_weights=True,
-        )
-    finally:
-        store.close()
-    return {
-        "id": backtest_id,
-        "strategy_id": cfg.name,
-        "strategy_type": "allocation_rotation",
-        "profile": profile,
-        "metrics": metrics,
-        "returns": [
-            {
-                "date": str(date)[:10],
-                "value": float(value),
-                "benchmark": float(backtest.benchmark.loc[date]),
-            }
-            for date, value in backtest.returns.items()
-        ],
-        "weights_count": int((backtest.weights.abs() > 0).sum().sum()),
-        "execution": backtest.diagnostics,
-        "provenance": provenance,
-    }
-
-
 def research_timing_strategy(
     *,
     config: dict | None = None,
@@ -717,86 +635,6 @@ def research_timing_strategy(
         "diagnostics": backtest.diagnostics,
         "series": series,
         "signals": signal_rows,
-    }
-
-
-def research_rotation_strategy(
-    *,
-    config: dict | None = None,
-    yaml_text: str | None = None,
-    python_source: str | None = None,
-    start_date: str,
-    end_date: str,
-    profile: str = "demo",
-) -> dict:
-    """Research an unsaved style-rotation draft without persisting a run."""
-
-    if (config is None) == (yaml_text is None):
-        raise ValueError("provide exactly one of yaml or config")
-    validation = (
-        validate_strategy_yaml(yaml_text or "", python_source)
-        if yaml_text is not None
-        else validate_strategy_config(config or {}, python_source)
-    )
-    if validation.get("strategy_type") != "allocation_rotation":
-        raise ValueError("rotation research requires an allocation_rotation strategy")
-    if not validation["valid"]:
-        failures = [
-            check["message"]
-            for check in validation["checks"]
-            if check["status"] == "failed"
-        ]
-        raise ValueError("; ".join(failures) or "rotation strategy is not executable")
-    cfg = RotationStrategyConfig.from_dict(validation["config"])
-    backtest = run_rotation_backtest(
-        cfg,
-        start_date,
-        end_date,
-        _engine(profile),
-        python_source,
-    )
-    metrics = PerformanceMetrics.summarize(backtest.returns, 12)
-    strategy_equity = (1.0 + backtest.returns).cumprod()
-    benchmark_equity = (1.0 + backtest.benchmark).cumprod()
-    series = [
-        {
-            "date": str(date)[:10],
-            "strategy": float(equity),
-            "benchmark": float(benchmark_equity.loc[date]),
-            "invested": float(backtest.weights.loc[date].sum()),
-        }
-        for date, equity in strategy_equity.items()
-    ]
-    allocations = [
-        {
-            "date": str(date)[:10],
-            "cash": float(1.0 - row.sum()),
-            "weights": {
-                sleeve: float(weight)
-                for sleeve, weight in row.items()
-                if float(weight) > 1e-12
-            },
-            "scores": {
-                sleeve: (
-                    float(backtest.scores.loc[date, sleeve])
-                    if date in backtest.scores.index
-                    and sleeve in backtest.scores
-                    and pd.notna(backtest.scores.loc[date, sleeve])
-                    else None
-                )
-                for sleeve in cfg.sleeves
-            },
-        }
-        for date, row in backtest.weights.iterrows()
-    ]
-    return {
-        "strategy_id": cfg.name,
-        "strategy_type": "allocation_rotation",
-        "profile": profile,
-        "metrics": metrics,
-        "diagnostics": backtest.diagnostics,
-        "series": series,
-        "allocations": allocations,
     }
 
 
