@@ -103,12 +103,21 @@ data, universe, selection, timing, portfolio, risk, execution, backtest, report
 Each stage mode opens one `StageWorkbench` specialization and shares the selected
 project through `WorkspaceContext`. Each workbench must show:
 
-- project and pinned component version;
-- built-in and custom components;
+- project and its currently applied component;
+- one searchable component library;
 - full Python source and JSON parameters;
-- clone/save-version controls respecting immutability;
+- add, save, save-and-apply, and explicit apply actions respecting immutability;
+- read-only library browsing that never changes the project;
+- project creation and project settings outside the component editor tabs;
 - actual input and output from a complete-pipeline preview;
 - independent vertical/horizontal scrolling inside Dockview.
+
+Immutable component revisions remain an internal persistence and audit detail.
+The authoring UI must not expose version counters, selectors, hashes, or a
+version-details tab; historical provenance belongs in backtest inspection.
+Component/project IDs and origin flags are also internal. Lists display names
+and descriptions, while create dialogs ask for a name and generate IDs without
+user involvement.
 
 Backtest selects a project, shows the complete composed source, and labels
 historical results from their saved snapshot. Do not resurrect a separate

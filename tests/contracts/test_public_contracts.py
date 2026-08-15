@@ -87,12 +87,39 @@ def test_stage_workbench_supports_versions_code_and_real_preview():
         "Python 源码",
         "唯一逻辑来源",
         "addComponent",
-        "saveVersion",
+        "saveComponent",
         "cloneProject",
         "/preview",
-        "运行完整冻结源码",
+        "搜索组件",
+        "组件名称",
+        "项目名称",
+        "createInternalId",
+        "应用到项目",
+        "保存并应用",
+        "完整执行当前项目的冻结源码",
     ):
         assert text in source
+    assert "pipeline-stage-tabs" not in source
+    assert "setActiveMode" not in source
+    assert "版本详情" not in source
+    assert "保存新版本" not in source
+    assert "@v" not in source
+    assert "当前项目尚未改变" not in source
+    assert "应用到当前项目" not in source
+    assert "research-message" not in source
+    assert "meta.contract" not in source
+    assert "阶段 {stageNumber}" not in source
+    assert '<Widget headerless>' in source
+    assert 'title={`${meta.title}工作台`}' not in source
+    for implementation_term in (
+        "系统预置",
+        "用户添加",
+        "正在查看",
+        "新组件 ID",
+        "新项目 ID",
+        "搜索名称或 ID",
+    ):
+        assert implementation_term not in source
     styles = (ROOT / "dashboard/frontend/src/styles.css").read_text(encoding="utf-8")
     assert ".python-stage-workbench" in styles
     assert ".pipeline-preview-grid" in styles

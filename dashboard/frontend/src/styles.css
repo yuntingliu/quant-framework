@@ -916,30 +916,43 @@ button {
   overflow: hidden;
 }
 
-.pipeline-stage-tabs {
-  flex: 0 0 auto;
-  overflow-x: auto;
-}
-
-.pipeline-stage-tabs button {
-  min-width: 5.75rem;
-  flex: 1 0 auto;
-  white-space: nowrap;
-}
-
 .pipeline-stage-setup {
   flex: 0 0 auto;
 }
 
 .backtest-run-controls.pipeline-stage-controls {
-  grid-template-columns: minmax(12rem, 1fr) auto auto;
+  grid-template-columns: minmax(12rem, 1fr) minmax(12rem, 1fr) auto;
 }
 
-.pipeline-stage-controls .status-pill {
+.pipeline-pinned-component {
+  display: grid;
+  min-width: 0;
+  gap: 0.25rem;
+}
+
+.pipeline-pinned-component span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.625rem;
+  font-weight: 600;
+}
+
+.pipeline-pinned-component strong {
   height: 1.875rem;
+  overflow: hidden;
   box-sizing: border-box;
-  align-self: end;
-  justify-content: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.3rem;
+  background: hsl(var(--card));
+  padding: 0.4rem 0.5rem;
+  font: 0.6875rem/1 "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pipeline-stage-actions {
+  display: flex;
+  align-items: end;
+  gap: 0.4rem;
 }
 
 .pipeline-workbench-layout {
@@ -956,27 +969,41 @@ button {
   border-right: 1px solid hsl(var(--border));
 }
 
-.pipeline-project-info {
+.pipeline-library-toolbar {
   display: grid;
-  gap: 0.2rem;
-  margin-bottom: 0.75rem;
-  border-bottom: 1px solid hsl(var(--border));
-  padding-bottom: 0.7rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
 }
 
-.pipeline-project-info strong {
-  font-size: 0.75rem;
-}
-
-.pipeline-project-info span {
+.pipeline-library-search {
+  display: flex;
+  min-width: 0;
+  height: 1.875rem;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.3rem;
+  background: hsl(var(--card));
   color: hsl(var(--muted-foreground));
-  font-size: 0.625rem;
-  line-height: 1.45;
+  padding: 0 0.45rem;
+}
+
+.pipeline-library-search input {
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: 0.6875rem;
 }
 
 .pipeline-component-list button {
   display: block;
+  position: relative;
   width: 100%;
+  padding-right: 5.8rem;
 }
 
 .pipeline-component-list strong,
@@ -991,7 +1018,6 @@ button {
   white-space: nowrap;
 }
 
-.pipeline-component-list span,
 .pipeline-component-list small {
   overflow: hidden;
   color: hsl(var(--muted-foreground));
@@ -1006,15 +1032,17 @@ button {
   opacity: 0.5;
 }
 
-.backtest-run-controls.pipeline-inline-form {
-  grid-template-columns: minmax(0, 1fr);
-  margin-top: 0.75rem;
-  border-top: 1px solid hsl(var(--border));
-  padding-top: 0.75rem;
-}
-
-.pipeline-inline-form .secondary-command {
-  width: 100%;
+.pipeline-component-list em {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.5rem;
+  border: 1px solid hsl(var(--chart-2) / 0.35);
+  border-radius: 999px;
+  color: hsl(var(--chart-2));
+  padding: 0.15rem 0.35rem;
+  font-size: 0.5rem;
+  font-style: normal;
+  white-space: nowrap;
 }
 
 .pipeline-workbench-main {
@@ -1027,19 +1055,18 @@ button {
 
 .backtest-run-controls.pipeline-component-bar {
   flex: 0 0 auto;
-  grid-template-columns: minmax(0, 1fr) 5.5rem auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   border-bottom: 1px solid hsl(var(--border));
   padding: 0.5rem;
 }
 
-.pipeline-component-bar > div {
+.pipeline-component-identity {
   display: grid;
   min-width: 0;
   gap: 0.1rem;
 }
 
-.pipeline-component-bar > div > span,
-.pipeline-component-bar > div > small {
+.pipeline-component-identity > small {
   overflow: hidden;
   color: hsl(var(--muted-foreground));
   font-size: 0.625rem;
@@ -1047,11 +1074,17 @@ button {
   white-space: nowrap;
 }
 
-.pipeline-component-bar > div > strong {
+.pipeline-component-identity > strong {
   overflow: hidden;
   font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.pipeline-component-actions {
+  display: flex;
+  align-items: end;
+  gap: 0.4rem;
 }
 
 .pipeline-editor-body {
@@ -1080,8 +1113,31 @@ button {
   color: hsl(var(--muted-foreground));
 }
 
-.pipeline-settings-save {
-  margin-top: 0.5rem;
+.pipeline-dialog-form label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.pipeline-dialog-form label > span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.pipeline-dialog-form input {
+  height: 2rem;
+  box-sizing: border-box;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.3rem;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
+}
+
+.pipeline-settings-editor {
+  min-height: 18rem;
+  border-radius: 0.375rem;
 }
 
 .pipeline-preview-grid {
@@ -1107,13 +1163,31 @@ button {
   border-radius: 0.375rem;
 }
 
-@media (max-width: 900px) {
+@container (max-width: 900px) {
+  .backtest-run-controls.pipeline-stage-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pipeline-stage-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+
   .pipeline-workbench-layout {
     grid-template-columns: minmax(12rem, 14rem) minmax(0, 1fr);
   }
+
+  .backtest-run-controls.pipeline-component-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .pipeline-component-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
 }
 
-@media (max-width: 680px) {
+@container (max-width: 620px) {
   .python-stage-workbench {
     overflow: auto;
   }
@@ -1121,6 +1195,18 @@ button {
   .backtest-run-controls.pipeline-stage-controls,
   .backtest-run-controls.pipeline-component-bar {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pipeline-stage-actions {
+    grid-column: auto;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .pipeline-component-actions {
+    grid-column: auto;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .pipeline-workbench-layout {
@@ -1142,6 +1228,7 @@ button {
   .pipeline-preview-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+
 }
 
 .runtime-table button.table-row {

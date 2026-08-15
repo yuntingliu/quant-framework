@@ -2,12 +2,21 @@ import { useEffect, useMemo, useState } from "react"
 import {
   Check,
   Eye,
-  GitCommitHorizontal,
   Play,
   Plus,
   Save,
+  Search,
+  Settings2,
 } from "lucide-react"
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
 import {
   api,
@@ -18,25 +27,22 @@ import {
   type PipelineProjectSummary,
   type PythonPipelineStage,
 } from "@/lib/api"
-import type { WorkspaceMode } from "@/layouts/presets"
 import { Widget } from "@/widgets/Widget"
 
-type WorkbenchTab = "code" | "parameters" | "settings" | "preview"
+type WorkbenchTab = "code" | "parameters" | "preview"
 
 const STAGES: Array<{
   id: PythonPipelineStage
-  mode: WorkspaceMode
   title: string
   verb: string
-  contract: string
 }> = [
-  { id: "universe", mode: "universe", title: "标的池", verb: "build_universe", contract: "合格候选 → symbols" },
-  { id: "selection", mode: "selection", title: "选股", verb: "select_assets", contract: "标的池 + 横截面信号 → selected / scores" },
-  { id: "timing", mode: "timing", title: "择时", verb: "compute_exposure", contract: "市场历史 → exposure" },
-  { id: "portfolio", mode: "portfolio", title: "组合", verb: "construct_portfolio", contract: "选股 + 择时 → proposed weights" },
-  { id: "risk", mode: "risk", title: "风控", verb: "apply_risk", contract: "组合权重 → constrained weights" },
-  { id: "execution", mode: "execution", title: "执行", verb: "create_orders", contract: "目标权重 → execution assumptions" },
-]
+    { id: "universe", title: "标的池", verb: "build_universe" },
+    { id: "selection", title: "选股", verb: "select_assets" },
+    { id: "timing", title: "择时", verb: "compute_exposure" },
+    { id: "portfolio", title: "组合", verb: "construct_portfolio" },
+    { id: "risk", title: "风控", verb: "apply_risk" },
+    { id: "execution", title: "执行", verb: "create_orders" },
+  ]
 
 const stageMeta = (stage: PythonPipelineStage) => STAGES.find((item) => item.id === stage)!
 
@@ -44,9 +50,14 @@ function jsonText(value: unknown) {
   return JSON.stringify(value, null, 2)
 }
 
+function createInternalId(prefix: string) {
+  const token = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  return `${prefix}-${token}`
+}
+
 export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   const meta = stageMeta(stage)
-  const { selectedStrategy, setSelectedStrategy, setActiveMode } = useWorkspace()
+  const { selectedStrategy, setSelectedStrategy } = useWorkspace()
   const [projects, setProjects] = useState<PipelineProjectSummary[]>([])
   const [project, setProject] = useState<PipelineProjectDetail | null>(null)
   const [components, setComponents] = useState<PipelineComponentSummary[]>([])
@@ -54,15 +65,16 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   const [source, setSource] = useState("")
   const [parameters, setParameters] = useState("{}")
   const [settings, setSettings] = useState("{}")
-  const [targetId, setTargetId] = useState("my-six-stage-strategy")
-  const [componentTargetId, setComponentTargetId] = useState(`my-${stage}-component`)
+  const [projectName, setProjectName] = useState("我的策略")
+  const [componentName, setComponentName] = useState(`自定义${meta.title}`)
   const [preview, setPreview] = useState<PipelinePreview | null>(null)
   const [activeTab, setActiveTab] = useState<WorkbenchTab>("code")
-  const [message, setMessage] = useState("")
+  const [componentQuery, setComponentQuery] = useState("")
+  const [newComponentOpen, setNewComponentOpen] = useState(false)
+  const [newProjectOpen, setNewProjectOpen] = useState(false)
+  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false)
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
-
-  const supportsSettings = stage === "universe" || stage === "selection"
 
   async function refreshProjects(preferred?: string) {
     const values = await api.get<PipelineProjectSummary[]>("/pipeline/projects")
@@ -77,7 +89,8 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
 
   useEffect(() => {
     setActiveTab("code")
-    setComponentTargetId(`my-${stage}-component`)
+    setComponentQuery("")
+    setComponentName(`自定义${meta.title}`)
     Promise.all([
       api.get<PipelineProjectSummary[]>("/pipeline/projects"),
       api.get<PipelineComponentSummary[]>(`/pipeline/components?stage=${stage}`),
@@ -95,7 +108,6 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   useEffect(() => {
     if (!selectedStrategy) return
     setPreview(null)
-    setMessage("")
     api.get<PipelineProjectDetail>(`/pipeline/projects/${selectedStrategy}`)
       .then((value) => {
         setProject(value)
@@ -105,6 +117,15 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   }, [selectedStrategy])
 
   const selectedRef = project?.components[stage]
+  const filteredComponents = useMemo(() => {
+    const query = componentQuery.trim().toLowerCase()
+    if (!query) return components
+    return components.filter((item) => (
+      item.name.toLowerCase().includes(query)
+      || item.description.toLowerCase().includes(query)
+    ))
+  }, [componentQuery, components])
+
   useEffect(() => {
     if (!selectedRef) return
     api.get<PipelineComponentDetail>(
@@ -115,6 +136,32 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
       setParameters(jsonText(value.parameters))
     }).catch((reason: Error) => setError(reason.message))
   }, [selectedRef?.component_id, selectedRef?.version]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isApplied = Boolean(
+    component
+    && selectedRef?.component_id === component.id
+    && selectedRef.version === component.version,
+  )
+  const isPinnedComponent = Boolean(
+    component && selectedRef?.component_id === component.id,
+  )
+  const isDirty = Boolean(
+    component
+    && (source !== component.source || parameters !== jsonText(component.parameters)),
+  )
+  const pinnedComponentName = components.find(
+    (item) => item.id === selectedRef?.component_id,
+  )?.name
+  const primaryComponentAction = !component?.editable
+    ? "另存为新组件"
+    : isDirty
+      ? isPinnedComponent && project?.editable ? "保存并应用" : "保存组件"
+      : isApplied ? "已应用" : "应用到项目"
+  const primaryComponentActionDisabled = Boolean(
+    busy
+    || !component
+    || (component.editable && !isDirty && (isApplied || !project?.editable)),
+  )
 
   const output = useMemo(() => preview?.stage_outputs?.[stage], [preview, stage])
   const input = useMemo(() => {
@@ -135,17 +182,16 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   }, [preview, stage])
 
   async function cloneProject() {
-    if (!project) return
+    if (!project || !projectName.trim()) return
     setBusy(true)
     setError("")
-    setMessage("")
     try {
       const value = await api.post<PipelineProjectDetail>(
         `/pipeline/projects/${project.id}/clone`,
-        { target_id: targetId },
+        { target_id: createInternalId("project"), name: projectName.trim() },
       )
       await refreshProjects(value.id)
-      setMessage(`已创建可编辑项目 ${value.id}`)
+      setNewProjectOpen(false)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -154,26 +200,20 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   }
 
   async function addComponent() {
-    if (!component) return
+    if (!component || !componentName.trim()) return
     setBusy(true)
     setError("")
-    setMessage("")
     try {
       const value = await api.post<PipelineComponentDetail>(
         `/pipeline/components/${component.id}/clone`,
-        { target_id: componentTargetId },
+        { target_id: createInternalId(stage), name: componentName.trim() },
       )
       setComponents(await api.get<PipelineComponentSummary[]>(`/pipeline/components?stage=${stage}`))
       setComponent(value)
       setSource(value.source)
       setParameters(jsonText(value.parameters))
       setActiveTab("code")
-      if (project?.editable) {
-        await updateProject(value, value.version)
-        setMessage(`已添加并应用组件 ${value.id}`)
-      } else {
-        setMessage(`已添加组件 ${value.id}；请先创建自己的项目再应用`)
-      }
+      setNewComponentOpen(false)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -182,43 +222,31 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   }
 
   async function updateProject(
-    nextComponent = component,
-    nextVersion = component?.version,
-    nextSettings?: Record<string, unknown>,
+    nextComponents: PipelineProjectDetail["components"],
+    nextSettings: Record<string, unknown>,
   ) {
-    if (!project || !nextComponent || !nextVersion) return
-    if (!project.editable) throw new Error("系统预置项目不可修改，请先创建自己的策略项目")
-    const refs = {
-      ...project.components,
-      [stage]: { component_id: nextComponent.id, version: nextVersion },
-    }
+    if (!project) return
+    if (!project.editable) throw new Error("当前项目只读，请先新建一个可编辑项目")
     const value = await api.put<PipelineProjectDetail>(`/pipeline/projects/${project.id}`, {
       name: project.name,
       description: project.description,
-      components: refs,
-      settings: nextSettings ?? project.settings,
+      components: nextComponents,
+      settings: nextSettings,
     })
     setProject(value)
     await refreshProjects(value.id)
   }
 
-  async function applyComponent(componentId: string, version?: number) {
+  async function loadComponent(componentId: string, pinnedSnapshot?: number) {
     setBusy(true)
     setError("")
-    setMessage("")
     try {
       const detail = await api.get<PipelineComponentDetail>(
-        `/pipeline/components/${componentId}${version ? `?version=${version}` : ""}`,
+        `/pipeline/components/${componentId}${pinnedSnapshot ? `?version=${pinnedSnapshot}` : ""}`,
       )
       setComponent(detail)
       setSource(detail.source)
       setParameters(jsonText(detail.parameters))
-      if (project?.editable) {
-        await updateProject(detail, detail.version)
-        setMessage(`项目已固定到 ${detail.id}@${detail.version}`)
-      } else {
-        setMessage(`当前仅查看 ${detail.id}@${detail.version}；系统预置项目不会被改动`)
-      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -226,11 +254,27 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
     }
   }
 
-  async function saveVersion() {
+  async function applyComponent() {
+    if (!project || !component) return
+    setBusy(true)
+    setError("")
+    try {
+      await updateProject({
+        ...project.components,
+        [stage]: { component_id: component.id, version: component.version },
+      }, project.settings)
+      setPreview(null)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveComponent(applyAfterSave: boolean) {
     if (!component) return
     setBusy(true)
     setError("")
-    setMessage("")
     try {
       const parsed = JSON.parse(parameters) as Record<string, unknown>
       const value = await api.post<PipelineComponentDetail>(
@@ -243,10 +287,13 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
       )
       setComponent(value)
       setComponents(await api.get<PipelineComponentSummary[]>(`/pipeline/components?stage=${stage}`))
-      if (project?.editable && project.components[stage].component_id === value.id) {
-        await updateProject(value, value.version)
+      if (applyAfterSave && project?.editable) {
+        await updateProject({
+          ...project.components,
+          [stage]: { component_id: value.id, version: value.version },
+        }, project.settings)
+        setPreview(null)
       }
-      setMessage(`已保存并固定到 ${value.id}@${value.version}`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -254,19 +301,37 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
     }
   }
 
+  async function runPrimaryComponentAction() {
+    if (!component) return
+    if (!component.editable) {
+      setNewComponentOpen(true)
+      return
+    }
+    if (isDirty) {
+      await saveComponent(isPinnedComponent && Boolean(project?.editable))
+      return
+    }
+    if (!isApplied) await applyComponent()
+  }
+
   async function saveSettings() {
     setBusy(true)
     setError("")
-    setMessage("")
     try {
       const parsed = JSON.parse(settings) as Record<string, unknown>
-      await updateProject(component, component?.version, parsed)
-      setMessage("项目数据与信号设置已保存")
+      if (!project) return
+      await updateProject(project.components, parsed)
+      setProjectSettingsOpen(false)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setBusy(false)
     }
+  }
+
+  function openProjectSettings() {
+    if (project) setSettings(jsonText(project.settings))
+    setProjectSettingsOpen(true)
   }
 
   async function runPreview() {
@@ -274,14 +339,12 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
     setActiveTab("preview")
     setBusy(true)
     setError("")
-    setMessage("")
     try {
       const value = await api.post<PipelinePreview>(
         `/pipeline/projects/${project.id}/preview`,
         { profile: "demo" },
       )
       setPreview(value)
-      setMessage(`完整策略已运行，正在查看 ${meta.title} 阶段`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -292,290 +355,322 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   const tabs: Array<{ id: WorkbenchTab; label: string }> = [
     { id: "code", label: "Python 代码" },
     { id: "parameters", label: "组件参数" },
-    ...(supportsSettings ? [{ id: "settings" as const, label: "项目设置" }] : []),
     { id: "preview", label: "输入 / 输出" },
   ]
 
   return (
-    <Widget title={`${meta.title}工作台`} bodyPadding="none">
-      <div className="python-stage-workbench">
-        <nav className="workbench-tabs pipeline-stage-tabs" aria-label="六阶段策略流程">
-          {STAGES.map((item, index) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={item.id === stage}
-              onClick={() => setActiveMode(item.mode)}
-            >
-              {index + 1}. {item.title}
-            </button>
-          ))}
-        </nav>
-
-        <section className="backtest-run-setup pipeline-stage-setup">
-          <div className="backtest-section-heading">
-            <div>
-              <strong>{meta.verb}(context)</strong>
-              <span>阶段 {STAGES.findIndex((item) => item.id === stage) + 1} / 6 · {meta.contract}</span>
-            </div>
-            <small>{project?.id ?? "—"} · revision {project?.revision ?? "—"}</small>
-          </div>
-          <div className="backtest-run-controls pipeline-stage-controls">
-            <label>
-              <span>策略项目</span>
-              <select
-                value={project?.id ?? ""}
-                onChange={(event) => setSelectedStrategy(event.target.value)}
-              >
-                {projects.map((item) => (
-                  <option key={item.id} value={item.id}>{item.name} · r{item.revision}</option>
-                ))}
-              </select>
-            </label>
-            <span className={`status-pill ${project?.built_in ? "neutral" : "ready"}`}>
-              {project?.built_in ? "系统预置项目" : "用户项目"}
-            </span>
-            <button
-              className="primary-command"
-              type="button"
-              onClick={() => void runPreview()}
-              disabled={busy || !project}
-            >
-              <Play size={14} />{busy ? "运行中…" : "运行预览"}
-            </button>
-          </div>
-        </section>
-
-        {message && !error && <div className="workbench-message research-message">{message}</div>}
-        {error && <div className="workbench-message error">{error}</div>}
-
-        <div className="pipeline-workbench-layout">
-          <aside className="pipeline-workbench-sidebar">
-            <div className="workbench-body">
-              <div className="backtest-section-heading">
-                <div>
-                  <strong>{meta.title}组件库</strong>
-                  <span>系统预置和用户添加统一收录；项目固定引用所选版本。</span>
-                </div>
-                <small>{components.length} 个组件</small>
-              </div>
-
-              <div className="pipeline-project-info">
-                <strong>{project?.name ?? "加载中…"}</strong>
-                <span>{project?.description || "六个组件版本共同组成完整策略。"}</span>
-              </div>
-
-              {components.length > 0 ? (
-                <div className="editor-list pipeline-component-list">
-                  {components.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={component?.id === item.id ? "active" : ""}
-                      onClick={() => void applyComponent(item.id)}
-                      disabled={busy}
-                    >
-                      <strong>{item.name}</strong>
-                      <span>{item.id}</span>
-                      <small>
-                        {item.built_in ? "系统预置" : "用户添加"} · v{item.latest_version} · {item.version_count} 个版本
-                      </small>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="workbench-message">组件库暂无内容</div>
-              )}
-
-              <div className="backtest-run-controls pipeline-inline-form">
-                <label>
-                  <span>新组件 ID</span>
-                  <input
-                    value={componentTargetId}
-                    onChange={(event) => setComponentTargetId(event.target.value)}
-                  />
-                </label>
-                <button
-                  className="secondary-command"
-                  type="button"
-                  onClick={() => void addComponent()}
-                  disabled={busy || !component}
-                >
-                  <Plus size={14} />添加新组件
-                </button>
-              </div>
-
-              <div className="backtest-run-controls pipeline-inline-form">
-                <label>
-                  <span>新项目 ID</span>
-                  <input value={targetId} onChange={(event) => setTargetId(event.target.value)} />
-                </label>
-                <button
-                  className="secondary-command"
-                  type="button"
-                  onClick={() => void cloneProject()}
-                  disabled={busy || !project}
-                >
-                  <GitCommitHorizontal size={14} />以当前配置新建
-                </button>
-              </div>
-            </div>
-          </aside>
-
-          <main className="pipeline-workbench-main">
-            <div className="backtest-run-controls pipeline-component-bar">
-              <div>
-                <span>当前组件</span>
-                <strong>{component?.name ?? "—"}</strong>
-                <small>{component?.id}@{component?.version} · {component?.source_sha256.slice(0, 12)}</small>
-              </div>
+    <Widget headerless>
+      <>
+        <div className="python-stage-workbench">
+          <section className="backtest-run-setup pipeline-stage-setup">
+            <div className="backtest-run-controls pipeline-stage-controls">
               <label>
-                <span>版本</span>
+                <span>策略项目</span>
                 <select
-                  value={component?.version ?? 1}
-                  onChange={(event) => component && void applyComponent(
-                    component.id,
-                    Number(event.target.value),
-                  )}
+                  value={project?.id ?? ""}
+                  onChange={(event) => setSelectedStrategy(event.target.value)}
                 >
-                  {(component?.versions ?? []).map((version) => (
-                    <option key={version} value={version}>v{version}</option>
+                  {projects.map((item) => (
+                    <option key={item.id} value={item.id}>{item.name}</option>
                   ))}
                 </select>
               </label>
-              <button
-                className="primary-command"
-                type="button"
-                onClick={() => void saveVersion()}
-                disabled={busy || !component?.editable}
-                title={component?.editable ? "保存为不可变新版本" : "系统预置组件需先添加为新组件"}
-              >
-                <Save size={14} />保存新版本
-              </button>
-            </div>
-
-            <div className="workbench-tabs" role="tablist">
-              {tabs.map((tab) => (
+              <div className="pipeline-pinned-component">
+                <span>项目当前使用</span>
+                <strong>{pinnedComponentName ?? "—"}</strong>
+              </div>
+              <div className="pipeline-stage-actions">
                 <button
-                  key={tab.id}
+                  className="icon-command"
                   type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  role="tab"
-                  aria-selected={activeTab === tab.id}
+                  title="项目设置"
+                  aria-label="项目设置"
+                  onClick={openProjectSettings}
+                  disabled={!project}
                 >
-                  {tab.label}
+                  <Settings2 size={14} />
                 </button>
-              ))}
+                <button
+                  className="secondary-command"
+                  type="button"
+                  onClick={() => setNewProjectOpen(true)}
+                  disabled={!project}
+                >
+                  <Plus size={14} />新建项目
+                </button>
+                <button
+                  className="primary-command"
+                  type="button"
+                  onClick={() => void runPreview()}
+                  disabled={busy || !project}
+                >
+                  <Play size={14} />{busy ? "运行中…" : "运行阶段预览"}
+                </button>
+              </div>
             </div>
+          </section>
 
-            <div className="workbench-body pipeline-editor-body">
-              {activeTab === "code" && (
-                <section>
-                  <div className="backtest-section-heading">
-                    <div>
-                      <strong>Python 源码</strong>
-                      <span>唯一逻辑来源 · 入口必须是 {meta.verb}(context)</span>
-                    </div>
-                  </div>
-                  <textarea
-                    className="code-view code-editor pipeline-code-editor"
-                    spellCheck={false}
-                    value={source}
-                    readOnly={!component?.editable}
-                    onChange={(event) => setSource(event.target.value)}
-                  />
-                  {!component?.editable && (
-                    <div className="workbench-message">
-                      这是组件库的系统预置版本。请在左侧输入新 ID，以当前组件为起点添加可编辑组件。
-                    </div>
-                  )}
-                </section>
-              )}
+          {error && <div className="workbench-message error">{error}</div>}
 
-              {activeTab === "parameters" && (
-                <section>
-                  <div className="backtest-section-heading">
-                    <div>
-                      <strong>组件参数 JSON</strong>
-                      <span>参数随组件版本冻结；策略逻辑仍只存在于 Python 函数中。</span>
-                    </div>
+          <div className="pipeline-workbench-layout">
+            <aside className="pipeline-workbench-sidebar">
+              <div className="workbench-body">
+                <div className="backtest-section-heading">
+                  <div>
+                    <strong>{meta.title}组件库</strong>
                   </div>
-                  <textarea
-                    className="code-view code-editor pipeline-code-editor"
-                    spellCheck={false}
-                    value={parameters}
-                    readOnly={!component?.editable}
-                    onChange={(event) => setParameters(event.target.value)}
-                  />
-                </section>
-              )}
+                </div>
 
-              {activeTab === "settings" && supportsSettings && (
-                <section>
-                  <div className="backtest-section-heading">
-                    <div>
-                      <strong>项目数据与信号设置</strong>
-                      <span>基础池、点时过滤和横截面信号定义属于整个项目。</span>
-                    </div>
-                  </div>
-                  <textarea
-                    className="code-view code-editor pipeline-code-editor"
-                    spellCheck={false}
-                    value={settings}
-                    readOnly={!project?.editable}
-                    onChange={(event) => setSettings(event.target.value)}
-                  />
+                <div className="pipeline-library-toolbar">
+                  <label className="pipeline-library-search">
+                    <Search size={13} aria-hidden="true" />
+                    <input
+                      aria-label="搜索组件"
+                      placeholder="搜索组件"
+                      value={componentQuery}
+                      onChange={(event) => setComponentQuery(event.target.value)}
+                    />
+                  </label>
                   <button
-                    className="primary-command pipeline-settings-save"
+                    className="icon-command"
                     type="button"
-                    onClick={() => void saveSettings()}
-                    disabled={busy || !project?.editable}
+                    title="添加新组件"
+                    aria-label="添加新组件"
+                    onClick={() => setNewComponentOpen(true)}
+                    disabled={!component}
                   >
-                    <Check size={14} />保存项目设置
+                    <Plus size={14} />
                   </button>
-                </section>
-              )}
+                </div>
 
-              {activeTab === "preview" && (
-                <section>
-                  <div className="backtest-section-heading">
-                    <div>
-                      <strong>真实阶段预览</strong>
-                      <span>运行完整冻结源码，再展示本阶段实际输入与输出。</span>
-                    </div>
-                    <button
-                      className="secondary-command"
-                      type="button"
-                      onClick={() => void runPreview()}
-                      disabled={busy || !project}
-                    >
-                      <Play size={14} />{preview ? "重新运行" : "运行完整策略"}
-                    </button>
+                {filteredComponents.length > 0 ? (
+                  <div className="editor-list pipeline-component-list">
+                    {filteredComponents.map((item) => {
+                      const isPinned = item.id === selectedRef?.component_id
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className={component?.id === item.id ? "active" : ""}
+                          onClick={() => void loadComponent(
+                            item.id,
+                            isPinned ? selectedRef?.version : undefined,
+                          )}
+                          disabled={busy}
+                        >
+                          <strong>{item.name}</strong>
+                          {item.description && <small>{item.description}</small>}
+                          {isPinned && <em>当前项目</em>}
+                        </button>
+                      )
+                    })}
                   </div>
-                  <div className="pipeline-preview-grid">
-                    <article>
-                      <div className="detail-strip"><strong>输入</strong></div>
-                      <pre className="code-view">{input ? jsonText(input) : "运行后显示"}</pre>
-                    </article>
-                    <article>
-                      <div className="detail-strip"><strong>输出</strong></div>
-                      <pre className="code-view">{output ? jsonText(output) : "运行后显示"}</pre>
-                    </article>
-                  </div>
-                  {preview && (
-                    <div className="detail-strip pipeline-preview-meta">
-                      <Eye size={12} />
-                      {preview.signal_date} · {preview.source_sha256.slice(0, 12)} ·
-                      {Object.keys(preview.targets).length} 个最终持仓
+                ) : (
+                  <div className="workbench-message">没有匹配的组件</div>
+                )}
+              </div>
+            </aside>
+
+            <main className="pipeline-workbench-main">
+              <div className="backtest-run-controls pipeline-component-bar">
+                <div className="pipeline-component-identity">
+                  <strong>{component?.name ?? "—"}</strong>
+                  <small>{component?.description || "从左侧组件库选择一个组件"}</small>
+                </div>
+                <div className="pipeline-component-actions">
+                  <button
+                    className="primary-command"
+                    type="button"
+                    onClick={() => void runPrimaryComponentAction()}
+                    disabled={primaryComponentActionDisabled}
+                  >
+                    {!component?.editable ? <Plus size={14} /> : isDirty ? <Save size={14} /> : <Check size={14} />}
+                    {primaryComponentAction}
+                  </button>
+                </div>
+              </div>
+
+              <div className="workbench-tabs" role="tablist">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    role="tab"
+                    aria-selected={activeTab === tab.id}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="workbench-body pipeline-editor-body">
+                {activeTab === "code" && (
+                  <section>
+                    <div className="backtest-section-heading">
+                      <div>
+                        <strong>Python 源码</strong>
+                        <span>唯一逻辑来源 · 入口必须是 {meta.verb}(context)</span>
+                      </div>
                     </div>
-                  )}
-                </section>
-              )}
-            </div>
-          </main>
+                    <textarea
+                      className="code-view code-editor pipeline-code-editor"
+                      spellCheck={false}
+                      value={source}
+                      readOnly={!component?.editable}
+                      onChange={(event) => setSource(event.target.value)}
+                    />
+                  </section>
+                )}
+
+                {activeTab === "parameters" && (
+                  <section>
+                    <div className="backtest-section-heading">
+                      <div>
+                        <strong>组件参数 JSON</strong>
+                        <span>参数与组件源码一同保存；策略逻辑仍只存在于 Python 函数中。</span>
+                      </div>
+                    </div>
+                    <textarea
+                      className="code-view code-editor pipeline-code-editor"
+                      spellCheck={false}
+                      value={parameters}
+                      readOnly={!component?.editable}
+                      onChange={(event) => setParameters(event.target.value)}
+                    />
+                  </section>
+                )}
+
+                {activeTab === "preview" && (
+                  <section>
+                    <div className="backtest-section-heading">
+                      <div>
+                        <strong>{meta.title}阶段输入与输出</strong>
+                        <span>完整执行当前项目的冻结源码，只展示本阶段的真实结果。</span>
+                      </div>
+                      <button
+                        className="secondary-command"
+                        type="button"
+                        onClick={() => void runPreview()}
+                        disabled={busy || !project}
+                      >
+                        <Play size={14} />{preview ? "刷新阶段结果" : "运行阶段预览"}
+                      </button>
+                    </div>
+                    <div className="pipeline-preview-grid">
+                      <article>
+                        <div className="detail-strip"><strong>输入</strong></div>
+                        <pre className="code-view">{input ? jsonText(input) : "运行后显示"}</pre>
+                      </article>
+                      <article>
+                        <div className="detail-strip"><strong>输出</strong></div>
+                        <pre className="code-view">{output ? jsonText(output) : "运行后显示"}</pre>
+                      </article>
+                    </div>
+                    {preview && (
+                      <div className="detail-strip pipeline-preview-meta">
+                        <Eye size={12} />
+                        {preview.signal_date} · {Object.keys(preview.targets).length} 个最终持仓
+                      </div>
+                    )}
+                  </section>
+                )}
+              </div>
+            </main>
+          </div>
         </div>
-      </div>
+
+        <Dialog open={newComponentOpen} onOpenChange={setNewComponentOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>添加{meta.title}组件</DialogTitle>
+              <DialogDescription>
+                以“{component?.name ?? "当前组件"}”为起点，在同一组件库中创建可编辑组件。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="pipeline-dialog-form">
+              <label>
+                <span>组件名称</span>
+                <input
+                  autoFocus
+                  maxLength={100}
+                  value={componentName}
+                  onChange={(event) => setComponentName(event.target.value)}
+                />
+              </label>
+            </div>
+            <DialogFooter>
+              <button className="secondary-command" type="button" onClick={() => setNewComponentOpen(false)}>
+                取消
+              </button>
+              <button className="primary-command" type="button" onClick={() => void addComponent()} disabled={busy || !component || !componentName.trim()}>
+                <Plus size={14} />添加组件
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={newProjectOpen} onOpenChange={setNewProjectOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>新建策略项目</DialogTitle>
+              <DialogDescription>
+                以当前项目配置为起点，创建一个可编辑项目。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="pipeline-dialog-form">
+              <label>
+                <span>项目名称</span>
+                <input
+                  autoFocus
+                  maxLength={100}
+                  value={projectName}
+                  onChange={(event) => setProjectName(event.target.value)}
+                />
+              </label>
+            </div>
+            <DialogFooter>
+              <button className="secondary-command" type="button" onClick={() => setNewProjectOpen(false)}>
+                取消
+              </button>
+              <button className="primary-command" type="button" onClick={() => void cloneProject()} disabled={busy || !project || !projectName.trim()}>
+                <Plus size={14} />创建项目
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={projectSettingsOpen} onOpenChange={setProjectSettingsOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>项目设置</DialogTitle>
+              <DialogDescription>
+                {project?.name ?? "当前项目"} · 项目级数据、信号与阶段参数设置。
+              </DialogDescription>
+            </DialogHeader>
+            <textarea
+              className="code-view code-editor pipeline-settings-editor"
+              spellCheck={false}
+              value={settings}
+              readOnly={!project?.editable}
+              onChange={(event) => setSettings(event.target.value)}
+            />
+            {!project?.editable && (
+              <div className="workbench-message">
+                当前项目只读。请先在顶部新建项目，再修改项目设置。
+              </div>
+            )}
+            <DialogFooter>
+              <button className="secondary-command" type="button" onClick={() => setProjectSettingsOpen(false)}>
+                关闭
+              </button>
+              <button className="primary-command" type="button" onClick={() => void saveSettings()} disabled={busy || !project?.editable}>
+                <Check size={14} />保存设置
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </>
     </Widget>
   )
 }
