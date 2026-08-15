@@ -45,11 +45,14 @@ Every current strategy uses exactly these names and entrypoints:
 | `timing` | `compute_exposure(context)` | `{"exposure": number}` |
 | `portfolio` | `construct_portfolio(context)` | `{"weights": {...}}` |
 | `risk` | `apply_risk(context)` | `{"weights": {...}}` |
-| `execution` | `create_orders(context)` | `{"execution": {...}}` |
+| `execution` | `configure_execution(context)` | `{"execution": {...}}` |
 
 Do not add alternate names, optional stages, configured/Python branches, or a
 second timing engine. Identity presets express pure-selection and pure-timing
 projects without changing the execution graph.
+
+`configure_execution` returns assumptions only. Order creation remains inside
+the guarded backtest or explicitly confirmed paper-execution flow.
 
 Built-ins belong in `alphalab/pipeline/builtins.py` and must be deterministic,
 JSON-compatible, and free of hidden external state. Seeded built-ins are
@@ -97,17 +100,25 @@ must populate `strategy_source`, `component_manifest_json`, `settings_json`, and
 
 ## Frontend Rules
 
-The nine modes are:
+The ten modes are:
 
 ```text
-data, universe, selection, timing, portfolio, risk, execution, backtest, report
+data, project, universe, selection, timing, portfolio, risk, execution, backtest, report
 ```
+
+The Research Project Workbench is the sole owner of project selection,
+create/copy/delete, data profile, optional data cutoff, and project-level
+settings. The toolbar remains navigation/layout chrome. Later workbenches show
+the selected project but do not duplicate project management controls.
+The fixed mode sidebar has no search or tab-hiding controls. Single-panel
+workbenches use headerless widgets so the Dockview tab is not duplicated inside
+the panel.
 
 Each stage mode opens a distinct multi-panel Dockview preset. Its strategy panel
 uses the `StageWorkbench` specialization and shares the selected project through
-`WorkspaceContext`. Result panels share preview and bounded historical-analysis
-queries keyed by project and target stage; only the strategy panel owns authoring
-state. Do not nest another Dockview inside a panel.
+`WorkspaceContext`. Result panels share one current-date preview query keyed by
+project, target stage, data profile, and data cutoff; only the strategy panel
+owns authoring and run actions. Do not nest another Dockview inside a panel.
 
 The strategy panel must show:
 
@@ -116,25 +127,29 @@ The strategy panel must show:
 - full Python source and JSON parameters;
 - add, save, save-and-apply, and explicit apply actions respecting immutability;
 - read-only library browsing that never changes the project;
-- project creation and project settings outside the component editor tabs;
+- a read-only current-project identity and a link to Research Project when none is selected;
 - actual input and output from the current stage-prefix preview;
 - independent vertical/horizontal scrolling inside Dockview.
 
-Stage result panels must visualize the real stage-prefix output rather than
-reimplementing stage logic in TypeScript:
+Project, profile, and data cutoff belong to the Research Project Workbench. Do
+not add selectors or project lifecycle actions to the toolbar, stage workbenches,
+or Backtest Workbench. Preview caches include project revision and expose an
+explicit stale state after any context change.
+
+Stage result panels must visualize the real current-date stage-prefix output
+rather than reimplementing stage logic in TypeScript:
 
 - universe: members and linked security history;
 - selection: scores/ranks, selected names, and linked security history;
-- timing: reference price history with exposure-change markers and an exposure trace;
-- portfolio: target weights and historical concentration;
+- timing: the actual MKT reference series, current exposure, and selected-pool input;
+- portfolio: target weights and a current construction summary;
 - risk: before/after weights and post-risk exposure/cash;
-- execution: emitted assumptions plus simulated turnover and costs.
+- execution: emitted assumptions plus current post-risk execution targets.
 
-`POST /api/pipeline/projects/{id}/analysis` requires a target stage and is
-read-only and bounded. It may run that frozen stage prefix across recent
-rebalance points, but must use the same guarded data/scheduling core and source
-hash as a full backtest, must not execute downstream stages, and must not save a
-result row.
+Do not add a stage-history or independent-research endpoint. Historical stage
+behavior, turnover, costs, robustness, and attribution require a complete saved
+backtest. The Backtest Workbench has one run action; its result tabs derive from
+that saved run rather than launching a second strategy execution.
 
 Immutable component revisions remain an internal persistence and audit detail.
 The authoring UI must not expose version counters, selectors, hashes, or a
@@ -143,9 +158,11 @@ Component/project IDs and origin flags are also internal. Lists display names
 and descriptions, while create dialogs ask for a name and generate IDs without
 user involvement.
 
-Backtest selects a project, shows the complete composed source, and labels
-historical results from their saved snapshot. Do not resurrect a separate
+Backtest uses the project selected in Research Project, shows the complete
+composed source, and labels historical results from their saved snapshot. Do not resurrect a separate
 strategy overview, signal workbench, YAML editor, or monolithic strategy editor.
+Signal evidence is a BacktestRun-derived tab, and the Report Workbench is a
+persisted report library rather than a single transient Agent result.
 
 ## Agent Rules
 

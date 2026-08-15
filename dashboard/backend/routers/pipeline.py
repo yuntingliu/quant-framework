@@ -65,13 +65,6 @@ class PreviewRequest(BaseModel):
     as_of_date: date | None = None
 
 
-class AnalysisRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    stage: StageName
-    profile: Literal["demo", "runtime"] = "demo"
-    months: int = Field(default=24, ge=3, le=60)
-
-
 def _translate_error(exc: Exception) -> HTTPException:
     if isinstance(exc, KeyError):
         return HTTPException(status_code=404, detail="object not found")
@@ -198,19 +191,6 @@ def preview(project_id: str, request: PreviewRequest) -> dict[str, Any]:
             stage=request.stage,
             profile=request.profile,
             as_of_date=request.as_of_date.isoformat() if request.as_of_date else None,
-        )
-    except Exception as exc:
-        raise _translate_error(exc) from exc
-
-
-@router.post("/projects/{project_id}/analysis")
-def analysis(project_id: str, request: AnalysisRequest) -> dict[str, Any]:
-    try:
-        return pipeline_service.analyze_project(
-            project_id,
-            stage=request.stage,
-            profile=request.profile,
-            months=request.months,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc

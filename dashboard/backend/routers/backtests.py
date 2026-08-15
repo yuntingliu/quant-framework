@@ -8,6 +8,7 @@ from alphalab.dataio import MissingDataError
 from dashboard.backend.services.backtest_analytics_service import (
     analyze_backtest,
     analyze_robustness,
+    analyze_signal_diagnostics,
     compare_backtests,
 )
 from dashboard.backend.services.result_service import (
@@ -80,6 +81,14 @@ def backtest_robustness(backtest_id: str) -> dict:
         raise HTTPException(status_code=404, detail="backtest not found") from exc
     except MissingDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/{backtest_id}/signals")
+def backtest_signals(backtest_id: str) -> dict:
+    try:
+        return analyze_signal_diagnostics(backtest_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="backtest not found") from exc
 
 
 @router.post("/run")

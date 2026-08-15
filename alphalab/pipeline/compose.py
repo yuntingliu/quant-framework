@@ -121,7 +121,7 @@ _RUNNER_SOURCE = '''def run_stage(context):
     if target_stage == "risk":
         return outputs
 
-    execution = create_orders({
+    execution = configure_execution({
         **context,
         "parameters": parameters.get("execution", {}),
         "universe": universe,

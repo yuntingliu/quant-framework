@@ -90,6 +90,11 @@ CREATE TABLE IF NOT EXISTS legacy_strategy_migrations (
     migrated_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS pipeline_contract_migrations (
+    name TEXT PRIMARY KEY,
+    migrated_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_backtests_strategy ON backtests(strategy_id);
 CREATE INDEX IF NOT EXISTS idx_backtests_run_at ON backtests(run_at DESC);
 

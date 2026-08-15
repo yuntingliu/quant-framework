@@ -32,7 +32,7 @@ interface AgentPromptContextValue {
 
 const AgentPromptContext = createContext<AgentPromptContextValue | null>(null)
 const RESEARCH_RESULTS_KEY = "alphalab.agent-research-results.v1"
-const MAX_SAVED_RESULTS = 20
+const MAX_SAVED_RESULTS = 100
 
 function migrateSavedResearchResult(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value
@@ -103,7 +103,7 @@ export function AgentPromptProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
-    void api.get<{ items: unknown[] }>("/reports?limit=20").then(({ items }) => {
+    void api.get<{ items: unknown[] }>("/reports?limit=100").then(({ items }) => {
       if (cancelled) return
       const persisted = items
         .map((item) => parseAgentResearchResult(item, {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   ArrowDown,
   ArrowUp,
@@ -60,7 +60,12 @@ export function ReportWorkbenchWidget() {
   const { language } = useLanguage()
   const { researchResults } = useAgentPrompt()
   const requestedId = typeof panel?.params.resultId === "string" ? panel.params.resultId : undefined
-  const result = researchResults.find((item) => item.id === requestedId) ?? (!requestedId ? researchResults[0] : undefined)
+  const [selectedId, setSelectedId] = useState<string | undefined>(requestedId)
+  useEffect(() => {
+    if (requestedId) setSelectedId(requestedId)
+  }, [requestedId])
+  const result = researchResults.find((item) => item.id === selectedId)
+    ?? researchResults[0]
   const [activeView, setActiveView] = useState<"document" | "table" | "charts">("document")
   const [query, setQuery] = useState("")
   const [sort, setSort] = useState<SortState | null>(null)
@@ -146,7 +151,38 @@ export function ReportWorkbenchWidget() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-card">
+    <div className="flex h-full min-h-0 bg-card">
+      <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-muted/10">
+        <div className="border-b border-border px-3 py-3">
+          <div className="text-xs font-semibold text-foreground">报告库</div>
+          <div className="mt-0.5 text-[10px] text-muted-foreground">{researchResults.length} 份已保存报告</div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto p-2">
+          {researchResults.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={cn(
+                "mb-1 w-full rounded border px-2.5 py-2 text-left",
+                item.id === result.id
+                  ? "border-primary/35 bg-primary/10"
+                  : "border-transparent hover:border-border hover:bg-muted/60",
+              )}
+              onClick={() => setSelectedId(item.id)}
+            >
+              <span className="block truncate text-xs font-medium text-foreground">{item.title}</span>
+              <span className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                <span>{item.profile === "runtime" ? "本地数据" : "示例数据"}</span>
+                {item.backtestId ? <span className="rounded bg-muted px-1">回测</span> : null}
+              </span>
+              <span className="mt-1 block truncate text-[10px] text-muted-foreground">
+                {item.persistedAt ? new Date(item.persistedAt).toLocaleString() : "已保存"}
+              </span>
+            </button>
+          ))}
+        </div>
+      </aside>
+      <div className="flex min-w-0 flex-1 flex-col bg-card">
       <div className="shrink-0 border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-primary/25 bg-primary/10 text-primary">
@@ -288,6 +324,7 @@ export function ReportWorkbenchWidget() {
           </div>
         </>
       ) : null}
+      </div>
     </div>
   )
 }

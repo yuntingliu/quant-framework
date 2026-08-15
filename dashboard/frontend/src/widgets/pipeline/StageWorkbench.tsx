@@ -6,7 +6,6 @@ import {
   Plus,
   Save,
   Search,
-  Settings2,
 } from "lucide-react"
 
 import {
@@ -23,7 +22,6 @@ import {
   type PipelineComponentDetail,
   type PipelineComponentSummary,
   type PipelineProjectDetail,
-  type PipelineProjectSummary,
   type PythonPipelineStage,
 } from "@/lib/api"
 import { usePipelineStageRun } from "@/hooks/use-pipeline-stage-run"
@@ -34,13 +32,14 @@ type WorkbenchTab = "code" | "parameters" | "preview"
 const STAGES: Array<{
   id: PythonPipelineStage
   title: string
+  action: string
 }> = [
-  { id: "universe", title: "标的池" },
-  { id: "selection", title: "选股" },
-  { id: "timing", title: "择时" },
-  { id: "portfolio", title: "组合" },
-  { id: "risk", title: "风控" },
-  { id: "execution", title: "执行" },
+  { id: "universe", title: "标的池", action: "生成标的池" },
+  { id: "selection", title: "选股", action: "生成选股池" },
+  { id: "timing", title: "择时", action: "计算择时仓位" },
+  { id: "portfolio", title: "组合", action: "构建目标组合" },
+  { id: "risk", title: "风控", action: "应用风险约束" },
+  { id: "execution", title: "执行", action: "生成执行方案" },
   ]
 
 const stageMeta = (stage: PythonPipelineStage) => STAGES.find((item) => item.id === stage)!
@@ -56,63 +55,47 @@ function createInternalId(prefix: string) {
 
 export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   const meta = stageMeta(stage)
-  const { selectedStrategy, setSelectedStrategy } = useWorkspace()
-  const [projects, setProjects] = useState<PipelineProjectSummary[]>([])
+  const {
+    selectedStrategy,
+    selectedStrategyRevision,
+    setActiveMode,
+    setSelectedStrategyRevision,
+  } = useWorkspace()
   const [project, setProject] = useState<PipelineProjectDetail | null>(null)
   const [components, setComponents] = useState<PipelineComponentSummary[]>([])
   const [component, setComponent] = useState<PipelineComponentDetail | null>(null)
   const [source, setSource] = useState("")
   const [parameters, setParameters] = useState("{}")
-  const [settings, setSettings] = useState("{}")
-  const [projectName, setProjectName] = useState("我的策略")
   const [componentName, setComponentName] = useState(`自定义${meta.title}`)
   const [activeTab, setActiveTab] = useState<WorkbenchTab>("code")
   const [componentQuery, setComponentQuery] = useState("")
   const [newComponentOpen, setNewComponentOpen] = useState(false)
-  const [newProjectOpen, setNewProjectOpen] = useState(false)
-  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false)
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
   const stageRun = usePipelineStageRun(selectedStrategy, stage)
-
-  async function refreshProjects(preferred?: string) {
-    const values = await api.get<PipelineProjectSummary[]>("/pipeline/projects")
-    setProjects(values)
-    const requested = preferred ?? selectedStrategy
-    const next = values.find((item) => item.id === requested)?.id
-      ?? values.find((item) => item.id === "six-stage-default")?.id
-      ?? values[0]?.id
-      ?? ""
-    if (next) setSelectedStrategy(next)
-  }
 
   useEffect(() => {
     setActiveTab("code")
     setComponentQuery("")
     setComponentName(`自定义${meta.title}`)
-    Promise.all([
-      api.get<PipelineProjectSummary[]>("/pipeline/projects"),
-      api.get<PipelineComponentSummary[]>(`/pipeline/components?stage=${stage}`),
-    ]).then(([projectRows, componentRows]) => {
-      setProjects(projectRows)
-      setComponents(componentRows)
-      const next = projectRows.find((item) => item.id === selectedStrategy)?.id
-        ?? projectRows.find((item) => item.id === "six-stage-default")?.id
-        ?? projectRows[0]?.id
-        ?? null
-      setSelectedStrategy(next)
-    }).catch((reason: Error) => setError(reason.message))
+    api.get<PipelineComponentSummary[]>(`/pipeline/components?stage=${stage}`)
+      .then(setComponents)
+      .catch((reason: Error) => setError(reason.message))
   }, [stage]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!selectedStrategy) return
+    if (!selectedStrategy) {
+      setProject(null)
+      setComponent(null)
+      return
+    }
     api.get<PipelineProjectDetail>(`/pipeline/projects/${selectedStrategy}`)
       .then((value) => {
         setProject(value)
-        setSettings(jsonText(value.settings))
+        setSelectedStrategyRevision(value.revision)
       })
       .catch((reason: Error) => setError(reason.message))
-  }, [selectedStrategy])
+  }, [selectedStrategy, selectedStrategyRevision, setSelectedStrategyRevision])
 
   const selectedRef = project?.components[stage]
   const filteredComponents = useMemo(() => {
@@ -181,24 +164,6 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
     return { risk: outputs.risk }
   }, [preview, stage])
 
-  async function cloneProject() {
-    if (!project || !projectName.trim()) return
-    setBusy(true)
-    setError("")
-    try {
-      const value = await api.post<PipelineProjectDetail>(
-        `/pipeline/projects/${project.id}/clone`,
-        { target_id: createInternalId("project"), name: projectName.trim() },
-      )
-      await refreshProjects(value.id)
-      setNewProjectOpen(false)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function addComponent() {
     if (!component || !componentName.trim()) return
     setBusy(true)
@@ -226,7 +191,7 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
     nextSettings: Record<string, unknown>,
   ) {
     if (!project) return
-    if (!project.editable) throw new Error("当前项目只读，请先新建一个可编辑项目")
+    if (!project.editable) throw new Error("当前项目只读，请到研究项目工作台复制或新建项目")
     const value = await api.put<PipelineProjectDetail>(`/pipeline/projects/${project.id}`, {
       name: project.name,
       description: project.description,
@@ -234,8 +199,8 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
       settings: nextSettings,
     })
     setProject(value)
+    setSelectedStrategyRevision(value.revision)
     await stageRun.clear()
-    await refreshProjects(value.id)
   }
 
   async function loadComponent(componentId: string, pinnedSnapshot?: number) {
@@ -313,26 +278,6 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
     if (!isApplied) await applyComponent()
   }
 
-  async function saveSettings() {
-    setBusy(true)
-    setError("")
-    try {
-      const parsed = JSON.parse(settings) as Record<string, unknown>
-      if (!project) return
-      await updateProject(project.components, parsed)
-      setProjectSettingsOpen(false)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  function openProjectSettings() {
-    if (project) setSettings(jsonText(project.settings))
-    setProjectSettingsOpen(true)
-  }
-
   async function runPreview() {
     if (!project) return
     setActiveTab("preview")
@@ -356,53 +301,37 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
         <div className="python-stage-workbench">
           <section className="backtest-run-setup pipeline-stage-setup">
             <div className="backtest-run-controls pipeline-stage-controls">
-              <label>
-                <span>策略项目</span>
-                <select
-                  value={project?.id ?? ""}
-                  onChange={(event) => setSelectedStrategy(event.target.value)}
-                >
-                  {projects.map((item) => (
-                    <option key={item.id} value={item.id}>{item.name}</option>
-                  ))}
-                </select>
-              </label>
+              <div className="pipeline-pinned-component">
+                <span>当前项目</span>
+                <strong>{project?.name ?? "—"}</strong>
+              </div>
               <div className="pipeline-pinned-component">
                 <span>项目当前使用</span>
                 <strong>{pinnedComponentName ?? "—"}</strong>
               </div>
               <div className="pipeline-stage-actions">
                 <button
-                  className="icon-command"
-                  type="button"
-                  title="项目设置"
-                  aria-label="项目设置"
-                  onClick={openProjectSettings}
-                  disabled={!project || stageRun.isRunning}
-                >
-                  <Settings2 size={14} />
-                </button>
-                <button
-                  className="secondary-command"
-                  type="button"
-                  onClick={() => setNewProjectOpen(true)}
-                  disabled={!project || stageRun.isRunning}
-                >
-                  <Plus size={14} />新建项目
-                </button>
-                <button
                   className="primary-command"
                   type="button"
                   onClick={() => void runPreview()}
                   disabled={busy || stageRun.isRunning || !project}
                 >
-                  <Play size={14} />{stageRun.isRunning ? "运行中…" : `运行至${meta.title}`}
+                  <Play size={14} />{stageRun.isRunning ? "运行中…" : meta.action}
                 </button>
               </div>
             </div>
           </section>
 
           {error && <div className="workbench-message error">{error}</div>}
+          {!project && (
+            <div className="workbench-message warning">
+              请先在研究项目工作台选择或新建项目。
+              <button className="secondary-command" type="button" onClick={() => setActiveMode("project")}>前往研究项目</button>
+            </div>
+          )}
+          {stageRun.isStale && !stageRun.isRunning && (
+            <div className="workbench-message warning">项目、数据环境或数据截至日已变化，当前阶段结果已过期，请重新运行。</div>
+          )}
 
           <div className="pipeline-workbench-layout">
             <aside className="pipeline-workbench-sidebar">
@@ -536,7 +465,7 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
                     {preview && (
                       <div className="detail-strip pipeline-preview-meta">
                         <Eye size={12} />
-                        {preview.signal_date} · {preview.executed_stages.map((item) => stageMeta(item).title).join(" → ")}
+                        {preview.profile === "runtime" ? "本地 RQ" : "演示数据"} · {preview.signal_date}
                       </div>
                     )}
                   </section>
@@ -576,66 +505,6 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={newProjectOpen} onOpenChange={setNewProjectOpen}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>新建策略项目</DialogTitle>
-              <DialogDescription>
-                以当前项目配置为起点，创建一个可编辑项目。
-              </DialogDescription>
-            </DialogHeader>
-            <div className="pipeline-dialog-form">
-              <label>
-                <span>项目名称</span>
-                <input
-                  autoFocus
-                  maxLength={100}
-                  value={projectName}
-                  onChange={(event) => setProjectName(event.target.value)}
-                />
-              </label>
-            </div>
-            <DialogFooter>
-              <button className="secondary-command" type="button" onClick={() => setNewProjectOpen(false)}>
-                取消
-              </button>
-              <button className="primary-command" type="button" onClick={() => void cloneProject()} disabled={busy || !project || !projectName.trim()}>
-                <Plus size={14} />创建项目
-              </button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={projectSettingsOpen} onOpenChange={setProjectSettingsOpen}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>项目设置</DialogTitle>
-              <DialogDescription>
-                {project?.name ?? "当前项目"} · 项目级数据、信号与阶段参数设置。
-              </DialogDescription>
-            </DialogHeader>
-            <textarea
-              className="code-view code-editor pipeline-settings-editor"
-              spellCheck={false}
-              value={settings}
-              readOnly={!project?.editable}
-              onChange={(event) => setSettings(event.target.value)}
-            />
-            {!project?.editable && (
-              <div className="workbench-message">
-                当前项目只读。请先在顶部新建项目，再修改项目设置。
-              </div>
-            )}
-            <DialogFooter>
-              <button className="secondary-command" type="button" onClick={() => setProjectSettingsOpen(false)}>
-                关闭
-              </button>
-              <button className="primary-command" type="button" onClick={() => void saveSettings()} disabled={busy || !project?.editable}>
-                <Check size={14} />保存设置
-              </button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </>
     </Widget>
   )

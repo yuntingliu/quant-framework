@@ -5,14 +5,13 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import yaml
 
 from alphalab.analytics import equal_weight_benchmark, robustness_report
-from alphalab.strategy import StrategyConfig, TimingStrategyConfig
-from alphalab.strategy.pipeline import pipeline_manifest
+from alphalab.strategy import StrategyConfig
 from alphalab.pipeline.models import STAGE_NAMES
 from alphalab.pipeline.runtime import project_strategy_config
 from dashboard.backend.services.data_service import _engine
+from dashboard.backend.services.legacy_backtest_adapter import legacy_config, legacy_snapshot
 from dashboard.backend.services.result_service import get_backtest
 
 
@@ -73,15 +72,16 @@ def _benchmark_returns(
     except ValueError:
         return benchmark
     engine = _engine(record.get("profile") or "demo")
-    if isinstance(config, TimingStrategyConfig):
+    if config.metadata.get("legacy_strategy_type") == "market_timing":
+        market_factor = str(config.metadata.get("legacy_market_factor") or "MKT")
         return engine.get_factors(
-            [config.market_factor],
+            [market_factor],
             record["start_date"],
             record["end_date"],
             freq="1M",
             strict=True,
             use_cache=False,
-        )[config.market_factor].reindex(returns.index)
+        )[market_factor].reindex(returns.index)
     return equal_weight_benchmark(
         engine,
         list(config.universe.symbols) or engine.get_symbols(config.universe.pool),
@@ -229,40 +229,7 @@ def analyze_record(record: dict) -> dict:
     else:
         config_yaml = record.get("config_yaml")
         if isinstance(config_yaml, str) and config_yaml.strip():
-            config = _config_from_yaml(config_yaml)
-            if isinstance(config, TimingStrategyConfig):
-                strategy_snapshot = {
-                "strategy_type": "market_timing",
-                "implementation": config.pipeline.implementation_summary,
-                "python_stages": list(config.pipeline.python_stages),
-                "pipeline": config.pipeline.to_dict(),
-                "pipeline_manifest": pipeline_manifest("market_timing", config.pipeline),
-                "name": config.name,
-                "description": config.description,
-                "factors": [],
-                "signals": config.signal_names,
-                "market_factor": config.market_factor,
-                "rebalance_freq": "monthly",
-                "execution_price": "monthly_factor_close",
-                "cost_bps": config.execution.cost_bps,
-                "max_exposure": config.position.max_exposure,
-                }
-            else:
-                strategy_snapshot = {
-                "strategy_type": "stock_selection",
-                "implementation": config.pipeline.implementation_summary,
-                "python_stages": list(config.pipeline.python_stages),
-                "pipeline": config.pipeline.to_dict(),
-                "pipeline_manifest": pipeline_manifest("stock_selection", config.pipeline),
-                "name": config.name,
-                "description": config.description,
-                "factors": config.factor_names,
-                "signals": [],
-                "rebalance_freq": config.portfolio.rebalance_freq,
-                "execution_price": config.execution.execution_price,
-                "cost_bps": config.execution.cost_bps,
-                "max_weight": config.portfolio.max_weight,
-                }
+            strategy_snapshot = legacy_snapshot(config_yaml)
     executions = record.get("executions", [])
     return {
         "id": record["id"],
@@ -339,16 +306,106 @@ def analyze_robustness(backtest_id: str) -> dict:
     }
 
 
-def _config_from_yaml(yaml_text: str) -> StrategyConfig | TimingStrategyConfig:
-    raw = yaml.safe_load(yaml_text) or {}
-    if not isinstance(raw, dict):
-        raise ValueError("strategy YAML must contain a mapping")
-    if raw.get("strategy_type") == "market_timing":
-        return TimingStrategyConfig.from_dict(raw)
-    return StrategyConfig.from_dict(raw)
+def analyze_signal_diagnostics(backtest_id: str) -> dict:
+    """Derive selection/timing evidence from one frozen BacktestRun."""
+
+    record = get_backtest(backtest_id)
+    if record is None:
+        raise KeyError(backtest_id)
+    rows: list[dict[str, Any]] = []
+    previous_selected: set[str] = set()
+    for execution in record.get("executions", []):
+        if not isinstance(execution, dict):
+            continue
+        outputs = execution.get("stage_outputs")
+        outputs = outputs if isinstance(outputs, dict) else {}
+        universe = outputs.get("universe") if isinstance(outputs.get("universe"), dict) else {}
+        selection = outputs.get("selection") if isinstance(outputs.get("selection"), dict) else {}
+        timing = outputs.get("timing") if isinstance(outputs.get("timing"), dict) else {}
+        scores = _finite_mapping(selection.get("scores"))
+        forward = _finite_mapping(execution.get("selection_forward_returns"))
+        paired_symbols = sorted(set(scores) & set(forward))
+        ic = None
+        quantile_spread = None
+        if len(paired_symbols) >= 3:
+            score_values = pd.Series({symbol: scores[symbol] for symbol in paired_symbols})
+            return_values = pd.Series({symbol: forward[symbol] for symbol in paired_symbols})
+            correlation = score_values.rank().corr(return_values.rank())
+            ic = _safe(correlation)
+        if len(paired_symbols) >= 5:
+            ordered = sorted(paired_symbols, key=scores.get)
+            bucket = max(1, len(ordered) // 5)
+            low = np.mean([forward[symbol] for symbol in ordered[:bucket]])
+            high = np.mean([forward[symbol] for symbol in ordered[-bucket:]])
+            quantile_spread = _safe(high - low)
+        selected = {
+            str(symbol)
+            for symbol in selection.get("selected", [])
+            if isinstance(symbol, str)
+        }
+        denominator = len(selected) + len(previous_selected)
+        selection_turnover = (
+            len(selected.symmetric_difference(previous_selected)) / denominator
+            if previous_selected and denominator
+            else None
+        )
+        universe_symbols = universe.get("symbols")
+        universe_count = (
+            len(universe_symbols)
+            if isinstance(universe_symbols, list)
+            else int((execution.get("universe") or {}).get("eligible_count") or 0)
+        )
+        coverage = len(scores) / universe_count if universe_count else None
+        rows.append(
+            {
+                "signal_date": execution.get("signal_date"),
+                "universe_count": universe_count,
+                "scored_count": len(scores),
+                "selected_count": len(selected),
+                "coverage": _safe(coverage),
+                "ic": ic,
+                "quantile_spread": quantile_spread,
+                "selection_turnover": _safe(selection_turnover),
+                "timing_exposure": _safe(timing.get("exposure")),
+            }
+        )
+        previous_selected = selected
+
+    ic_values = [float(row["ic"]) for row in rows if row["ic"] is not None]
+    coverage_values = [float(row["coverage"]) for row in rows if row["coverage"] is not None]
+    turnover_values = [float(row["selection_turnover"]) for row in rows if row["selection_turnover"] is not None]
+    exposure_values = [float(row["timing_exposure"]) for row in rows if row["timing_exposure"] is not None]
+    return {
+        "id": record["id"],
+        "periods": len(rows),
+        "evidence_periods": len(ic_values),
+        "summary": {
+            "mean_ic": _safe(np.mean(ic_values)) if ic_values else None,
+            "positive_ic_ratio": _safe(np.mean([value > 0 for value in ic_values])) if ic_values else None,
+            "average_coverage": _safe(np.mean(coverage_values)) if coverage_values else None,
+            "average_selection_turnover": _safe(np.mean(turnover_values)) if turnover_values else None,
+            "average_timing_exposure": _safe(np.mean(exposure_values)) if exposure_values else None,
+        },
+        "rows": rows,
+        "warning": None if ic_values else "该历史回测未保存全体评分标的的前瞻收益，IC 与分组收益不可用。",
+    }
 
 
-def _config_from_record(record: dict) -> StrategyConfig | TimingStrategyConfig:
+def _finite_mapping(value: Any) -> dict[str, float]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, float] = {}
+    for key, item in value.items():
+        try:
+            numeric = float(item)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(numeric):
+            result[str(key)] = numeric
+    return result
+
+
+def _config_from_record(record: dict) -> StrategyConfig:
     source = record.get("strategy_source")
     if isinstance(source, str) and source.strip():
         manifest = record.get("component_manifest")
@@ -368,7 +425,7 @@ def _config_from_record(record: dict) -> StrategyConfig | TimingStrategyConfig:
     config_yaml = record.get("config_yaml")
     if not isinstance(config_yaml, str) or not config_yaml.strip():
         raise ValueError("backtest has no strategy snapshot")
-    return _config_from_yaml(config_yaml)
+    return legacy_config(config_yaml)
 
 
 def compare_backtests(backtest_ids: list[str]) -> dict:

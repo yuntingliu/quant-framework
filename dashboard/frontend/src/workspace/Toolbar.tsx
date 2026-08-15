@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import {
-  Moon,
   Plus,
   RotateCcw,
   Save,
-  Sun,
 } from "lucide-react"
 
 import { CommandPalette } from "@/components/CommandPalette"
 import { Button } from "@/components/ui/button"
 import { useLanguage } from "@/contexts/LanguageContext"
-import { useTheme } from "@/contexts/ThemeContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
+import { api, type PipelineProjectSummary } from "@/lib/api"
 import { widgetCategory, widgetCatalog, widgetDescription, widgetTitle } from "@/widgets/registry"
 
 import { MODE_CONFIG, MODE_SHORTCUTS } from "./modes"
@@ -29,9 +28,19 @@ export function WorkspaceToolbar({
   onSaveLayout: () => void
   onResetLayout: () => void
 }) {
-  const { theme, toggleTheme } = useTheme()
-  const { activeMode } = useWorkspace()
-  const { language, toggleLanguage, t } = useLanguage()
+  const {
+    activeMode,
+    selectedStrategy,
+    setSelectedStrategy,
+    setSelectedStrategyRevision,
+  } = useWorkspace()
+  const projectQuery = useQuery({
+    queryKey: ["pipeline", "projects"],
+    queryFn: () => api.get<PipelineProjectSummary[]>("/pipeline/projects"),
+    staleTime: 2_000,
+    refetchInterval: 5_000,
+  })
+  const { language, t } = useLanguage()
   const [catalogOpen, setCatalogOpen] = useState(false)
   const toolbarRef = useRef<HTMLDivElement>(null)
   const { icon: ActiveModeIcon, labelKey, detailKey } = MODE_CONFIG[activeMode]
@@ -45,6 +54,21 @@ export function WorkspaceToolbar({
     document.addEventListener("mousedown", handler)
     return () => document.removeEventListener("mousedown", handler)
   }, [])
+
+  useEffect(() => {
+    const projects = projectQuery.data ?? []
+    if (!selectedStrategy) {
+      setSelectedStrategyRevision(null)
+      return
+    }
+    const selected = projects.find((item) => item.id === selectedStrategy)
+    if (!selected && projectQuery.isSuccess) {
+      setSelectedStrategy(null)
+      setSelectedStrategyRevision(null)
+      return
+    }
+    if (selected) setSelectedStrategyRevision(selected.revision)
+  }, [projectQuery.data, projectQuery.isSuccess, selectedStrategy, setSelectedStrategy, setSelectedStrategyRevision])
 
   const addWidget = (widgetId: string, title: string) => {
     onAddWidget(widgetId, title)
@@ -77,7 +101,7 @@ export function WorkspaceToolbar({
         </div>
       </div>
 
-      <div className="flex-1" />
+      <div className="min-w-0 flex-1" />
 
       {/* Right: add widget + utilities */}
       <div className="flex shrink-0 items-center gap-0.5 pr-2">
@@ -121,12 +145,6 @@ export function WorkspaceToolbar({
         </Button>
         <Button variant="ghost" size="sm" onClick={onResetLayout} title={t("toolbar.resetLayout")}>
           <RotateCcw className="w-4 h-4" />
-        </Button>
-        <Button variant="ghost" size="sm" onClick={toggleTheme} title={t("toolbar.theme")}>
-          {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-        </Button>
-        <Button variant="ghost" size="sm" onClick={toggleLanguage} title={t("toolbar.language")} className="px-2 text-xs">
-          {language === "zh" ? "EN" : "中文"}
         </Button>
       </div>
     </div>

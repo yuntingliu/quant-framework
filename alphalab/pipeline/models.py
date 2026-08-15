@@ -13,7 +13,7 @@ STAGE_ENTRYPOINTS = {
     "timing": "compute_exposure",
     "portfolio": "construct_portfolio",
     "risk": "apply_risk",
-    "execution": "create_orders",
+    "execution": "configure_execution",
 }
 OBJECT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import { CalendarDays, Play, RefreshCw } from "lucide-react"
+import { CalendarDays, RefreshCw } from "lucide-react"
 
 import { CandlestickChart, HorizontalBarChart, RiskPieChart } from "@/components/charts"
 import type { CandlestickMarker } from "@/components/charts/CandlestickChart"
@@ -12,10 +12,10 @@ import {
   api,
   type MarketBar,
   type MarketInstrument,
-  type PipelineAnalysisPoint,
   type PipelinePreview,
   type PythonPipelineStage,
 } from "@/lib/api"
+import type { DataProfile } from "@/lib/data-profile"
 import { formatNumber, formatPercent } from "@/lib/utils"
 import { Widget } from "@/widgets/Widget"
 
@@ -50,75 +50,69 @@ function stageOutput(preview: PipelinePreview | null, stage: PythonPipelineStage
   return record(preview?.stage_outputs?.[stage])
 }
 
-function pointOutput(point: PipelineAnalysisPoint, stage: PythonPipelineStage): UnknownRecord {
-  return record(point.stage_outputs?.[stage])
-}
-
 function useStagePanel(stage: PythonPipelineStage) {
   const { selectedStrategy } = useWorkspace()
   const run = usePipelineStageRun(selectedStrategy, stage)
   return {
     ...run,
     output: stageOutput(run.preview, stage),
-    points: run.analysis?.points ?? [],
   }
 }
 
 function PanelToolbar({
   signalDate,
+  profile,
   running,
-  onRun,
 }: {
   signalDate?: string | null
+  profile: DataProfile
   running: boolean
-  onRun: () => void
 }) {
   return (
     <div className="stage-panel-toolbar">
-      <span><CalendarDays size={12} />{signalDate || "尚未运行"}</span>
-      <button type="button" onClick={onRun} disabled={running}>
-        {running ? <RefreshCw className="spin" size={13} /> : <Play size={13} />}
-        {running ? "运行中…" : "运行"}
-      </button>
+      <span>
+        {running ? <RefreshCw className="spin" size={12} /> : <CalendarDays size={12} />}
+        {profile === "runtime" ? "本地 RQ" : "演示数据"} · {running ? "正在生成…" : signalDate || "尚未生成"}
+      </span>
     </div>
   )
 }
 
 function StagePanel({
   signalDate,
+  profile,
   running,
   error,
-  onRun,
   children,
 }: {
   signalDate?: string | null
+  profile: DataProfile
   running: boolean
   error?: Error | null
-  onRun: () => Promise<unknown>
   children: React.ReactNode
 }) {
   return (
     <Widget headerless className="pipeline-stage-panel">
-      <PanelToolbar
-        signalDate={signalDate}
-        running={running}
-        onRun={() => { void onRun().catch(() => undefined) }}
-      />
+      <PanelToolbar signalDate={signalDate} profile={profile} running={running} />
       {error ? <div className="workbench-message error">{error.message}</div> : null}
       <div className="stage-panel-body">{children}</div>
     </Widget>
   )
 }
 
-function EmptyRunState() {
-  return <div className="analytics-empty">运行当前策略后显示真实阶段结果</div>
+function EmptyRunState({ stale = false }: { stale?: boolean }) {
+  return (
+    <div className="analytics-empty">
+      {stale ? "项目、数据环境或数据截至日已变化，请重新运行当前阶段" : "当前上下文没有有效结果，请运行当前阶段"}
+    </div>
+  )
 }
 
-function useInstrumentOptions() {
+function useInstrumentOptions(profile: DataProfile) {
   return useQuery({
-    queryKey: ["data", "market", "symbols", "demo"],
+    queryKey: ["data", "market", "symbols", profile],
     queryFn: () => api.get<{ symbols: string[]; instruments?: MarketInstrument[] }>(
-      "/data/market/symbols?profile=demo",
+      `/data/market/symbols?profile=${profile}`,
     ),
     staleTime: Infinity,
     select: (payload): SymbolOption[] => payload.instruments?.length
@@ -127,7 +121,7 @@ function useInstrumentOptions() {
   })
 }
 
-function useStageBars(symbol: string, end: string | null) {
+function useStageBars(profile: DataProfile, symbol: string, end: string | null) {
   const start = useMemo(() => {
     if (!end) return ""
     const value = new Date(`${end}T00:00:00`)
@@ -135,10 +129,10 @@ function useStageBars(symbol: string, end: string | null) {
     return value.toISOString().slice(0, 10)
   }, [end])
   return useQuery({
-    queryKey: ["data", "market", "bars", "demo", symbol, start, end],
+    queryKey: ["data", "market", "bars", profile, symbol, start, end],
     queryFn: () => {
       const params = new URLSearchParams({
-        profile: "demo",
+        profile,
         symbol,
         start,
         end: end ?? "",
@@ -158,7 +152,7 @@ function symbolLabel(symbol: string, names: Map<string, string | null>): string 
 export function UniverseMembersWidget() {
   const panel = useStagePanel("universe")
   const { selectedSymbol, setSelectedSymbol } = useWorkspace()
-  const instruments = useInstrumentOptions()
+  const instruments = useInstrumentOptions(panel.profile)
   const [query, setQuery] = useState("")
   const symbols = strings(panel.output.symbols)
   const names = useMemo(
@@ -169,16 +163,15 @@ export function UniverseMembersWidget() {
     const needle = query.trim().toUpperCase()
     return !needle || symbolLabel(symbol, names).toUpperCase().includes(needle)
   })
-  const eligibleHistory = panel.points.map((point) => strings(pointOutput(point, "universe").symbols).length)
-  const minimum = eligibleHistory.length ? Math.min(...eligibleHistory) : 0
+  const eligibleCount = numeric(panel.preview?.diagnostics.eligible_count, symbols.length)
 
   return (
-    <StagePanel signalDate={panel.preview?.signal_date} running={panel.isRunning} error={panel.error} onRun={panel.run}>
-      {!panel.preview ? <EmptyRunState /> : (
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
         <>
           <div className="stage-kpi-grid">
-            <div><span>当前标的</span><strong>{symbols.length}</strong></div>
-            <div><span>近12月最少</span><strong>{minimum || "—"}</strong></div>
+            <div><span>基础合格标的</span><strong>{eligibleCount}</strong></div>
+            <div><span>当前标的池</span><strong>{symbols.length}</strong></div>
           </div>
           <label className="stage-filter"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索代码或名称" /></label>
           <div className="stage-symbol-grid">
@@ -197,7 +190,7 @@ export function UniverseMembersWidget() {
 export function SelectionRankingWidget() {
   const panel = useStagePanel("selection")
   const { selectedSymbol, setSelectedSymbol } = useWorkspace()
-  const instruments = useInstrumentOptions()
+  const instruments = useInstrumentOptions(panel.profile)
   const selected = new Set(strings(panel.output.selected))
   const scores = numbers(panel.output.scores)
   const names = useMemo(
@@ -207,11 +200,11 @@ export function SelectionRankingWidget() {
   const rows = Object.entries(scores).sort((left, right) => right[1] - left[1])
 
   return (
-    <StagePanel signalDate={panel.preview?.signal_date} running={panel.isRunning} error={panel.error} onRun={panel.run}>
-      {!panel.preview ? <EmptyRunState /> : (
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
         <>
           <div className="stage-kpi-grid">
-            <div><span>入选</span><strong>{selected.size}</strong></div>
+            <div><span>选股池</span><strong>{selected.size}</strong></div>
             <div><span>参与排名</span><strong>{rows.length}</strong></div>
           </div>
           <div className="stage-table-wrap">
@@ -231,59 +224,32 @@ export function SelectionRankingWidget() {
   )
 }
 
-function alignMarkers(rows: MarketBar[], markers: CandlestickMarker[]): CandlestickMarker[] {
-  const dates = rows.map((row) => row.date).sort()
-  return markers.flatMap((marker) => {
-    const date = [...dates].reverse().find((item) => item <= marker.time)
-    return date ? [{ ...marker, time: date }] : []
-  })
-}
-
-function SecurityChartWidget({ mode }: { mode: "universe" | "selection" | "timing" }) {
+function SecurityChartWidget({ mode }: { mode: "universe" | "selection" }) {
   const panel = useStagePanel(mode)
   const { selectedSymbol, setSelectedSymbol } = useWorkspace()
-  const instruments = useInstrumentOptions()
+  const instruments = useInstrumentOptions(panel.profile)
   const universe = strings(stageOutput(panel.preview, "universe").symbols)
   const selection = strings(stageOutput(panel.preview, "selection").selected)
   const candidates = mode === "universe" ? universe : (selection.length ? selection : universe)
   const symbol = selectedSymbol && candidates.includes(selectedSymbol) ? selectedSymbol : candidates[0] ?? ""
   const end = panel.preview?.signal_date ?? null
-  const bars = useStageBars(symbol, end)
+  const bars = useStageBars(panel.profile, symbol, end)
   const options = useMemo(() => {
     const names = new Map((instruments.data ?? []).map((item) => [item.symbol, item.name]))
     return candidates.map((item) => ({ symbol: item, name: names.get(item) ?? null }))
   }, [candidates, instruments.data])
-  const rawMarkers = useMemo<CandlestickMarker[]>(() => {
-    if (mode !== "timing") {
-      return end ? [{ time: end, position: "aboveBar", shape: "circle", color: "#2962ff", text: "当前信号" }] : []
-    }
-    let previous: number | null = null
-    return panel.points.flatMap((point) => {
-      const exposure = numeric(pointOutput(point, "timing").exposure)
-      const changed = previous === null || Math.abs(exposure - previous) > 1e-8
-      const rising = previous === null ? exposure > 0 : exposure > previous
-      previous = exposure
-      if (!changed) return []
-      return [{
-        time: point.entry_date,
-        position: rising ? "belowBar" : "aboveBar",
-        shape: rising ? "arrowUp" : "arrowDown",
-        color: rising ? "#20a36a" : "#e05260",
-        text: `${rising ? "加仓" : "减仓"} ${formatPercent(exposure, 0)}`,
-      } satisfies CandlestickMarker]
-    })
-  }, [end, mode, panel.points])
+  const markers = useMemo<CandlestickMarker[]>(
+    () => end ? [{ time: end, position: "aboveBar", shape: "circle", color: "#2962ff", text: mode === "selection" ? "入选" : "池内" }] : [],
+    [end, mode],
+  )
   const rows = useMemo(() => bars.data?.rows ?? [], [bars.data?.rows])
-  const markers = useMemo(() => alignMarkers(rows, rawMarkers), [rawMarkers, rows])
-  const timing = stageOutput(panel.preview, "timing")
 
   return (
-    <StagePanel signalDate={end} running={panel.isRunning} error={panel.error ?? bars.error} onRun={panel.run}>
-      {!panel.preview ? <EmptyRunState /> : (
+    <StagePanel signalDate={end} profile={panel.profile} running={panel.isRunning} error={panel.error ?? bars.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
         <>
           <div className="stage-chart-toolbar">
             <SymbolCombobox symbols={options} value={symbol} onChange={setSelectedSymbol} ariaLabel="图表证券" />
-            {mode === "timing" ? <span className="status-pill">当前仓位 {formatPercent(numeric(timing.exposure), 0)}</span> : null}
           </div>
           {bars.isLoading ? <div className="analytics-empty">正在加载行情…</div> : null}
           {!bars.isLoading && !rows.length ? <div className="analytics-empty">该证券没有可用行情</div> : null}
@@ -296,25 +262,64 @@ function SecurityChartWidget({ mode }: { mode: "universe" | "selection" | "timin
 
 export const UniverseChartWidget = () => <SecurityChartWidget mode="universe" />
 export const SelectionChartWidget = () => <SecurityChartWidget mode="selection" />
-export const TimingChartWidget = () => <SecurityChartWidget mode="timing" />
 
-export function TimingEventsWidget() {
+export function TimingReferenceWidget() {
   const panel = useStagePanel("timing")
-  const rows = panel.points.map((point) => ({
-    date: point.signal_date,
-    exposure: numeric(pointOutput(point, "timing").exposure),
-    signal: String(pointOutput(point, "timing").signal ?? "—"),
-  }))
+  const timing = panel.output
+  const rows = useMemo(() => {
+    let wealth = 1
+    return (panel.preview?.timing_reference ?? []).map((point) => {
+      wealth *= 1 + numeric(point.value)
+      return { date: point.date, wealth }
+    })
+  }, [panel.preview?.timing_reference])
+
   return (
-    <StagePanel signalDate={panel.preview?.signal_date} running={panel.isRunning} error={panel.error} onRun={panel.run}>
-      {!panel.preview ? <EmptyRunState /> : (
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
         <>
-          <div className="stage-history-chart">
-            <ResponsiveContainer width="100%" height={190}>
-              <AreaChart data={rows}><defs><linearGradient id="timingExposure" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#2962ff" stopOpacity={0.35}/><stop offset="95%" stopColor="#2962ff" stopOpacity={0.03}/></linearGradient></defs><CartesianGrid stroke="hsl(var(--border))" opacity={0.45}/><XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={30}/><YAxis domain={[0, 1]} tickFormatter={(value) => `${value * 100}%`} tick={{ fontSize: 10 }}/><Tooltip formatter={(value) => formatPercent(Number(value), 0)}/><Area type="stepAfter" dataKey="exposure" stroke="#2962ff" fill="url(#timingExposure)" isAnimationActive={false}/></AreaChart>
-            </ResponsiveContainer>
+          <div className="stage-chart-toolbar">
+            <strong>MKT 市场累计净值</strong>
+            <span className="status-pill">当前仓位 {formatPercent(numeric(timing.exposure), 0)}</span>
           </div>
-          <div className="stage-table-wrap compact"><table className="stage-table"><thead><tr><th>信号日</th><th>仓位</th><th>信号</th></tr></thead><tbody>{[...rows].reverse().map((row) => <tr key={row.date}><td>{row.date}</td><td>{formatPercent(row.exposure, 0)}</td><td>{row.signal}</td></tr>)}</tbody></table></div>
+          {rows.length ? (
+            <div className="stage-history-chart">
+              <ResponsiveContainer width="100%" height={340}>
+                <AreaChart data={rows}>
+                  <defs><linearGradient id="timingMarket" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#2962ff" stopOpacity={0.32}/><stop offset="95%" stopColor="#2962ff" stopOpacity={0.03}/></linearGradient></defs>
+                  <CartesianGrid stroke="hsl(var(--border))" opacity={0.45}/>
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={30}/>
+                  <YAxis domain={["auto", "auto"]} tick={{ fontSize: 10 }} tickFormatter={(value) => formatNumber(Number(value), 2)}/>
+                  <Tooltip formatter={(value) => formatNumber(Number(value), 3)}/>
+                  <Area type="monotone" dataKey="wealth" stroke="#2962ff" fill="url(#timingMarket)" isAnimationActive={false}/>
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : <div className="analytics-empty">当前数据源没有 MKT 市场序列</div>}
+        </>
+      )}
+    </StagePanel>
+  )
+}
+
+export function TimingResultWidget() {
+  const panel = useStagePanel("timing")
+  const selection = strings(stageOutput(panel.preview, "selection").selected)
+  const exposure = numeric(panel.output.exposure)
+  const signal = String(panel.output.signal ?? "—")
+  return (
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
+        <>
+          <div className="stage-kpi-grid">
+            <div><span>市场仓位</span><strong>{formatPercent(exposure, 0)}</strong></div>
+            <div><span>选股池</span><strong>{selection.length}</strong></div>
+          </div>
+          <div className="stage-settings-grid">
+            <div><span>择时信号</span><strong>{signal}</strong></div>
+            <div><span>作用方式</span><strong>覆盖选股池仓位</strong></div>
+          </div>
+          <div className="analytics-empty compact">择时只调整市场仓位，不重新选择股票；组合阶段会在当前选股池内分配权重。</div>
         </>
       )}
     </StagePanel>
@@ -327,19 +332,31 @@ export function PortfolioWeightsWidget() {
   const rows = Object.entries(weights).sort((left, right) => right[1] - left[1]).slice(0, 20)
   const gross = Object.values(weights).reduce((sum, item) => sum + Math.abs(item), 0)
   return (
-    <StagePanel signalDate={panel.preview?.signal_date} running={panel.isRunning} error={panel.error} onRun={panel.run}>
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
       {!panel.preview ? <EmptyRunState /> : <><div className="stage-kpi-grid"><div><span>组合标的</span><strong>{Object.keys(weights).length}</strong></div><div><span>计划仓位</span><strong>{formatPercent(gross, 1)}</strong></div></div><HorizontalBarChart data={rows.map(([name, value]) => ({ name, value }))} height={Math.max(220, rows.length * 28)} /></>}
     </StagePanel>
   )
 }
 
-export function PortfolioHistoryWidget() {
+export function PortfolioSummaryWidget() {
   const panel = useStagePanel("portfolio")
-  const rows = panel.points.map((point) => {
-    const weights = numbers(pointOutput(point, "portfolio").weights)
-    return { date: point.signal_date, names: Object.keys(weights).length, gross: Object.values(weights).reduce((sum, item) => sum + Math.abs(item), 0), max: Math.max(0, ...Object.values(weights)) }
-  })
-  return <StagePanel signalDate={panel.preview?.signal_date} running={panel.isRunning} error={panel.error} onRun={panel.run}>{!panel.preview ? <EmptyRunState /> : <div className="stage-table-wrap"><table className="stage-table"><thead><tr><th>信号日</th><th>标的数</th><th>总仓位</th><th>最大权重</th></tr></thead><tbody>{[...rows].reverse().map((row) => <tr key={row.date}><td>{row.date}</td><td>{row.names}</td><td>{formatPercent(row.gross, 1)}</td><td>{formatPercent(row.max, 1)}</td></tr>)}</tbody></table></div>}</StagePanel>
+  const weights = numbers(panel.output.weights)
+  const selection = strings(stageOutput(panel.preview, "selection").selected)
+  const exposure = numeric(stageOutput(panel.preview, "timing").exposure, 1)
+  const gross = Object.values(weights).reduce((sum, item) => sum + Math.abs(item), 0)
+  const largest = Math.max(0, ...Object.values(weights))
+  return (
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
+        <div className="stage-settings-grid">
+          <div><span>输入选股池</span><strong>{selection.length} 只</strong></div>
+          <div><span>择时覆盖</span><strong>{formatPercent(exposure, 0)}</strong></div>
+          <div><span>组合总仓位</span><strong>{formatPercent(gross, 1)}</strong></div>
+          <div><span>最大单股</span><strong>{formatPercent(largest, 1)}</strong></div>
+        </div>
+      )}
+    </StagePanel>
+  )
 }
 
 export function RiskLimitsWidget() {
@@ -348,26 +365,37 @@ export function RiskLimitsWidget() {
   const after = numbers(panel.output.weights)
   const symbols = [...new Set([...Object.keys(before), ...Object.keys(after)])]
     .sort((left, right) => (after[right] ?? 0) - (after[left] ?? 0))
-  return <StagePanel signalDate={panel.preview?.signal_date} running={panel.isRunning} error={panel.error} onRun={panel.run}>{!panel.preview ? <EmptyRunState /> : <><div className="stage-table-wrap"><table className="stage-table"><thead><tr><th>证券</th><th>约束前</th><th>约束后</th><th>变化</th></tr></thead><tbody>{symbols.map((symbol) => <tr key={symbol}><td><strong>{symbol}</strong></td><td>{formatPercent(before[symbol] ?? 0, 2)}</td><td>{formatPercent(after[symbol] ?? 0, 2)}</td><td className={(after[symbol] ?? 0) < (before[symbol] ?? 0) ? "negative" : ""}>{formatPercent((after[symbol] ?? 0) - (before[symbol] ?? 0), 2)}</td></tr>)}</tbody></table></div></>}</StagePanel>
+  return <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>{!panel.preview ? <EmptyRunState /> : <div className="stage-table-wrap"><table className="stage-table"><thead><tr><th>证券</th><th>约束前</th><th>约束后</th><th>变化</th></tr></thead><tbody>{symbols.map((symbol) => <tr key={symbol}><td><strong>{symbol}</strong></td><td>{formatPercent(before[symbol] ?? 0, 2)}</td><td>{formatPercent(after[symbol] ?? 0, 2)}</td><td className={(after[symbol] ?? 0) < (before[symbol] ?? 0) ? "negative" : ""}>{formatPercent((after[symbol] ?? 0) - (before[symbol] ?? 0), 2)}</td></tr>)}</tbody></table></div>}</StagePanel>
 }
 
-export function RiskHistoryWidget() {
+export function RiskExposureWidget() {
   const panel = useStagePanel("risk")
   const gross = numeric(panel.output.gross_exposure, Object.values(numbers(panel.output.weights)).reduce((sum, item) => sum + Math.abs(item), 0))
   const largest = Math.max(0, ...Object.values(numbers(panel.output.weights)))
-  return <StagePanel signalDate={panel.preview?.signal_date} running={panel.isRunning} error={panel.error} onRun={panel.run}>{!panel.preview ? <EmptyRunState /> : <><div className="stage-kpi-grid"><div><span>风险后仓位</span><strong>{formatPercent(gross, 1)}</strong></div><div><span>最大单股</span><strong>{formatPercent(largest, 1)}</strong></div></div><RiskPieChart height={260} innerRadius={55} showLabels={false} data={[{ name: "股票仓位", value: gross, color: "#2962ff" }, { name: "现金", value: Math.max(0, 1 - gross), color: "#9aa4b2" }]} /></>}</StagePanel>
+  return <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>{!panel.preview ? <EmptyRunState /> : <><div className="stage-kpi-grid"><div><span>风险后仓位</span><strong>{formatPercent(gross, 1)}</strong></div><div><span>最大单股</span><strong>{formatPercent(largest, 1)}</strong></div></div><RiskPieChart height={260} innerRadius={55} showLabels={false} data={[{ name: "股票仓位", value: gross, color: "#2962ff" }, { name: "现金", value: Math.max(0, 1 - gross), color: "#9aa4b2" }]} /></>}</StagePanel>
 }
 
 export function ExecutionSettingsWidget() {
   const panel = useStagePanel("execution")
   const settings = record(panel.output.execution)
   const labels: Record<string, string> = { rebalance_freq: "调仓频率", execution_price: "成交价格", cost_bps: "佣金 bps", slippage_bps: "滑点 bps", impact_bps: "冲击 bps", max_participation_rate: "最大成交占比", portfolio_value: "组合资金" }
-  return <StagePanel signalDate={panel.preview?.signal_date} running={panel.isRunning} error={panel.error} onRun={panel.run}>{!panel.preview ? <EmptyRunState /> : <div className="stage-settings-grid">{Object.entries(settings).map(([key, value]) => <div key={key}><span>{labels[key] ?? key}</span><strong>{key.endsWith("_rate") ? formatPercent(numeric(value), 1) : String(value)}</strong></div>)}</div>}</StagePanel>
+  return <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>{!panel.preview ? <EmptyRunState /> : <div className="stage-settings-grid">{Object.entries(settings).map(([key, value]) => <div key={key}><span>{labels[key] ?? key}</span><strong>{key.endsWith("_rate") ? formatPercent(numeric(value), 1) : String(value)}</strong></div>)}</div>}</StagePanel>
 }
 
-export function ExecutionHistoryWidget() {
+export function ExecutionTargetsWidget() {
   const panel = useStagePanel("execution")
-  const totalCost = panel.points.reduce((sum, point) => sum + point.total_cost, 0)
-  const averageTurnover = panel.points.length ? panel.points.reduce((sum, point) => sum + point.turnover, 0) / panel.points.length : 0
-  return <StagePanel signalDate={panel.preview?.signal_date} running={panel.isRunning} error={panel.error} onRun={panel.run}>{!panel.preview ? <EmptyRunState /> : <><div className="stage-kpi-grid"><div><span>区间模拟成本</span><strong>{formatPercent(totalCost, 2)}</strong></div><div><span>平均换手</span><strong>{formatPercent(averageTurnover, 1)}</strong></div></div><div className="stage-table-wrap"><table className="stage-table"><thead><tr><th>信号日</th><th>成交日</th><th>换手</th><th>成本</th><th>现金</th></tr></thead><tbody>{[...panel.points].reverse().map((point) => <tr key={point.entry_date}><td>{point.signal_date}</td><td>{point.entry_date}</td><td>{formatPercent(point.turnover, 1)}</td><td>{formatPercent(point.total_cost, 3)}</td><td>{formatPercent(point.cash_weight, 1)}</td></tr>)}</tbody></table></div></>}</StagePanel>
+  const weights = numbers(stageOutput(panel.preview, "risk").weights)
+  const rows = Object.entries(weights).sort((left, right) => right[1] - left[1])
+  const gross = Object.values(weights).reduce((sum, item) => sum + Math.abs(item), 0)
+  return (
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
+        <>
+          <div className="stage-kpi-grid"><div><span>目标标的</span><strong>{rows.length}</strong></div><div><span>目标总仓位</span><strong>{formatPercent(gross, 1)}</strong></div></div>
+          <div className="stage-table-wrap"><table className="stage-table"><thead><tr><th>证券</th><th>风险后目标权重</th></tr></thead><tbody>{rows.map(([symbol, weight]) => <tr key={symbol}><td><strong>{symbol}</strong></td><td>{formatPercent(weight, 2)}</td></tr>)}</tbody></table></div>
+          <div className="analytics-empty compact">实际换手、成交限制和成本需要完整回测结合上一期持仓计算。</div>
+        </>
+      )}
+    </StagePanel>
+  )
 }

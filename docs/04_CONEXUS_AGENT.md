@@ -1,6 +1,6 @@
 # AlphaLab Conexus Research Agent
 
-The optional published Agent uses the same current API as the nine workbenches.
+The optional published Agent uses the same current API as the ten workbenches.
 Its invocation input is exactly `{"request": "non-empty string"}`.
 
 ## Supported Research Surface
@@ -28,7 +28,8 @@ Current strategy tools are:
 
 `alphalab_preview_pipeline` requires a target stage. It executes that stage and
 only its upstream dependencies; `alphalab_run_backtest` remains the complete
-six-stage run.
+six-stage historical run. There is no separate stage-history or independent-
+research invocation; robustness and attribution inspect a saved backtest.
 
 There are no compatibility aliases for the removed strategy-template tools.
 
@@ -51,7 +52,7 @@ next-period alignment.
 Valid modes are:
 
 ```text
-data universe selection timing portfolio risk execution backtest report
+data project universe selection timing portfolio risk execution backtest report
 ```
 
 Valid core widgets use the same names with `.workbench`. Commands execute only

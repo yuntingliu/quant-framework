@@ -30,6 +30,7 @@ def test_default_project_preview_runs_the_complete_module(tmp_path):
     assert sum(preview["targets"].values()) <= 1.0 + 1e-9
     assert max(preview["targets"].values()) <= 0.1 + 1e-9
     assert preview["diagnostics"]["complete_pipeline"]["timing"]["exposure"] == 1.0
+    assert preview["timing_reference"]
     assert preview["executed_stages"] == list(STAGE_NAMES)
 
 
@@ -74,7 +75,8 @@ def test_short_backtest_uses_the_same_frozen_source(tmp_path):
     assert not result.result.weights.empty
     assert result.result.executions
     assert tuple(result.result.executions[0]["stage_outputs"]) == STAGE_NAMES
-    assert result.result.diagnostics["complete_python_source_sha256"] == project["source_sha256"]
+    assert result.result.diagnostics["strategy_source_sha256"] == project["source_sha256"]
+    assert "selection_forward_returns" in result.result.executions[0]
 
 
 def test_pure_selection_and_pure_timing_are_explicit_components(tmp_path):

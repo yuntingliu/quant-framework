@@ -102,7 +102,7 @@ def test_conexus_tools_match_the_python_pipeline_contract():
     assert "component_manifest.length!==6" in tools["alphalab_run_backtest"]["code"]
 
 
-def test_agent_and_harness_use_only_the_nine_workbenches():
+def test_agent_and_harness_use_only_the_ten_workbenches():
     agent = _load(BUNDLE / "agents" / "AlphaLab-Research-Agent.agent.json")
     tools = {_load(path)["toolName"] for path in TOOLS.glob("*.json")}
     assert tools.issubset(agent["toolNames"])
@@ -117,7 +117,7 @@ def test_agent_and_harness_use_only_the_nine_workbenches():
     prompt = agent["systemPrompt"]
     for text in (
         "DataSnapshot → build_universe → select_assets → compute_exposure",
-        "construct_portfolio → apply_risk → create_orders → BacktestRun → ResearchReport",
+        "construct_portfolio → apply_risk → configure_execution → BacktestRun → ResearchReport",
         "不得使用或生成 YAML",
         "纯选股使用 timing-always-on",
         "纯择时使用 selection-pass-through",
@@ -135,6 +135,7 @@ def test_agent_and_harness_use_only_the_nine_workbenches():
     mode_enum = commands["properties"]["commands"]["items"]["properties"]["mode"]["enum"]
     assert mode_enum == [
         "data",
+        "project",
         "universe",
         "selection",
         "timing",

@@ -9,6 +9,7 @@ import { PaperExecutionDeskWidget } from "../execution/PaperExecutionDesk"
 import { RiskConsoleWidget } from "../execution/RiskConsole"
 import { ResearchAgentPanel } from "../research/ResearchAgent"
 import { ReportWorkbenchWidget } from "../research/ReportWorkbench"
+import { ProjectWorkbenchWidget } from "../project/ProjectWorkbench"
 import {
   ExecutionWorkbenchWidget,
   PortfolioWorkbenchWidget,
@@ -18,16 +19,16 @@ import {
   UniverseWorkbenchWidget,
 } from "../pipeline/StageWorkbench"
 import {
-  ExecutionHistoryWidget,
   ExecutionSettingsWidget,
-  PortfolioHistoryWidget,
+  ExecutionTargetsWidget,
+  PortfolioSummaryWidget,
   PortfolioWeightsWidget,
-  RiskHistoryWidget,
+  RiskExposureWidget,
   RiskLimitsWidget,
   SelectionChartWidget,
   SelectionRankingWidget,
-  TimingChartWidget,
-  TimingEventsWidget,
+  TimingReferenceWidget,
+  TimingResultWidget,
   UniverseChartWidget,
   UniverseMembersWidget,
 } from "../pipeline/StageResultPanels"
@@ -58,6 +59,7 @@ export const widgetComponents: Record<string, ComponentType> = {
 
   // Parallel workstations backed by one sequential six-stage Python pipeline.
   "data.workbench": DataWorkbenchWidget,
+  "project.workbench": ProjectWorkbenchWidget,
   "universe.workbench": UniverseWorkbenchWidget,
   "selection.workbench": SelectionWorkbenchWidget,
   "timing.workbench": TimingWorkbenchWidget,
@@ -68,14 +70,14 @@ export const widgetComponents: Record<string, ComponentType> = {
   "universe.chart": UniverseChartWidget,
   "selection.ranking": SelectionRankingWidget,
   "selection.chart": SelectionChartWidget,
-  "timing.chart": TimingChartWidget,
-  "timing.events": TimingEventsWidget,
+  "timing.reference": TimingReferenceWidget,
+  "timing.result": TimingResultWidget,
   "portfolio.weights": PortfolioWeightsWidget,
-  "portfolio.history": PortfolioHistoryWidget,
+  "portfolio.summary": PortfolioSummaryWidget,
   "risk.limits": RiskLimitsWidget,
-  "risk.history": RiskHistoryWidget,
+  "risk.exposure": RiskExposureWidget,
   "execution.settings": ExecutionSettingsWidget,
-  "execution.history": ExecutionHistoryWidget,
+  "execution.targets": ExecutionTargetsWidget,
   "backtest.workbench": BacktestWorkbenchWidget,
   "report.workbench": ReportWorkbenchWidget,
 

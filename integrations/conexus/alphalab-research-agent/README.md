@@ -6,7 +6,7 @@ Python strategy pipeline.
 It can inspect data and risk factors, evaluate cross-sectional signal evidence,
 manage immutable Python component versions and revisioned projects, preview the
 complete composed strategy, run and analyze frozen backtests, read reports, and
-control the nine current workbench modes.
+control the ten current workbench modes.
 
 Current pipeline tools:
 

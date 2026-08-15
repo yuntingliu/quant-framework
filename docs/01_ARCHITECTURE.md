@@ -8,17 +8,25 @@ The current strategy interface is Python-native and has one execution path.
 The top-level workbenches are parallel navigation destinations:
 
 ```text
-Data | Universe | Selection | Timing | Portfolio | Risk | Execution | Backtest | Report
+Data | Research Project | Universe | Selection | Timing | Portfolio | Risk | Execution | Backtest | Report
 ```
+
+The Research Project Workbench owns the shared research context: project
+selection and lifecycle, data profile, optional data cutoff date, project-level
+settings, and navigation to the six pinned components. The toolbar is navigation
+and layout chrome only. Stage workbenches show the current project read-only and
+never create projects or edit project-level settings. A project revision,
+profile, or cutoff change makes cached stage output stale until that stage is
+run again.
 
 The six strategy-stage destinations are top-level Dockview layouts rather than
 single editor screens. Every layout contains one shared component/Python editor
 and stage-specific result panels. Universe and selection link security lists to
 price charts; timing links exposure changes to price markers and an exposure
 trace; portfolio, risk, and execution show weights, constraint deltas, turnover,
-and modeled costs. Panels observe one run cache keyed by project and target
-stage, so running selection cannot populate or execute timing, portfolio, risk,
-or execution workspaces.
+and current execution targets. Panels observe one run cache keyed by project,
+target stage, data profile, and data cutoff date, so running selection cannot
+populate or execute timing, portfolio, risk, or execution workspaces.
 
 Their data dependency is sequential:
 
@@ -29,7 +37,7 @@ DataSnapshot
   -> compute_exposure(context)
   -> construct_portfolio(context)
   -> apply_risk(context)
-  -> create_orders(context)
+  -> configure_execution(context)
   -> BacktestRun
   -> ResearchReport
 ```
@@ -59,17 +67,18 @@ parameter JSON, notes, and SHA-256. A project revision stores all six refs,
 settings, the composed source, and its SHA-256.
 
 `compose_strategy()` concatenates the six reviewed component sources and adds
-`run_stage(context)` plus `run_strategy(context)`. A stage preview calls
+`run_stage(context)` plus `run_strategy(context)`. A current-date stage run calls
 `run_stage` and stops after the requested stage; required upstream stages run to
-provide its inputs. A backtest calls `run_strategy` and executes all six stages.
+provide its inputs, so timing and every later stage consume the selection output
+from that same frozen run. A backtest calls `run_strategy` and executes all six stages.
 Both execute the exact composed module in the isolated child process. A backtest
 freezes the composed source and component manifest; inspecting a historical run
 never substitutes a newer project revision.
 
-Stage analysis is a read-only, bounded run through the same scheduling and data
-core. At every rebalance point it executes only the requested stage prefix and
-returns those actual outputs for visualization. It does not persist a backtest
-record and is not a second strategy engine.
+There is no separate stage-history or “independent research” execution path.
+Stage workbenches answer only what the selected component emits at the current
+data cutoff. Historical repetition, turnover, costs, robustness, attribution,
+and comparison belong to a persisted `BacktestRun` in the Backtest Workbench.
 
 Python is trusted local code with timeout and crash containment, not an OS
 security sandbox. The framework still owns non-bypassable controls:
@@ -128,6 +137,11 @@ Backtests persist:
 - returns, benchmark, holdings, and period execution audit;
 - data-file, environment, and Git fingerprints.
 
+The Backtest Workbench derives signal diagnostics from that saved run: Rank IC,
+score coverage, top-minus-bottom returns, selection turnover, and timing
+exposure. It does not launch a separate factor-validation run. Reports are
+durable research artifacts linked to a BacktestRun when `backtestId` is present.
+
 ## Data Contract
 
 Adapters implement protocols under `alphalab.dataio.providers.protocol`.
@@ -160,7 +174,6 @@ Strategy workstations use:
 - `GET/PUT/DELETE /api/pipeline/projects/{id}`
 - `POST /api/pipeline/projects/{id}/clone`
 - `POST /api/pipeline/projects/{id}/preview` with required `stage`
-- `POST /api/pipeline/projects/{id}/analysis` with required `stage`
 - `POST /api/backtests/run` with `project_id`
 - backtest detail, analysis, robustness, comparison, data, report, and paper APIs.
 

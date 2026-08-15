@@ -52,6 +52,7 @@ export interface AgentResearchResult {
   profile?: "demo" | "runtime"
   provenance?: Record<string, unknown>
   persistedAt?: string
+  backtestId?: string
 }
 
 interface ResearchResultMetadata {
@@ -300,6 +301,8 @@ export function parseAgentResearchResult(
   const provenance = isRecord(value.provenance) ? value.provenance : undefined
   const persistedAt = value.persistedAt === undefined ? undefined : text(value.persistedAt, 100)
   if (value.persistedAt !== undefined && !persistedAt) return null
+  const backtestId = value.backtestId === undefined ? undefined : text(value.backtestId, 200)
+  if (value.backtestId !== undefined && !backtestId) return null
   const runId = metadata.runId ?? (value.runId === undefined ? undefined : text(value.runId, 200))
   const artifactId = metadata.artifactId ?? (value.artifactId === undefined ? undefined : text(value.artifactId, 200))
   const updatedAt = metadata.updatedAt ?? (value.updatedAt === undefined ? undefined : text(value.updatedAt, 100))
@@ -327,6 +330,7 @@ export function parseAgentResearchResult(
     ...(profile ? { profile } : {}),
     ...(provenance ? { provenance } : {}),
     ...(persistedAt ? { persistedAt } : {}),
+    ...(backtestId ? { backtestId } : {}),
   }
 }
 

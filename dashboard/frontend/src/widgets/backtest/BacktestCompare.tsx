@@ -12,7 +12,6 @@ import {
 import { useDataProfile } from "@/lib/data-profile"
 import { formatNumber, formatPercent } from "@/lib/utils"
 import { Widget } from "@/widgets/Widget"
-import { ProfileSelect } from "@/widgets/market/AnalyticsControls"
 import { analyticsError } from "@/widgets/market/analytics-utils"
 
 const MAX_SELECTION = 6
@@ -49,7 +48,7 @@ export function BacktestCompareWidget() {
     volatility: "Volatility",
     maxDrawdown: "Max DD",
   }
-  const [profile, setProfile] = useDataProfile()
+  const [profile] = useDataProfile()
   const [records, setRecords] = useState<BacktestRecord[]>([])
   const [selected, setSelected] = useState<string[]>([])
   const [recordsError, setRecordsError] = useState("")
@@ -100,9 +99,7 @@ export function BacktestCompareWidget() {
       error={recordsError || analyticsError(comparison.error)}
       onRetry={() => comparison.refetch()}
       actions={
-        <>
-          <ProfileSelect profile={profile} onChange={setProfile} />
-          <button
+        <button
             className="icon-command"
             type="button"
             title={copy.refresh}
@@ -111,7 +108,6 @@ export function BacktestCompareWidget() {
           >
             <RefreshCw aria-hidden="true" />
           </button>
-        </>
       }
       bodyPadding="compact"
     >

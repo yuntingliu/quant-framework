@@ -82,7 +82,7 @@ RISK_CONCENTRATION = '''def apply_risk(context):
     return {"weights": capped, "gross_exposure": sum(capped.values())}
 '''
 
-EXECUTION_MONTHLY = '''def create_orders(context):
+EXECUTION_MONTHLY = '''def configure_execution(context):
     """Describe monthly next-open rebalancing; the core applies market and cash gates."""
     parameters = context["parameters"]
     return {"execution": {

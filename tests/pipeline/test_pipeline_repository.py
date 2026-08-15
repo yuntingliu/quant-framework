@@ -6,6 +6,7 @@ import pytest
 
 from alphalab import PipelineRepository, STAGE_ENTRYPOINTS, STAGE_NAMES, validate_python_source
 from alphalab.pipeline import legacy_migration
+from alphalab.strategy.python_runtime import python_source_sha256
 
 
 def test_repository_seeds_six_stage_python_presets(tmp_path):
@@ -114,6 +115,43 @@ def test_project_requires_exactly_six_stage_references(tmp_path):
             )
     finally:
         repository.close()
+
+
+def test_old_execution_entrypoint_is_migrated_once(tmp_path):
+    database = tmp_path / "pipeline.db"
+    repository = PipelineRepository(database)
+    repository.close()
+
+    connection = sqlite3.connect(database)
+    try:
+        source = connection.execute(
+            "SELECT source FROM pipeline_component_versions "
+            "WHERE component_id = 'execution-monthly' AND version = 1"
+        ).fetchone()[0]
+        old_source = source.replace("def configure_execution(", "def create_orders(", 1)
+        connection.execute(
+            """UPDATE pipeline_component_versions
+               SET entrypoint = 'create_orders', source = ?, source_sha256 = ?
+               WHERE component_id = 'execution-monthly' AND version = 1""",
+            (old_source, python_source_sha256(old_source)),
+        )
+        connection.execute(
+            "DELETE FROM pipeline_contract_migrations "
+            "WHERE name = 'execution-entrypoint-configure-v1'"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    migrated = PipelineRepository(database)
+    try:
+        execution = migrated.get_component("execution-monthly", 1)
+        assert execution is not None
+        assert execution["entrypoint"] == "configure_execution"
+        assert "def configure_execution(context):" in execution["source"]
+        assert "create_orders" not in execution["source"]
+    finally:
+        migrated.close()
 
 
 def test_legacy_local_yaml_is_imported_only_once(tmp_path, monkeypatch):

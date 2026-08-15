@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Clock3, Database, Play, ReceiptText, RefreshCw, ShieldCheck, Workflow } from "lucide-react"
+import { Clock3, Database, Play, ReceiptText, RefreshCw, ShieldCheck } from "lucide-react"
 
 import { CumulativeReturnsChart, DrawdownChart } from "@/components/charts"
 import { CSVExportButton } from "@/components/shared/CSVExportButton"
@@ -12,18 +12,19 @@ import {
   type BacktestRecord,
   type BacktestRobustness,
   type BacktestRunResult,
+  type BacktestSignalDiagnostics,
   type DataManifest,
   type ProviderStatus,
   type PipelineProjectSummary,
   type RuntimeCatalog,
 } from "@/lib/api"
-import { useDataProfile, type DataProfile } from "@/lib/data-profile"
+import { useDataProfile } from "@/lib/data-profile"
 import { formatNumber, formatPercent } from "@/lib/utils"
 import { Widget } from "@/widgets/Widget"
 import { analyticsError } from "@/widgets/market/analytics-utils"
 import { BacktestCompareWidget } from "./BacktestCompare"
 
-type WorkbenchTab = "pipeline" | "performance" | "robustness" | "execution" | "holdings"
+type WorkbenchTab = "pipeline" | "performance" | "signals" | "robustness" | "execution" | "holdings"
 type WorkbenchView = "inspect" | "compare"
 
 function metric(value: number | null | undefined, kind: "pct" | "number"): string {
@@ -44,8 +45,6 @@ function researchStatusLabel(status: string, language: "zh" | "en"): string {
 export function BacktestWorkbenchWidget() {
   const { language } = useLanguage()
   const copy = language === "zh" ? {
-    title: "回测工作台",
-    refresh: "刷新已保存的结果",
     mode: "回测工作台模式",
     inspect: "完整策略回测",
     compare: "策略对比",
@@ -62,12 +61,8 @@ export function BacktestWorkbenchWidget() {
     running: "运行中",
     run: "运行",
     quickRun: "运行完整策略回测",
-    studying: "研究中",
-    study: "回测 + 稳健性验证",
     runSettings: "运行设置",
     runHint: "这里选择版本固定的六阶段策略项目和数据区间；回测运行并保存工作台中看到的同一份总 Python 源码。",
-    researchHint: "完整研究会运行回测、稳健性闸门和模拟调仓预览，但不会自动交易。",
-    timingResearchHint: "完整研究会运行择时回测与稳健性闸门；择时只输出市场仓位，不生成个股模拟订单。",
     paperAwaiting: "模拟调仓等待用户确认",
     timingCompleted: "最新市场仓位已生成，不涉及个股订单",
     savedBacktest: "已保存的回测",
@@ -80,6 +75,16 @@ export function BacktestWorkbenchWidget() {
     customModule: "本次回测的自定义 Python 模块",
     hardGate: "核心闸门",
     performance: "收益与基准",
+    signals: "信号诊断",
+    signalEvidence: "信号预测能力",
+    signalEvidenceHint: "这里使用该 BacktestRun 已保存的每期横截面评分、后续收益和择时仓位；它不重新运行策略。",
+    meanIc: "平均 Rank IC",
+    positiveIc: "IC 为正比例",
+    scoreCoverage: "评分覆盖率",
+    selectionTurnover: "选股换手",
+    timingExposure: "平均择时仓位",
+    quantileSpread: "头尾组收益差",
+    evidencePeriods: "有效检验期",
     robustness: "稳健性",
     holdings: "持仓",
     exposure: "仓位",
@@ -154,8 +159,6 @@ export function BacktestWorkbenchWidget() {
     marketExposure: "市场仓位",
     weight: "权重",
   } : {
-    title: "Backtest Workbench",
-    refresh: "Refresh saved result",
     mode: "Backtest workbench mode",
     inspect: "Full Strategy Backtest",
     compare: "Strategy Compare",
@@ -172,12 +175,8 @@ export function BacktestWorkbenchWidget() {
     running: "Running",
     run: "Run",
     quickRun: "Run full strategy backtest",
-    studying: "Studying",
-    study: "Backtest + robustness",
     runSettings: "Run setup",
     runHint: "Choose a version-pinned six-stage project and data range. The run executes and persists the same complete Python source shown here.",
-    researchHint: "Full research runs the backtest, robustness gates, and a paper rebalance preview, but never auto-trades.",
-    timingResearchHint: "Full research runs timing backtests and robustness gates. Timing emits market exposure and never creates stock orders.",
     paperAwaiting: "paper rebalance awaits confirmation",
     timingCompleted: "latest market exposure generated; no stock orders",
     savedBacktest: "Saved backtest",
@@ -190,6 +189,16 @@ export function BacktestWorkbenchWidget() {
     customModule: "Persisted custom Python module",
     hardGate: "Core gate",
     performance: "Returns & Benchmark",
+    signals: "Signal Diagnostics",
+    signalEvidence: "Signal predictive evidence",
+    signalEvidenceHint: "Derived from the cross-sectional scores, forward returns, and timing exposure persisted in this BacktestRun; the strategy is not rerun.",
+    meanIc: "Mean Rank IC",
+    positiveIc: "Positive IC ratio",
+    scoreCoverage: "Score coverage",
+    selectionTurnover: "Selection turnover",
+    timingExposure: "Avg timing exposure",
+    quantileSpread: "Top-bottom return",
+    evidencePeriods: "evidence periods",
     robustness: "Robustness",
     holdings: "Holdings",
     exposure: "Exposure",
@@ -264,22 +273,20 @@ export function BacktestWorkbenchWidget() {
     marketExposure: "Market exposure",
     weight: "Weight",
   }
-  const { selectedStrategy, setSelectedStrategy, selectedBacktest, setSelectedBacktest } = useWorkspace()
+  const { selectedStrategy, setActiveMode, selectedBacktest, setSelectedBacktest } = useWorkspace()
   const selectedStrategyRef = useRef(selectedStrategy)
   const selectedBacktestRef = useRef(selectedBacktest)
   selectedStrategyRef.current = selectedStrategy
   selectedBacktestRef.current = selectedBacktest
-  const [profile, setProfile] = useDataProfile()
+  const [profile] = useDataProfile()
   const [strategies, setStrategies] = useState<PipelineProjectSummary[]>([])
   const [records, setRecords] = useState<BacktestRecord[]>([])
-  const [strategyId, setStrategyId] = useState(selectedStrategy ?? "six-stage-default")
+  const [strategyId, setStrategyId] = useState(selectedStrategy ?? "")
   const [selectedId, setSelectedId] = useState(selectedBacktest ?? "")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [setupError, setSetupError] = useState("")
   const [running, setRunning] = useState(false)
-  const [researching, setResearching] = useState(false)
-  const [researchMessage, setResearchMessage] = useState("")
   const [tab, setTab] = useState<WorkbenchTab>("performance")
   const [view, setView] = useState<WorkbenchView>("inspect")
   const [holdingDate, setHoldingDate] = useState("")
@@ -300,11 +307,8 @@ export function BacktestWorkbenchWidget() {
         const requestedStrategy = selectedStrategyRef.current
         const nextStrategy = requestedStrategy && templates.some((item) => item.id === requestedStrategy)
           ? requestedStrategy
-          : templates.some((item) => item.id === "six-stage-default")
-            ? "six-stage-default"
-            : templates[0]?.id ?? ""
+          : ""
         setStrategyId(nextStrategy)
-        setSelectedStrategy(nextStrategy || null)
         const matching = saved.filter((item) => item.profile === profile)
         setRecords(matching)
         const requestedBacktest = selectedBacktestRef.current
@@ -329,11 +333,13 @@ export function BacktestWorkbenchWidget() {
         }
       })
       .catch((error: Error) => setSetupError(error.message))
-  }, [profile, setSelectedBacktest, setSelectedStrategy])
+  }, [profile, setSelectedBacktest])
 
   useEffect(() => {
     if (selectedStrategy && selectedStrategy !== strategyId && strategies.some((item) => item.id === selectedStrategy)) {
       setStrategyId(selectedStrategy)
+    } else if (!selectedStrategy && strategyId) {
+      setStrategyId("")
     }
   }, [selectedStrategy, strategies, strategyId])
 
@@ -356,6 +362,11 @@ export function BacktestWorkbenchWidget() {
       && analysis.data
       && ((analysis.data.benchmark_coverage ?? 0) >= 0.80 || forceRobustness)
     ),
+  })
+  const signals = useQuery({
+    queryKey: ["backtests", "signals", selectedId],
+    queryFn: () => api.get<BacktestSignalDiagnostics>(`/backtests/${selectedId}/signals`),
+    enabled: Boolean(selectedId),
   })
 
   useEffect(() => {
@@ -380,38 +391,12 @@ export function BacktestWorkbenchWidget() {
       const saved = await api.get<BacktestRecord[]>("/backtests?limit=100")
       setRecords(saved.filter((item) => item.profile === profile))
       setSelectedId(result.id)
-      setSelectedStrategy(strategyId)
       setSelectedBacktest(result.id)
       setTab("performance")
     } catch (error) {
       setSetupError(error instanceof Error ? error.message : String(error))
     } finally {
       setRunning(false)
-    }
-  }
-
-  async function runResearch() {
-    setResearching(true)
-    setSetupError("")
-    setResearchMessage("Running frozen Python strategy")
-    try {
-      const result = await api.post<BacktestRunResult>("/backtests/run", {
-        project_id: strategyId,
-        start_date: startDate,
-        end_date: endDate,
-        profile,
-      })
-      const saved = await api.get<BacktestRecord[]>("/backtests?limit=100")
-      setRecords(saved.filter((item) => item.profile === profile))
-      setSelectedId(result.id)
-      setSelectedStrategy(strategyId)
-      setSelectedBacktest(result.id)
-      setTab("robustness")
-      setResearchMessage("回测已完成；正在基于保存的基准、持仓和成本记录计算稳健性")
-    } catch (error) {
-      setSetupError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setResearching(false)
     }
   }
 
@@ -471,7 +456,6 @@ export function BacktestWorkbenchWidget() {
   const selectedRecord = records.find((record) => record.id === selectedId)
   const selectedStrategyDefinition = strategies.find((strategy) => strategy.id === strategyId)
   const isTimingResult = false
-  const researchHint = copy.researchHint
   const invalidDateRange = Boolean(startDate && endDate && startDate > endDate)
   const failedChecks = robustness.data
     ? robustness.data.checks.filter((check) => !check.passed).length
@@ -482,21 +466,7 @@ export function BacktestWorkbenchWidget() {
   const benchmarkReady = (analysis.data?.benchmark_coverage ?? 0) >= 0.80
 
   return (
-    <Widget
-      title={copy.title}
-      actions={
-        <button
-          className="icon-command"
-          type="button"
-          title={copy.refresh}
-          onClick={() => analysis.refetch()}
-          disabled={!selectedId}
-        >
-          <RefreshCw aria-hidden="true" />
-        </button>
-      }
-      bodyPadding="none"
-    >
+    <Widget headerless>
       <div className="workbench-tabs" role="tablist" aria-label={copy.mode}>
         <button type="button" role="tab" aria-selected={view === "inspect"} onClick={() => setView("inspect")}>{copy.inspect}</button>
         <button type="button" role="tab" aria-selected={view === "compare"} onClick={() => setView("compare")}>{copy.compare}</button>
@@ -515,27 +485,14 @@ export function BacktestWorkbenchWidget() {
           )}
         </div>
         <div className="backtest-run-controls">
-          <label>
+          <div className="pipeline-pinned-component">
             <span>{copy.profile}</span>
-            <select value={profile} onChange={(event) => setProfile(event.target.value as DataProfile)}>
-              <option value="demo">{copy.demo}</option>
-              <option value="runtime">{copy.runtime}</option>
-            </select>
-          </label>
-          <label>
+            <strong>{profile === "demo" ? copy.demo : copy.runtime}</strong>
+          </div>
+          <div className="pipeline-pinned-component">
             <span>{copy.strategy}</span>
-            <select
-              value={strategyId}
-              onChange={(event) => {
-                setStrategyId(event.target.value)
-                setSelectedStrategy(event.target.value)
-              }}
-            >
-              {strategies.map((strategy) => (
-                <option key={strategy.id} value={strategy.id}>{strategy.name} · r{strategy.revision}</option>
-              ))}
-            </select>
-          </label>
+            <strong>{selectedStrategyDefinition?.name ?? "—"}</strong>
+          </div>
           <label>
             <span>{copy.startDate}</span>
             <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
@@ -549,30 +506,24 @@ export function BacktestWorkbenchWidget() {
               className="primary-command"
               type="button"
               onClick={runBacktest}
-              disabled={running || researching || !startDate || !endDate || invalidDateRange}
+              disabled={running || !strategyId || !startDate || !endDate || invalidDateRange}
             >
               <Play aria-hidden="true" />
               {running ? copy.running : copy.quickRun}
             </button>
-            <button
-              className="secondary-command"
-              type="button"
-              title={researchHint}
-              onClick={runResearch}
-              disabled={researching || running || !startDate || !endDate || invalidDateRange}
-            >
-              <Workflow aria-hidden="true" />
-              {researching ? copy.studying : copy.study}
-            </button>
           </div>
         </div>
-        <div className="backtest-research-hint">{researchHint}</div>
       </section>
+      {!strategyId && (
+        <div className="workbench-message warning">
+          {language === "zh" ? "请先在研究项目工作台选择或新建项目。" : "Select or create a project in Research Project first."}
+          <button className="secondary-command" type="button" onClick={() => setActiveMode("project")}>
+            {language === "zh" ? "前往研究项目" : "Open Research Project"}
+          </button>
+        </div>
+      )}
       {invalidDateRange && <div className="workbench-message error">{copy.invalidRange}</div>}
       {setupError && <div className="workbench-message error">{setupError}</div>}
-      {researchMessage && !setupError && (
-        <div className="workbench-message research-message">{researchMessage}</div>
-      )}
       {records.length > 0 && (
         <section className="backtest-result-identity">
           <div className="backtest-result-title">
@@ -586,11 +537,11 @@ export function BacktestWorkbenchWidget() {
           {analysis.data?.strategy_snapshot && (
             <div
               className="backtest-snapshot-summary"
-              title={(isTimingResult ? analysis.data.strategy_snapshot.signals : analysis.data.strategy_snapshot.factors).join(", ")}
+              title={analysis.data.strategy_snapshot.factors.join(", ")}
             >
               <Database size={13} />
               <span>
-                {copy.strategySnapshot}: {isTimingResult ? copy.marketTiming : copy.stockSelection}{" · "}
+                {copy.strategySnapshot}: {analysis.data.strategy_snapshot.name}{" · "}
                 {analysis.data.strategy_snapshot.implementation === "python"
                   ? "Python"
                   : isTimingResult
@@ -668,6 +619,14 @@ export function BacktestWorkbenchWidget() {
             <button
               type="button"
               role="tab"
+              aria-selected={tab === "signals"}
+              onClick={() => setTab("signals")}
+            >
+              {copy.signals}
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={tab === "robustness"}
               onClick={() => setTab("robustness")}
             >
@@ -713,7 +672,7 @@ export function BacktestWorkbenchWidget() {
                     ))}
                   </div>
                   <section className="backtest-pipeline-source">
-                    <strong>run_pipeline</strong>
+                    <strong>run_strategy</strong>
                     <pre>{analysis.data.strategy_snapshot.pipeline_manifest.composed_source}</pre>
                   </section>
                   {analysis.data.provenance.strategy_python?.source && (
@@ -774,6 +733,40 @@ export function BacktestWorkbenchWidget() {
                 height={250}
               />
               <DrawdownChart data={drawdownData} height={190} />
+            </div>
+          ) : tab === "signals" ? (
+            <div className="workbench-body">
+              {signals.isLoading ? (
+                <div className="analytics-empty">{copy.loadingResult}</div>
+              ) : signals.error ? (
+                <div className="workbench-message error">{analyticsError(signals.error)}</div>
+              ) : signals.data ? (
+                <>
+                  <div className="backtest-section-heading">
+                    <div><strong>{copy.signalEvidence}</strong><span>{copy.signalEvidenceHint}</span></div>
+                  </div>
+                  {signals.data.warning ? <div className="workbench-message warning">{signals.data.warning}</div> : null}
+                  <div className="analytics-kpi-grid workbench-kpis">
+                    <div className="analytics-kpi"><span>{copy.meanIc}</span><strong>{metric(signals.data.summary.mean_ic, "number")}</strong></div>
+                    <div className="analytics-kpi"><span>{copy.positiveIc}</span><strong>{metric(signals.data.summary.positive_ic_ratio, "pct")}</strong></div>
+                    <div className="analytics-kpi"><span>{copy.scoreCoverage}</span><strong>{metric(signals.data.summary.average_coverage, "pct")}</strong></div>
+                    <div className="analytics-kpi"><span>{copy.selectionTurnover}</span><strong>{metric(signals.data.summary.average_selection_turnover, "pct")}</strong></div>
+                    <div className="analytics-kpi"><span>{copy.timingExposure}</span><strong>{metric(signals.data.summary.average_timing_exposure, "pct")}</strong></div>
+                    <div className="analytics-kpi"><span>{copy.evidencePeriods}</span><strong>{signals.data.evidence_periods}/{signals.data.periods}</strong></div>
+                  </div>
+                  <div className="analytics-table-wrap">
+                    <table className="analytics-table compact">
+                      <thead><tr><th>{copy.signalDate}</th><th>{copy.scoreCoverage}</th><th>{copy.meanIc}</th><th>{copy.quantileSpread}</th><th>{copy.selectionTurnover}</th><th>{copy.timingExposure}</th></tr></thead>
+                      <tbody>{signals.data.rows.map((row) => (
+                        <tr key={row.signal_date}>
+                          <td>{row.signal_date}</td><td>{metric(row.coverage, "pct")}</td><td>{metric(row.ic, "number")}</td>
+                          <td>{metric(row.quantile_spread, "pct")}</td><td>{metric(row.selection_turnover, "pct")}</td><td>{metric(row.timing_exposure, "pct")}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                </>
+              ) : null}
             </div>
           ) : tab === "robustness" ? (
             <div className="workbench-body">

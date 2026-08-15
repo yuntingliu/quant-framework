@@ -18,7 +18,7 @@ import {
 import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh'
 import { useIndicatorSelection } from '../../hooks/useIndicatorSelection'
 import { useLanguage } from '../../contexts/LanguageContext'
-import { useDataProfile, type DataProfile } from '../../lib/data-profile'
+import { useDataProfile } from '../../lib/data-profile'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { RiskDataWorkspace } from './RiskDataWorkspace'
 
@@ -258,7 +258,7 @@ export function DataWorkbenchWidget() {
   const [catalog, setCatalog] = useState<RuntimeCatalog | null>(null)
   const [jobs, setJobs] = useState<SyncJob[]>([])
   const [plan, setPlan] = useState<SyncPlan | null>(null)
-  const [profile, chooseProfile] = useDataProfile()
+  const [profile] = useDataProfile()
   const [busy, setBusy] = useState(false)
   const [qualityReports, setQualityReports] = useState<QualityReport[] | null>(null)
   const [tab, setTab] = useState<DataWorkbenchTab>('catalog')
@@ -504,13 +504,9 @@ export function DataWorkbenchWidget() {
           <p>{copy.description}</p>
         </div>
         <div className="data-source-summary">
-          <label>
-            <span>{copy.source}</span>
-            <select value={profile} onChange={(event) => chooseProfile(event.target.value as DataProfile)}>
-              <option value="demo">{copy.demoProfile}</option>
-              <option value="runtime">{copy.runtimeProfile}</option>
-            </select>
-          </label>
+          <span className="status-pill neutral">
+            {copy.source}: {profile === 'demo' ? copy.demoProfile : copy.runtimeProfile}
+          </span>
           <span className={`status-pill ${profileStatus?.status === 'ready' ? 'ready' : 'neutral'}`}>
             {profileStatus?.status ?? copy.loading}
           </span>

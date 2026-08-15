@@ -8,6 +8,7 @@ import alphalab
 ROOT = Path(__file__).resolve().parents[2]
 MODES = [
     "data",
+    "project",
     "universe",
     "selection",
     "timing",
@@ -17,7 +18,7 @@ MODES = [
     "backtest",
     "report",
 ]
-STAGES = MODES[1:7]
+STAGES = MODES[2:8]
 
 
 def test_public_facade_is_small_and_pipeline_native():
@@ -49,17 +50,19 @@ def test_public_facade_is_small_and_pipeline_native():
     assert not hasattr(alphalab, "TimingStrategyRepository")
 
 
-def test_frontend_exposes_nine_parallel_workbench_modes():
+def test_frontend_exposes_ten_parallel_workbench_modes():
     presets = (ROOT / "dashboard/frontend/src/layouts/presets.ts").read_text(encoding="utf-8")
     mode_config = (ROOT / "dashboard/frontend/src/workspace/modes.ts").read_text(encoding="utf-8")
     expected_union = " | ".join(f'\"{mode}\"' for mode in MODES)
     assert f"export type WorkspaceMode = {expected_union}" in presets
-    for mode in ("data", "backtest", "report"):
+    for mode in ("data", "project", "backtest", "report"):
         assert f'{mode}: createWorkbenchPreset("{mode}"' in presets
     for mode in STAGES:
         assert f'{mode}: createStagePreset("{mode}"' in presets
     for mode in MODES:
         assert f"{mode}: {{ icon:" in mode_config
+        assert f"{mode}: [\"{mode}.workbench\"" in mode_config
+    assert 'modes: ["universe", "selection", "timing", "portfolio", "risk", "execution"]' in mode_config
     assert 'export const DEFAULT_MODE: WorkspaceMode = "data"' in presets
 
 
@@ -83,22 +86,28 @@ def test_stage_workbench_supports_versions_code_and_real_preview():
     for text in (
         "addComponent",
         "saveComponent",
-        "cloneProject",
         "搜索组件",
         "组件名称",
-        "项目名称",
         "createInternalId",
         "应用到项目",
         "保存并应用",
     ):
         assert text in source
     assert "/preview" in run_hook
-    assert "/analysis" in run_hook
-    assert "Promise.all" in run_hook
-    assert "projectId, stage" in run_hook
-    assert "{ stage, profile:" in run_hook
+    assert "/analysis" not in run_hook
+    assert "Promise.all" not in run_hook
+    assert "projectId, selectedStrategyRevision, stage, profile, selectedDate" in run_hook
+    assert "isStale" in run_hook
+    assert "{ stage, profile," in run_hook
+    assert "生成选股池" in source
+    assert "运行至" not in source
     assert "pipeline-stage-tabs" not in source
-    assert "setActiveMode" not in source
+    assert 'setActiveMode("project")' in source
+    assert "cloneProject" not in source
+    assert "newProjectOpen" not in source
+    assert "projectSettingsOpen" not in source
+    assert "setNewProjectOpen" not in source
+    assert "项目设置" not in source
     assert "版本详情" not in source
     assert "保存新版本" not in source
     assert "@v" not in source
@@ -143,10 +152,10 @@ def test_stage_modes_use_distinct_multi_panel_dockview_layouts():
     expected = {
         "universe": ("universe.members", "universe.chart"),
         "selection": ("selection.ranking", "selection.chart"),
-        "timing": ("timing.chart", "timing.events"),
-        "portfolio": ("portfolio.weights", "portfolio.history"),
-        "risk": ("risk.limits", "risk.history"),
-        "execution": ("execution.settings", "execution.history"),
+        "timing": ("timing.reference", "timing.result"),
+        "portfolio": ("portfolio.weights", "portfolio.summary"),
+        "risk": ("risk.limits", "risk.exposure"),
+        "execution": ("execution.settings", "execution.targets"),
     }
     assert "position?:" in presets
     for widget_ids in expected.values():
@@ -168,6 +177,58 @@ def test_backtest_shows_and_runs_the_frozen_complete_module():
     assert "pipeline_manifest.composed_source" in source
     assert "同一份总 Python 源码" in source
     assert "strategy_yaml" not in source
+    assert "runResearch" not in source
+    assert "回测 + 稳健性验证" not in source
+    assert 'tab === "signals"' in source
+    assert "/signals" in source
+    assert "<Widget headerless>" in source
+    assert "title={copy.title}" not in source
+
+
+def test_sidebar_has_fixed_modes_without_search_or_tab_management():
+    sidebar = (ROOT / "dashboard/frontend/src/workspace/ModeSidebar.tsx").read_text(encoding="utf-8")
+    workspace = (ROOT / "dashboard/frontend/src/Workspace.tsx").read_text(encoding="utf-8")
+    for removed in ("dispatchCommandPalette", "sidebar.manageTabs", "sidebar.hideTab", "onToggleModeHidden"):
+        assert removed not in sidebar
+    for removed in ("HIDDEN_MODES_KEY", "loadHiddenModes", "toggleModeHidden"):
+        assert removed not in workspace
+    toolbar = (ROOT / "dashboard/frontend/src/workspace/Toolbar.tsx").read_text(encoding="utf-8")
+    assert "toggleTheme" in sidebar and "toggleLanguage" in sidebar
+    assert "toggleTheme" not in toolbar and "toggleLanguage" not in toolbar
+    assert "sidebar.statusHint" not in sidebar
+
+
+def test_alphalab_logo_replaces_the_placeholder_brand_mark():
+    sidebar = (ROOT / "dashboard/frontend/src/workspace/ModeSidebar.tsx").read_text(encoding="utf-8")
+    index = (ROOT / "dashboard/frontend/index.html").read_text(encoding="utf-8")
+    logo = ROOT / "dashboard/frontend/public/alphalab-logo.png"
+    assert logo.is_file() and logo.stat().st_size > 0
+    assert 'src="/alphalab-logo.png"' in sidebar
+    assert '>\n          AL\n' not in sidebar
+    assert 'type="image/png" href="/alphalab-logo.png"' in index
+    assert not (ROOT / "dashboard/frontend/public/vite.svg").exists()
+
+
+def test_project_workbench_owns_project_profile_and_cutoff_date():
+    toolbar = (ROOT / "dashboard/frontend/src/workspace/Toolbar.tsx").read_text(encoding="utf-8")
+    stage = (ROOT / "dashboard/frontend/src/widgets/pipeline/StageWorkbench.tsx").read_text(encoding="utf-8")
+    project = (ROOT / "dashboard/frontend/src/widgets/project/ProjectWorkbench.tsx").read_text(encoding="utf-8")
+    for label in ("项目与数据", "数据环境", "数据截至日", "六阶段组件"):
+        assert label in project
+    assert '"/pipeline/projects"' in project
+    assert 'aria-label="研究项目"' not in toolbar
+    assert 'aria-label="数据环境"' not in toolbar
+    assert 'aria-label="决策日期"' not in toolbar
+    assert 'setActiveMode("project")' in stage
+
+
+def test_report_workbench_is_a_persisted_library():
+    source = (ROOT / "dashboard/frontend/src/widgets/research/ReportWorkbench.tsx").read_text(encoding="utf-8")
+    context = (ROOT / "dashboard/frontend/src/contexts/AgentPromptContext.tsx").read_text(encoding="utf-8")
+    assert "报告库" in source
+    assert "researchResults.map" in source
+    assert 'api.post<AgentResearchResult>("/reports"' in context
+    assert '"/reports?limit=100"' in context
 
 
 def test_current_authoring_assets_do_not_bundle_yaml_strategies():

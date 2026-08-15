@@ -34,6 +34,9 @@ class PipelineRepository:
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.RLock()
         self._conn.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
+        from alphalab.pipeline.contract_migration import migrate_pipeline_contracts
+
+        migrate_pipeline_contracts(self._conn)
         self._seed_builtins()
 
     def close(self) -> None:

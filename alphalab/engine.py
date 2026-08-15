@@ -13,12 +13,6 @@ from alphalab.factors.cross_sectional import (
 )
 from alphalab.strategy.config import ExecutionSpec, FactorSpec, StrategyConfig
 from alphalab.strategy.python_runtime import execute_python_strategy, python_source_sha256
-from alphalab.strategy.stages import (
-    configured_stock_execution,
-    configured_stock_portfolio,
-    configured_stock_risk,
-    configured_stock_signal,
-)
 
 ConfigOrPath = StrategyConfig
 
@@ -67,12 +61,12 @@ class SignalEngine:
         self,
         config: StrategyConfig,
         as_of_date: str,
+        *,
+        strategy_source: str,
         lookback_days: int = 120,
         auto_latest: bool = True,
-        python_source: str | None = None,
         current_weights: dict[str, float] | None = None,
-        complete_python_source: str | None = None,
-        complete_pipeline_stage: str = "execution",
+        pipeline_stage: str = "execution",
         stage_parameters: dict[str, dict] | None = None,
         bars_override: pd.DataFrame | None = None,
     ) -> dict[str, float]:
@@ -116,11 +110,7 @@ class SignalEngine:
             "exclusions": {},
             "rows": [],
         }
-        if not symbols or (
-            not config.factors
-            and config.pipeline.signal.kind == "configured"
-            and config.pipeline.portfolio.kind != "python"
-        ):
+        if not symbols:
             return {}
 
         start = (as_of - pd.Timedelta(days=max(lookback_days * 2, lookback_days + 30))).strftime("%Y-%m-%d")
@@ -173,91 +163,16 @@ class SignalEngine:
             current_weights or {},
             lookback_days,
         )
-        if complete_python_source is not None:
-            return self._run_complete_pipeline(
-                config,
-                context,
-                complete_python_source,
-                complete_pipeline_stage,
-                stage_parameters or {},
-                eligible_symbols,
-                factor_scores,
-                as_of,
-            )
-        python_runtime: dict[str, dict] = {}
-
-        if config.pipeline.signal.kind == "python":
-            value, runtime = self._run_python_stage(
-                config.pipeline.signal,
-                python_source,
-                context,
-            )
-            python_runtime["signal"] = runtime
-            signal_scores = self._coerce_scores(value, set(eligible_symbols))
-            coverage = pd.Series(1.0, index=list(signal_scores), dtype=float)
-        else:
-            coverage = (
-                factor_scores.notna().mean(axis=1)
-                if not factor_scores.empty
-                else pd.Series(1.0, index=eligible_symbols, dtype=float)
-            )
-            signal_scores = self._coerce_scores(
-                configured_stock_signal(context),
-                set(eligible_symbols),
-            )
-        ordered_scores = dict(
-            sorted(signal_scores.items(), key=lambda item: item[1], reverse=True)
-        )
-        stage_context = {**context, "signal_scores": ordered_scores}
-
-        if config.pipeline.portfolio.kind == "python":
-            value, runtime = self._run_python_stage(
-                config.pipeline.portfolio,
-                python_source,
-                stage_context,
-            )
-            python_runtime["portfolio"] = runtime
-            proposed = self._coerce_weights(
-                value,
-                set(eligible_symbols),
-                label="portfolio",
-            )
-        else:
-            proposed = self._coerce_weights(
-                configured_stock_portfolio(stage_context),
-                set(eligible_symbols),
-                label="portfolio",
-            )
-
-        risk_context = {**stage_context, "proposed_weights": dict(proposed)}
-        if config.pipeline.risk.kind == "python":
-            value, runtime = self._run_python_stage(
-                config.pipeline.risk,
-                python_source,
-                risk_context,
-            )
-            python_runtime["risk"] = runtime
-            weights = self._coerce_weights(
-                value,
-                set(eligible_symbols),
-                label="risk",
-            )
-        else:
-            weights = self._coerce_weights(
-                configured_stock_risk(risk_context),
-                set(eligible_symbols),
-                label="risk",
-            )
-        weights = self._validate_target_weights(config, weights, set(eligible_symbols))
-        self._finish_selection_snapshot(
+        return self._run_complete_pipeline(
             config,
-            ordered_scores,
+            context,
+            strategy_source,
+            pipeline_stage,
+            stage_parameters or {},
+            eligible_symbols,
             factor_scores,
-            coverage,
-            weights,
-            python_runtime,
+            as_of,
         )
-        return weights
 
     def _run_complete_pipeline(
         self,
@@ -276,12 +191,13 @@ class SignalEngine:
         if target_stage not in stage_order:
             raise ValueError(f"complete_pipeline_stage must be one of {stage_order}")
 
+        market_returns = self._market_returns_context(as_of)
         complete_context = {
             **context,
             "strategy_type": "six_stage",
             "target_stage": target_stage,
             "stage_parameters": stage_parameters,
-            "market_returns": self._market_returns_context(as_of),
+            "market_returns": market_returns,
         }
         entrypoint = "run_strategy" if target_stage == "execution" else "run_stage"
         execution = execute_python_strategy(source, entrypoint, [complete_context], 15.0)
@@ -316,6 +232,7 @@ class SignalEngine:
                     "pipeline_kind": "stage_prefix",
                     "pipeline_target_stage": target_stage,
                     "complete_pipeline": value,
+                    "timing_reference": market_returns,
                     "python": {"stage": runtime},
                 }
             )
@@ -397,7 +314,7 @@ class SignalEngine:
         if not isinstance(execution_stage, dict) or not isinstance(
             execution_stage.get("execution"), dict
         ):
-            raise ValueError("create_orders must return {'execution': {...}}")
+            raise ValueError("configure_execution must return {'execution': {...}}")
         return finish(weights, ordered_scores, coverage)
 
     def _market_returns_context(self, as_of: pd.Timestamp) -> list[dict]:
@@ -456,7 +373,6 @@ class SignalEngine:
                 }
             )
         return {
-            "strategy_type": "stock_selection",
             "strategy_id": config.name,
             "as_of_date": as_of.strftime("%Y-%m-%d"),
             "candidates": candidates,
@@ -470,24 +386,6 @@ class SignalEngine:
                 "min_factor_coverage": config.selection.min_factor_coverage,
             },
             "metadata": config.metadata,
-        }
-
-    @staticmethod
-    def _run_python_stage(stage, python_source: str | None, context: dict) -> tuple[object, dict]:
-        if python_source is None:
-            raise ValueError("python_source is required when a pipeline stage uses Python")
-        execution = execute_python_strategy(
-            python_source,
-            stage.entrypoint,
-            [context],
-            stage.timeout_seconds,
-        )
-        return execution.values[0], {
-            "entrypoint": stage.entrypoint,
-            "source_sha256": execution.source_sha256,
-            "duration_seconds": execution.duration_seconds,
-            "stdout": execution.stdout,
-            "stderr": execution.stderr,
         }
 
     @staticmethod
@@ -596,8 +494,7 @@ class SignalEngine:
         total = float(sum(weights.values()))
         self._diagnostics.update(
             {
-                "implementation": config.pipeline.implementation_summary,
-                "python_stages": list(config.pipeline.python_stages),
+                "implementation": "six_stage_python",
                 "score_count": len(ordered_scores),
                 "selected_count": len(weights),
                 "selected_symbols": list(weights),
@@ -714,11 +611,10 @@ def run_backtest(
     config: ConfigOrPath,
     start_date: str,
     end_date: str,
+    *,
+    strategy_source: str,
     data_engine: DataEngine | None = None,
     lookback_days: int = 120,
-    python_source: str | None = None,
-    complete_python_source: str | None = None,
-    complete_pipeline_stage: str = "execution",
     stage_parameters: dict[str, dict] | None = None,
 ) -> tuple[pd.Series, pd.DataFrame]:
     """Run the configured backtest and return its net returns and holdings."""
@@ -729,9 +625,7 @@ def run_backtest(
         end_date,
         data_engine=data_engine,
         lookback_days=lookback_days,
-        python_source=python_source,
-        complete_python_source=complete_python_source,
-        complete_pipeline_stage=complete_pipeline_stage,
+        strategy_source=strategy_source,
         stage_parameters=stage_parameters,
     )
     return result.returns, result.weights
@@ -741,11 +635,10 @@ def run_backtest_detailed(
     config: ConfigOrPath,
     start_date: str,
     end_date: str,
+    *,
+    strategy_source: str,
     data_engine: DataEngine | None = None,
     lookback_days: int = 120,
-    python_source: str | None = None,
-    complete_python_source: str | None = None,
-    complete_pipeline_stage: str = "execution",
     stage_parameters: dict[str, dict] | None = None,
 ) -> BacktestResult:
     """Run a PIT rebalance simulation with next-session execution constraints.
@@ -793,22 +686,13 @@ def run_backtest_detailed(
         target = engine.generate_targets(
             cfg,
             signal_date.strftime("%Y-%m-%d"),
+            strategy_source=strategy_source,
             lookback_days=lookback_days,
             auto_latest=False,
-            python_source=python_source,
             current_weights=previous,
-            complete_python_source=complete_python_source,
-            complete_pipeline_stage=complete_pipeline_stage,
             stage_parameters=stage_parameters,
             bars_override=bars,
         )
-        custom_decision = complete_python_source is not None or any(
-            getattr(cfg.pipeline, name).kind == "python"
-            for name in ("signal", "portfolio", "risk")
-        )
-        if not target and not custom_decision:
-            target = dict(previous)
-            warnings.add("empty signal retained the prior portfolio")
         signal_diagnostics = engine.diagnostics
         if not signal_diagnostics.get("instrument_filter_applied"):
             warnings.add(
@@ -818,45 +702,9 @@ def run_backtest_detailed(
             warnings.add(
                 "instrument metadata snapshot post-dates at least one signal date"
             )
-        if complete_python_source is not None and complete_pipeline_stage != "execution":
-            reached = signal_diagnostics.get("complete_pipeline") or {}
-            executions.append(
-                {
-                    "signal_date": signal_date.strftime("%Y-%m-%d"),
-                    "entry_date": entry_date.strftime("%Y-%m-%d"),
-                    "exit_date": exit_date.strftime("%Y-%m-%d"),
-                    "stage_outputs": {
-                        stage: dict(reached.get(stage) or {})
-                        for stage in (
-                            "universe",
-                            "selection",
-                            "timing",
-                            "portfolio",
-                            "risk",
-                            "execution",
-                        )
-                        if stage in reached
-                    },
-                    "turnover": 0.0,
-                    "total_cost": 0.0,
-                    "cash_weight": 1.0,
-                    "restrictions": [],
-                }
-            )
-            continue
-        if complete_python_source is not None:
-            period_cfg, execution_runtime = _complete_execution_config_for_period(
-                cfg, signal_diagnostics.get("complete_pipeline")
-            )
-        else:
-            period_cfg, execution_runtime = _execution_config_for_period(
-                cfg,
-                python_source,
-                target,
-                previous,
-                signal_date,
-                entry_date,
-            )
+        period_cfg, execution_runtime = _complete_execution_config_for_period(
+            cfg, signal_diagnostics.get("complete_pipeline")
+        )
         executed, execution = _apply_execution_constraints(
             target,
             previous,
@@ -899,23 +747,28 @@ def run_backtest_detailed(
                 "execution_price": period_cfg.execution.execution_price,
                 "execution_settings": asdict(period_cfg.execution),
                 "pipeline_execution": execution_runtime,
-                "stage_outputs": (
+                "stage_outputs": {
+                    stage: dict(
+                        (signal_diagnostics.get("complete_pipeline") or {}).get(stage)
+                        or {}
+                    )
+                    for stage in (
+                        "universe", "selection", "timing", "portfolio", "risk", "execution"
+                    )
+                },
+                "selection_forward_returns": _asset_period_returns(
+                    bars,
                     {
-                        stage: dict(
-                            (signal_diagnostics.get("complete_pipeline") or {}).get(stage)
-                            or {}
+                        str(symbol): 1.0
+                        for symbol in dict(
+                            ((signal_diagnostics.get("complete_pipeline") or {})
+                             .get("selection") or {}).get("scores") or {}
                         )
-                        for stage in (
-                            "universe",
-                            "selection",
-                            "timing",
-                            "portfolio",
-                            "risk",
-                            "execution",
-                        )
-                    }
-                    if complete_python_source is not None
-                    else {}
+                    },
+                    entry_date,
+                    exit_date,
+                    period_cfg.execution.execution_price,
+                    omit_missing=True,
                 ),
                 "gross_return": float(
                     sum(executed.get(symbol, 0.0) * value for symbol, value in asset_returns.items())
@@ -947,16 +800,9 @@ def run_backtest_detailed(
         diagnostics={
             "frequency": cfg.portfolio.rebalance_freq,
             "execution": asdict(cfg.execution),
-            "pipeline": cfg.pipeline.to_dict(),
-            "pipeline_kind": "six_stage" if complete_python_source is not None else "internal",
-            "pipeline_target_stage": (
-                complete_pipeline_stage if complete_python_source is not None else None
-            ),
-            "complete_python_source_sha256": (
-                python_source_sha256(complete_python_source)
-                if complete_python_source is not None
-                else None
-            ),
+            "pipeline_kind": "six_stage",
+            "pipeline_target_stage": "execution",
+            "strategy_source_sha256": python_source_sha256(strategy_source),
             "periods": len(returns_series),
             "warnings": sorted(warnings),
         },
@@ -971,7 +817,7 @@ def _complete_execution_config_for_period(
         raise ValueError("complete strategy result is missing")
     stage = pipeline_result.get("execution")
     if not isinstance(stage, dict) or not isinstance(stage.get("execution"), dict):
-        raise ValueError("create_orders must return {'execution': {...}}")
+        raise ValueError("configure_execution must return {'execution': {...}}")
     overrides = dict(stage["execution"])
     overrides.pop("rebalance_freq", None)
     allowed = set(ExecutionSpec.__dataclass_fields__)
@@ -982,41 +828,6 @@ def _complete_execution_config_for_period(
         "entrypoint": "run_strategy",
         "complete": True,
     }
-
-
-def _execution_config_for_period(
-    config: StrategyConfig,
-    python_source: str | None,
-    target: dict[str, float],
-    current: dict[str, float],
-    signal_date: pd.Timestamp,
-    entry_date: pd.Timestamp,
-) -> tuple[StrategyConfig, dict | None]:
-    stage = config.pipeline.execution
-    context = {
-        "strategy_type": "stock_selection",
-        "strategy_id": config.name,
-        "signal_date": signal_date.strftime("%Y-%m-%d"),
-        "entry_date": entry_date.strftime("%Y-%m-%d"),
-        "target_weights": dict(target),
-        "current_weights": dict(current),
-        "configured_execution": asdict(config.execution),
-        "metadata": config.metadata,
-    }
-    if stage.kind == "configured":
-        value = configured_stock_execution(context)
-        runtime = None
-    else:
-        value, runtime = SignalEngine._run_python_stage(stage, python_source, context)
-    if not isinstance(value, dict) or not isinstance(value.get("execution"), dict):
-        raise ValueError("Python execution stage must return {'execution': {...}}")
-    overrides = dict(value["execution"])
-    allowed = set(ExecutionSpec.__dataclass_fields__)
-    unknown = sorted(set(overrides) - allowed)
-    if unknown:
-        raise ValueError(f"Python execution stage returned unsupported fields: {unknown}")
-    execution = ExecutionSpec(**{**asdict(config.execution), **overrides})
-    return replace(config, execution=execution), runtime
 
 
 def _rebalance_schedule(
@@ -1200,6 +1011,8 @@ def _asset_period_returns(
     entry_date: pd.Timestamp,
     exit_date: pd.Timestamp,
     execution_price: str,
+    *,
+    omit_missing: bool = False,
 ) -> dict[str, float]:
     if not weights:
         return {}
@@ -1211,7 +1024,8 @@ def _asset_period_returns(
         entry_rows = ordered.loc[ordered["date"].le(entry_date)]
         exit_rows = ordered.loc[ordered["date"].le(exit_date)]
         if entry_rows.empty or exit_rows.empty:
-            result[str(symbol)] = 0.0
+            if not omit_missing:
+                result[str(symbol)] = 0.0
             continue
         entry_row = entry_rows.iloc[-1]
         exit_row = exit_rows.iloc[-1]
@@ -1219,11 +1033,10 @@ def _asset_period_returns(
         exit_value = exit_row.get(field) if pd.Timestamp(exit_row["date"]) == exit_date else exit_row.get("close")
         entry_price = pd.to_numeric(pd.Series([entry_value]), errors="coerce").iloc[0]
         exit_price = pd.to_numeric(pd.Series([exit_value]), errors="coerce").iloc[0]
-        result[str(symbol)] = (
-            float(exit_price / entry_price - 1.0)
-            if pd.notna(entry_price) and pd.notna(exit_price) and float(entry_price) > 0
-            else 0.0
-        )
+        if pd.notna(entry_price) and pd.notna(exit_price) and float(entry_price) > 0:
+            result[str(symbol)] = float(exit_price / entry_price - 1.0)
+        elif not omit_missing:
+            result[str(symbol)] = 0.0
     return result
 
 

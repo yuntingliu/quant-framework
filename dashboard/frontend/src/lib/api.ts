@@ -61,36 +61,15 @@ export interface PipelinePreview {
   project_id: string
   revision: number
   source_sha256: string
+  profile: "demo" | "runtime"
   signal_date: string
   requested_stage: PythonPipelineStage
   executed_stages: PythonPipelineStage[]
   targets: Record<string, number>
   diagnostics: Record<string, unknown>
+  timing_reference: Array<{ date: string; value: number }>
   selection: Record<string, unknown>
   stage_outputs: Partial<Record<PythonPipelineStage, unknown>>
-}
-
-export interface PipelineAnalysisPoint {
-  signal_date: string
-  entry_date: string
-  exit_date: string
-  stage_outputs: Partial<Record<PythonPipelineStage, unknown>>
-  turnover: number
-  total_cost: number
-  cash_weight: number
-  restrictions: string[]
-}
-
-export interface PipelineAnalysis {
-  project_id: string
-  revision: number
-  source_sha256: string
-  profile: "demo" | "runtime"
-  requested_stage: PythonPipelineStage
-  executed_stages: PythonPipelineStage[]
-  start_date: string
-  end_date: string
-  points: PipelineAnalysisPoint[]
 }
 
 export interface StrategyPipelineManifest {
@@ -170,6 +149,8 @@ export interface BacktestExecution {
   cash_weight: number
   constrained_symbols: string[]
   missing_amount_symbols: string[]
+  stage_outputs?: Partial<Record<PythonPipelineStage, Record<string, unknown>>>
+  selection_forward_returns?: Record<string, number>
 }
 
 export interface BacktestHoldingSnapshot {
@@ -205,11 +186,11 @@ export interface BacktestAnalysis {
   executions: BacktestExecution[]
   has_execution_audit: boolean
   strategy_snapshot: {
-    strategy_type: "python_pipeline"
-    implementation: "python"
-    python_stages: PythonPipelineStage[]
-    pipeline: Record<string, unknown>
-    pipeline_manifest: StrategyPipelineManifest
+    strategy_type: "python_pipeline" | "legacy_snapshot"
+    implementation?: "python"
+    python_stages?: PythonPipelineStage[]
+    pipeline?: Record<string, unknown>
+    pipeline_manifest?: StrategyPipelineManifest
     name: string
     description: string
     factors: string[]
@@ -222,6 +203,31 @@ export interface BacktestAnalysis {
     max_exposure?: number
   } | null
   provenance: ResearchProvenance
+}
+
+export interface BacktestSignalDiagnostics {
+  id: string
+  periods: number
+  evidence_periods: number
+  summary: {
+    mean_ic: number | null
+    positive_ic_ratio: number | null
+    average_coverage: number | null
+    average_selection_turnover: number | null
+    average_timing_exposure: number | null
+  }
+  rows: Array<{
+    signal_date: string
+    universe_count: number
+    scored_count: number
+    selected_count: number
+    coverage: number | null
+    ic: number | null
+    quantile_spread: number | null
+    selection_turnover: number | null
+    timing_exposure: number | null
+  }>
+  warning: string | null
 }
 
 export interface BacktestComparison {

@@ -34,7 +34,6 @@ def project_strategy_config(project: dict[str, Any]) -> StrategyConfig:
     universe.setdefault("symbols", [])
     return StrategyConfig.from_dict(
         {
-            "strategy_type": "stock_selection",
             "name": project["id"],
             "description": project.get("description", ""),
             "universe": universe,
@@ -86,9 +85,9 @@ def preview_pipeline_project(
     targets = engine.generate_targets(
         config,
         as_of_date,
+        strategy_source=project["composed_source"],
         lookback_days=int(project["settings"].get("lookback_days", 120)),
-        complete_python_source=project["composed_source"],
-        complete_pipeline_stage=stage,
+        pipeline_stage=stage,
         stage_parameters=stage_parameters,
     )
     reached = engine.diagnostics.get("complete_pipeline", {})
@@ -102,51 +101,13 @@ def preview_pipeline_project(
         "executed_stages": list(STAGE_NAMES[: stage_index + 1]),
         "targets": targets if stage in {"risk", "execution"} else {},
         "diagnostics": engine.diagnostics,
+        "timing_reference": list(engine.diagnostics.get("timing_reference") or []),
         "selection": engine.selection_snapshot,
         "stage_outputs": {
             reached_stage: dict(reached.get(reached_stage) or {})
             for reached_stage in STAGE_NAMES[: stage_index + 1]
         },
     }
-
-
-def analyze_pipeline_project_stage(
-    repository: PipelineRepository,
-    project_id: str,
-    stage: str,
-    start_date: str,
-    end_date: str,
-    data_engine: DataEngine,
-) -> PipelineBacktestResult:
-    """Run only a stage and its upstream dependencies over rebalance history."""
-
-    if stage not in STAGE_NAMES:
-        raise ValueError(f"stage must be one of {STAGE_NAMES}")
-    project = repository.get_project(project_id)
-    if project is None:
-        raise KeyError(project_id)
-    config = project_strategy_config(project)
-    composed = repository.compose(project_id)
-    stage_parameters = {
-        item["stage"]: dict(item["parameters"])
-        for item in project["component_manifest"]
-    }
-    result = run_backtest_detailed(
-        config,
-        start_date,
-        end_date,
-        data_engine=data_engine,
-        lookback_days=int(project["settings"].get("lookback_days", 120)),
-        complete_python_source=composed.source,
-        complete_pipeline_stage=stage,
-        stage_parameters=stage_parameters,
-    )
-    return PipelineBacktestResult(
-        project=project,
-        config=config,
-        composed=composed,
-        result=result,
-    )
 
 
 def run_pipeline_project_backtest(
@@ -169,9 +130,9 @@ def run_pipeline_project_backtest(
         config,
         start_date,
         end_date,
+        strategy_source=composed.source,
         data_engine=data_engine,
         lookback_days=int(project["settings"].get("lookback_days", 120)),
-        complete_python_source=composed.source,
         stage_parameters=stage_parameters,
     )
     return PipelineBacktestResult(
@@ -184,7 +145,6 @@ def run_pipeline_project_backtest(
 
 __all__ = [
     "PipelineBacktestResult",
-    "analyze_pipeline_project_stage",
     "preview_pipeline_project",
     "project_strategy_config",
     "run_pipeline_project_backtest",

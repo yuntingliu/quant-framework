@@ -116,7 +116,6 @@ function layoutKey(mode: WorkspaceMode) {
 }
 
 const VERSION_KEY = "alphalab-layout-version"
-const HIDDEN_MODES_KEY = "alphalab-hidden-modes"
 const SIDEBAR_COLLAPSED_KEY = "alphalab-sidebar-collapsed"
 const RIGHT_RAIL_COLLAPSED_KEY = "alphalab-right-sidebar-collapsed"
 const RIGHT_RAIL_WIDTH_KEY = "alphalab-right-sidebar-width"
@@ -125,21 +124,6 @@ const MIN_RIGHT_RAIL_WIDTH = 320
 const MAX_RIGHT_RAIL_WIDTH = 720
 interface OpenTaskEventDetail {
   task: WorkspaceTask
-}
-
-function loadHiddenModes(): Set<WorkspaceMode> {
-  try {
-    const raw = localStorage.getItem(HIDDEN_MODES_KEY)
-    if (!raw) return new Set()
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return new Set()
-    const valid = parsed.filter((m): m is WorkspaceMode => WORKSPACE_MODES.includes(m as WorkspaceMode))
-    // Never start with every tab hidden — keep at least one visible.
-    if (valid.length >= WORKSPACE_MODES.length) return new Set()
-    return new Set(valid)
-  } catch {
-    return new Set()
-  }
 }
 
 function loadSidebarCollapsed(): boolean {
@@ -280,7 +264,6 @@ function WorkspaceInner() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed)
   const [rightRailCollapsed, setRightRailCollapsed] = useState(loadRightRailCollapsed)
   const [rightRailWidth, setRightRailWidth] = useState(loadRightRailWidth)
-  const [hiddenModes, setHiddenModes] = useState<Set<WorkspaceMode>>(loadHiddenModes)
   const compactViewport = useViewportBelow(1024)
   const narrowViewport = useViewportBelow(768)
   useEffect(() => { activeModeRef.current = activeMode }, [activeMode])
@@ -296,13 +279,6 @@ function WorkspaceInner() {
   const switchMode = useCallback((rawMode: unknown) => {
     const mode = normalizeWorkspaceMode(rawMode)
     if (!(mode in MODE_CONFIG)) return
-    // Navigating to a hidden tab (command palette, menu, programmatic) restores it.
-    setHiddenModes((prev) => {
-      if (!prev.has(mode)) return prev
-      const next = new Set(prev)
-      next.delete(mode)
-      return next
-    })
     if (mode === activeModeRef.current) return
     const previousMode = activeModeRef.current
     const previousApi = apiRefsRef.current[previousMode]
@@ -416,37 +392,6 @@ function WorkspaceInner() {
     setRightRailWidth(next)
     try { localStorage.setItem(RIGHT_RAIL_WIDTH_KEY, String(next)) } catch { /* ignore */ }
   }, [])
-
-  const toggleModeHidden = useCallback((mode: WorkspaceMode) => {
-    if (!hiddenModes.has(mode)) {
-      // Hiding: keep at least one tab visible, and if we're hiding the tab the
-      // user is currently on, redirect in the same commit so its panel never
-      // renders without a matching nav button (avoids a 1-frame flash).
-      const visibleAfter = WORKSPACE_MODES.filter((m) => m !== mode && !hiddenModes.has(m))
-      if (visibleAfter.length === 0) return
-      if (mode === activeMode) switchMode(visibleAfter[0])
-    }
-    setHiddenModes((prev) => {
-      const next = new Set(prev)
-      if (next.has(mode)) next.delete(mode)
-      else next.add(mode)
-      return next
-    })
-  }, [hiddenModes, activeMode, switchMode])
-
-  // Single source of truth for tab-visibility persistence.
-  useEffect(() => {
-    try { localStorage.setItem(HIDDEN_MODES_KEY, JSON.stringify([...hiddenModes])) } catch { /* ignore */ }
-  }, [hiddenModes])
-
-  // Safety net: if the active tab ends up hidden by a path other than the
-  // synchronous redirect above (e.g. forced startup mode, corrupted storage),
-  // fall back to the first still-visible tab.
-  useEffect(() => {
-    if (!hiddenModes.has(activeMode)) return
-    const firstVisible = WORKSPACE_MODES.find((mode) => !hiddenModes.has(mode))
-    if (firstVisible) switchMode(firstVisible)
-  }, [hiddenModes, activeMode, switchMode])
 
   const openTask = useCallback((task: WorkspaceTask) => {
     if (task === "resetWorkstations") {
@@ -749,22 +694,20 @@ function WorkspaceInner() {
     return () => window.removeEventListener(WORKSPACE_COMMAND_EVENT, handler)
   }, [executeWorkspaceCommand])
 
-  // Keyboard shortcuts: Ctrl+1/2/3/4 for mode switching (visible tabs only, so
-  // the numbers line up with what the sidebar shows).
+  // Keyboard shortcuts follow the fixed sidebar order.
   useEffect(() => {
-    const modes = WORKSPACE_MODES.filter((mode) => !hiddenModes.has(mode))
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && !e.shiftKey && !e.altKey) {
         const num = parseInt(e.key)
-        if (num >= 1 && num <= modes.length) {
+        if (num >= 1 && num <= WORKSPACE_MODES.length) {
           e.preventDefault()
-          switchMode(modes[num - 1])
+          switchMode(WORKSPACE_MODES[num - 1])
         }
       }
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [switchMode, hiddenModes])
+  }, [switchMode])
 
   // App-level alert toasts remain available for background system notices.
   useAlertNotifications()
@@ -779,8 +722,6 @@ function WorkspaceInner() {
           lockedCollapsed={compactViewport}
           onToggleCollapsed={toggleSidebarCollapsed}
           onSwitchMode={switchMode}
-          hiddenModes={hiddenModes}
-          onToggleModeHidden={toggleModeHidden}
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <WorkspaceToolbar

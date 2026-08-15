@@ -13,7 +13,7 @@ from alphalab.analytics.inference import (
 )
 from alphalab.analytics.metrics import PerformanceMetrics
 from alphalab.dataio import DataEngine
-from alphalab.strategy import StrategyConfig, TimingStrategyConfig
+from alphalab.strategy import StrategyConfig
 
 
 @dataclass(frozen=True)
@@ -105,7 +105,7 @@ def robustness_report(
     returns: pd.Series,
     benchmark: pd.Series,
     weights: pd.DataFrame,
-    config: StrategyConfig | TimingStrategyConfig,
+    config: StrategyConfig,
     *,
     thresholds: RobustnessThresholds | None = None,
 ) -> dict:
@@ -291,18 +291,14 @@ def _traded_weight(weights: pd.DataFrame) -> pd.Series:
 
 def _weight_checks(
     weights: pd.DataFrame,
-    config: StrategyConfig | TimingStrategyConfig,
+    config: StrategyConfig,
 ) -> list[dict]:
     if weights.empty:
         return [_check("weights_present", False, "no saved weights")]
     values = weights.fillna(0.0).astype(float)
     gross = values.abs().sum(axis=1)
     maximum = values.max(axis=1)
-    maximum_limit = (
-        config.position.max_exposure
-        if isinstance(config, TimingStrategyConfig)
-        else config.portfolio.max_weight
-    )
+    maximum_limit = config.portfolio.max_weight
     return [
         _check("weights_present", True, f"{len(values)} snapshots"),
         _check(
@@ -318,9 +314,7 @@ def _weight_checks(
     ]
 
 
-def _periods_per_year(config: StrategyConfig | TimingStrategyConfig) -> int:
-    if isinstance(config, TimingStrategyConfig):
-        return 12
+def _periods_per_year(config: StrategyConfig) -> int:
     return 52 if config.portfolio.rebalance_freq == "weekly" else 12
 
 

@@ -1,26 +1,44 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { api, type PipelineAnalysis, type PipelinePreview, type PythonPipelineStage } from "@/lib/api"
+import { useWorkspace } from "@/contexts/WorkspaceContext"
+import { api, type PipelinePreview, type PythonPipelineStage } from "@/lib/api"
+import { useDataProfile } from "@/lib/data-profile"
 
-const previewKey = (projectId: string | null, stage: PythonPipelineStage) => ["pipeline", "preview", projectId, stage] as const
-const analysisKey = (projectId: string | null, stage: PythonPipelineStage) => ["pipeline", "analysis", projectId, stage] as const
+const previewKey = (
+  projectId: string | null,
+  revision: number | null,
+  stage: PythonPipelineStage,
+  profile: "demo" | "runtime",
+  asOfDate: string | null,
+) => ["pipeline", "preview", projectId, revision, stage, profile, asOfDate] as const
 
 export function usePipelineStageRun(projectId: string | null, stage: PythonPipelineStage) {
   const queryClient = useQueryClient()
+  const [profile] = useDataProfile()
+  const {
+    selectedDate,
+    selectedStrategyRevision,
+    stageRunContexts,
+    setStageRunContext,
+  } = useWorkspace()
+  const currentContext = {
+    projectId: projectId ?? "",
+    revision: selectedStrategyRevision ?? 0,
+    profile,
+    asOfDate: selectedDate,
+  }
+  const priorContext = stageRunContexts[stage]
+  const isStale = Boolean(priorContext && (
+    priorContext.projectId !== currentContext.projectId
+    || priorContext.revision !== currentContext.revision
+    || priorContext.profile !== currentContext.profile
+    || priorContext.asOfDate !== currentContext.asOfDate
+  ))
   const preview = useQuery({
-    queryKey: previewKey(projectId, stage),
+    queryKey: previewKey(projectId, selectedStrategyRevision, stage, profile, selectedDate),
     queryFn: () => api.post<PipelinePreview>(
       `/pipeline/projects/${projectId}/preview`,
-      { stage, profile: "demo" },
-    ),
-    enabled: false,
-    staleTime: Infinity,
-  })
-  const analysis = useQuery({
-    queryKey: analysisKey(projectId, stage),
-    queryFn: () => api.post<PipelineAnalysis>(
-      `/pipeline/projects/${projectId}/analysis`,
-      { stage, profile: "demo", months: 12 },
+      { stage, profile, ...(selectedDate ? { as_of_date: selectedDate } : {}) },
     ),
     enabled: false,
     staleTime: Infinity,
@@ -28,27 +46,28 @@ export function usePipelineStageRun(projectId: string | null, stage: PythonPipel
 
   async function run() {
     if (!projectId) throw new Error("请先选择策略项目")
-    const [previewResult, analysisResult] = await Promise.all([
-      preview.refetch({ throwOnError: true }),
-      analysis.refetch({ throwOnError: true }),
-    ])
-    return { preview: previewResult.data, analysis: analysisResult.data }
+    const result = await preview.refetch({ throwOnError: true })
+    if (result.data) {
+      setStageRunContext(stage, {
+        ...currentContext,
+        revision: result.data.revision,
+      })
+    }
+    return result.data
   }
 
   async function clear() {
-    await Promise.all([
-      queryClient.cancelQueries({ queryKey: ["pipeline", "preview", projectId] }),
-      queryClient.cancelQueries({ queryKey: ["pipeline", "analysis", projectId] }),
-    ])
+    await queryClient.cancelQueries({ queryKey: ["pipeline", "preview", projectId] })
     queryClient.removeQueries({ queryKey: ["pipeline", "preview", projectId] })
-    queryClient.removeQueries({ queryKey: ["pipeline", "analysis", projectId] })
   }
 
   return {
     preview: preview.data ?? null,
-    analysis: analysis.data ?? null,
-    isRunning: preview.isFetching || analysis.isFetching,
-    error: preview.error ?? analysis.error,
+    profile,
+    asOfDate: selectedDate,
+    isRunning: preview.isFetching,
+    error: preview.error,
+    isStale,
     run,
     clear,
   }

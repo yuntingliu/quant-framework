@@ -5,8 +5,6 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from alphalab.strategy.pipeline import StrategyPipelineSpec
-
 FACTOR_SOURCES = ("technical", "fundamental", "expression")
 
 
@@ -157,20 +155,12 @@ class StrategyConfig:
     selection: SelectionSpec = field(default_factory=SelectionSpec)
     portfolio: PortfolioSpec = field(default_factory=PortfolioSpec)
     execution: ExecutionSpec = field(default_factory=ExecutionSpec)
-    pipeline: StrategyPipelineSpec = field(default_factory=StrategyPipelineSpec)
     metadata: dict[str, Any] = field(default_factory=dict)
-    _source_path: str | None = field(default=None, repr=False, compare=False)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "StrategyConfig":
         """Build a strategy from the structured public representation."""
-        return cls._from_dict(dict(raw))
-
-    @classmethod
-    def _from_dict(cls, raw: dict[str, Any], source_path: str | None = None) -> "StrategyConfig":
-        strategy_type = str(raw.get("strategy_type", "stock_selection"))
-        if strategy_type != "stock_selection":
-            raise ValueError("strategy_type must be stock_selection")
+        raw = dict(raw)
         universe_raw = dict(raw.get("universe", {}))
         if universe_raw.get("symbols") is None:
             universe_raw["symbols"] = []
@@ -182,18 +172,12 @@ class StrategyConfig:
             selection=SelectionSpec(**raw.get("selection", {})),
             portfolio=PortfolioSpec(**raw.get("portfolio", {})),
             execution=ExecutionSpec(**raw.get("execution", {})),
-            pipeline=StrategyPipelineSpec.from_dict(
-                raw.get("pipeline"),
-                legacy_implementation=raw.get("implementation"),
-            ),
             metadata=dict(raw.get("metadata", {})),
-            _source_path=source_path,
         )
 
     def to_dict(self) -> dict[str, Any]:
         """Return the internal JSON-compatible settings representation."""
         payload = {
-            "strategy_type": "stock_selection",
             "name": self.name,
             "description": self.description,
             "universe": {**asdict(self.universe), "symbols": list(self.universe.symbols)},
@@ -201,7 +185,6 @@ class StrategyConfig:
             "selection": asdict(self.selection),
             "portfolio": asdict(self.portfolio),
             "execution": asdict(self.execution),
-            "pipeline": self.pipeline.to_dict(),
         }
         if self.metadata:
             payload["metadata"] = self.metadata
@@ -217,13 +200,7 @@ class StrategyConfig:
 
     def validate(self) -> list[str]:
         warnings: list[str] = []
-        needs_registered_signal = (
-            self.pipeline.signal.kind == "configured"
-            and self.pipeline.portfolio.kind != "python"
-        )
-        if needs_registered_signal and not self.factors:
-            warnings.append("No factors defined")
-        if needs_registered_signal and self.total_weight <= 0:
+        if self.factors and self.total_weight <= 0:
             warnings.append("Factor weights must sum to a positive value")
         if self.selection.n_stocks * self.portfolio.max_weight < 1:
             warnings.append("n_stocks * max_weight is below 100%; portfolio will hold cash")

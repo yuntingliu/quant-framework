@@ -123,24 +123,11 @@ def test_preview_and_backtest_routes_use_project_ids(monkeypatch):
     assert preview.status_code == 200, preview.text
     assert preview.json()["project_id"] == "six-stage-default"
 
-    monkeypatch.setattr(
-        pipeline_service,
-        "analyze_project",
-        lambda project_id, *, stage, profile, months: {
-            "project_id": project_id,
-            "requested_stage": stage,
-            "profile": profile,
-            "months": months,
-            "points": [],
-        },
-    )
-    analysis = client.post(
+    removed_stage_analysis = client.post(
         "/api/pipeline/projects/six-stage-default/analysis",
         json={"stage": "selection", "profile": "demo", "months": 12},
     )
-    assert analysis.status_code == 200, analysis.text
-    assert analysis.json()["months"] == 12
-    assert analysis.json()["requested_stage"] == "selection"
+    assert removed_stage_analysis.status_code == 404
 
     monkeypatch.setattr(
         backtests,

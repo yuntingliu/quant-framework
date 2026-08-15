@@ -7,7 +7,7 @@ export interface LayoutPreset {
   apply: (api: DockviewApi) => void
 }
 
-export type WorkspaceMode = "data" | "universe" | "selection" | "timing" | "portfolio" | "risk" | "execution" | "backtest" | "report"
+export type WorkspaceMode = "data" | "project" | "universe" | "selection" | "timing" | "portfolio" | "risk" | "execution" | "backtest" | "report"
 
 function clearAll(api: DockviewApi) {
   for (const panel of [...api.panels]) panel.api.close()
@@ -81,6 +81,7 @@ function createStagePreset(
 
 export const layoutPresets: Record<WorkspaceMode, LayoutPreset> = {
   data: createWorkbenchPreset("data", "数据", "数据获取、预览与质量校验", "data.workbench", "数据工作台"),
+  project: createWorkbenchPreset("project", "研究项目", "项目、数据环境与数据截至日", "project.workbench", "研究项目"),
   universe: createStagePreset("universe", "标的池", "定义可交易的研究标的", [
     { componentId: "universe.workbench", title: "策略", width: 720 },
     { componentId: "universe.members", title: "标的池", direction: "right", reference: 0, width: 480 },
@@ -93,23 +94,23 @@ export const layoutPresets: Record<WorkspaceMode, LayoutPreset> = {
   ]),
   timing: createStagePreset("timing", "择时", "时间序列市场仓位覆盖", [
     { componentId: "timing.workbench", title: "策略", width: 620 },
-    { componentId: "timing.chart", title: "择时行情与仓位点", direction: "right", reference: 0, width: 660 },
-    { componentId: "timing.events", title: "仓位轨迹", direction: "below", reference: 0, height: 340 },
+    { componentId: "timing.reference", title: "市场参考序列", direction: "right", reference: 0, width: 660 },
+    { componentId: "timing.result", title: "择时结果", direction: "below", reference: 0, height: 340 },
   ]),
   portfolio: createStagePreset("portfolio", "组合", "把选股和择时输出构造成组合", [
     { componentId: "portfolio.workbench", title: "策略", width: 650 },
     { componentId: "portfolio.weights", title: "目标权重", direction: "right", reference: 0, width: 600 },
-    { componentId: "portfolio.history", title: "组合轨迹", direction: "below", reference: 1, height: 330 },
+    { componentId: "portfolio.summary", title: "组合摘要", direction: "below", reference: 1, height: 330 },
   ]),
   risk: createStagePreset("risk", "风控", "仓位、集中度和回撤约束", [
     { componentId: "risk.workbench", title: "策略", width: 640 },
     { componentId: "risk.limits", title: "约束前后", direction: "right", reference: 0, width: 620 },
-    { componentId: "risk.history", title: "风险后仓位", direction: "below", reference: 0, height: 330 },
+    { componentId: "risk.exposure", title: "风险后仓位", direction: "below", reference: 0, height: 330 },
   ]),
   execution: createStagePreset("execution", "执行", "调仓频率、成本与成交假设", [
     { componentId: "execution.workbench", title: "策略", width: 640 },
     { componentId: "execution.settings", title: "执行设置", direction: "right", reference: 0, width: 560 },
-    { componentId: "execution.history", title: "调仓与成本", direction: "below", reference: 1, height: 380 },
+    { componentId: "execution.targets", title: "执行目标", direction: "below", reference: 1, height: 380 },
   ]),
   backtest: createWorkbenchPreset("backtest", "回测", "运行、历史、稳健性与对比", "backtest.workbench", "回测工作台"),
   report: createWorkbenchPreset("report", "报告", "Agent 文档、表格、图表与导出", "report.workbench", "报告工作台"),
@@ -118,10 +119,10 @@ export const layoutPresets: Record<WorkspaceMode, LayoutPreset> = {
 export const DEFAULT_MODE: WorkspaceMode = "data"
 
 export function normalizeWorkspaceMode(value: unknown): WorkspaceMode {
-  if (value === "data" || value === "universe" || value === "selection" || value === "timing" || value === "portfolio" || value === "risk" || value === "execution" || value === "backtest" || value === "report") {
+  if (value === "data" || value === "project" || value === "universe" || value === "selection" || value === "timing" || value === "portfolio" || value === "risk" || value === "execution" || value === "backtest" || value === "report") {
     return value
   }
   return DEFAULT_MODE
 }
 
-export const LAYOUT_VERSION = 81
+export const LAYOUT_VERSION = 83
