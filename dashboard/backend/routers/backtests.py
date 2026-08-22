@@ -1,4 +1,5 @@
 """Backtest endpoints."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
@@ -11,19 +12,23 @@ from dashboard.backend.services.backtest_analytics_service import (
     analyze_signal_diagnostics,
     compare_backtests,
 )
+from dashboard.backend.services.backtest_job_service import (
+    get_backtest_job,
+    list_backtest_jobs,
+    submit_backtest_job,
+)
 from dashboard.backend.services.result_service import (
     get_backtest,
     list_backtests,
 )
-from dashboard.backend.services.pipeline_service import run_project_backtest
 
 router = APIRouter(prefix="/api/backtests", tags=["backtests"])
 
 
 class BacktestRequest(BaseModel):
-    project_id: str
-    start_date: str
-    end_date: str
+    project_id: str = Field(min_length=1)
+    start_date: str = Field(min_length=1)
+    end_date: str = Field(min_length=1)
     profile: str = "demo"
 
 
@@ -55,6 +60,31 @@ def compare(request: BacktestCompareRequest) -> dict:
             status_code=404,
             detail=f"backtest not found: {exc.args[0]}",
         ) from exc
+
+
+@router.post("/jobs", status_code=202)
+def create_backtest_job(request: BacktestRequest) -> dict:
+    try:
+        return submit_backtest_job(request.model_dump())
+    except KeyError:
+        raise HTTPException(status_code=404, detail="strategy not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except MissingDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/jobs")
+def backtest_jobs(limit: int = 20) -> list[dict]:
+    return list_backtest_jobs(limit=limit)
+
+
+@router.get("/jobs/{job_id}")
+def backtest_job(job_id: str) -> dict:
+    item = get_backtest_job(job_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="backtest job not found")
+    return item
 
 
 @router.get("/{backtest_id}")
@@ -89,20 +119,3 @@ def backtest_signals(backtest_id: str) -> dict:
         return analyze_signal_diagnostics(backtest_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="backtest not found") from exc
-
-
-@router.post("/run")
-def run_backtest_job(request: BacktestRequest) -> dict:
-    try:
-        return run_project_backtest(
-            request.project_id,
-            request.start_date,
-            request.end_date,
-            request.profile,
-        )
-    except KeyError:
-        raise HTTPException(status_code=404, detail="strategy not found") from None
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except MissingDataError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc

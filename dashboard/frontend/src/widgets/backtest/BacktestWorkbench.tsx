@@ -9,9 +9,9 @@ import { useWorkspace } from "@/contexts/WorkspaceContext"
 import {
   api,
   type BacktestAnalysis,
+  type BacktestJob,
   type BacktestRecord,
   type BacktestRobustness,
-  type BacktestRunResult,
   type BacktestSignalDiagnostics,
   type DataManifest,
   type ProviderStatus,
@@ -59,6 +59,8 @@ export function BacktestWorkbenchWidget() {
     startDate: "回测开始日期",
     endDate: "回测结束日期",
     running: "运行中",
+    queued: "已进入回测队列",
+    runningBackground: "完整策略正在后台回测，离开此页面也不会中断。",
     run: "运行",
     quickRun: "运行完整策略回测",
     runSettings: "运行设置",
@@ -173,6 +175,8 @@ export function BacktestWorkbenchWidget() {
     startDate: "Backtest start date",
     endDate: "Backtest end date",
     running: "Running",
+    queued: "Backtest queued",
+    runningBackground: "The complete strategy is running in the background and will continue if you leave this page.",
     run: "Run",
     quickRun: "Run full strategy backtest",
     runSettings: "Run setup",
@@ -287,6 +291,7 @@ export function BacktestWorkbenchWidget() {
   const [endDate, setEndDate] = useState("")
   const [setupError, setSetupError] = useState("")
   const [running, setRunning] = useState(false)
+  const [activeJob, setActiveJob] = useState<BacktestJob | null>(null)
   const [tab, setTab] = useState<WorkbenchTab>("performance")
   const [view, setView] = useState<WorkbenchView>("inspect")
   const [holdingDate, setHoldingDate] = useState("")
@@ -295,14 +300,17 @@ export function BacktestWorkbenchWidget() {
   useEffect(() => {
     setSetupError("")
     setSelectedId("")
+    setActiveJob(null)
+    setRunning(false)
     Promise.all([
       api.get<PipelineProjectSummary[]>("/pipeline/projects"),
       api.get<DataManifest>("/data/manifest"),
       api.get<ProviderStatus>("/data/providers"),
       api.get<RuntimeCatalog>("/data-sync/catalog"),
       api.get<BacktestRecord[]>("/backtests?limit=100"),
+      api.get<BacktestJob[]>("/backtests/jobs?limit=20"),
     ])
-      .then(([templates, manifest, providers, catalog, saved]) => {
+      .then(([templates, manifest, providers, catalog, saved, jobs]) => {
         setStrategies(templates)
         const requestedStrategy = selectedStrategyRef.current
         const nextStrategy = requestedStrategy && templates.some((item) => item.id === requestedStrategy)
@@ -317,6 +325,15 @@ export function BacktestWorkbenchWidget() {
           : matching[0]?.id ?? ""
         setSelectedId(nextBacktest)
         setSelectedBacktest(nextBacktest || null)
+        const resumable = jobs.find((job) =>
+          (job.status === "queued" || job.status === "running")
+          && job.request.profile === profile
+          && job.request.project_id === nextStrategy
+        )
+        if (resumable) {
+          setActiveJob(resumable)
+          setRunning(true)
+        }
         if (profile === "demo") {
           setStartDate(manifest.sample_start)
           setEndDate(manifest.cutoff_date)
@@ -378,24 +395,69 @@ export function BacktestWorkbenchWidget() {
     setHoldingDate(latest)
   }, [analysis.data])
 
+  const activeJobId = activeJob?.id
+  const activeJobStatus = activeJob?.status
+  useEffect(() => {
+    if (!activeJobId || !activeJobStatus || !["queued", "running"].includes(activeJobStatus)) return
+    let cancelled = false
+    const refresh = async () => {
+      try {
+        const job = await api.get<BacktestJob>(`/backtests/jobs/${activeJobId}`)
+        if (!cancelled) setActiveJob(job)
+      } catch (error) {
+        if (!cancelled) {
+          setSetupError(error instanceof Error ? error.message : String(error))
+          setRunning(false)
+        }
+      }
+    }
+    const timer = window.setInterval(refresh, 1200)
+    void refresh()
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [activeJobId, activeJobStatus])
+
+  useEffect(() => {
+    if (!activeJob || ["queued", "running"].includes(activeJob.status)) return
+    let cancelled = false
+    setRunning(false)
+    if (activeJob.status === "succeeded" && activeJob.result_id) {
+      api.get<BacktestRecord[]>("/backtests?limit=100")
+        .then((saved) => {
+          if (cancelled) return
+          setRecords(saved.filter((item) => item.profile === profile))
+          setSelectedId(activeJob.result_id ?? "")
+          setSelectedBacktest(activeJob.result_id)
+          setTab("performance")
+          setActiveJob(null)
+        })
+        .catch((error: Error) => {
+          if (!cancelled) setSetupError(error.message)
+        })
+    } else {
+      setSetupError(activeJob.error || activeJob.message || "Backtest failed")
+      setActiveJob(null)
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [activeJob, profile, setSelectedBacktest])
+
   async function runBacktest() {
     setRunning(true)
     setSetupError("")
     try {
-      const result = await api.post<BacktestRunResult>("/backtests/run", {
+      const job = await api.post<BacktestJob>("/backtests/jobs", {
         project_id: strategyId,
         start_date: startDate,
         end_date: endDate,
         profile,
       })
-      const saved = await api.get<BacktestRecord[]>("/backtests?limit=100")
-      setRecords(saved.filter((item) => item.profile === profile))
-      setSelectedId(result.id)
-      setSelectedBacktest(result.id)
-      setTab("performance")
+      setActiveJob(job)
     } catch (error) {
       setSetupError(error instanceof Error ? error.message : String(error))
-    } finally {
       setRunning(false)
     }
   }
@@ -514,6 +576,13 @@ export function BacktestWorkbenchWidget() {
           </div>
         </div>
       </section>
+      {running && activeJob && (
+        <div className="workbench-message">
+          <RefreshCw className="spin" aria-hidden="true" />
+          {activeJob.status === "queued" ? copy.queued : copy.runningBackground}
+          {activeJob.message ? ` · ${activeJob.message}` : ""}
+        </div>
+      )}
       {!strategyId && (
         <div className="workbench-message warning">
           {language === "zh" ? "请先在研究项目工作台选择或新建项目。" : "Select or create a project in Research Project first."}

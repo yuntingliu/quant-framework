@@ -98,6 +98,24 @@ CREATE TABLE IF NOT EXISTS pipeline_contract_migrations (
 CREATE INDEX IF NOT EXISTS idx_backtests_strategy ON backtests(strategy_id);
 CREATE INDEX IF NOT EXISTS idx_backtests_run_at ON backtests(run_at DESC);
 
+CREATE TABLE IF NOT EXISTS backtest_jobs (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK(status IN (
+        'queued', 'running', 'succeeded', 'failed', 'interrupted'
+    )),
+    request_json TEXT NOT NULL,
+    result_json TEXT,
+    result_id TEXT,
+    message TEXT,
+    error TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    started_at TEXT,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_backtest_jobs_created
+    ON backtest_jobs(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS backtest_returns (
     backtest_id TEXT NOT NULL REFERENCES backtests(id) ON DELETE CASCADE,
     date TEXT NOT NULL,

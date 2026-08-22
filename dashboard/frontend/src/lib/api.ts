@@ -118,6 +118,24 @@ export interface BacktestRunResult {
   provenance: ResearchProvenance
 }
 
+export interface BacktestJob {
+  id: string
+  status: "queued" | "running" | "succeeded" | "failed" | "interrupted"
+  request: {
+    project_id: string
+    start_date: string
+    end_date: string
+    profile: "demo" | "runtime"
+  }
+  result: BacktestRunResult | null
+  result_id: string | null
+  message: string | null
+  error: string | null
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
 export interface ResearchProvenance {
   version?: number
   created_at?: string
