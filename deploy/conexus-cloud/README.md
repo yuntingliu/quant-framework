@@ -15,7 +15,7 @@ backend remains local because it owns the local database and RiceQuant data
 connection. Start the restricted reverse SSH tunnel explicitly when the cloud
 Tool runtime needs to call that API without exposing port 8000 publicly.
 Publisher-funded model calls use the server-side OpenRouter key and are pinned
-to `openai/gpt-oss-120b`; the key is never packaged in the Harness or frontend.
+to `openai/gpt-5.6-sol`; the key is never packaged in the Harness or frontend.
 The Agent has no host-imposed iteration, output-token, or Harness deadline
 ceiling; it runs until it calls `complete` or the user cancels the run.
 

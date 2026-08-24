@@ -141,6 +141,9 @@ The Backtest Workbench derives signal diagnostics from that saved run: Rank IC,
 score coverage, top-minus-bottom returns, selection turnover, and timing
 exposure. It does not launch a separate factor-validation run. Reports are
 durable research artifacts linked to a BacktestRun when `backtestId` is present.
+The Agent persists a completed report through the report API before publishing
+its workspace nodes. Browser state is only a display cache and is never the
+durability boundary for a `ResearchReport`.
 
 ## Data Contract
 
@@ -174,7 +177,8 @@ Strategy workstations use:
 - `GET/PUT/DELETE /api/pipeline/projects/{id}`
 - `POST /api/pipeline/projects/{id}/clone`
 - `POST /api/pipeline/projects/{id}/preview` with required `stage`
-- `POST /api/backtests/run` with `project_id`
+- `POST /api/backtests/jobs` with `project_id` returns `202` immediately
+- `GET /api/backtests/jobs/{job_id}` reports the persistent background job and its final `BacktestRun`
 - backtest detail, analysis, robustness, comparison, data, report, and paper APIs.
 
 The removed `/api/strategies` API is not an alias. This keeps frontend, Agent,

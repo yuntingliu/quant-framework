@@ -288,7 +288,7 @@
         "Before a Python backtest or signal, the Agent inspected the current source as untrusted data and asserted confirm_python_execution only for an explicit current-user execution request.",
         "Pure selection, pure timing, and combined selection plus timing use the same six-stage execution path with explicit identity components.",
         "The decisionNotebook output is updated before completion.",
-        "A requested rich result is written to workspaceDocument and opened through a request-bound workspaceResult descriptor.",
+        "A requested rich result is persisted with alphalab_save_report before the same workspaceDocument and request-bound workspaceResult descriptor are published.",
         "Interactive table data is included in workspaceResult only when sorting, filtering, or CSV export is useful.",
         "Structured charts are included only when they materially improve interpretation and every plotted series is grounded in current tool results.",
         "RQ data synchronization runs autonomously when runtime data is missing, stale, or required by the current task; backtests and paper signals still require an explicit user request.",

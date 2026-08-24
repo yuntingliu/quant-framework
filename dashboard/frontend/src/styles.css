@@ -1197,6 +1197,11 @@ button {
   animation: stage-panel-spin 0.8s linear infinite;
 }
 
+.workbench-message .spin {
+  flex: 0 0 auto;
+  animation: stage-panel-spin 0.8s linear infinite;
+}
+
 @keyframes stage-panel-spin {
   to { transform: rotate(360deg); }
 }

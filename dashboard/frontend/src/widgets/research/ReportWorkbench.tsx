@@ -58,7 +58,10 @@ function compareCells(left: ResearchResultCell, right: ResearchResultCell): numb
 export function ReportWorkbenchWidget() {
   const panel = usePanel()
   const { language } = useLanguage()
-  const { researchResults } = useAgentPrompt()
+  const { researchResults, refreshResearchResults } = useAgentPrompt()
+  useEffect(() => {
+    void refreshResearchResults().catch(() => undefined)
+  }, [refreshResearchResults])
   const requestedId = typeof panel?.params.resultId === "string" ? panel.params.resultId : undefined
   const [selectedId, setSelectedId] = useState<string | undefined>(requestedId)
   useEffect(() => {

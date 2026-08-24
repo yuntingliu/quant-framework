@@ -1,4 +1,5 @@
 """SQLite result store for the barebone framework."""
+
 from __future__ import annotations
 
 import json
@@ -23,12 +24,16 @@ def _uuid() -> str:
 
 def _git_hash() -> str | None:
     try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=Path(__file__).resolve().parents[1],
-            stderr=subprocess.DEVNULL,
-            timeout=3,
-        ).decode("utf-8").strip()
+        return (
+            subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=Path(__file__).resolve().parents[1],
+                stderr=subprocess.DEVNULL,
+                timeout=3,
+            )
+            .decode("utf-8")
+            .strip()
+        )
     except Exception:
         return None
 
@@ -47,8 +52,7 @@ class ResultStore:
 
     def _migrate(self) -> None:
         backtest_columns = {
-            row["name"]
-            for row in self._conn.execute("PRAGMA table_info(backtests)").fetchall()
+            row["name"] for row in self._conn.execute("PRAGMA table_info(backtests)").fetchall()
         }
         if "provenance_json" not in backtest_columns:
             self._conn.execute("ALTER TABLE backtests ADD COLUMN provenance_json TEXT")
@@ -63,14 +67,12 @@ class ResultStore:
             if name not in backtest_columns:
                 self._conn.execute(f"ALTER TABLE backtests ADD COLUMN {name} {sql_type}")
         order_columns = {
-            row["name"]
-            for row in self._conn.execute("PRAGMA table_info(orders)").fetchall()
+            row["name"] for row in self._conn.execute("PRAGMA table_info(orders)").fetchall()
         }
         if "account_id" not in order_columns:
             self._conn.execute("ALTER TABLE orders ADD COLUMN account_id TEXT")
         signal_columns = {
-            row["name"]
-            for row in self._conn.execute("PRAGMA table_info(signals)").fetchall()
+            row["name"] for row in self._conn.execute("PRAGMA table_info(signals)").fetchall()
         }
         if "profile" not in signal_columns:
             self._conn.execute(
@@ -81,12 +83,8 @@ class ResultStore:
 
     def _migrate_legacy_paper_ledger(self) -> None:
         """Materialize the bundled legacy fills into the new paper ledger once."""
-        ledger_count = self._conn.execute(
-            "SELECT COUNT(*) FROM paper_fills"
-        ).fetchone()[0]
-        position_count = self._conn.execute(
-            "SELECT COUNT(*) FROM paper_positions"
-        ).fetchone()[0]
+        ledger_count = self._conn.execute("SELECT COUNT(*) FROM paper_fills").fetchone()[0]
+        position_count = self._conn.execute("SELECT COUNT(*) FROM paper_positions").fetchone()[0]
         if ledger_count or position_count:
             return
         rows = self._conn.execute(
@@ -115,9 +113,7 @@ class ResultStore:
             quantity = float(row["fill_quantity"] or row["quantity"] or 0)
             price = float(row["fill_price"] or row["price"] or 0)
             commission = float(
-                row["commission"]
-                if row["commission"] is not None
-                else quantity * price * 0.0003
+                row["commission"] if row["commission"] is not None else quantity * price * 0.0003
             )
             if action not in {"buy", "sell"} or quantity <= 0 or price <= 0:
                 return
@@ -133,9 +129,7 @@ class ResultStore:
                 if required > cash + 1e-9:
                     return
                 new_quantity = current_quantity + quantity
-                position["avg_cost"] = (
-                    current_quantity * current_cost + required
-                ) / new_quantity
+                position["avg_cost"] = (current_quantity * current_cost + required) / new_quantity
                 position["quantity"] = new_quantity
                 cash -= required
             else:
@@ -199,8 +193,7 @@ class ResultStore:
                     position["avg_cost"],
                     position["price"],
                     position["quantity"] * position["price"],
-                    position["quantity"]
-                    * (position["price"] - position["avg_cost"]),
+                    position["quantity"] * (position["price"] - position["avg_cost"]),
                     str(fills[-1]["filled_at"])[:10],
                 ),
             )
@@ -312,7 +305,11 @@ class ResultStore:
             )
             rows = []
             for dt, value in returns.items():
-                bench = float(benchmark.loc[dt]) if benchmark is not None and dt in benchmark.index else None
+                bench = (
+                    float(benchmark.loc[dt])
+                    if benchmark is not None and dt in benchmark.index
+                    else None
+                )
                 rows.append((backtest_id, str(dt)[:10], float(value), bench))
             if rows:
                 self._conn.executemany(
@@ -326,7 +323,9 @@ class ResultStore:
                         if pd.notna(weight) and (
                             persist_zero_weights or abs(float(weight)) > 1e-12
                         ):
-                            weight_rows.append((backtest_id, str(dt)[:10], str(symbol), float(weight)))
+                            weight_rows.append(
+                                (backtest_id, str(dt)[:10], str(symbol), float(weight))
+                            )
             if weight_rows:
                 self._conn.executemany(
                     "INSERT INTO backtest_weights (backtest_id, date, symbol, weight) VALUES (?, ?, ?, ?)",
@@ -335,6 +334,95 @@ class ResultStore:
 
         self._write(work)
         return backtest_id
+
+    def create_backtest_job(self, request: dict) -> str:
+        job_id = _uuid()
+
+        def work() -> None:
+            self._conn.execute(
+                """INSERT INTO backtest_jobs
+                   (id, status, request_json, message)
+                   VALUES (?, 'queued', ?, 'Waiting to run')""",
+                (job_id, json.dumps(request, sort_keys=True)),
+            )
+
+        self._write(work)
+        return job_id
+
+    def update_backtest_job(
+        self,
+        job_id: str,
+        *,
+        status: str | None = None,
+        message: str | None = None,
+        result: dict | None = None,
+        result_id: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        values: dict[str, object] = {}
+        if status is not None:
+            values["status"] = status
+            if status == "running":
+                values["started_at"] = datetime.now().isoformat(timespec="seconds")
+            if status in {"succeeded", "failed", "interrupted"}:
+                values["finished_at"] = datetime.now().isoformat(timespec="seconds")
+        if message is not None:
+            values["message"] = message
+        if result is not None:
+            values["result_json"] = json.dumps(result, default=str)
+        if result_id is not None:
+            values["result_id"] = result_id
+        if error is not None:
+            values["error"] = str(error)[:2000]
+        if not values:
+            return
+
+        def work() -> None:
+            assignments = ", ".join(f"{name}=?" for name in values)
+            self._conn.execute(
+                f"UPDATE backtest_jobs SET {assignments} WHERE id=?",
+                (*values.values(), job_id),
+            )
+
+        self._write(work)
+
+    def get_backtest_job(self, job_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM backtest_jobs WHERE id=?",
+            (job_id,),
+        ).fetchone()
+        return self._backtest_job_dict(row) if row is not None else None
+
+    def list_backtest_jobs(self, limit: int = 50) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM backtest_jobs ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [self._backtest_job_dict(row) for row in rows]
+
+    def mark_backtest_jobs_interrupted(self) -> int:
+        changed = 0
+
+        def work() -> None:
+            nonlocal changed
+            cursor = self._conn.execute(
+                """UPDATE backtest_jobs
+                   SET status='interrupted', finished_at=datetime('now'),
+                       message='Interrupted', error='Service restarted'
+                   WHERE status IN ('queued', 'running')"""
+            )
+            changed = int(cursor.rowcount)
+
+        self._write(work)
+        return changed
+
+    @staticmethod
+    def _backtest_job_dict(row: sqlite3.Row) -> dict:
+        value = dict(row)
+        value["request"] = json.loads(value.pop("request_json"))
+        raw_result = value.pop("result_json")
+        value["result"] = json.loads(raw_result) if raw_result else None
+        return value
 
     def list_backtests(self, strategy_id: str | None = None, limit: int = 20) -> pd.DataFrame:
         columns = """id, strategy_id, code_version, start_date, end_date, run_at,
@@ -496,9 +584,7 @@ class ResultStore:
             "SELECT symbol, target_weight FROM signal_targets WHERE signal_id = ?",
             (signal_id,),
         ).fetchall()
-        result["targets"] = {
-            item["symbol"]: float(item["target_weight"]) for item in targets
-        }
+        result["targets"] = {item["symbol"]: float(item["target_weight"]) for item in targets}
         return result
 
     def save_paper_order(
@@ -942,11 +1028,7 @@ class ResultStore:
         detail: dict | None = None,
     ) -> None:
         def work() -> None:
-            started = (
-                datetime.now().isoformat(timespec="seconds")
-                if status == "running"
-                else None
-            )
+            started = datetime.now().isoformat(timespec="seconds") if status == "running" else None
             finished = (
                 datetime.now().isoformat(timespec="seconds")
                 if status in {"succeeded", "failed", "cancelled", "skipped"}
@@ -1083,6 +1165,7 @@ class ResultStore:
         for table in (
             "strategies",
             "backtests",
+            "backtest_jobs",
             "signals",
             "orders",
             "paper_accounts",

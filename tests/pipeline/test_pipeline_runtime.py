@@ -79,6 +79,30 @@ def test_short_backtest_uses_the_same_frozen_source(tmp_path):
     assert "selection_forward_returns" in result.result.executions[0]
 
 
+def test_backtest_treats_pre_history_rebalances_as_cash(tmp_path):
+    repository = PipelineRepository(tmp_path / "pipeline.db")
+    try:
+        result = run_pipeline_project_backtest(
+            repository,
+            "six-stage-default",
+            "2021-07-11",
+            "2021-12-31",
+            create_default_engine(),
+        )
+    finally:
+        repository.close()
+
+    assert len(result.result.returns) >= 4
+    skipped = [
+        item["pipeline_execution"]
+        for item in result.result.executions
+        if item["pipeline_execution"].get("skipped")
+    ]
+    assert skipped
+    assert {item["reason"] for item in skipped} == {"no_eligible_assets"}
+    assert result.result.executions[0]["cash_weight"] == 1.0
+
+
 def test_pure_selection_and_pure_timing_are_explicit_components(tmp_path):
     repository = PipelineRepository(tmp_path / "pipeline.db")
     try:
@@ -87,7 +111,7 @@ def test_pure_selection_and_pure_timing_are_explicit_components(tmp_path):
     finally:
         repository.close()
     assert always_on is not None and always_on["stage"] == "timing"
-    assert "exposure\": 1.0" in always_on["source"]
+    assert 'exposure": 1.0' in always_on["source"]
     assert pass_through is not None and pass_through["stage"] == "selection"
     assert "universe_symbols" in pass_through["source"]
 

@@ -53,7 +53,7 @@ def test_public_facade_is_small_and_pipeline_native():
 def test_frontend_exposes_ten_parallel_workbench_modes():
     presets = (ROOT / "dashboard/frontend/src/layouts/presets.ts").read_text(encoding="utf-8")
     mode_config = (ROOT / "dashboard/frontend/src/workspace/modes.ts").read_text(encoding="utf-8")
-    expected_union = " | ".join(f'\"{mode}\"' for mode in MODES)
+    expected_union = " | ".join(f'"{mode}"' for mode in MODES)
     assert f"export type WorkspaceMode = {expected_union}" in presets
     for mode in ("data", "project", "backtest", "report"):
         assert f'{mode}: createWorkbenchPreset("{mode}"' in presets
@@ -61,14 +61,21 @@ def test_frontend_exposes_ten_parallel_workbench_modes():
         assert f'{mode}: createStagePreset("{mode}"' in presets
     for mode in MODES:
         assert f"{mode}: {{ icon:" in mode_config
-        assert f"{mode}: [\"{mode}.workbench\"" in mode_config
-    assert 'modes: ["universe", "selection", "timing", "portfolio", "risk", "execution"]' in mode_config
+        assert f'{mode}: ["{mode}.workbench"' in mode_config
+    assert (
+        'modes: ["universe", "selection", "timing", "portfolio", "risk", "execution"]'
+        in mode_config
+    )
     assert 'export const DEFAULT_MODE: WorkspaceMode = "data"' in presets
 
 
 def test_core_widget_catalog_has_one_workbench_per_boundary():
-    catalog = (ROOT / "dashboard/frontend/src/widgets/registry/catalog.ts").read_text(encoding="utf-8")
-    components = (ROOT / "dashboard/frontend/src/widgets/registry/components.tsx").read_text(encoding="utf-8")
+    catalog = (ROOT / "dashboard/frontend/src/widgets/registry/catalog.ts").read_text(
+        encoding="utf-8"
+    )
+    components = (ROOT / "dashboard/frontend/src/widgets/registry/components.tsx").read_text(
+        encoding="utf-8"
+    )
     for mode in MODES:
         assert f'"{mode}.workbench"' in catalog
         assert f'"{mode}.workbench"' in components
@@ -124,8 +131,8 @@ def test_stage_workbench_supports_versions_code_and_real_preview():
     assert "阶段输入与输出" not in source
     assert "完整执行当前项目的冻结源码" not in source
     assert "刷新阶段结果" not in source
-    assert '<Widget headerless>' in source
-    assert 'title={`${meta.title}工作台`}' not in source
+    assert "<Widget headerless>" in source
+    assert "title={`${meta.title}工作台`}" not in source
     for implementation_term in (
         "系统预置",
         "用户添加",
@@ -173,7 +180,8 @@ def test_backtest_shows_and_runs_the_frozen_complete_module():
         encoding="utf-8"
     )
     assert "project_id" in source
-    assert "/backtests/run" in source
+    assert "/backtests/jobs" in source
+    assert "/backtests/run" not in source
     assert "pipeline_manifest.composed_source" in source
     assert "同一份总 Python 源码" in source
     assert "strategy_yaml" not in source
@@ -186,9 +194,16 @@ def test_backtest_shows_and_runs_the_frozen_complete_module():
 
 
 def test_sidebar_has_fixed_modes_without_search_or_tab_management():
-    sidebar = (ROOT / "dashboard/frontend/src/workspace/ModeSidebar.tsx").read_text(encoding="utf-8")
+    sidebar = (ROOT / "dashboard/frontend/src/workspace/ModeSidebar.tsx").read_text(
+        encoding="utf-8"
+    )
     workspace = (ROOT / "dashboard/frontend/src/Workspace.tsx").read_text(encoding="utf-8")
-    for removed in ("dispatchCommandPalette", "sidebar.manageTabs", "sidebar.hideTab", "onToggleModeHidden"):
+    for removed in (
+        "dispatchCommandPalette",
+        "sidebar.manageTabs",
+        "sidebar.hideTab",
+        "onToggleModeHidden",
+    ):
         assert removed not in sidebar
     for removed in ("HIDDEN_MODES_KEY", "loadHiddenModes", "toggleModeHidden"):
         assert removed not in workspace
@@ -199,20 +214,26 @@ def test_sidebar_has_fixed_modes_without_search_or_tab_management():
 
 
 def test_alphalab_logo_replaces_the_placeholder_brand_mark():
-    sidebar = (ROOT / "dashboard/frontend/src/workspace/ModeSidebar.tsx").read_text(encoding="utf-8")
+    sidebar = (ROOT / "dashboard/frontend/src/workspace/ModeSidebar.tsx").read_text(
+        encoding="utf-8"
+    )
     index = (ROOT / "dashboard/frontend/index.html").read_text(encoding="utf-8")
     logo = ROOT / "dashboard/frontend/public/alphalab-logo.png"
     assert logo.is_file() and logo.stat().st_size > 0
     assert 'src="/alphalab-logo.png"' in sidebar
-    assert '>\n          AL\n' not in sidebar
+    assert ">\n          AL\n" not in sidebar
     assert 'type="image/png" href="/alphalab-logo.png"' in index
     assert not (ROOT / "dashboard/frontend/public/vite.svg").exists()
 
 
 def test_project_workbench_owns_project_profile_and_cutoff_date():
     toolbar = (ROOT / "dashboard/frontend/src/workspace/Toolbar.tsx").read_text(encoding="utf-8")
-    stage = (ROOT / "dashboard/frontend/src/widgets/pipeline/StageWorkbench.tsx").read_text(encoding="utf-8")
-    project = (ROOT / "dashboard/frontend/src/widgets/project/ProjectWorkbench.tsx").read_text(encoding="utf-8")
+    stage = (ROOT / "dashboard/frontend/src/widgets/pipeline/StageWorkbench.tsx").read_text(
+        encoding="utf-8"
+    )
+    project = (ROOT / "dashboard/frontend/src/widgets/project/ProjectWorkbench.tsx").read_text(
+        encoding="utf-8"
+    )
     for label in ("项目与数据", "数据环境", "数据截至日", "六阶段组件"):
         assert label in project
     assert '"/pipeline/projects"' in project
@@ -223,12 +244,17 @@ def test_project_workbench_owns_project_profile_and_cutoff_date():
 
 
 def test_report_workbench_is_a_persisted_library():
-    source = (ROOT / "dashboard/frontend/src/widgets/research/ReportWorkbench.tsx").read_text(encoding="utf-8")
-    context = (ROOT / "dashboard/frontend/src/contexts/AgentPromptContext.tsx").read_text(encoding="utf-8")
+    source = (ROOT / "dashboard/frontend/src/widgets/research/ReportWorkbench.tsx").read_text(
+        encoding="utf-8"
+    )
+    context = (ROOT / "dashboard/frontend/src/contexts/AgentPromptContext.tsx").read_text(
+        encoding="utf-8"
+    )
     assert "报告库" in source
     assert "researchResults.map" in source
-    assert 'api.post<AgentResearchResult>("/reports"' in context
+    assert 'api.post<AgentResearchResult>("/reports"' not in context
     assert '"/reports?limit=100"' in context
+    assert "refreshResearchResults" in source
 
 
 def test_current_authoring_assets_do_not_bundle_yaml_strategies():

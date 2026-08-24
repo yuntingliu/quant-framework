@@ -1,0 +1,108 @@
+{
+  "toolName": "alphalab_save_report",
+  "description": "Persist one completed AlphaLab research report before publishing it to the workspace. Use only for a current user-requested document result, and pass the exact workspace result descriptor plus its Markdown document.",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["profile", "workspace_result", "markdown"],
+    "properties": {
+      "profile": { "type": "string", "enum": ["demo", "runtime"] },
+      "workspace_result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "requestId", "kind", "title", "sources"],
+        "properties": {
+          "version": { "const": 1 },
+          "requestId": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "kind": { "const": "document" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "sources": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+          },
+          "generatedAt": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "backtestId": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "columns": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 30,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["key", "label"],
+              "properties": {
+                "key": { "type": "string", "minLength": 1, "maxLength": 80 },
+                "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+                "format": { "type": "string", "enum": ["text", "number", "percent", "date", "datetime"] }
+              }
+            }
+          },
+          "rows": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
+            }
+          },
+          "charts": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 6,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "type", "title", "xKey", "series", "rows"],
+              "properties": {
+                "id": { "type": "string", "minLength": 1, "maxLength": 80 },
+                "type": { "type": "string", "enum": ["line", "bar", "area", "scatter", "pie"] },
+                "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+                "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
+                "xKey": { "type": "string", "minLength": 1, "maxLength": 80 },
+                "xLabel": { "type": "string", "minLength": 1, "maxLength": 120 },
+                "yLabel": { "type": "string", "minLength": 1, "maxLength": 120 },
+                "series": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 12,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["key", "label"],
+                    "properties": {
+                      "key": { "type": "string", "minLength": 1, "maxLength": 80 },
+                      "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+                      "format": { "type": "string", "enum": ["number", "percent"] },
+                      "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" }
+                    }
+                  }
+                },
+                "rows": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 500,
+                  "items": {
+                    "type": "object",
+                    "maxProperties": 13,
+                    "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "dependentRequired": { "columns": ["rows"], "rows": ["columns"] }
+      },
+      "markdown": { "type": "string", "minLength": 1, "maxLength": 500000 }
+    }
+  },
+  "outputSchema": { "type": "object" },
+  "code": "function apiOrigin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function run(input){const result={...input.workspace_result,markdown:input.markdown};const response=await fetch(apiOrigin()+'/api/reports',{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify({profile:input.profile,result})});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());return response.json()}",
+  "timeoutMs": 30000,
+  "permissions": { "network": "alphalab-api" },
+  "sideEffects": "write"
+}

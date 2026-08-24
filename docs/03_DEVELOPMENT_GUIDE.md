@@ -172,10 +172,14 @@ Conexus tools use current names only:
 - `alphalab_manage_pipeline`
 - `alphalab_preview_pipeline`
 - `alphalab_run_backtest`
+- `alphalab_save_report`
 
 Do not keep old tool aliases. Update the Agent prompt, harness mode schema,
 frontend capabilities, docs, and contract tests together. Project/component
 mutation and Python execution require explicit current-user confirmation.
+For a document result, save the exact workspace descriptor and Markdown through
+`alphalab_save_report` before publishing output nodes. The frontend may cache and
+refresh reports, but it must not be the only persistence path.
 
 ## Review Checklist
 

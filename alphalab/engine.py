@@ -1,4 +1,5 @@
 """Signal generation and backtesting parity point."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
@@ -83,7 +84,9 @@ class SignalEngine:
             eligible_instruments = set(instruments["symbol"].astype(str).str.upper())
             symbols = [symbol for symbol in symbols if symbol in eligible_instruments]
             if "snapshot_date" in instruments and instruments["snapshot_date"].notna().any():
-                instrument_snapshot = pd.Timestamp(instruments["snapshot_date"].max()).strftime("%Y-%m-%d")
+                instrument_snapshot = pd.Timestamp(instruments["snapshot_date"].max()).strftime(
+                    "%Y-%m-%d"
+                )
         self._diagnostics = {
             "strategy": config.name,
             "as_of_date": as_of.strftime("%Y-%m-%d"),
@@ -94,8 +97,7 @@ class SignalEngine:
             "instrument_filter_applied": not instruments.empty,
             "instrument_snapshot": instrument_snapshot,
             "instrument_snapshot_future": bool(
-                instrument_snapshot
-                and pd.Timestamp(instrument_snapshot) > as_of
+                instrument_snapshot and pd.Timestamp(instrument_snapshot) > as_of
             ),
         }
         self._selection_snapshot = {
@@ -111,9 +113,12 @@ class SignalEngine:
             "rows": [],
         }
         if not symbols:
+            self._diagnostics["empty_reason"] = "empty_universe"
             return {}
 
-        start = (as_of - pd.Timedelta(days=max(lookback_days * 2, lookback_days + 30))).strftime("%Y-%m-%d")
+        start = (as_of - pd.Timedelta(days=max(lookback_days * 2, lookback_days + 30))).strftime(
+            "%Y-%m-%d"
+        )
         end = as_of.strftime("%Y-%m-%d")
         if bars_override is None:
             bars = self._data.get_bars(symbols, start, end, strict=False)
@@ -125,6 +130,7 @@ class SignalEngine:
                 & supplied["date"].between(pd.Timestamp(start), as_of)
             ].copy()
         if bars.empty:
+            self._diagnostics["empty_reason"] = "no_market_bars"
             return {}
         bars = bars.copy()
         bars["date"] = pd.to_datetime(bars["date"])
@@ -152,6 +158,7 @@ class SignalEngine:
             }
         )
         if not eligible_symbols:
+            self._diagnostics["empty_reason"] = "no_eligible_assets"
             return {}
         factor_scores = self._factor_scores(config, eligible_symbols, data_by_symbol, end)
         context = self._candidate_context(
@@ -263,7 +270,9 @@ class SignalEngine:
         selected_symbols = [str(item).strip().upper() for item in selected]
         unknown_selected = sorted(set(selected_symbols) - universe_set)
         if unknown_selected:
-            raise ValueError(f"Selection stage returned symbols outside its universe: {unknown_selected}")
+            raise ValueError(
+                f"Selection stage returned symbols outside its universe: {unknown_selected}"
+            )
         scores = self._coerce_scores(
             {"scores": selection.get("scores") or {symbol: 1.0 for symbol in selected_symbols}},
             universe_set,
@@ -303,9 +312,7 @@ class SignalEngine:
         risk = value.get("risk")
         if not isinstance(risk, dict):
             raise ValueError("apply_risk must return {'weights': {...}}")
-        weights = self._coerce_weights(
-            {"weights": risk.get("weights")}, universe_set, label="risk"
-        )
+        weights = self._coerce_weights({"weights": risk.get("weights")}, universe_set, label="risk")
         weights = self._validate_target_weights(config, weights, universe_set)
         if target_stage == "risk":
             return finish(weights, ordered_scores, coverage)
@@ -362,8 +369,7 @@ class SignalEngine:
             factor_values = {}
             if symbol in scores.index:
                 factor_values = {
-                    str(name): float(value)
-                    for name, value in scores.loc[symbol].dropna().items()
+                    str(name): float(value) for name, value in scores.loc[symbol].dropna().items()
                 }
             candidates.append(
                 {
@@ -425,7 +431,9 @@ class SignalEngine:
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"Python {label} weight for {symbol} must be numeric") from exc
             if not np.isfinite(weight) or weight < 0:
-                raise ValueError(f"Python {label} weight for {symbol} must be finite and non-negative")
+                raise ValueError(
+                    f"Python {label} weight for {symbol} must be finite and non-negative"
+                )
             if weight > 1e-12:
                 weights[symbol] = weight
         return weights
@@ -484,9 +492,7 @@ class SignalEngine:
                     "symbol": symbol,
                     "selected": symbol in weights,
                     "composite_score": score,
-                    "factor_coverage": (
-                        float(coverage.get(symbol, 1.0))
-                    ),
+                    "factor_coverage": (float(coverage.get(symbol, 1.0))),
                     "target_weight": float(weights.get(symbol, 0.0)),
                     "factor_scores": factor_values,
                 }
@@ -582,7 +588,9 @@ class SignalEngine:
             return pd.DataFrame()
         return pd.concat(columns, axis=1)
 
-    def _load_latest_fundamentals(self, symbols: list[str], fields: list[str], as_of_date: str) -> pd.DataFrame:
+    def _load_latest_fundamentals(
+        self, symbols: list[str], fields: list[str], as_of_date: str
+    ) -> pd.DataFrame:
         year = pd.Timestamp(as_of_date).year
         try:
             return self._data.get_fundamentals(
@@ -695,15 +703,11 @@ def run_backtest_detailed(
         )
         signal_diagnostics = engine.diagnostics
         if not signal_diagnostics.get("instrument_filter_applied"):
-            warnings.add(
-                "PIT instrument snapshots unavailable; bar-history universe was used"
-            )
+            warnings.add("PIT instrument snapshots unavailable; bar-history universe was used")
         if signal_diagnostics.get("instrument_snapshot_future"):
-            warnings.add(
-                "instrument metadata snapshot post-dates at least one signal date"
-            )
+            warnings.add("instrument metadata snapshot post-dates at least one signal date")
         period_cfg, execution_runtime = _complete_execution_config_for_period(
-            cfg, signal_diagnostics.get("complete_pipeline")
+            cfg, signal_diagnostics
         )
         executed, execution = _apply_execution_constraints(
             target,
@@ -749,11 +753,15 @@ def run_backtest_detailed(
                 "pipeline_execution": execution_runtime,
                 "stage_outputs": {
                     stage: dict(
-                        (signal_diagnostics.get("complete_pipeline") or {}).get(stage)
-                        or {}
+                        (signal_diagnostics.get("complete_pipeline") or {}).get(stage) or {}
                     )
                     for stage in (
-                        "universe", "selection", "timing", "portfolio", "risk", "execution"
+                        "universe",
+                        "selection",
+                        "timing",
+                        "portfolio",
+                        "risk",
+                        "execution",
                     )
                 },
                 "selection_forward_returns": _asset_period_returns(
@@ -761,8 +769,11 @@ def run_backtest_detailed(
                     {
                         str(symbol): 1.0
                         for symbol in dict(
-                            ((signal_diagnostics.get("complete_pipeline") or {})
-                             .get("selection") or {}).get("scores") or {}
+                            (
+                                (signal_diagnostics.get("complete_pipeline") or {}).get("selection")
+                                or {}
+                            ).get("scores")
+                            or {}
                         )
                     },
                     entry_date,
@@ -771,7 +782,9 @@ def run_backtest_detailed(
                     omit_missing=True,
                 ),
                 "gross_return": float(
-                    sum(executed.get(symbol, 0.0) * value for symbol, value in asset_returns.items())
+                    sum(
+                        executed.get(symbol, 0.0) * value for symbol, value in asset_returns.items()
+                    )
                 ),
                 "net_return": float(ending_nav - 1.0),
                 "cash_weight": float(cash_before_cost),
@@ -811,8 +824,23 @@ def run_backtest_detailed(
 
 def _complete_execution_config_for_period(
     config: StrategyConfig,
-    pipeline_result: object,
+    diagnostics: object,
 ) -> tuple[StrategyConfig, dict | None]:
+    if not isinstance(diagnostics, dict):
+        raise ValueError("complete strategy diagnostics are missing")
+    pipeline_result = diagnostics.get("complete_pipeline")
+    empty_reason = diagnostics.get("empty_reason")
+    if not isinstance(pipeline_result, dict) and empty_reason in {
+        "empty_universe",
+        "no_market_bars",
+        "no_eligible_assets",
+    }:
+        return config, {
+            "entrypoint": "run_strategy",
+            "complete": False,
+            "skipped": True,
+            "reason": empty_reason,
+        }
     if not isinstance(pipeline_result, dict):
         raise ValueError("complete strategy result is missing")
     stage = pipeline_result.get("execution")
@@ -880,15 +908,21 @@ def _apply_execution_constraints(
         old = float(current.get(symbol, 0.0))
         wanted = float(target.get(symbol, 0.0))
         row = entry_rows.loc[symbol] if symbol in entry_rows.index else None
-        price = pd.to_numeric(pd.Series([row.get(field) if row is not None else None]), errors="coerce").iloc[0]
-        volume = pd.to_numeric(pd.Series([row.get("volume") if row is not None else None]), errors="coerce").iloc[0]
+        price = pd.to_numeric(
+            pd.Series([row.get(field) if row is not None else None]), errors="coerce"
+        ).iloc[0]
+        volume = pd.to_numeric(
+            pd.Series([row.get("volume") if row is not None else None]), errors="coerce"
+        ).iloc[0]
         if pd.isna(price) or float(price) <= 0 or pd.isna(volume) or float(volume) <= 0:
             desired[symbol] = old
             if abs(wanted - old) > 1e-12:
                 constrained.add(symbol)
             continue
         delta = wanted - old
-        amount = pd.to_numeric(pd.Series([row.get("amount") if row is not None else None]), errors="coerce").iloc[0]
+        amount = pd.to_numeric(
+            pd.Series([row.get("amount") if row is not None else None]), errors="coerce"
+        ).iloc[0]
         if pd.notna(amount) and float(amount) > 0:
             capacity = (
                 float(amount)
@@ -924,7 +958,9 @@ def _apply_execution_constraints(
     }
     sell_cost = _execution_cost(sell_deltas, participation, config)["total_cost"]
     available_cash = max(0.0, 1.0 - sum(executed.values()) - sell_cost)
-    for symbol in sorted(universe, key=lambda value: desired.get(value, 0.0) - current.get(value, 0.0), reverse=True):
+    for symbol in sorted(
+        universe, key=lambda value: desired.get(value, 0.0) - current.get(value, 0.0), reverse=True
+    ):
         old = float(executed.get(symbol, 0.0))
         wanted = float(desired.get(symbol, 0.0))
         if wanted <= old:
@@ -937,11 +973,7 @@ def _apply_execution_constraints(
             constrained.add(symbol)
         if available_cash <= 1e-12:
             break
-    executed = {
-        symbol: float(weight)
-        for symbol, weight in executed.items()
-        if weight > 1e-12
-    }
+    executed = {symbol: float(weight) for symbol, weight in executed.items() if weight > 1e-12}
     deltas = {
         symbol: executed.get(symbol, 0.0) - current.get(symbol, 0.0)
         for symbol in set(executed) | set(current)
@@ -971,14 +1003,11 @@ def _execution_cost_rate(
     participation: dict[str, float],
     config: StrategyConfig,
 ) -> float:
-    fixed = (
-        config.execution.cost_bps + config.execution.slippage_bps
-    ) / 10_000.0
+    fixed = (config.execution.cost_bps + config.execution.slippage_bps) / 10_000.0
     impact = (config.execution.impact_bps / 10_000.0) * np.sqrt(
         min(
             1.0,
-            participation.get(symbol, 0.0)
-            / config.execution.max_participation_rate,
+            participation.get(symbol, 0.0) / config.execution.max_participation_rate,
         )
     )
     return float(fixed + impact)
@@ -989,13 +1018,10 @@ def _execution_cost(
     participation: dict[str, float],
     config: StrategyConfig,
 ) -> dict[str, float]:
-    fixed_rate = (
-        config.execution.cost_bps + config.execution.slippage_bps
-    ) / 10_000.0
+    fixed_rate = (config.execution.cost_bps + config.execution.slippage_bps) / 10_000.0
     fixed_cost = sum(abs(delta) for delta in deltas.values()) * fixed_rate
     impact_cost = sum(
-        abs(delta)
-        * max(0.0, _execution_cost_rate(symbol, participation, config) - fixed_rate)
+        abs(delta) * max(0.0, _execution_cost_rate(symbol, participation, config) - fixed_rate)
         for symbol, delta in deltas.items()
     )
     return {
@@ -1029,8 +1055,16 @@ def _asset_period_returns(
             continue
         entry_row = entry_rows.iloc[-1]
         exit_row = exit_rows.iloc[-1]
-        entry_value = entry_row.get(field) if pd.Timestamp(entry_row["date"]) == entry_date else entry_row.get("close")
-        exit_value = exit_row.get(field) if pd.Timestamp(exit_row["date"]) == exit_date else exit_row.get("close")
+        entry_value = (
+            entry_row.get(field)
+            if pd.Timestamp(entry_row["date"]) == entry_date
+            else entry_row.get("close")
+        )
+        exit_value = (
+            exit_row.get(field)
+            if pd.Timestamp(exit_row["date"]) == exit_date
+            else exit_row.get("close")
+        )
         entry_price = pd.to_numeric(pd.Series([entry_value]), errors="coerce").iloc[0]
         exit_price = pd.to_numeric(pd.Series([exit_value]), errors="coerce").iloc[0]
         if pd.notna(entry_price) and pd.notna(exit_price) and float(entry_price) > 0:

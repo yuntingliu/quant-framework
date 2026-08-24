@@ -20,7 +20,7 @@ def _load(path: Path) -> dict:
 
 def test_conexus_bundle_is_complete_and_contains_no_private_state():
     json_files = sorted(BUNDLE.rglob("*.json"))
-    assert len(json_files) == 30
+    assert len(json_files) == 31
     forbidden = re.compile(
         r"(?:[A-Za-z]:\\Users\\|/Users/|PRIVATE KEY|RQ_PASSWORD=|"
         r"IBKR|ib_async|Interactive Brokers|RQ_SSH_|tunnel)",
@@ -53,6 +53,7 @@ def test_conexus_tools_match_the_python_pipeline_contract():
         "alphalab_get_paper_state",
         "alphalab_get_pipeline_project",
         "alphalab_get_reports",
+        "alphalab_save_report",
         "alphalab_get_workspace_context",
         "alphalab_manage_data_sync_job",
         "alphalab_manage_pipeline",
@@ -67,6 +68,7 @@ def test_conexus_tools_match_the_python_pipeline_contract():
         "alphalab_manage_pipeline",
         "alphalab_preview_pipeline",
         "alphalab_run_backtest",
+        "alphalab_save_report",
         "alphalab_execute_paper_rebalance",
         "alphalab_submit_paper_order",
     }
@@ -100,10 +102,17 @@ def test_conexus_tools_match_the_python_pipeline_contract():
     assert preview["inputSchema"]["properties"]["stage"]["enum"] == STAGES
     assert "JSON.stringify({stage," in preview["code"]
     assert "component_manifest.length!==6" in tools["alphalab_run_backtest"]["code"]
+    assert "'/api/backtests/jobs'" in tools["alphalab_run_backtest"]["code"]
+    assert "job.status==='queued'||job.status==='running'" in tools["alphalab_run_backtest"]["code"]
+    save_report = tools["alphalab_save_report"]
+    assert save_report["inputSchema"]["required"] == ["profile", "workspace_result", "markdown"]
+    assert "'/api/reports'" in save_report["code"]
+    assert "markdown:input.markdown" in save_report["code"]
 
 
 def test_agent_and_harness_use_only_the_ten_workbenches():
     agent = _load(BUNDLE / "agents" / "AlphaLab-Research-Agent.agent.json")
+    assert agent["model"] == "openai/gpt-5.6-sol"
     tools = {_load(path)["toolName"] for path in TOOLS.glob("*.json")}
     assert tools.issubset(agent["toolNames"])
     for removed in (
@@ -124,6 +133,7 @@ def test_agent_and_harness_use_only_the_ten_workbenches():
         "不得声称 Python 能绕过核心闸门",
         "不得为选股预览继续运行 timing、portfolio、risk 或 execution",
         "只能调用一次 update_nodes",
+        "必须在 update_nodes 前调用且只调用一次 alphalab_save_report",
     ):
         assert text in prompt
 
@@ -155,6 +165,7 @@ def test_registration_script_installs_current_tools_and_removes_old_nodes():
         "Get-Pipeline-Project.tool.json",
         "Manage-Pipeline.tool.json",
         "Preview-Pipeline.tool.json",
+        "Save-Report.tool.json",
     ):
         assert filename in register
     for filename in (
@@ -170,13 +181,7 @@ def test_registration_script_installs_current_tools_and_removes_old_nodes():
 
 def test_dashboard_invocation_input_is_exactly_request():
     client = (
-        ROOT
-        / "dashboard"
-        / "frontend"
-        / "src"
-        / "lib"
-        / "conexus"
-        / "publishedHarnessClient.ts"
+        ROOT / "dashboard" / "frontend" / "src" / "lib" / "conexus" / "publishedHarnessClient.ts"
     ).read_text(encoding="utf-8")
     assert "return { request }" in client
     assert "return { request, context }" not in client

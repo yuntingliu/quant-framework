@@ -134,6 +134,8 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   alphalab_evaluate_factor: { zh: "评估因子", en: "Evaluate factor" },
   alphalab_get_backtest: { zh: "读取回测结果", en: "Read backtest result" },
   alphalab_run_backtest: { zh: "运行回测", en: "Run backtest" },
+  alphalab_get_reports: { zh: "读取报告库", en: "Read report library" },
+  alphalab_save_report: { zh: "保存研究报告", en: "Save research report" },
   alphalab_data_catalog: { zh: "读取数据目录", en: "Read data catalog" },
   alphalab_data_status: { zh: "检查数据状态", en: "Check data status" },
   alphalab_data_plan_sync: { zh: "规划数据同步", en: "Plan data sync" },
@@ -221,7 +223,7 @@ export function ResearchAgentPanel() {
   const { selectedFactors, startDate, endDate } = useGlobalFilter()
   const [activeDataProfile] = useDataProfile()
   const queryClient = useQueryClient()
-  const { stagedPrompt, consumePrompt, setDecisionNotebook, registerResearchResult } = useAgentPrompt()
+  const { stagedPrompt, consumePrompt, setDecisionNotebook, registerResearchResult, refreshResearchResults } = useAgentPrompt()
   const [draft, setDraft] = useState("")
   const [promptContext, setPromptContext] = useState<Record<string, unknown>>({})
   const [workspaceReceipts, setWorkspaceReceipts] = useState<AgentWorkspaceCommandReceipt[]>([])
@@ -234,7 +236,8 @@ export function ResearchAgentPanel() {
     void queryClient.invalidateQueries({ queryKey: ["backtests"] })
     void queryClient.invalidateQueries({ queryKey: ["strategies"] })
     void queryClient.invalidateQueries({ queryKey: ["data-center"] })
-  }, [queryClient])
+    void refreshResearchResults().catch(() => undefined)
+  }, [queryClient, refreshResearchResults])
 
   const agent = usePublishedAgent({
     onCompleted,

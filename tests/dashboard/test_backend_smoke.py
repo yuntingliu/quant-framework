@@ -43,7 +43,10 @@ def test_component_validation_requires_the_stage_entrypoint():
     client = TestClient(app)
     valid = client.post(
         "/api/pipeline/components/validate",
-        json={"stage": "timing", "source": "def compute_exposure(context):\n    return {'exposure': 1.0}\n"},
+        json={
+            "stage": "timing",
+            "source": "def compute_exposure(context):\n    return {'exposure': 1.0}\n",
+        },
     )
     assert valid.status_code == 200, valid.text
     assert valid.json()["valid"] is True
@@ -131,17 +134,17 @@ def test_preview_and_backtest_routes_use_project_ids(monkeypatch):
 
     monkeypatch.setattr(
         backtests,
-        "run_project_backtest",
-        lambda project_id, start_date, end_date, profile: {
-            "id": "run-1",
-            "project_id": project_id,
-            "source_sha256": "abc",
-            "profile": profile,
-            "dates": [start_date, end_date],
+        "submit_backtest_job",
+        lambda request: {
+            "id": "job-1",
+            "status": "queued",
+            "request": request,
+            "result": None,
+            "result_id": None,
         },
     )
     result = client.post(
-        "/api/backtests/run",
+        "/api/backtests/jobs",
         json={
             "project_id": "six-stage-default",
             "start_date": "2024-01-01",
@@ -149,10 +152,10 @@ def test_preview_and_backtest_routes_use_project_ids(monkeypatch):
             "profile": "demo",
         },
     )
-    assert result.status_code == 200, result.text
-    assert result.json()["project_id"] == "six-stage-default"
+    assert result.status_code == 202, result.text
+    assert result.json()["request"]["project_id"] == "six-stage-default"
     old_shape = client.post(
-        "/api/backtests/run",
+        "/api/backtests/jobs",
         json={
             "strategy_id": "balanced",
             "start_date": "2024-01-01",
@@ -160,6 +163,7 @@ def test_preview_and_backtest_routes_use_project_ids(monkeypatch):
         },
     )
     assert old_shape.status_code == 422
+    assert client.post("/api/backtests/run", json={}).status_code in {404, 405}
 
 
 def test_removed_yaml_strategy_routes_are_not_exposed():

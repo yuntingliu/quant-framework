@@ -30,6 +30,7 @@ const toolNodes = [
   ["alphalab-tool-analyze-backtest-v1", "Analyze AlphaLab Backtest", "Analyze-Backtest.tool.json"],
   ["alphalab-tool-run-backtest-v1", "Run AlphaLab Backtest", "Run-Backtest.tool.json"],
   ["alphalab-tool-reports-v1", "AlphaLab Research Reports", "Get-Reports.tool.json"],
+  ["alphalab-tool-save-report-v1", "Save AlphaLab Research Report", "Save-Report.tool.json"],
   ["alphalab-tool-paper-state-v1", "AlphaLab Paper State", "Get-Paper-State.tool.json"],
   ["alphalab-tool-preview-paper-rebalance-v1", "Preview AlphaLab Paper Rebalance", "Preview-Paper-Rebalance.tool.json"],
   ["alphalab-tool-execute-paper-rebalance-v1", "Execute AlphaLab Paper Rebalance", "Execute-Paper-Rebalance.tool.json"],
