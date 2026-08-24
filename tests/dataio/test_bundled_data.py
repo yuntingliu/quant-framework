@@ -69,20 +69,24 @@ def test_seed_database_is_complete():
                 "orders",
             )
         }
-        stages = {
+        authorable_stages = {
             row[0]
             for row in connection.execute(
-                "SELECT DISTINCT stage FROM pipeline_components"
+                """SELECT DISTINCT pc.stage
+                   FROM pipeline_projects pp,
+                            json_each(pp.component_refs_json) ref
+                   JOIN pipeline_components pc ON pc.id = json_extract(ref.value, '$.component_id')
+                   WHERE pp.id = 'three-stage-default'"""
             )
         }
         default_project = connection.execute(
-            "SELECT built_in, revision FROM pipeline_projects WHERE id = 'six-stage-default'"
+            "SELECT built_in, revision FROM pipeline_projects WHERE id = 'three-stage-default'"
         ).fetchone()
     assert counts["pipeline_components"] >= 9
     assert counts["pipeline_component_versions"] >= counts["pipeline_components"]
     assert counts["pipeline_projects"] >= 1
     assert counts["pipeline_project_versions"] >= counts["pipeline_projects"]
-    assert stages == {"universe", "selection", "timing", "portfolio", "risk", "execution"}
+    assert authorable_stages == {"selection", "portfolio", "execution"}
     assert default_project == (1, 1)
     assert counts["backtests"] >= 6
     assert counts["backtest_returns"] >= 360

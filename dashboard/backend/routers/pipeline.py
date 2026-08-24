@@ -1,4 +1,4 @@
-"""Six-stage Python component and project endpoints."""
+"""Three-stage Python component and project endpoints."""
 from __future__ import annotations
 
 from datetime import date
@@ -13,7 +13,7 @@ from alphalab.strategy.python_runtime import validate_python_source
 from dashboard.backend.services import pipeline_service
 
 
-StageName = Literal["universe", "selection", "timing", "portfolio", "risk", "execution"]
+StageName = Literal["selection", "portfolio", "execution"]
 router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 
 

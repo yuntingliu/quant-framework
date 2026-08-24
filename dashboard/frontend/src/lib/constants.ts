@@ -22,7 +22,6 @@ export const PAGE_ROUTES = {
   backtest: '/backtest',
   optimizer: '/optimizer',
   risk: '/risk',
-  timing: '/timing',
   execution: '/execution',
 } as const
 
@@ -40,12 +39,6 @@ export const STALE_TIME = {
   /** 2 min — expensive endpoints (backtest, optimizer, risk) */
   LONG: 120_000,
 } as const
-
-export const TIMING_METHOD_OPTIONS: { value: string; label: string }[] = [
-  { value: 'combined', label: 'Combined (Vol x TSMom)' },
-  { value: 'vol_only', label: 'Vol-Timing Only' },
-  { value: 'tsmom_only', label: 'TSMom Only' },
-]
 
 /** Trading safety constants. */
 export const TRADING = {
@@ -69,6 +62,5 @@ export const PAGE_LABELS: Record<string, string> = {
   '/backtest': '策略回测',
   '/optimizer': '组合优化',
   '/risk': '风险分析',
-  '/timing': '指数择时',
   '/execution': '执行监控',
 }

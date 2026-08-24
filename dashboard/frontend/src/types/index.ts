@@ -3,5 +3,4 @@ export type { FactorPerformance, CorrelationMatrix, RollingCorrelation, FactorDi
 export type { BacktestComparison, BacktestResult, AnnualPerformanceRow, MonthlyHeatmapData } from './backtest'
 export type { OptimizerResult, EfficientFrontier } from './optimizer'
 export type { FactorAttribution, RollingExposure, StyleDrift, StressTest } from './risk'
-export type { TimingSignal, TimingBacktestResult, TimingComparison, TimingAnnualRow, TimingMonthlyHeatmap } from './timing'
 export type { CurrentSignal, ExecutionLogEntry, ExecutionLog, ExecutionPreview } from './execution'

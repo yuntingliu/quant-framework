@@ -1,9 +1,8 @@
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { CalendarDays, RefreshCw } from "lucide-react"
 
-import { CandlestickChart, HorizontalBarChart, RiskPieChart } from "@/components/charts"
+import { CandlestickChart, HorizontalBarChart } from "@/components/charts"
 import type { CandlestickMarker } from "@/components/charts/CandlestickChart"
 import { SymbolCombobox, type SymbolOption } from "@/components/shared/SymbolCombobox"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
@@ -144,49 +143,6 @@ function useStageBars(profile: DataProfile, symbol: string, end: string | null) 
   })
 }
 
-function symbolLabel(symbol: string, names: Map<string, string | null>): string {
-  const name = names.get(symbol)
-  return name ? `${symbol} ${name}` : symbol
-}
-
-export function UniverseMembersWidget() {
-  const panel = useStagePanel("universe")
-  const { selectedSymbol, setSelectedSymbol } = useWorkspace()
-  const instruments = useInstrumentOptions(panel.profile)
-  const [query, setQuery] = useState("")
-  const symbols = strings(panel.output.symbols)
-  const names = useMemo(
-    () => new Map((instruments.data ?? []).map((item) => [item.symbol, item.name ?? null])),
-    [instruments.data],
-  )
-  const visible = symbols.filter((symbol) => {
-    const needle = query.trim().toUpperCase()
-    return !needle || symbolLabel(symbol, names).toUpperCase().includes(needle)
-  })
-  const eligibleCount = numeric(panel.preview?.diagnostics.eligible_count, symbols.length)
-
-  return (
-    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
-      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
-        <>
-          <div className="stage-kpi-grid">
-            <div><span>基础合格标的</span><strong>{eligibleCount}</strong></div>
-            <div><span>当前标的池</span><strong>{symbols.length}</strong></div>
-          </div>
-          <label className="stage-filter"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索代码或名称" /></label>
-          <div className="stage-symbol-grid">
-            {visible.map((symbol) => (
-              <button key={symbol} type="button" className={selectedSymbol === symbol ? "active" : ""} onClick={() => setSelectedSymbol(symbol)}>
-                <strong>{symbol}</strong><span>{names.get(symbol) || "—"}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </StagePanel>
-  )
-}
-
 export function SelectionRankingWidget() {
   const panel = useStagePanel("selection")
   const { selectedSymbol, setSelectedSymbol } = useWorkspace()
@@ -224,13 +180,12 @@ export function SelectionRankingWidget() {
   )
 }
 
-function SecurityChartWidget({ mode }: { mode: "universe" | "selection" }) {
-  const panel = useStagePanel(mode)
+function SecurityChartWidget() {
+  const panel = useStagePanel("selection")
   const { selectedSymbol, setSelectedSymbol } = useWorkspace()
   const instruments = useInstrumentOptions(panel.profile)
-  const universe = strings(stageOutput(panel.preview, "universe").symbols)
   const selection = strings(stageOutput(panel.preview, "selection").selected)
-  const candidates = mode === "universe" ? universe : (selection.length ? selection : universe)
+  const candidates = selection
   const symbol = selectedSymbol && candidates.includes(selectedSymbol) ? selectedSymbol : candidates[0] ?? ""
   const end = panel.preview?.signal_date ?? null
   const bars = useStageBars(panel.profile, symbol, end)
@@ -239,8 +194,8 @@ function SecurityChartWidget({ mode }: { mode: "universe" | "selection" }) {
     return candidates.map((item) => ({ symbol: item, name: names.get(item) ?? null }))
   }, [candidates, instruments.data])
   const markers = useMemo<CandlestickMarker[]>(
-    () => end ? [{ time: end, position: "aboveBar", shape: "circle", color: "#2962ff", text: mode === "selection" ? "入选" : "池内" }] : [],
-    [end, mode],
+    () => end ? [{ time: end, position: "aboveBar", shape: "circle", color: "#2962ff", text: "入选" }] : [],
+    [end],
   )
   const rows = useMemo(() => bars.data?.rows ?? [], [bars.data?.rows])
 
@@ -260,71 +215,7 @@ function SecurityChartWidget({ mode }: { mode: "universe" | "selection" }) {
   )
 }
 
-export const UniverseChartWidget = () => <SecurityChartWidget mode="universe" />
-export const SelectionChartWidget = () => <SecurityChartWidget mode="selection" />
-
-export function TimingReferenceWidget() {
-  const panel = useStagePanel("timing")
-  const timing = panel.output
-  const rows = useMemo(() => {
-    let wealth = 1
-    return (panel.preview?.timing_reference ?? []).map((point) => {
-      wealth *= 1 + numeric(point.value)
-      return { date: point.date, wealth }
-    })
-  }, [panel.preview?.timing_reference])
-
-  return (
-    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
-      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
-        <>
-          <div className="stage-chart-toolbar">
-            <strong>MKT 市场累计净值</strong>
-            <span className="status-pill">当前仓位 {formatPercent(numeric(timing.exposure), 0)}</span>
-          </div>
-          {rows.length ? (
-            <div className="stage-history-chart">
-              <ResponsiveContainer width="100%" height={340}>
-                <AreaChart data={rows}>
-                  <defs><linearGradient id="timingMarket" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#2962ff" stopOpacity={0.32}/><stop offset="95%" stopColor="#2962ff" stopOpacity={0.03}/></linearGradient></defs>
-                  <CartesianGrid stroke="hsl(var(--border))" opacity={0.45}/>
-                  <XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={30}/>
-                  <YAxis domain={["auto", "auto"]} tick={{ fontSize: 10 }} tickFormatter={(value) => formatNumber(Number(value), 2)}/>
-                  <Tooltip formatter={(value) => formatNumber(Number(value), 3)}/>
-                  <Area type="monotone" dataKey="wealth" stroke="#2962ff" fill="url(#timingMarket)" isAnimationActive={false}/>
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          ) : <div className="analytics-empty">当前数据源没有 MKT 市场序列</div>}
-        </>
-      )}
-    </StagePanel>
-  )
-}
-
-export function TimingResultWidget() {
-  const panel = useStagePanel("timing")
-  const selection = strings(stageOutput(panel.preview, "selection").selected)
-  const exposure = numeric(panel.output.exposure)
-  const signal = String(panel.output.signal ?? "—")
-  return (
-    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
-      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
-        <>
-          <div className="stage-kpi-grid">
-            <div><span>市场仓位</span><strong>{formatPercent(exposure, 0)}</strong></div>
-            <div><span>选股池</span><strong>{selection.length}</strong></div>
-          </div>
-          <div className="stage-settings-grid">
-            <div><span>择时信号</span><strong>{signal}</strong></div>
-            <div><span>作用方式</span><strong>覆盖选股池仓位</strong></div>
-          </div>
-          <div className="analytics-empty compact">择时只调整市场仓位，不重新选择股票；组合阶段会在当前选股池内分配权重。</div>
-        </>
-      )}
-    </StagePanel>
-  )
-}
+export const SelectionChartWidget = () => <SecurityChartWidget />
 
 export function PortfolioWeightsWidget() {
   const panel = useStagePanel("portfolio")
@@ -342,7 +233,6 @@ export function PortfolioSummaryWidget() {
   const panel = useStagePanel("portfolio")
   const weights = numbers(panel.output.weights)
   const selection = strings(stageOutput(panel.preview, "selection").selected)
-  const exposure = numeric(stageOutput(panel.preview, "timing").exposure, 1)
   const gross = Object.values(weights).reduce((sum, item) => sum + Math.abs(item), 0)
   const largest = Math.max(0, ...Object.values(weights))
   return (
@@ -350,29 +240,13 @@ export function PortfolioSummaryWidget() {
       {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
         <div className="stage-settings-grid">
           <div><span>输入选股池</span><strong>{selection.length} 只</strong></div>
-          <div><span>择时覆盖</span><strong>{formatPercent(exposure, 0)}</strong></div>
+          <div><span>组合现金</span><strong>{formatPercent(Math.max(0, 1 - gross), 1)}</strong></div>
           <div><span>组合总仓位</span><strong>{formatPercent(gross, 1)}</strong></div>
           <div><span>最大单股</span><strong>{formatPercent(largest, 1)}</strong></div>
         </div>
       )}
     </StagePanel>
   )
-}
-
-export function RiskLimitsWidget() {
-  const panel = useStagePanel("risk")
-  const before = numbers(stageOutput(panel.preview, "portfolio").weights)
-  const after = numbers(panel.output.weights)
-  const symbols = [...new Set([...Object.keys(before), ...Object.keys(after)])]
-    .sort((left, right) => (after[right] ?? 0) - (after[left] ?? 0))
-  return <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>{!panel.preview ? <EmptyRunState /> : <div className="stage-table-wrap"><table className="stage-table"><thead><tr><th>证券</th><th>约束前</th><th>约束后</th><th>变化</th></tr></thead><tbody>{symbols.map((symbol) => <tr key={symbol}><td><strong>{symbol}</strong></td><td>{formatPercent(before[symbol] ?? 0, 2)}</td><td>{formatPercent(after[symbol] ?? 0, 2)}</td><td className={(after[symbol] ?? 0) < (before[symbol] ?? 0) ? "negative" : ""}>{formatPercent((after[symbol] ?? 0) - (before[symbol] ?? 0), 2)}</td></tr>)}</tbody></table></div>}</StagePanel>
-}
-
-export function RiskExposureWidget() {
-  const panel = useStagePanel("risk")
-  const gross = numeric(panel.output.gross_exposure, Object.values(numbers(panel.output.weights)).reduce((sum, item) => sum + Math.abs(item), 0))
-  const largest = Math.max(0, ...Object.values(numbers(panel.output.weights)))
-  return <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>{!panel.preview ? <EmptyRunState /> : <><div className="stage-kpi-grid"><div><span>风险后仓位</span><strong>{formatPercent(gross, 1)}</strong></div><div><span>最大单股</span><strong>{formatPercent(largest, 1)}</strong></div></div><RiskPieChart height={260} innerRadius={55} showLabels={false} data={[{ name: "股票仓位", value: gross, color: "#2962ff" }, { name: "现金", value: Math.max(0, 1 - gross), color: "#9aa4b2" }]} /></>}</StagePanel>
 }
 
 export function ExecutionSettingsWidget() {
@@ -384,7 +258,7 @@ export function ExecutionSettingsWidget() {
 
 export function ExecutionTargetsWidget() {
   const panel = useStagePanel("execution")
-  const weights = numbers(stageOutput(panel.preview, "risk").weights)
+  const weights = numbers(stageOutput(panel.preview, "portfolio").weights)
   const rows = Object.entries(weights).sort((left, right) => right[1] - left[1])
   const gross = Object.values(weights).reduce((sum, item) => sum + Math.abs(item), 0)
   return (
@@ -392,7 +266,7 @@ export function ExecutionTargetsWidget() {
       {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
         <>
           <div className="stage-kpi-grid"><div><span>目标标的</span><strong>{rows.length}</strong></div><div><span>目标总仓位</span><strong>{formatPercent(gross, 1)}</strong></div></div>
-          <div className="stage-table-wrap"><table className="stage-table"><thead><tr><th>证券</th><th>风险后目标权重</th></tr></thead><tbody>{rows.map(([symbol, weight]) => <tr key={symbol}><td><strong>{symbol}</strong></td><td>{formatPercent(weight, 2)}</td></tr>)}</tbody></table></div>
+          <div className="stage-table-wrap"><table className="stage-table"><thead><tr><th>证券</th><th>最终目标权重</th></tr></thead><tbody>{rows.map(([symbol, weight]) => <tr key={symbol}><td><strong>{symbol}</strong></td><td>{formatPercent(weight, 2)}</td></tr>)}</tbody></table></div>
           <div className="analytics-empty compact">实际换手、成交限制和成本需要完整回测结合上一期持仓计算。</div>
         </>
       )}

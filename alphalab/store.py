@@ -58,6 +58,8 @@ class ResultStore:
             self._conn.execute("ALTER TABLE backtests ADD COLUMN provenance_json TEXT")
         if "execution_json" not in backtest_columns:
             self._conn.execute("ALTER TABLE backtests ADD COLUMN execution_json TEXT")
+        if "attribution_json" not in backtest_columns:
+            self._conn.execute("ALTER TABLE backtests ADD COLUMN attribution_json TEXT")
         for name, sql_type in (
             ("pipeline_project_id", "TEXT"),
             ("strategy_source", "TEXT"),
@@ -264,6 +266,7 @@ class ResultStore:
         strategy_source: str | None = None,
         component_manifest: dict | list | None = None,
         settings: dict | None = None,
+        attribution: dict | None = None,
     ) -> str:
         backtest_id = _uuid()
         if start_date is None and not returns.empty:
@@ -278,8 +281,8 @@ class ResultStore:
                     total_return, annual_return, annual_vol, sharpe, max_drawdown,
                     n_periods, tags, notes, provenance_json, execution_json,
                     pipeline_project_id, strategy_source, component_manifest_json,
-                    settings_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    settings_json, attribution_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     backtest_id,
                     strategy_id,
@@ -301,6 +304,7 @@ class ResultStore:
                     strategy_source,
                     json.dumps(component_manifest, sort_keys=True) if component_manifest else None,
                     json.dumps(settings, sort_keys=True) if settings else None,
+                    json.dumps(attribution, sort_keys=True) if attribution else None,
                 ),
             )
             rows = []

@@ -27,9 +27,9 @@ def legacy_config(yaml_text: str) -> StrategyConfig:
             "selection": {"n_stocks": 1, "min_factor_coverage": 0.0},
             "portfolio": {
                 "max_weight": float(position.get("max_exposure", 1.0)),
-                "rebalance_freq": "monthly",
             },
             "execution": {
+                "rebalance_freq": "monthly",
                 "cost_bps": float(execution.get("cost_bps", 0.0)),
                 "slippage_bps": float(execution.get("slippage_bps", 0.0)),
                 "impact_bps": float(execution.get("impact_bps", 0.0)),

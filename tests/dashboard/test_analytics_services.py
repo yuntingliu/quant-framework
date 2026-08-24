@@ -182,3 +182,38 @@ def test_backtest_analysis_handles_empty_results_and_compare_alignment(monkeypat
     assert comparison["series"]["b"] == [None, 0.9, 1.0]
     assert comparison["labels"]["a"] == "alpha · 2024-01–2024-02"
     assert comparison["metrics"][0]["start_date"] == "2024-01-31"
+
+
+def test_attribution_endpoint_returns_only_the_frozen_snapshot(monkeypatch):
+    frozen = {
+        "frequency": "monthly",
+        "observations": 36,
+        "coverage": 1.0,
+        "capm": {"alpha_annualized": 0.12},
+        "multi_factor": {"betas": {"MKT": 0.8}},
+    }
+    monkeypatch.setattr(
+        backtest_analytics_service,
+        "get_backtest",
+        lambda backtest_id: {"id": backtest_id, "attribution": frozen},
+    )
+
+    result = backtest_analytics_service.analyze_attribution("bt-frozen")
+
+    assert result == {"id": "bt-frozen", **frozen}
+
+
+def test_historical_backtest_without_attribution_returns_a_complete_empty_shape(monkeypatch):
+    monkeypatch.setattr(
+        backtest_analytics_service,
+        "get_backtest",
+        lambda backtest_id: {"id": backtest_id, "attribution": {}},
+    )
+
+    result = backtest_analytics_service.analyze_attribution("bt-legacy")
+
+    assert result["frequency"] == "monthly"
+    assert result["coverage"] == 0.0
+    assert result["capm"]["betas"] == {"MKT": None}
+    assert result["multi_factor"]["estimates"] == {}
+    assert result["warnings"]

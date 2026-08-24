@@ -16,7 +16,7 @@ def test_default_project_preview_runs_the_complete_module(tmp_path):
     try:
         preview = preview_pipeline_project(
             repository,
-            "six-stage-default",
+            "three-stage-default",
             create_default_engine(),
             "2024-12-31",
             stage="execution",
@@ -29,8 +29,6 @@ def test_default_project_preview_runs_the_complete_module(tmp_path):
     assert preview["targets"]
     assert sum(preview["targets"].values()) <= 1.0 + 1e-9
     assert max(preview["targets"].values()) <= 0.1 + 1e-9
-    assert preview["diagnostics"]["complete_pipeline"]["timing"]["exposure"] == 1.0
-    assert preview["timing_reference"]
     assert preview["executed_stages"] == list(STAGE_NAMES)
 
 
@@ -39,7 +37,7 @@ def test_stage_preview_stops_before_downstream_components(tmp_path):
     try:
         preview = preview_pipeline_project(
             repository,
-            "six-stage-default",
+            "three-stage-default",
             create_default_engine(),
             "2024-12-31",
             stage="selection",
@@ -48,19 +46,19 @@ def test_stage_preview_stops_before_downstream_components(tmp_path):
         repository.close()
 
     assert preview["requested_stage"] == "selection"
-    assert preview["executed_stages"] == ["universe", "selection"]
-    assert tuple(preview["stage_outputs"]) == ("universe", "selection")
-    assert "timing" not in preview["diagnostics"]["complete_pipeline"]
+    assert preview["executed_stages"] == ["selection"]
+    assert tuple(preview["stage_outputs"]) == ("selection",)
+    assert "portfolio" not in preview["diagnostics"]["complete_pipeline"]
 
 
 def test_short_backtest_uses_the_same_frozen_source(tmp_path):
     repository = PipelineRepository(tmp_path / "pipeline.db")
     try:
-        project = repository.get_project("six-stage-default")
+        project = repository.get_project("three-stage-default")
         assert project is not None
         result = run_pipeline_project_backtest(
             repository,
-            "six-stage-default",
+            "three-stage-default",
             "2024-08-01",
             "2024-12-31",
             create_default_engine(),
@@ -77,6 +75,43 @@ def test_short_backtest_uses_the_same_frozen_source(tmp_path):
     assert tuple(result.result.executions[0]["stage_outputs"]) == STAGE_NAMES
     assert result.result.diagnostics["strategy_source_sha256"] == project["source_sha256"]
     assert "selection_forward_returns" in result.result.executions[0]
+    assert "factor_score_correlation" in result.result.executions[0]
+
+
+def test_daily_execution_component_drives_the_core_schedule(tmp_path):
+    repository = PipelineRepository(tmp_path / "pipeline.db")
+    try:
+        project = repository.clone_project(
+            "three-stage-default", "daily-project", "Daily Project"
+        )
+        project["components"]["execution"] = {
+            "component_id": "execution-daily",
+            "version": 1,
+        }
+        repository.update_project(
+            "daily-project",
+            name=project["name"],
+            description=project["description"],
+            components=project["components"],
+            settings=project["settings"],
+        )
+        result = run_pipeline_project_backtest(
+            repository,
+            "daily-project",
+            "2024-08-01",
+            "2024-08-12",
+            create_default_engine(),
+        )
+    finally:
+        repository.close()
+
+    assert result.config.execution.rebalance_freq == "daily"
+    assert result.result.diagnostics["frequency"] == "daily"
+    assert len(result.result.returns) >= 5
+    assert {
+        item["execution_settings"]["rebalance_freq"]
+        for item in result.result.executions
+    } == {"daily"}
 
 
 def test_backtest_treats_pre_history_rebalances_as_cash(tmp_path):
@@ -84,7 +119,7 @@ def test_backtest_treats_pre_history_rebalances_as_cash(tmp_path):
     try:
         result = run_pipeline_project_backtest(
             repository,
-            "six-stage-default",
+            "three-stage-default",
             "2021-07-11",
             "2021-12-31",
             create_default_engine(),
@@ -103,20 +138,23 @@ def test_backtest_treats_pre_history_rebalances_as_cash(tmp_path):
     assert result.result.executions[0]["cash_weight"] == 1.0
 
 
-def test_pure_selection_and_pure_timing_are_explicit_components(tmp_path):
+def test_removed_stages_are_not_exposed_and_daily_execution_is_available(tmp_path):
     repository = PipelineRepository(tmp_path / "pipeline.db")
     try:
         always_on = repository.get_component("timing-always-on")
+        universe = repository.get_component("universe-all")
         pass_through = repository.get_component("selection-pass-through")
+        daily = repository.get_component("execution-daily")
     finally:
         repository.close()
-    assert always_on is not None and always_on["stage"] == "timing"
-    assert 'exposure": 1.0' in always_on["source"]
+    assert always_on is None
+    assert universe is None
     assert pass_through is not None and pass_through["stage"] == "selection"
-    assert "universe_symbols" in pass_through["source"]
+    assert 'context["candidates"]' in pass_through["source"]
+    assert daily is not None and daily["parameters"]["rebalance_freq"] == "daily"
 
 
-def test_core_rejects_a_component_that_escapes_the_universe(tmp_path):
+def test_core_rejects_a_component_that_escapes_the_project_stock_pool(tmp_path):
     repository = PipelineRepository(tmp_path / "pipeline.db")
     try:
         selection = repository.clone_component(
@@ -129,7 +167,7 @@ def test_core_rejects_a_component_that_escapes_the_universe(tmp_path):
                 "    return {'selected': ['NOT_ELIGIBLE'], 'scores': {'NOT_ELIGIBLE': 1.0}}\n"
             ),
         )
-        project = repository.clone_project("six-stage-default", "invalid-project")
+        project = repository.clone_project("three-stage-default", "invalid-project")
         project["components"]["selection"] = {
             "component_id": "invalid-selection",
             "version": 2,
@@ -141,7 +179,7 @@ def test_core_rejects_a_component_that_escapes_the_universe(tmp_path):
             components=project["components"],
             settings=project["settings"],
         )
-        with pytest.raises(ValueError, match="outside its universe"):
+        with pytest.raises(ValueError, match="outside the eligible project stock pool"):
             preview_pipeline_project(
                 repository,
                 "invalid-project",

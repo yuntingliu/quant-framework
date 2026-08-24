@@ -46,15 +46,21 @@ def migrate_legacy_local_projects(connection: sqlite3.Connection) -> int:
             strategy_type = str(raw.get("strategy_type", "stock_selection"))
             if strategy_type == "market_timing":
                 components["selection"] = {"component_id": "selection-pass-through", "version": 1}
-                components["timing"] = {"component_id": "timing-trend", "version": 1}
-                signal = next(iter(raw.get("signals") or []), {})
                 position = dict(raw.get("position") or {})
-                settings["stage_parameters"]["timing"] = {
-                    "window": int(signal.get("window", 10)),
-                    "min_exposure": float(position.get("min_exposure", 0.0)),
-                    "max_exposure": float(position.get("max_exposure", 1.0)),
+                maximum = float(position.get("max_exposure", 1.0))
+                settings["stage_parameters"]["portfolio"] = {
+                    "max_weight": maximum,
+                    "max_gross_exposure": maximum,
+                }
+                settings["stage_parameters"]["execution"] = {
+                    "rebalance_freq": "monthly",
+                    **dict(raw.get("execution") or {}),
                 }
                 settings["factors"] = []
+                settings["migration_note"] = (
+                    "Legacy market timing logic was removed; the imported project uses "
+                    "a fixed static exposure for historical authoring continuity."
+                )
             else:
                 settings["universe"] = dict(raw.get("universe") or settings["universe"])
                 settings["factors"] = list(raw.get("factors") or [])
@@ -67,11 +73,14 @@ def migrate_legacy_local_projects(connection: sqlite3.Connection) -> int:
                             "count": int(selection.get("n_stocks", 20)),
                             "min_factor_coverage": float(selection.get("min_factor_coverage", 0.5)),
                         },
-                        "risk": {
+                        "portfolio": {
                             "max_weight": float(portfolio.get("max_weight", 0.1)),
                             "max_gross_exposure": 1.0,
                         },
-                        "execution": execution,
+                        "execution": {
+                            "rebalance_freq": str(portfolio.get("rebalance_freq", "monthly")),
+                            **execution,
+                        },
                     }
                 )
             refs_json = _json(components)

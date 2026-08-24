@@ -27,7 +27,10 @@ def project_strategy_config(project: dict[str, Any]) -> StrategyConfig:
         for item in project.get("component_manifest") or []
     }
     selection = parameters.get("selection", {})
-    risk = parameters.get("risk", {})
+    portfolio = parameters.get("portfolio", {})
+    # Historical six-stage BacktestRuns keep their frozen risk parameters. This
+    # read-only adaptation never makes the removed stage available to authoring.
+    legacy_risk = parameters.get("risk", {})
     execution = parameters.get("execution", {})
     universe = dict(settings.get("universe") or {})
     universe.setdefault("pool", "all")
@@ -43,11 +46,17 @@ def project_strategy_config(project: dict[str, Any]) -> StrategyConfig:
                 "n_stocks": int(selection.get("count", max(1, len(universe.get("symbols") or [])) or 20)),
             },
             "portfolio": {
-                "max_weight": float(risk.get("max_weight", 1.0)),
-                "rebalance_freq": str(execution.get("rebalance_freq", "monthly")),
+                "max_weight": float(portfolio.get("max_weight", legacy_risk.get("max_weight", 1.0))),
+                "max_gross_exposure": float(
+                    portfolio.get(
+                        "max_gross_exposure",
+                        legacy_risk.get("max_gross_exposure", 1.0),
+                    )
+                ),
                 "optimizer": "equal_weight",
             },
             "execution": {
+                "rebalance_freq": str(execution.get("rebalance_freq", "monthly")),
                 "cost_bps": float(execution.get("cost_bps", 20.0)),
                 "slippage_bps": float(execution.get("slippage_bps", 0.0)),
                 "impact_bps": float(execution.get("impact_bps", 0.0)),
@@ -99,9 +108,8 @@ def preview_pipeline_project(
         "signal_date": engine.diagnostics.get("as_of_date", as_of_date),
         "requested_stage": stage,
         "executed_stages": list(STAGE_NAMES[: stage_index + 1]),
-        "targets": targets if stage in {"risk", "execution"} else {},
+        "targets": targets if stage in {"portfolio", "execution"} else {},
         "diagnostics": engine.diagnostics,
-        "timing_reference": list(engine.diagnostics.get("timing_reference") or []),
         "selection": engine.selection_snapshot,
         "stage_outputs": {
             reached_stage: dict(reached.get(reached_stage) or {})

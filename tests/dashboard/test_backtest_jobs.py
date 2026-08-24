@@ -19,7 +19,7 @@ def test_background_backtest_job_persists_success(tmp_path):
     try:
         submitted = manager.submit(
             {
-                "project_id": "six-stage-default",
+                "project_id": "three-stage-default",
                 "start_date": "2024-01-01",
                 "end_date": "2024-12-31",
                 "profile": "demo",
@@ -36,4 +36,4 @@ def test_background_backtest_job_persists_success(tmp_path):
 
     assert job["status"] == "succeeded"
     assert job["result_id"] == "backtest-1"
-    assert job["result"]["project_id"] == "six-stage-default"
+    assert job["result"]["project_id"] == "three-stage-default"

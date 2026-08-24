@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_manage_pipeline",
-  "description": "Create, clone, revise, or delete six-stage pipeline projects and Python component versions. Built-ins are immutable. Every mutation requires the matching explicit confirmation flag.",
+  "description": "Create, clone, revise, or delete three-stage pipeline projects and Python component versions. The stock pool is project configuration, not a component. Built-ins are immutable. Every mutation requires the matching explicit confirmation flag.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {
@@ -15,7 +15,7 @@
       "component_id": { "type": "string", "minLength": 2, "maxLength": 64 },
       "source_component_id": { "type": "string", "minLength": 2, "maxLength": 64 },
       "target_component_id": { "type": "string", "minLength": 2, "maxLength": 64 },
-      "stage": { "type": "string", "enum": ["universe", "selection", "timing", "portfolio", "risk", "execution"] },
+      "stage": { "type": "string", "enum": ["selection", "portfolio", "execution"] },
       "name": { "type": "string", "minLength": 1, "maxLength": 100 },
       "description": { "type": "string", "maxLength": 500 },
       "source": { "type": "string", "minLength": 1, "maxLength": 100000 },

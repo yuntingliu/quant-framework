@@ -1,4 +1,4 @@
-"""Compose six version-pinned component sources into one executable module."""
+"""Compose three version-pinned component sources into one executable module."""
 from __future__ import annotations
 
 import ast
@@ -18,10 +18,10 @@ class ComposedStrategy:
 
 def compose_strategy(components: Mapping[str, Mapping[str, Any]]) -> ComposedStrategy:
     if set(components) != set(STAGE_NAMES):
-        raise ValueError("composition requires exactly the six pipeline stages")
+        raise ValueError("composition requires exactly the three pipeline stages")
     definitions: set[str] = set()
     sections: list[str] = [
-        '"""Frozen AlphaLab six-stage strategy. Generated from version-pinned components."""',
+        '"""Frozen AlphaLab three-stage strategy. Generated from version-pinned components."""',
     ]
     manifest: list[dict[str, Any]] = []
     for stage in STAGE_NAMES:
@@ -69,67 +69,34 @@ def compose_strategy(components: Mapping[str, Mapping[str, Any]]) -> ComposedStr
 _RUNNER_SOURCE = '''def run_stage(context):
     """Execute the requested stage and only the upstream stages it depends on."""
     target_stage = str(context.get("target_stage", "")).strip().lower()
-    stage_order = ("universe", "selection", "timing", "portfolio", "risk", "execution")
+    stage_order = ("selection", "portfolio", "execution")
     if target_stage not in stage_order:
-        raise ValueError("target_stage must name one of the six pipeline stages")
+        raise ValueError("target_stage must name one of the three pipeline stages")
     parameters = context.get("stage_parameters", {})
-
-    universe = build_universe({**context, "parameters": parameters.get("universe", {})})
-    outputs = {"universe": universe}
-    if target_stage == "universe":
-        return outputs
 
     selection = select_assets({
         **context,
         "parameters": parameters.get("selection", {}),
-        "universe_symbols": list(universe.get("symbols", [])),
     })
-    outputs["selection"] = selection
+    outputs = {"selection": selection}
     if target_stage == "selection":
-        return outputs
-
-    timing = compute_exposure({
-        **context,
-        "parameters": parameters.get("timing", {}),
-        "universe": universe,
-        "selection": selection,
-    })
-    outputs["timing"] = timing
-    if target_stage == "timing":
         return outputs
 
     portfolio = construct_portfolio({
         **context,
         "parameters": parameters.get("portfolio", {}),
-        "universe": universe,
         "selection": selection,
-        "timing": timing,
     })
     outputs["portfolio"] = portfolio
     if target_stage == "portfolio":
         return outputs
 
-    risk = apply_risk({
-        **context,
-        "parameters": parameters.get("risk", {}),
-        "universe": universe,
-        "selection": selection,
-        "timing": timing,
-        "portfolio": portfolio,
-    })
-    outputs["risk"] = risk
-    if target_stage == "risk":
-        return outputs
-
     execution = configure_execution({
         **context,
         "parameters": parameters.get("execution", {}),
-        "universe": universe,
         "selection": selection,
-        "timing": timing,
         "portfolio": portfolio,
-        "risk": risk,
-        "target_weights": dict(risk.get("weights", {})),
+        "target_weights": dict(portfolio.get("weights", {})),
     })
     outputs["execution"] = execution
     return outputs
@@ -138,7 +105,7 @@ _RUNNER_SOURCE = '''def run_stage(context):
 def run_strategy(context):
     """Execute the complete strategy for backtest and final strategy runs."""
     outputs = run_stage({**context, "target_stage": "execution"})
-    return {**outputs, "weights": dict(outputs["risk"].get("weights", {}))}
+    return {**outputs, "weights": dict(outputs["portfolio"].get("weights", {}))}
 '''
 
 

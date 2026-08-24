@@ -1,4 +1,4 @@
-"""Six-stage, Python-native strategy composition facade."""
+"""Three-stage, Python-native strategy composition facade."""
 from alphalab.pipeline.compose import ComposedStrategy, compose_strategy
 from alphalab.pipeline.models import (
     ComponentRef,

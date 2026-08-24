@@ -20,7 +20,7 @@ function money(value: number | "" | undefined): string {
 export function PaperExecutionDeskWidget() {
   const [profile, setProfile] = useDataProfile()
   const [strategies, setStrategies] = useState<PipelineProjectSummary[]>([])
-  const [strategyId, setStrategyId] = useState("six-stage-default")
+  const [strategyId, setStrategyId] = useState("three-stage-default")
   const [symbols, setSymbols] = useState<string[]>([])
   const [orders, setOrders] = useState<PaperOrder[]>([])
   const [account, setAccount] = useState<PaperAccountPayload | null>(null)

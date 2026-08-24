@@ -65,23 +65,6 @@ export interface BacktestDetail {
   drawdown: number[]
   rolling_sharpe: (number | null)[]
   rolling_vol: (number | null)[]
-  timing_position: (number | null)[]
-}
-
-export interface TimingDiagnostics {
-  method: string
-  index_code?: string
-  signal_date?: string
-  return_date?: string
-  date?: string
-  position?: number
-  beta?: number
-  r2?: number
-  zscore?: number
-  weighted_zscore?: number
-  rsrs_score?: number
-  status?: string
-  reason?: string
 }
 
 export interface TradeLogRow {

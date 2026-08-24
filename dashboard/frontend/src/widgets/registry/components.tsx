@@ -13,24 +13,15 @@ import { ProjectWorkbenchWidget } from "../project/ProjectWorkbench"
 import {
   ExecutionWorkbenchWidget,
   PortfolioWorkbenchWidget,
-  RiskWorkbenchWidget,
   SelectionWorkbenchWidget,
-  TimingWorkbenchWidget,
-  UniverseWorkbenchWidget,
 } from "../pipeline/StageWorkbench"
 import {
   ExecutionSettingsWidget,
   ExecutionTargetsWidget,
   PortfolioSummaryWidget,
   PortfolioWeightsWidget,
-  RiskExposureWidget,
-  RiskLimitsWidget,
   SelectionChartWidget,
   SelectionRankingWidget,
-  TimingReferenceWidget,
-  TimingResultWidget,
-  UniverseChartWidget,
-  UniverseMembersWidget,
 } from "../pipeline/StageResultPanels"
 import { AdapterDisabledWidget } from "../system/AdapterDisabled"
 
@@ -57,25 +48,16 @@ const disabledComponents = Object.fromEntries(
 export const widgetComponents: Record<string, ComponentType> = {
   ...disabledComponents,
 
-  // Parallel workstations backed by one sequential six-stage Python pipeline.
+  // Parallel workstations backed by one sequential three-stage Python pipeline.
   "data.workbench": DataWorkbenchWidget,
   "project.workbench": ProjectWorkbenchWidget,
-  "universe.workbench": UniverseWorkbenchWidget,
   "selection.workbench": SelectionWorkbenchWidget,
-  "timing.workbench": TimingWorkbenchWidget,
   "portfolio.workbench": PortfolioWorkbenchWidget,
-  "risk.workbench": RiskWorkbenchWidget,
   "execution.workbench": ExecutionWorkbenchWidget,
-  "universe.members": UniverseMembersWidget,
-  "universe.chart": UniverseChartWidget,
   "selection.ranking": SelectionRankingWidget,
   "selection.chart": SelectionChartWidget,
-  "timing.reference": TimingReferenceWidget,
-  "timing.result": TimingResultWidget,
   "portfolio.weights": PortfolioWeightsWidget,
   "portfolio.summary": PortfolioSummaryWidget,
-  "risk.limits": RiskLimitsWidget,
-  "risk.exposure": RiskExposureWidget,
   "execution.settings": ExecutionSettingsWidget,
   "execution.targets": ExecutionTargetsWidget,
   "backtest.workbench": BacktestWorkbenchWidget,

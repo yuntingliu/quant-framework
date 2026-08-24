@@ -1,4 +1,4 @@
-"""Public objects for the six-stage Python research pipeline."""
+"""Public objects for the three-stage Python research pipeline."""
 from __future__ import annotations
 
 import re
@@ -6,13 +6,10 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 
-STAGE_NAMES = ("universe", "selection", "timing", "portfolio", "risk", "execution")
+STAGE_NAMES = ("selection", "portfolio", "execution")
 STAGE_ENTRYPOINTS = {
-    "universe": "build_universe",
     "selection": "select_assets",
-    "timing": "compute_exposure",
     "portfolio": "construct_portfolio",
-    "risk": "apply_risk",
     "execution": "configure_execution",
 }
 OBJECT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
@@ -59,7 +56,9 @@ class PipelineProject:
         missing = [stage for stage in STAGE_NAMES if stage not in self.components]
         unknown = sorted(set(self.components) - set(STAGE_NAMES))
         if missing or unknown:
-            raise ValueError(f"project requires exactly six stages; missing={missing}, unknown={unknown}")
+            raise ValueError(
+                f"project requires exactly three stages; missing={missing}, unknown={unknown}"
+            )
         object.__setattr__(
             self,
             "components",

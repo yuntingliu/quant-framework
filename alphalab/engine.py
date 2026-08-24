@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, replace
 import numpy as np
 import pandas as pd
 
-from alphalab.dataio import DataEngine, MissingDataError, create_default_engine
+from alphalab.dataio import DataEngine, create_default_engine
 from alphalab.factors.cross_sectional import (
     compute_cross_sectional_factor,
     required_fundamental_fields,
@@ -194,17 +194,15 @@ class SignalEngine:
     ) -> dict[str, float]:
         """Execute a frozen stage prefix and enforce every reached boundary."""
 
-        stage_order = ("universe", "selection", "timing", "portfolio", "risk", "execution")
+        stage_order = ("selection", "portfolio", "execution")
         if target_stage not in stage_order:
             raise ValueError(f"complete_pipeline_stage must be one of {stage_order}")
 
-        market_returns = self._market_returns_context(as_of)
         complete_context = {
             **context,
-            "strategy_type": "six_stage",
+            "strategy_type": "three_stage",
             "target_stage": target_stage,
             "stage_parameters": stage_parameters,
-            "market_returns": market_returns,
         }
         entrypoint = "run_strategy" if target_stage == "execution" else "run_stage"
         execution = execute_python_strategy(source, entrypoint, [complete_context], 15.0)
@@ -239,107 +237,56 @@ class SignalEngine:
                     "pipeline_kind": "stage_prefix",
                     "pipeline_target_stage": target_stage,
                     "complete_pipeline": value,
-                    "timing_reference": market_returns,
+                    "factor_score_correlation": self._factor_score_correlation(factor_scores),
                     "python": {"stage": runtime},
                 }
             )
             return weights
 
-        universe = value.get("universe")
-        if not isinstance(universe, dict) or not isinstance(universe.get("symbols"), list):
-            raise ValueError("build_universe must return {'symbols': [...]}")
         allowed = set(eligible_symbols)
-        universe_symbols = []
-        for raw_symbol in universe["symbols"]:
-            symbol = str(raw_symbol).strip().upper()
-            if symbol not in allowed:
-                raise ValueError(f"Universe stage returned an ineligible symbol: {symbol}")
-            if symbol not in universe_symbols:
-                universe_symbols.append(symbol)
-        self._diagnostics["universe_count"] = len(universe_symbols)
-        if target_stage == "universe":
-            return finish({})
-
         selection = value.get("selection")
         if not isinstance(selection, dict):
             raise ValueError("select_assets must return a mapping")
         selected = selection.get("selected")
         if not isinstance(selected, list):
             raise ValueError("select_assets must return {'selected': [...], 'scores': {...}}")
-        universe_set = set(universe_symbols)
         selected_symbols = [str(item).strip().upper() for item in selected]
-        unknown_selected = sorted(set(selected_symbols) - universe_set)
+        unknown_selected = sorted(set(selected_symbols) - allowed)
         if unknown_selected:
             raise ValueError(
-                f"Selection stage returned symbols outside its universe: {unknown_selected}"
+                "Selection stage returned symbols outside the eligible project stock pool: "
+                f"{unknown_selected}"
             )
         scores = self._coerce_scores(
             {"scores": selection.get("scores") or {symbol: 1.0 for symbol in selected_symbols}},
-            universe_set,
+            allowed,
         )
         coverage = (
             factor_scores.notna().mean(axis=1)
             if not factor_scores.empty
-            else pd.Series(1.0, index=universe_symbols, dtype=float)
+            else pd.Series(1.0, index=eligible_symbols, dtype=float)
         )
         ordered_scores = dict(sorted(scores.items(), key=lambda item: item[1], reverse=True))
         selected_membership = {symbol: 0.0 for symbol in selected_symbols}
         if target_stage == "selection":
             return finish(selected_membership, ordered_scores, coverage)
 
-        timing = value.get("timing")
-        if not isinstance(timing, dict):
-            raise ValueError("compute_exposure must return {'exposure': number}")
-        try:
-            exposure = float(timing.get("exposure"))
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Timing exposure must be numeric") from exc
-        if not np.isfinite(exposure) or not 0 <= exposure <= 1:
-            raise ValueError("Timing exposure must be finite and in [0, 1]")
-        self._diagnostics["timing_exposure"] = exposure
-        if target_stage == "timing":
-            return finish(selected_membership, ordered_scores, coverage)
-
         portfolio = value.get("portfolio")
         if not isinstance(portfolio, dict):
             raise ValueError("construct_portfolio must return {'weights': {...}}")
         proposed = self._coerce_weights(
-            {"weights": portfolio.get("weights")}, universe_set, label="portfolio"
+            {"weights": portfolio.get("weights")}, allowed, label="portfolio"
         )
+        proposed = self._validate_target_weights(config, proposed, set(selected_symbols))
         if target_stage == "portfolio":
             return finish(proposed, ordered_scores, coverage)
-
-        risk = value.get("risk")
-        if not isinstance(risk, dict):
-            raise ValueError("apply_risk must return {'weights': {...}}")
-        weights = self._coerce_weights({"weights": risk.get("weights")}, universe_set, label="risk")
-        weights = self._validate_target_weights(config, weights, universe_set)
-        if target_stage == "risk":
-            return finish(weights, ordered_scores, coverage)
 
         execution_stage = value.get("execution")
         if not isinstance(execution_stage, dict) or not isinstance(
             execution_stage.get("execution"), dict
         ):
             raise ValueError("configure_execution must return {'execution': {...}}")
-        return finish(weights, ordered_scores, coverage)
-
-    def _market_returns_context(self, as_of: pd.Timestamp) -> list[dict]:
-        start = (as_of - pd.DateOffset(months=48)).strftime("%Y-%m-%d")
-        end = as_of.strftime("%Y-%m-%d")
-        try:
-            frame = self._data.get_factors(
-                ["MKT"], start, end, freq="1M", strict=False, use_cache=False
-            )
-        except MissingDataError:
-            return []
-        if frame.empty or "MKT" not in frame:
-            return []
-        return [
-            {"date": pd.Timestamp(date).strftime("%Y-%m-%d"), "value": float(value)}
-            for date, value in pd.to_numeric(frame["MKT"], errors="coerce").dropna().items()
-            if pd.Timestamp(date) <= as_of
-        ]
+        return finish(proposed, ordered_scores, coverage)
 
     def _candidate_context(
         self,
@@ -385,6 +332,7 @@ class SignalEngine:
             "current_weights": dict(current_weights),
             "limits": {
                 "max_weight": config.portfolio.max_weight,
+                "max_gross_exposure": config.portfolio.max_gross_exposure,
                 "max_stocks": config.selection.n_stocks,
             },
             "factor_names": list(config.factor_names),
@@ -442,26 +390,29 @@ class SignalEngine:
     def _validate_target_weights(
         config: StrategyConfig,
         weights: dict[str, float],
-        allowed: set[str],
+        selected: set[str],
     ) -> dict[str, float]:
-        unknown = sorted(set(weights) - allowed)
+        unknown = sorted(set(weights) - selected)
         if unknown:
-            raise ValueError(f"Risk stage returned ineligible symbols: {unknown}")
+            raise ValueError(f"Portfolio stage returned unselected symbols: {unknown}")
         if len(weights) > config.selection.n_stocks:
             raise ValueError(
-                f"Risk stage returned {len(weights)} stocks; limit is {config.selection.n_stocks}"
+                f"Portfolio stage returned {len(weights)} stocks; limit is {config.selection.n_stocks}"
             )
         for symbol, weight in weights.items():
             if not np.isfinite(weight) or weight < 0:
-                raise ValueError(f"Risk-stage weight for {symbol} must be finite and non-negative")
+                raise ValueError(f"Portfolio-stage weight for {symbol} must be finite and non-negative")
             if weight > config.portfolio.max_weight + 1e-9:
                 raise ValueError(
-                    f"Risk-stage weight for {symbol} exceeds max_weight "
+                    f"Portfolio-stage weight for {symbol} exceeds max_weight "
                     f"{config.portfolio.max_weight:g}"
                 )
         total = float(sum(weights.values()))
-        if total > 1.0 + 1e-9:
-            raise ValueError("Risk-stage weights must sum to at most 1.0")
+        if total > config.portfolio.max_gross_exposure + 1e-9:
+            raise ValueError(
+                "Portfolio-stage weights exceed max_gross_exposure "
+                f"{config.portfolio.max_gross_exposure:g}"
+            )
         return {symbol: weight for symbol, weight in weights.items() if weight > 1e-12}
 
     def _finish_selection_snapshot(
@@ -500,7 +451,7 @@ class SignalEngine:
         total = float(sum(weights.values()))
         self._diagnostics.update(
             {
-                "implementation": "six_stage_python",
+                "implementation": "three_stage_python",
                 "score_count": len(ordered_scores),
                 "selected_count": len(weights),
                 "selected_symbols": list(weights),
@@ -518,6 +469,25 @@ class SignalEngine:
                 "python": python_runtime,
             }
         )
+
+    @staticmethod
+    def _factor_score_correlation(factor_scores: pd.DataFrame) -> dict:
+        if factor_scores.empty or not len(factor_scores.columns):
+            return {"labels": [], "observations": 0, "matrix": []}
+        numeric = factor_scores.apply(pd.to_numeric, errors="coerce")
+        correlation = numeric.corr(method="spearman")
+        labels = [str(value) for value in correlation.columns]
+        return {
+            "labels": labels,
+            "observations": int(len(numeric.dropna(how="all"))),
+            "matrix": [
+                [
+                    float(value) if pd.notna(value) and np.isfinite(value) else None
+                    for value in correlation.loc[row, correlation.columns].tolist()
+                ]
+                for row in correlation.index
+            ],
+        }
 
     @staticmethod
     def _eligible_data(
@@ -680,7 +650,7 @@ def run_backtest_detailed(
         return _empty_backtest(cfg, "no market bars")
     bars = bars.copy()
     bars["date"] = pd.to_datetime(bars["date"])
-    schedule = _rebalance_schedule(bars["date"], start, end, cfg.portfolio.rebalance_freq)
+    schedule = _rebalance_schedule(bars["date"], start, end, cfg.execution.rebalance_freq)
     if len(schedule) < 2:
         return _empty_backtest(cfg, "insufficient rebalance periods")
 
@@ -751,16 +721,16 @@ def run_backtest_detailed(
                 "execution_price": period_cfg.execution.execution_price,
                 "execution_settings": asdict(period_cfg.execution),
                 "pipeline_execution": execution_runtime,
+                "factor_score_correlation": signal_diagnostics.get(
+                    "factor_score_correlation", {}
+                ),
                 "stage_outputs": {
                     stage: dict(
                         (signal_diagnostics.get("complete_pipeline") or {}).get(stage) or {}
                     )
                     for stage in (
-                        "universe",
                         "selection",
-                        "timing",
                         "portfolio",
-                        "risk",
                         "execution",
                     )
                 },
@@ -788,7 +758,7 @@ def run_backtest_detailed(
                 ),
                 "net_return": float(ending_nav - 1.0),
                 "cash_weight": float(cash_before_cost),
-                "universe": {
+                "eligibility": {
                     key: signal_diagnostics.get(key)
                     for key in (
                         "as_of_date",
@@ -811,9 +781,9 @@ def run_backtest_detailed(
         weights=weights_df,
         executions=tuple(executions),
         diagnostics={
-            "frequency": cfg.portfolio.rebalance_freq,
+            "frequency": cfg.execution.rebalance_freq,
             "execution": asdict(cfg.execution),
-            "pipeline_kind": "six_stage",
+            "pipeline_kind": "three_stage",
             "pipeline_target_stage": "execution",
             "strategy_source_sha256": python_source_sha256(strategy_source),
             "periods": len(returns_series),
@@ -847,7 +817,13 @@ def _complete_execution_config_for_period(
     if not isinstance(stage, dict) or not isinstance(stage.get("execution"), dict):
         raise ValueError("configure_execution must return {'execution': {...}}")
     overrides = dict(stage["execution"])
-    overrides.pop("rebalance_freq", None)
+    returned_frequency = str(
+        overrides.pop("rebalance_freq", config.execution.rebalance_freq)
+    )
+    if returned_frequency != config.execution.rebalance_freq:
+        raise ValueError(
+            "Execution stage rebalance_freq must match the pinned project schedule"
+        )
     allowed = set(ExecutionSpec.__dataclass_fields__)
     unknown = sorted(set(overrides) - allowed)
     if unknown:
@@ -868,7 +844,9 @@ def _rebalance_schedule(
     sessions = sessions[sessions <= end]
     if sessions.empty:
         return []
-    if frequency == "weekly":
+    if frequency == "daily":
+        signals = pd.Series(sessions, index=sessions)
+    elif frequency == "weekly":
         signals = pd.Series(sessions, index=sessions).groupby(sessions.to_period("W-FRI")).max()
     else:
         signals = pd.Series(sessions, index=sessions).groupby(sessions.to_period("M")).max()
@@ -1080,7 +1058,7 @@ def _empty_backtest(config: StrategyConfig, warning: str) -> BacktestResult:
         weights=pd.DataFrame(),
         executions=(),
         diagnostics={
-            "frequency": config.portfolio.rebalance_freq,
+            "frequency": config.execution.rebalance_freq,
             "execution": asdict(config.execution),
             "periods": 0,
             "warnings": [warning],

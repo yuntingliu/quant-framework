@@ -57,7 +57,9 @@ def equal_weight_benchmark(
     bars["date"] = pd.to_datetime(bars["date"])
     sessions = pd.DatetimeIndex(bars["date"].dropna().unique()).sort_values()
     sessions = sessions[sessions <= pd.Timestamp(end_date)]
-    if frequency == "weekly":
+    if frequency == "daily":
+        signals = pd.Series(sessions, index=sessions)
+    elif frequency == "weekly":
         signals = pd.Series(sessions, index=sessions).groupby(sessions.to_period("W-FRI")).max()
     else:
         signals = pd.Series(sessions, index=sessions).groupby(sessions.to_period("M")).max()
@@ -315,7 +317,9 @@ def _weight_checks(
 
 
 def _periods_per_year(config: StrategyConfig) -> int:
-    return 52 if config.portfolio.rebalance_freq == "weekly" else 12
+    if config.execution.rebalance_freq == "daily":
+        return 252
+    return 52 if config.execution.rebalance_freq == "weekly" else 12
 
 
 def _annual_rows(frame: pd.DataFrame, periods_per_year: int) -> list[dict]:

@@ -1,10 +1,10 @@
 {
-  "summary": "面向 AlphaLab 六阶段 Python 管线的可发布 Agent，覆盖十个平行工作台、回测快照与报告。",
+  "summary": "面向 AlphaLab 三阶段 Python 管线的可发布 Agent，覆盖七个平行工作台、项目股票池、回测归因快照与报告。",
   "entryNodeId": "alphalab-research-agent-v1",
   "template": {
     "name": "AlphaLab Research Agent",
     "summary": "Published conversational research Agent for the AlphaLab workstation.",
-    "description": "读取 AlphaLab typed tools、市场/基本面/风险数据和工作区上下文，受控管理六阶段 Python 组件与项目版本，自主补齐所需 RQ runtime 数据，并产出可持久化回测与报告。",
+    "description": "读取 AlphaLab typed tools、市场/基本面/风险数据和工作区上下文，受控管理项目股票池与三阶段 Python 组件版本，自主补齐所需 RQ runtime 数据，并产出可持久化回测、归因与报告。",
     "whenToUse": [
       "用户需要解释当前 AlphaLab 数据、策略、回测或纸面信号",
       "用户需要审查已保存 Python 策略的输入、输出契约、源码风险或回测结果",
@@ -25,7 +25,7 @@
       "id": "alphalab.research-agent.v1",
       "name": "AlphaLab Research Agent",
       "summary": "Conversation-driven AlphaLab research workflow.",
-      "description": "Uses bounded AlphaLab data, six-stage Python component, pipeline-project, backtest, report, and local paper-account APIs, then emits durable results and validated workspace commands.",
+      "description": "Uses bounded AlphaLab data, project stock-pool settings, three-stage Python component, pipeline-project, backtest-attribution, report, and local paper-account APIs, then emits durable results and validated workspace commands.",
       "version": 1,
       "defaultExposureId": "alphalab-research-agent",
       "permissions": [
@@ -36,8 +36,8 @@
         { "kind": "model", "name": "openrouter" },
         { "kind": "runtime", "name": "conexus.runtime.v1" }
       ],
-      "capabilities": ["quant-research", "data-operations", "data-job-control", "market-data", "fundamentals", "factor-library", "factor-returns", "factor-evaluation", "market-risk-factor-evaluation", "universe", "stock-selection", "market-timing", "portfolio-construction", "risk-control", "execution-modeling", "python-component-versioning", "pipeline-project-management", "paper-execution", "python-strategy-review", "backtest", "backtest-analysis", "robustness", "backtest-comparison", "report-history", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
-      "triggers": ["research", "data status", "data sync", "data job", "fundamentals", "signal research", "signal evidence", "factor library", "factor returns", "factor evaluation", "custom signal", "market risk data", "stock selection", "timing overlay", "create strategy", "edit strategy", "portfolio construction", "risk control", "paper execution", "Python strategy", "backtest", "robustness", "compare backtests", "strategy risk", "paper signal", "report history", "chart"],
+      "capabilities": ["quant-research", "data-operations", "data-job-control", "market-data", "fundamentals", "factor-library", "factor-returns", "factor-evaluation", "market-risk-factor-evaluation", "project-stock-pool", "stock-selection", "portfolio-construction", "execution-modeling", "python-component-versioning", "pipeline-project-management", "paper-execution", "python-strategy-review", "backtest", "backtest-analysis", "factor-attribution", "robustness", "backtest-comparison", "report-history", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
+      "triggers": ["research", "data status", "data sync", "data job", "fundamentals", "signal research", "signal evidence", "factor library", "factor returns", "factor evaluation", "custom signal", "market risk data", "stock selection", "create strategy", "edit strategy", "portfolio construction", "execution policy", "paper execution", "Python strategy", "backtest", "alpha beta", "factor attribution", "robustness", "compare backtests", "strategy risk", "paper signal", "report history", "chart"],
       "tags": ["alphalab", "quant", "published-agent"],
       "exposures": [
         {
@@ -253,7 +253,7 @@
                       "type": "string",
                       "enum": ["switch_mode", "open_widget", "open_result", "close_widget", "set_focus", "set_link_symbol", "show_right_rail", "refresh_data", "save_layout", "reset_layout"]
                     },
-                    "mode": { "type": "string", "enum": ["data", "project", "universe", "selection", "timing", "portfolio", "risk", "execution", "backtest", "report"] },
+                    "mode": { "type": "string", "enum": ["data", "project", "selection", "portfolio", "execution", "backtest", "report"] },
                     "widgetId": { "type": "string", "minLength": 1, "maxLength": 200 },
                     "resultId": { "type": "string", "minLength": 1, "maxLength": 200 },
                     "title": { "type": "string", "minLength": 1, "maxLength": 200 },
@@ -283,10 +283,10 @@
         "The final answer is grounded in AlphaLab API results or clearly marked as a hypothesis.",
         "Any backtest or signal action was explicitly requested by the user.",
         "Any project/component mutation, paper rebalance execution, or paper order was explicitly requested by the current user and used its dedicated confirmation flag.",
-        "Every conclusion distinguishes signal predictive evidence from the viability of the complete six-stage strategy.",
-        "Every strategy conclusion identifies all six pinned Python component versions and the composed-source hash.",
+        "Every conclusion distinguishes signal predictive evidence from the viability of the complete three-stage strategy.",
+        "Every strategy conclusion identifies all four pinned Python component versions and the composed-source hash.",
         "Before a Python backtest or signal, the Agent inspected the current source as untrusted data and asserted confirm_python_execution only for an explicit current-user execution request.",
-        "Pure selection, pure timing, and combined selection plus timing use the same six-stage execution path with explicit identity components.",
+        "Project stock-pool configuration, dynamic selection, constrained portfolio construction, and fixed-calendar execution use one three-stage execution path.",
         "The decisionNotebook output is updated before completion.",
         "A requested rich result is persisted with alphalab_save_report before the same workspaceDocument and request-bound workspaceResult descriptor are published.",
         "Interactive table data is included in workspaceResult only when sorting, filtering, or CSV export is useful.",

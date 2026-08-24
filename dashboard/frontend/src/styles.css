@@ -907,7 +907,7 @@ button {
   min-width: 680px;
 }
 
-/* Six-stage workbench layout; visual controls reuse the shared workstation styles. */
+/* Three-stage workbench layout; visual controls reuse the shared workstation styles. */
 .python-stage-workbench {
   display: flex;
   height: 100%;

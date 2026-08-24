@@ -34,13 +34,10 @@ const STAGES: Array<{
   title: string
   action: string
 }> = [
-  { id: "universe", title: "标的池", action: "生成标的池" },
-  { id: "selection", title: "选股", action: "生成选股池" },
-  { id: "timing", title: "择时", action: "计算择时仓位" },
+  { id: "selection", title: "选股", action: "生成选股结果" },
   { id: "portfolio", title: "组合", action: "构建目标组合" },
-  { id: "risk", title: "风控", action: "应用风险约束" },
   { id: "execution", title: "执行", action: "生成执行方案" },
-  ]
+]
 
 const stageMeta = (stage: PythonPipelineStage) => STAGES.find((item) => item.id === stage)!
 
@@ -150,18 +147,15 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   const input = useMemo(() => {
     if (!preview) return null
     const outputs = preview.stage_outputs
-    if (stage === "universe") {
+    if (stage === "selection") {
       return {
         signal_date: preview.signal_date,
         eligible_count: preview.diagnostics.eligible_count,
         factor_names: preview.diagnostics.factor_names,
       }
     }
-    if (stage === "selection") return { universe: outputs.universe }
-    if (stage === "timing") return { universe: outputs.universe, selection: outputs.selection }
-    if (stage === "portfolio") return { selection: outputs.selection, timing: outputs.timing }
-    if (stage === "risk") return { portfolio: outputs.portfolio }
-    return { risk: outputs.risk }
+    if (stage === "portfolio") return { selection: outputs.selection }
+    return { portfolio: outputs.portfolio }
   }, [preview, stage])
 
   async function addComponent() {
@@ -510,9 +504,6 @@ export function StageWorkbench({ stage }: { stage: PythonPipelineStage }) {
   )
 }
 
-export const UniverseWorkbenchWidget = () => <StageWorkbench stage="universe" />
 export const SelectionWorkbenchWidget = () => <StageWorkbench stage="selection" />
-export const TimingWorkbenchWidget = () => <StageWorkbench stage="timing" />
 export const PortfolioWorkbenchWidget = () => <StageWorkbench stage="portfolio" />
-export const RiskWorkbenchWidget = () => <StageWorkbench stage="risk" />
 export const ExecutionWorkbenchWidget = () => <StageWorkbench stage="execution" />

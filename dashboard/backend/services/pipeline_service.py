@@ -5,7 +5,8 @@ from typing import Any
 
 import pandas as pd
 
-from alphalab.analytics import PerformanceMetrics, equal_weight_benchmark
+from alphalab.analytics import FACTOR_NAMES, PerformanceMetrics, equal_weight_benchmark, factor_attribution
+from alphalab.dataio import MissingDataError
 from alphalab.pipeline import PipelineRepository, preview_pipeline_project, run_pipeline_project_backtest
 from alphalab.provenance import build_research_provenance
 from alphalab.store import ResultStore
@@ -164,11 +165,36 @@ def run_project_backtest(
         symbols,
         start_date,
         end_date,
-        frequency=pipeline.config.portfolio.rebalance_freq,
+        frequency=pipeline.config.execution.rebalance_freq,
         execution_price=pipeline.config.execution.execution_price,
     ).reindex(returns.index)
-    periods_per_year = 52 if pipeline.config.portfolio.rebalance_freq == "weekly" else 12
+    periods_per_year = (
+        252
+        if pipeline.config.execution.rebalance_freq == "daily"
+        else 52
+        if pipeline.config.execution.rebalance_freq == "weekly"
+        else 12
+    )
     metrics = PerformanceMetrics.summarize(returns, periods_per_year)
+    try:
+        attribution_factors = engine.get_factors(
+            [*FACTOR_NAMES, "rf"],
+            start_date,
+            end_date,
+            freq="1M",
+            strict=False,
+            use_cache=False,
+        )
+    except MissingDataError:
+        attribution_factors = pd.DataFrame()
+    attribution = factor_attribution(
+        returns,
+        attribution_factors,
+        executions=pipeline.result.executions,
+        research_thresholds=dict(
+            pipeline.project["settings"].get("research_thresholds") or {}
+        ),
+    )
     provenance = build_research_provenance(
         profile,
         strategy_python=pipeline.composed.source,
@@ -197,6 +223,7 @@ def run_project_backtest(
             strategy_source=pipeline.composed.source,
             component_manifest=list(pipeline.composed.manifest),
             settings=dict(pipeline.project["settings"]),
+            attribution=attribution,
         )
     finally:
         store.close()
@@ -215,6 +242,7 @@ def run_project_backtest(
         "weights_count": int(weights.notna().sum().sum()) if not weights.empty else 0,
         "execution": pipeline.result.diagnostics,
         "component_manifest": list(pipeline.composed.manifest),
+        "attribution": attribution,
         "provenance": provenance,
     }
 

@@ -11,7 +11,7 @@ import { useDataProfile } from "../../lib/data-profile"
 export function RiskConsoleWidget() {
   const [profile] = useDataProfile()
   const [strategies, setStrategies] = useState<PipelineProjectSummary[]>([])
-  const [strategyId, setStrategyId] = useState("six-stage-default")
+  const [strategyId, setStrategyId] = useState("three-stage-default")
   const [preview, setPreview] = useState<PaperRebalancePreview | null>(null)
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)

@@ -46,7 +46,7 @@ function customNodePayload(value: unknown, expectedType: string): unknown {
 }
 
 const WORKSPACE_CAPABILITIES = {
-  modes: ["data", "project", "universe", "selection", "timing", "portfolio", "risk", "execution", "backtest", "report"],
+  modes: ["data", "project", "selection", "portfolio", "execution", "backtest", "report"],
   widgets: agentWorkspaceWidgetIds,
   commandTypes: [
     "switch_mode",
@@ -125,7 +125,7 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   commit_harness_outputs: { zh: "原子提交研究结果", en: "Commit research outputs atomically" },
   list_nodes: { zh: "检查工作台节点", en: "Inspect workspace nodes" },
   alphalab_get_workspace_context: { zh: "读取项目与数据目录", en: "Read project and data catalog" },
-  alphalab_get_pipeline_project: { zh: "读取六阶段项目", en: "Read six-stage project" },
+  alphalab_get_pipeline_project: { zh: "读取三阶段项目", en: "Read three-stage project" },
   alphalab_manage_pipeline: { zh: "管理组件与项目", en: "Manage components and projects" },
   alphalab_preview_pipeline: { zh: "运行阶段预览", en: "Preview pipeline stage" },
   alphalab_get_market_bars: { zh: "读取历史行情", en: "Read historical bars" },

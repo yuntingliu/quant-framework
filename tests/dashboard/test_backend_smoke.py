@@ -8,7 +8,7 @@ from dashboard.backend.routers import backtests
 from dashboard.backend.services import pipeline_service
 
 
-STAGES = ["universe", "selection", "timing", "portfolio", "risk", "execution"]
+STAGES = ["selection", "portfolio", "execution"]
 
 
 def test_data_and_pipeline_read_contracts():
@@ -26,9 +26,9 @@ def test_data_and_pipeline_read_contracts():
 
     projects = client.get("/api/pipeline/projects")
     assert projects.status_code == 200, projects.text
-    assert any(item["id"] == "six-stage-default" for item in projects.json())
+    assert any(item["id"] == "three-stage-default" for item in projects.json())
 
-    project = client.get("/api/pipeline/projects/six-stage-default")
+    project = client.get("/api/pipeline/projects/three-stage-default")
     assert project.status_code == 200, project.text
     payload = project.json()
     assert payload["built_in"] is True
@@ -44,8 +44,8 @@ def test_component_validation_requires_the_stage_entrypoint():
     valid = client.post(
         "/api/pipeline/components/validate",
         json={
-            "stage": "timing",
-            "source": "def compute_exposure(context):\n    return {'exposure': 1.0}\n",
+            "stage": "portfolio",
+            "source": "def construct_portfolio(context):\n    return {'weights': {}}\n",
         },
     )
     assert valid.status_code == 200, valid.text
@@ -54,7 +54,7 @@ def test_component_validation_requires_the_stage_entrypoint():
 
     invalid = client.post(
         "/api/pipeline/components/validate",
-        json={"stage": "timing", "source": "def wrong(context):\n    return {}\n"},
+        json={"stage": "portfolio", "source": "def wrong(context):\n    return {}\n"},
     )
     assert invalid.status_code == 422
 
@@ -65,26 +65,26 @@ def test_pipeline_crud_versions_and_reference_protection(tmp_path, monkeypatch):
     client = TestClient(app)
 
     cloned_component = client.post(
-        "/api/pipeline/components/universe-all/clone",
-        json={"target_id": "my-universe", "name": "My Universe"},
+        "/api/pipeline/components/selection-factor-top/clone",
+        json={"target_id": "my-selection", "name": "My Selection"},
     )
     assert cloned_component.status_code == 201, cloned_component.text
     assert cloned_component.json()["version"] == 1
     source = cloned_component.json()["source"] + "\n# immutable version 2\n"
     version = client.post(
-        "/api/pipeline/components/my-universe/versions",
+        "/api/pipeline/components/my-selection/versions",
         json={"source": source, "parameters": {"label": "v2"}, "notes": "test"},
     )
     assert version.status_code == 201, version.text
     assert version.json()["version"] == 2
 
     cloned_project = client.post(
-        "/api/pipeline/projects/six-stage-default/clone",
+        "/api/pipeline/projects/three-stage-default/clone",
         json={"target_id": "my-project", "name": "My Project"},
     )
     assert cloned_project.status_code == 201, cloned_project.text
     project = cloned_project.json()
-    project["components"]["universe"] = {"component_id": "my-universe", "version": 2}
+    project["components"]["selection"] = {"component_id": "my-selection", "version": 2}
     updated = client.put(
         "/api/pipeline/projects/my-project",
         json={
@@ -96,12 +96,12 @@ def test_pipeline_crud_versions_and_reference_protection(tmp_path, monkeypatch):
     )
     assert updated.status_code == 200, updated.text
     assert updated.json()["revision"] == 2
-    assert updated.json()["components"]["universe"]["version"] == 2
+    assert updated.json()["components"]["selection"]["version"] == 2
 
-    protected = client.delete("/api/pipeline/components/my-universe")
+    protected = client.delete("/api/pipeline/components/my-selection")
     assert protected.status_code == 422
     assert client.delete("/api/pipeline/projects/my-project").status_code == 204
-    assert client.delete("/api/pipeline/components/my-universe").status_code == 204
+    assert client.delete("/api/pipeline/components/my-selection").status_code == 204
 
 
 def test_preview_and_backtest_routes_use_project_ids(monkeypatch):
@@ -120,14 +120,14 @@ def test_preview_and_backtest_routes_use_project_ids(monkeypatch):
         },
     )
     preview = client.post(
-        "/api/pipeline/projects/six-stage-default/preview",
+        "/api/pipeline/projects/three-stage-default/preview",
         json={"stage": "selection", "profile": "demo", "as_of_date": "2025-01-31"},
     )
     assert preview.status_code == 200, preview.text
-    assert preview.json()["project_id"] == "six-stage-default"
+    assert preview.json()["project_id"] == "three-stage-default"
 
     removed_stage_analysis = client.post(
-        "/api/pipeline/projects/six-stage-default/analysis",
+        "/api/pipeline/projects/three-stage-default/analysis",
         json={"stage": "selection", "profile": "demo", "months": 12},
     )
     assert removed_stage_analysis.status_code == 404
@@ -146,14 +146,14 @@ def test_preview_and_backtest_routes_use_project_ids(monkeypatch):
     result = client.post(
         "/api/backtests/jobs",
         json={
-            "project_id": "six-stage-default",
+            "project_id": "three-stage-default",
             "start_date": "2024-01-01",
             "end_date": "2024-12-31",
             "profile": "demo",
         },
     )
     assert result.status_code == 202, result.text
-    assert result.json()["request"]["project_id"] == "six-stage-default"
+    assert result.json()["request"]["project_id"] == "three-stage-default"
     old_shape = client.post(
         "/api/backtests/jobs",
         json={

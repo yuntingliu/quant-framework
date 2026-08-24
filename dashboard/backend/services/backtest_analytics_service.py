@@ -6,9 +6,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from alphalab.analytics import equal_weight_benchmark, robustness_report
+from alphalab.analytics import RobustnessThresholds, equal_weight_benchmark, robustness_report
 from alphalab.strategy import StrategyConfig
-from alphalab.pipeline.models import STAGE_NAMES
 from alphalab.pipeline.runtime import project_strategy_config
 from dashboard.backend.services.data_service import _engine
 from dashboard.backend.services.legacy_backtest_adapter import legacy_config, legacy_snapshot
@@ -87,7 +86,7 @@ def _benchmark_returns(
         list(config.universe.symbols) or engine.get_symbols(config.universe.pool),
         record["start_date"],
         record["end_date"],
-        frequency=config.portfolio.rebalance_freq,
+        frequency=config.execution.rebalance_freq,
         execution_price=config.execution.execution_price,
     ).reindex(returns.index)
 
@@ -175,18 +174,24 @@ def analyze_record(record: dict) -> dict:
         settings = record.get("settings") if isinstance(record.get("settings"), dict) else {}
         manifest = record.get("component_manifest") if isinstance(record.get("component_manifest"), list) else []
         execution = next((item.get("parameters", {}) for item in manifest if item.get("stage") == "execution"), {})
-        risk = next((item.get("parameters", {}) for item in manifest if item.get("stage") == "risk"), {})
+        portfolio_parameters = next((item.get("parameters", {}) for item in manifest if item.get("stage") == "portfolio"), {})
+        legacy_risk = next((item.get("parameters", {}) for item in manifest if item.get("stage") == "risk"), {})
         factors = [str(item.get("name")) for item in settings.get("factors", []) if item.get("name")]
         contracts = {
             "universe": ("point-in-time eligible candidates", "{'symbols': [...]}", "symbols remain inside the eligible base pool"),
             "selection": ("universe and signal features", "{'selected': [...], 'scores': {...}}", "selected symbols remain inside the stage universe"),
-            "timing": ("point-in-time market history", "{'exposure': number}", "exposure is finite and inside [0, 1]"),
-            "portfolio": ("selection and timing output", "{'weights': {...}}", "weights are proposed only for selected assets"),
-            "risk": ("proposed portfolio and limits", "{'weights': {...}}", "core rechecks eligibility, concentration and gross exposure"),
+            "timing": ("historical point-in-time market history", "{'exposure': number}", "read-only historical contract"),
+            "portfolio": ("selection output and portfolio limits", "{'weights': {...}}", "core rechecks membership, concentration and gross exposure"),
+            "risk": ("historical proposed portfolio and limits", "{'weights': {...}}", "read-only historical contract"),
             "execution": ("target/current weights and assumptions", "{'execution': {...}}", "core applies prices, liquidity, cash and costs"),
         }
+        snapshot_stage_names = [
+            str(item.get("stage"))
+            for item in manifest
+            if str(item.get("stage")) in contracts
+        ]
         stages = []
-        for order, stage in enumerate(STAGE_NAMES, start=1):
+        for order, stage in enumerate(snapshot_stage_names, start=1):
             item = next((entry for entry in manifest if entry.get("stage") == stage), {})
             contract = contracts[stage]
             stages.append({
@@ -202,12 +207,12 @@ def analyze_record(record: dict) -> dict:
         strategy_snapshot = {
             "strategy_type": "python_pipeline",
             "implementation": "python",
-            "python_stages": list(STAGE_NAMES),
+            "python_stages": snapshot_stage_names,
             "pipeline": {},
             "pipeline_manifest": {
                 "strategy_type": "python_pipeline",
-                "order": list(STAGE_NAMES),
-                "python_stages": list(STAGE_NAMES),
+                "order": snapshot_stage_names,
+                "python_stages": snapshot_stage_names,
                 "stages": stages,
                 "composed_source": strategy_source,
                 "invariants": [
@@ -217,13 +222,13 @@ def analyze_record(record: dict) -> dict:
                 ],
             },
             "name": record.get("pipeline_project_id") or record.get("strategy_id") or "pipeline",
-            "description": "Version-pinned six-stage Python strategy",
+            "description": f"Version-pinned {len(snapshot_stage_names)}-stage Python strategy snapshot",
             "factors": factors,
             "signals": [],
             "rebalance_freq": execution.get("rebalance_freq", "monthly"),
             "execution_price": execution.get("execution_price", "next_open"),
             "cost_bps": execution.get("cost_bps", 0.0),
-            "max_weight": risk.get("max_weight", 1.0),
+            "max_weight": portfolio_parameters.get("max_weight", legacy_risk.get("max_weight", 1.0)),
             "component_manifest": manifest,
         }
     else:
@@ -270,6 +275,45 @@ def analyze_backtest(backtest_id: str) -> dict:
     return analyze_record(record)
 
 
+def analyze_attribution(backtest_id: str) -> dict:
+    """Return the factor snapshot frozen when the backtest was persisted."""
+
+    record = get_backtest(backtest_id)
+    if record is None:
+        raise KeyError(backtest_id)
+    attribution = record.get("attribution")
+    if not isinstance(attribution, dict) or not attribution:
+        empty_regression = {
+            "observations": 0,
+            "alpha_monthly": None,
+            "alpha_annualized": None,
+            "betas": {},
+            "r_squared": None,
+            "residual_volatility_annualized": None,
+            "estimates": {},
+            "warning": "This historical backtest has no frozen attribution snapshot",
+        }
+        return {
+            "id": record["id"],
+            "frequency": "monthly",
+            "observations": 0,
+            "coverage": 0.0,
+            "capm": {**empty_regression, "betas": {"MKT": None}},
+            "multi_factor": empty_regression,
+            "factor_return_correlation": {
+                "labels": [],
+                "observations": 0,
+                "pearson": [],
+                "spearman": [],
+            },
+            "selection_score_correlation": {"labels": [], "periods": 0, "median_spearman": []},
+            "research_checks": {},
+            "input_snapshot": [],
+            "warnings": ["This historical backtest has no frozen attribution snapshot"],
+        }
+    return {"id": record["id"], **attribution}
+
+
 def analyze_robustness(backtest_id: str) -> dict:
     record = get_backtest(backtest_id)
     if record is None:
@@ -295,7 +339,20 @@ def analyze_robustness(backtest_id: str) -> dict:
         ).sort_index()
     else:
         weights = pd.DataFrame(dtype=float)
-    report = robustness_report(returns, benchmark, weights, config)
+    raw_thresholds = (
+        dict((record.get("settings") or {}).get("research_thresholds") or {})
+        if isinstance(record.get("settings"), dict)
+        else {}
+    )
+    allowed_thresholds = set(RobustnessThresholds.__dataclass_fields__)
+    thresholds = RobustnessThresholds(
+        **{
+            key: value
+            for key, value in raw_thresholds.items()
+            if key in allowed_thresholds
+        }
+    )
+    report = robustness_report(returns, benchmark, weights, config, thresholds=thresholds)
     return {
         "id": record["id"],
         "strategy_id": record.get("strategy_id"),
@@ -307,7 +364,7 @@ def analyze_robustness(backtest_id: str) -> dict:
 
 
 def analyze_signal_diagnostics(backtest_id: str) -> dict:
-    """Derive selection/timing evidence from one frozen BacktestRun."""
+    """Derive selection evidence from one frozen BacktestRun."""
 
     record = get_backtest(backtest_id)
     if record is None:
@@ -319,9 +376,7 @@ def analyze_signal_diagnostics(backtest_id: str) -> dict:
             continue
         outputs = execution.get("stage_outputs")
         outputs = outputs if isinstance(outputs, dict) else {}
-        universe = outputs.get("universe") if isinstance(outputs.get("universe"), dict) else {}
         selection = outputs.get("selection") if isinstance(outputs.get("selection"), dict) else {}
-        timing = outputs.get("timing") if isinstance(outputs.get("timing"), dict) else {}
         scores = _finite_mapping(selection.get("scores"))
         forward = _finite_mapping(execution.get("selection_forward_returns"))
         paired_symbols = sorted(set(scores) & set(forward))
@@ -349,12 +404,8 @@ def analyze_signal_diagnostics(backtest_id: str) -> dict:
             if previous_selected and denominator
             else None
         )
-        universe_symbols = universe.get("symbols")
-        universe_count = (
-            len(universe_symbols)
-            if isinstance(universe_symbols, list)
-            else int((execution.get("universe") or {}).get("eligible_count") or 0)
-        )
+        eligibility = execution.get("eligibility") or execution.get("universe") or {}
+        universe_count = int(eligibility.get("eligible_count") or 0)
         coverage = len(scores) / universe_count if universe_count else None
         rows.append(
             {
@@ -366,7 +417,6 @@ def analyze_signal_diagnostics(backtest_id: str) -> dict:
                 "ic": ic,
                 "quantile_spread": quantile_spread,
                 "selection_turnover": _safe(selection_turnover),
-                "timing_exposure": _safe(timing.get("exposure")),
             }
         )
         previous_selected = selected
@@ -374,7 +424,6 @@ def analyze_signal_diagnostics(backtest_id: str) -> dict:
     ic_values = [float(row["ic"]) for row in rows if row["ic"] is not None]
     coverage_values = [float(row["coverage"]) for row in rows if row["coverage"] is not None]
     turnover_values = [float(row["selection_turnover"]) for row in rows if row["selection_turnover"] is not None]
-    exposure_values = [float(row["timing_exposure"]) for row in rows if row["timing_exposure"] is not None]
     return {
         "id": record["id"],
         "periods": len(rows),
@@ -384,7 +433,6 @@ def analyze_signal_diagnostics(backtest_id: str) -> dict:
             "positive_ic_ratio": _safe(np.mean([value > 0 for value in ic_values])) if ic_values else None,
             "average_coverage": _safe(np.mean(coverage_values)) if coverage_values else None,
             "average_selection_turnover": _safe(np.mean(turnover_values)) if turnover_values else None,
-            "average_timing_exposure": _safe(np.mean(exposure_values)) if exposure_values else None,
         },
         "rows": rows,
         "warning": None if ic_values else "该历史回测未保存全体评分标的的前瞻收益，IC 与分组收益不可用。",

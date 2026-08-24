@@ -4,7 +4,7 @@ interface ElectronApiBridge {
   getApiBase?: () => string
 }
 
-export type PythonPipelineStage = "universe" | "selection" | "timing" | "portfolio" | "risk" | "execution"
+export type PythonPipelineStage = "selection" | "portfolio" | "execution"
 
 export interface PipelineComponentSummary {
   id: string
@@ -67,18 +67,17 @@ export interface PipelinePreview {
   executed_stages: PythonPipelineStage[]
   targets: Record<string, number>
   diagnostics: Record<string, unknown>
-  timing_reference: Array<{ date: string; value: number }>
   selection: Record<string, unknown>
   stage_outputs: Partial<Record<PythonPipelineStage, unknown>>
 }
 
 export interface StrategyPipelineManifest {
   strategy_type: "python_pipeline"
-  order: PythonPipelineStage[]
-  python_stages: PythonPipelineStage[]
+  order: string[]
+  python_stages: string[]
   stages: Array<{
     order: number
-    name: PythonPipelineStage
+    name: string
     kind: "python"
     entrypoint: string
     runtime_function: string
@@ -115,6 +114,7 @@ export interface BacktestRunResult {
   returns: { date: string; value: number }[]
   weights_count: number
   execution: Record<string, unknown>
+  attribution: BacktestAttribution
   provenance: ResearchProvenance
 }
 
@@ -206,7 +206,7 @@ export interface BacktestAnalysis {
   strategy_snapshot: {
     strategy_type: "python_pipeline" | "legacy_snapshot"
     implementation?: "python"
-    python_stages?: PythonPipelineStage[]
+    python_stages?: string[]
     pipeline?: Record<string, unknown>
     pipeline_manifest?: StrategyPipelineManifest
     name: string
@@ -214,7 +214,7 @@ export interface BacktestAnalysis {
     factors: string[]
     signals: string[]
     market_factor?: string
-    rebalance_freq: "monthly" | "weekly"
+    rebalance_freq: "daily" | "monthly" | "weekly"
     execution_price: "next_open" | "next_close" | "monthly_factor_close"
     cost_bps: number
     max_weight?: number
@@ -232,7 +232,6 @@ export interface BacktestSignalDiagnostics {
     positive_ic_ratio: number | null
     average_coverage: number | null
     average_selection_turnover: number | null
-    average_timing_exposure: number | null
   }
   rows: Array<{
     signal_date: string
@@ -243,9 +242,52 @@ export interface BacktestSignalDiagnostics {
     ic: number | null
     quantile_spread: number | null
     selection_turnover: number | null
-    timing_exposure: number | null
   }>
   warning: string | null
+}
+
+export interface BacktestRegression {
+  observations: number
+  alpha_monthly: number | null
+  alpha_annualized: number | null
+  betas: Record<string, number | null>
+  r_squared: number | null
+  residual_volatility_annualized: number | null
+  estimates: Record<string, {
+    estimate: number
+    standard_error: number
+    t_stat: number
+    confidence_95: [number, number]
+  }>
+  warning: string | null
+}
+
+export interface BacktestAttribution {
+  id?: string
+  frequency: "monthly"
+  observations: number
+  coverage: number
+  capm: BacktestRegression
+  multi_factor: BacktestRegression
+  factor_return_correlation: {
+    labels: string[]
+    observations: number
+    pearson: Array<Array<number | null>>
+    spearman: Array<Array<number | null>>
+  }
+  selection_score_correlation: {
+    labels: string[]
+    periods: number
+    median_spearman: Array<Array<number | null>>
+  }
+  research_checks: {
+    passed?: boolean
+    thresholds?: Record<string, number>
+    observed?: Record<string, number | null>
+    checks?: Record<string, boolean>
+  }
+  input_snapshot: Array<Record<string, string | number | null>>
+  warnings: string[]
 }
 
 export interface BacktestComparison {

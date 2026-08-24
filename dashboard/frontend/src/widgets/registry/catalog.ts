@@ -20,24 +20,15 @@ const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
   // One parallel workstation per function boundary; data flows left to right.
   { id: "data.workbench", title: "数据工作台", titleEn: "Data Workbench", category: "研究流程", categoryEn: "Research Flow", description: "数据获取、筛选预览、同步和质量校验", descriptionEn: "Acquire, filter, preview, sync, and validate datasets" },
   { id: "project.workbench", title: "研究项目", titleEn: "Research Project", category: "研究流程", categoryEn: "Research Flow", description: "选择项目、数据环境和阶段预览的数据截至日", descriptionEn: "Select the project, data profile, and stage-preview cutoff date" },
-  { id: "universe.workbench", title: "标的池工作台", titleEn: "Universe Workbench", category: "研究流程", categoryEn: "Research Flow", description: "定义基础池和当期可交易标的", descriptionEn: "Define the base pool and point-in-time tradable universe" },
   { id: "selection.workbench", title: "选股工作台", titleEn: "Selection Workbench", category: "研究流程", categoryEn: "Research Flow", description: "研究横截面信号并选择标的", descriptionEn: "Research cross-sectional signals and select assets" },
-  { id: "timing.workbench", title: "择时工作台", titleEn: "Timing Workbench", category: "研究流程", categoryEn: "Research Flow", description: "研究时间序列信号并输出市场仓位", descriptionEn: "Research time-series signals and emit market exposure" },
-  { id: "portfolio.workbench", title: "组合工作台", titleEn: "Portfolio Workbench", category: "研究流程", categoryEn: "Research Flow", description: "把选股和择时结果构造成权重", descriptionEn: "Construct weights from selection and timing outputs" },
-  { id: "risk.workbench", title: "风控工作台", titleEn: "Risk Workbench", category: "研究流程", categoryEn: "Research Flow", description: "应用仓位、集中度和风险限制", descriptionEn: "Apply exposure, concentration, and risk limits" },
+  { id: "portfolio.workbench", title: "组合工作台", titleEn: "Portfolio Workbench", category: "研究流程", categoryEn: "Research Flow", description: "把选股结果构造成受约束的目标权重", descriptionEn: "Construct constrained target weights from selection output" },
   { id: "execution.workbench", title: "执行工作台", titleEn: "Execution Workbench", category: "研究流程", categoryEn: "Research Flow", description: "定义调仓、成本与成交假设", descriptionEn: "Define rebalancing, cost, and fill assumptions" },
-  { id: "universe.members", title: "标的池", titleEn: "Universe Members", category: "标的池", categoryEn: "Universe", description: "查看当前阶段保留的证券", descriptionEn: "Inspect securities retained by the current universe stage" },
-  { id: "universe.chart", title: "证券行情", titleEn: "Security Chart", category: "标的池", categoryEn: "Universe", description: "联动查看池内证券历史行情", descriptionEn: "Inspect linked price history for universe members" },
   { id: "selection.ranking", title: "选股排名", titleEn: "Selection Ranking", category: "选股", categoryEn: "Selection", description: "查看真实得分、排名与入选结果", descriptionEn: "Inspect actual scores, ranks, and selections" },
   { id: "selection.chart", title: "入选证券行情", titleEn: "Selected Security Chart", category: "选股", categoryEn: "Selection", description: "联动查看入选证券行情", descriptionEn: "Inspect linked price history for selected securities" },
-  { id: "timing.reference", title: "市场参考序列", titleEn: "Market Reference", category: "择时", categoryEn: "Timing", description: "查看择时组件实际使用的 MKT 市场序列", descriptionEn: "Inspect the MKT market series used by the timing component" },
-  { id: "timing.result", title: "择时结果", titleEn: "Timing Result", category: "择时", categoryEn: "Timing", description: "查看当前市场仓位及其作用的选股池", descriptionEn: "Inspect current market exposure and the selected pool it overlays" },
   { id: "portfolio.weights", title: "目标权重", titleEn: "Target Weights", category: "组合", categoryEn: "Portfolio", description: "查看组合阶段生成的目标权重", descriptionEn: "Inspect target weights emitted by portfolio construction" },
-  { id: "portfolio.summary", title: "组合摘要", titleEn: "Portfolio Summary", category: "组合", categoryEn: "Portfolio", description: "查看当前选股池、择时覆盖与组合集中度", descriptionEn: "Inspect the current selected pool, timing overlay, and concentration" },
-  { id: "risk.limits", title: "约束前后", titleEn: "Before and After Risk", category: "风控", categoryEn: "Risk", description: "比较风险约束前后的权重", descriptionEn: "Compare weights before and after risk limits" },
-  { id: "risk.exposure", title: "风险后仓位", titleEn: "Post-risk Exposure", category: "风控", categoryEn: "Risk", description: "查看当前风险后仓位与现金", descriptionEn: "Inspect current post-risk exposure and cash" },
+  { id: "portfolio.summary", title: "组合摘要", titleEn: "Portfolio Summary", category: "组合", categoryEn: "Portfolio", description: "查看选股池、约束后敞口、现金与集中度", descriptionEn: "Inspect the selected pool, constrained exposure, cash, and concentration" },
   { id: "execution.settings", title: "执行设置", titleEn: "Execution Settings", category: "执行", categoryEn: "Execution", description: "查看策略实际输出的成交假设", descriptionEn: "Inspect actual fill assumptions emitted by the strategy" },
-  { id: "execution.targets", title: "执行目标", titleEn: "Execution Targets", category: "执行", categoryEn: "Execution", description: "查看当前风险后目标仓位；历史换手和成本留给回测", descriptionEn: "Inspect current post-risk targets; historical turnover and costs belong to backtests" },
+  { id: "execution.targets", title: "执行目标", titleEn: "Execution Targets", category: "执行", categoryEn: "Execution", description: "查看最终目标仓位；历史换手和成本留给回测", descriptionEn: "Inspect final targets; historical turnover and costs belong to backtests" },
   { id: "backtest.workbench", title: "回测工作台", titleEn: "Backtest Workbench", category: "研究流程", categoryEn: "Research Flow", description: "运行、历史结果、稳健性、持仓和策略对比", descriptionEn: "Run, inspect history, robustness, holdings, and comparisons" },
   { id: "report.workbench", title: "报告工作台", titleEn: "Report Workbench", category: "研究流程", categoryEn: "Research Flow", description: "查看 Agent 生成的文档、表格、图表和来源", descriptionEn: "Inspect Agent documents, tables, charts, and sources" },
 
@@ -49,8 +40,6 @@ const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
 
   // Market
   { id: "market.watchlist", title: "自选股", titleEn: "Watchlist", category: "市场概览", categoryEn: "Market", description: "股票列表 + 行情 + 走势", descriptionEn: "Stock list, quotes, and trend" },
-
-  // Timing
 
   // Optional strategy and research extensions.
   { id: "ensemble.composer", title: "策略协同", titleEn: "Strategy Ensemble", category: "策略回测", categoryEn: "Backtest", description: "多策略协同：成员 + 元配置法，选中后在「回测工作台」运行", descriptionEn: "Coordinate strategies into one book: members + meta-method; run via Backtest Workbench" },
@@ -92,22 +81,16 @@ const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
 export const coreWorkflowWidgetIds = [
   "data.workbench",
   "project.workbench",
-  "universe.workbench",
   "selection.workbench",
-  "timing.workbench",
   "portfolio.workbench",
-  "risk.workbench",
   "execution.workbench",
   "backtest.workbench",
   "report.workbench",
 ] as const
 
 export const stageResultWidgetIds = [
-  "universe.members", "universe.chart",
   "selection.ranking", "selection.chart",
-  "timing.reference", "timing.result",
   "portfolio.weights", "portfolio.summary",
-  "risk.limits", "risk.exposure",
   "execution.settings", "execution.targets",
 ] as const
 

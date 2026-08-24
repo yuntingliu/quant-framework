@@ -9,16 +9,13 @@ ROOT = Path(__file__).resolve().parents[2]
 MODES = [
     "data",
     "project",
-    "universe",
     "selection",
-    "timing",
     "portfolio",
-    "risk",
     "execution",
     "backtest",
     "report",
 ]
-STAGES = MODES[2:8]
+STAGES = MODES[2:5]
 
 
 def test_public_facade_is_small_and_pipeline_native():
@@ -50,7 +47,7 @@ def test_public_facade_is_small_and_pipeline_native():
     assert not hasattr(alphalab, "TimingStrategyRepository")
 
 
-def test_frontend_exposes_ten_parallel_workbench_modes():
+def test_frontend_exposes_seven_parallel_workbench_modes():
     presets = (ROOT / "dashboard/frontend/src/layouts/presets.ts").read_text(encoding="utf-8")
     mode_config = (ROOT / "dashboard/frontend/src/workspace/modes.ts").read_text(encoding="utf-8")
     expected_union = " | ".join(f'"{mode}"' for mode in MODES)
@@ -63,7 +60,7 @@ def test_frontend_exposes_ten_parallel_workbench_modes():
         assert f"{mode}: {{ icon:" in mode_config
         assert f'{mode}: ["{mode}.workbench"' in mode_config
     assert (
-        'modes: ["universe", "selection", "timing", "portfolio", "risk", "execution"]'
+        'modes: ["selection", "portfolio", "execution"]'
         in mode_config
     )
     assert 'export const DEFAULT_MODE: WorkspaceMode = "data"' in presets
@@ -106,7 +103,7 @@ def test_stage_workbench_supports_versions_code_and_real_preview():
     assert "projectId, selectedStrategyRevision, stage, profile, selectedDate" in run_hook
     assert "isStale" in run_hook
     assert "{ stage, profile," in run_hook
-    assert "生成选股池" in source
+    assert "生成选股结果" in source
     assert "运行至" not in source
     assert "pipeline-stage-tabs" not in source
     assert 'setActiveMode("project")' in source
@@ -157,11 +154,8 @@ def test_stage_modes_use_distinct_multi_panel_dockview_layouts():
         encoding="utf-8"
     )
     expected = {
-        "universe": ("universe.members", "universe.chart"),
         "selection": ("selection.ranking", "selection.chart"),
-        "timing": ("timing.reference", "timing.result"),
         "portfolio": ("portfolio.weights", "portfolio.summary"),
-        "risk": ("risk.limits", "risk.exposure"),
         "execution": ("execution.settings", "execution.targets"),
     }
     assert "position?:" in presets
@@ -234,7 +228,7 @@ def test_project_workbench_owns_project_profile_and_cutoff_date():
     project = (ROOT / "dashboard/frontend/src/widgets/project/ProjectWorkbench.tsx").read_text(
         encoding="utf-8"
     )
-    for label in ("项目与数据", "数据环境", "数据截至日", "六阶段组件"):
+    for label in ("项目与数据", "数据环境", "数据截至日", "三阶段组件"):
         assert label in project
     assert '"/pipeline/projects"' in project
     assert 'aria-label="研究项目"' not in toolbar

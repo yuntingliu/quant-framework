@@ -1,12 +1,12 @@
 # AlphaLab Research Agent Bundle
 
-This bundle publishes a conversational Agent for AlphaLab's current six-stage
+This bundle publishes a conversational Agent for AlphaLab's current three-stage
 Python strategy pipeline.
 
 It can inspect data and risk factors, evaluate cross-sectional signal evidence,
 manage immutable Python component versions and revisioned projects, preview the
 complete composed strategy, run and analyze frozen backtests, read reports, and
-control the ten current workbench modes.
+control the seven current workbench modes.
 
 Current pipeline tools:
 
@@ -15,10 +15,10 @@ Current pipeline tools:
 - `alphalab_preview_pipeline`
 - `alphalab_run_backtest`
 
-The complete strategy source is composed from exactly six pinned versions:
-universe, selection, timing, portfolio, risk, and execution. Pure selection and
-pure timing use explicit identity components. YAML is neither an Agent input nor
-a runtime representation.
+The stock pool is structured project configuration. Complete strategy source is
+composed from exactly three pinned versions: selection, portfolio, and execution. Performance, drawdown, alpha,
+beta, and factor correlations are derived from the frozen BacktestRun. YAML is
+neither an Agent input nor a runtime representation.
 
 Project/component writes and deletes require explicit confirmation. Preview and
 backtest require explicit trusted-local Python execution confirmation. The

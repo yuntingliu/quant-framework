@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS backtests (
     tags TEXT,
     notes TEXT,
     provenance_json TEXT,
-    execution_json TEXT
+    execution_json TEXT,
+    attribution_json TEXT
 );
 
 -- Python is the canonical strategy representation.  The legacy ``strategies``
@@ -36,7 +37,7 @@ CREATE TABLE IF NOT EXISTS backtests (
 CREATE TABLE IF NOT EXISTS pipeline_components (
     id TEXT PRIMARY KEY,
     stage TEXT NOT NULL CHECK(stage IN (
-        'universe', 'selection', 'timing', 'portfolio', 'risk', 'execution'
+        'selection', 'portfolio', 'execution'
     )),
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',

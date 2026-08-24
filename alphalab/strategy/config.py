@@ -109,14 +109,14 @@ class PortfolioSpec:
     """Portfolio construction controls."""
 
     max_weight: float = 0.10
-    rebalance_freq: str = "monthly"
+    max_gross_exposure: float = 1.0
     optimizer: str = "equal_weight"
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.max_weight) or self.max_weight <= 0:
             raise ValueError("portfolio.max_weight must be positive")
-        if self.rebalance_freq not in {"monthly", "weekly"}:
-            raise ValueError("portfolio.rebalance_freq must be monthly or weekly")
+        if not math.isfinite(self.max_gross_exposure) or not 0 < self.max_gross_exposure <= 1:
+            raise ValueError("portfolio.max_gross_exposure must be in (0, 1]")
         if self.optimizer != "equal_weight":
             raise ValueError("barebone only ships the equal_weight optimizer")
 
@@ -125,6 +125,7 @@ class PortfolioSpec:
 class ExecutionSpec:
     """Backtest execution assumptions."""
 
+    rebalance_freq: str = "monthly"
     cost_bps: float = 20.0
     slippage_bps: float = 0.0
     impact_bps: float = 0.0
@@ -133,6 +134,8 @@ class ExecutionSpec:
     max_participation_rate: float = 0.10
 
     def __post_init__(self) -> None:
+        if self.rebalance_freq not in {"daily", "weekly", "monthly"}:
+            raise ValueError("execution.rebalance_freq must be daily, weekly, or monthly")
         for name in ("cost_bps", "slippage_bps", "impact_bps"):
             if not math.isfinite(getattr(self, name)) or getattr(self, name) < 0:
                 raise ValueError(f"execution.{name} must be non-negative")

@@ -70,6 +70,7 @@ def get_backtest(backtest_id: str) -> dict | None:
     record["profile"] = _backtest_profile(record.get("tags"))
     record["provenance"] = _json_payload(record.pop("provenance_json", None), {})
     record["executions"] = _json_payload(record.pop("execution_json", None), [])
+    record["attribution"] = _json_payload(record.pop("attribution_json", None), {})
     record["component_manifest"] = _json_payload(
         record.pop("component_manifest_json", None), []
     )
@@ -137,11 +138,11 @@ def _project_max_weight(project_id: str) -> float:
         repository.close()
     if project is None:
         return 0.10
-    risk = next(
-        (item for item in project["component_manifest"] if item["stage"] == "risk"),
+    portfolio = next(
+        (item for item in project["component_manifest"] if item["stage"] == "portfolio"),
         {},
     )
-    return float(risk.get("parameters", {}).get("max_weight", 0.10))
+    return float(portfolio.get("parameters", {}).get("max_weight", 0.10))
 
 
 def preview_paper_rebalance(

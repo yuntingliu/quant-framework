@@ -107,10 +107,12 @@ class PipelineRepository:
             FROM pipeline_components c
             JOIN pipeline_component_versions v ON v.component_id = c.id
         """
-        params: tuple[Any, ...] = ()
+        placeholders = ",".join("?" for _ in STAGE_NAMES)
+        query += f" WHERE c.stage IN ({placeholders})"
+        params: tuple[Any, ...] = tuple(STAGE_NAMES)
         if stage:
-            query += " WHERE c.stage = ?"
-            params = (stage,)
+            query += " AND c.stage = ?"
+            params = (*params, stage)
         query += " GROUP BY c.id ORDER BY c.stage, c.built_in DESC, c.name"
         return [self._component_summary(row) for row in self._conn.execute(query, params)]
 
@@ -120,6 +122,8 @@ class PipelineRepository:
             "SELECT * FROM pipeline_components WHERE id = ?", (normalized,)
         ).fetchone()
         if component is None:
+            return None
+        if str(component["stage"]) not in STAGE_NAMES:
             return None
         if version is None:
             version_row = self._conn.execute(

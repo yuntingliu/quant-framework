@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from alphalab.dataio import MissingDataError
 from dashboard.backend.services.backtest_analytics_service import (
+    analyze_attribution,
     analyze_backtest,
     analyze_robustness,
     analyze_signal_diagnostics,
@@ -99,6 +100,14 @@ def backtest_detail(backtest_id: str) -> dict:
 def backtest_analysis(backtest_id: str) -> dict:
     try:
         return analyze_backtest(backtest_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="backtest not found") from exc
+
+
+@router.get("/{backtest_id}/attribution")
+def backtest_attribution(backtest_id: str) -> dict:
+    try:
+        return analyze_attribution(backtest_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="backtest not found") from exc
 

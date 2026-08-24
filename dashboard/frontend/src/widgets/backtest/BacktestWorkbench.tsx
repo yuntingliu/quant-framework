@@ -9,6 +9,7 @@ import { useWorkspace } from "@/contexts/WorkspaceContext"
 import {
   api,
   type BacktestAnalysis,
+  type BacktestAttribution,
   type BacktestJob,
   type BacktestRecord,
   type BacktestRobustness,
@@ -24,7 +25,7 @@ import { Widget } from "@/widgets/Widget"
 import { analyticsError } from "@/widgets/market/analytics-utils"
 import { BacktestCompareWidget } from "./BacktestCompare"
 
-type WorkbenchTab = "pipeline" | "performance" | "signals" | "robustness" | "execution" | "holdings"
+type WorkbenchTab = "pipeline" | "performance" | "signals" | "attribution" | "robustness" | "execution" | "holdings"
 type WorkbenchView = "inspect" | "compare"
 
 function metric(value: number | null | undefined, kind: "pct" | "number"): string {
@@ -42,6 +43,28 @@ function researchStatusLabel(status: string, language: "zh" | "en"): string {
   return labels[status]?.[language] ?? status.replace(/_/g, " ")
 }
 
+function CorrelationTable({
+  labels,
+  matrix,
+}: {
+  labels: string[]
+  matrix: Array<Array<number | null>>
+}) {
+  if (!labels.length || !matrix.length) return <div className="analytics-empty">—</div>
+  return (
+    <div className="analytics-table-wrap">
+      <table className="analytics-table compact">
+        <thead><tr><th>Factor</th>{labels.map((label) => <th key={label}>{label}</th>)}</tr></thead>
+        <tbody>{labels.map((label, rowIndex) => (
+          <tr key={label}><td><strong>{label}</strong></td>{labels.map((column, columnIndex) => (
+            <td key={column}>{metric(matrix[rowIndex]?.[columnIndex], "number")}</td>
+          ))}</tr>
+        ))}</tbody>
+      </table>
+    </div>
+  )
+}
+
 export function BacktestWorkbenchWidget() {
   const { language } = useLanguage()
   const copy = language === "zh" ? {
@@ -53,9 +76,6 @@ export function BacktestWorkbenchWidget() {
     runtime: "本地 RQ",
     strategy: "StrategySnapshot",
     factorCount: "个横截面信号",
-    signalCount: "个择时信号",
-    stockSelection: "纯选股",
-    marketTiming: "纯择时",
     startDate: "回测开始日期",
     endDate: "回测结束日期",
     running: "运行中",
@@ -64,39 +84,46 @@ export function BacktestWorkbenchWidget() {
     run: "运行",
     quickRun: "运行完整策略回测",
     runSettings: "运行设置",
-    runHint: "这里选择版本固定的六阶段策略项目和数据区间；回测运行并保存工作台中看到的同一份总 Python 源码。",
+    runHint: "这里选择版本固定的三阶段策略项目和数据区间；股票池来自项目设置，回测保存工作台中看到的同一份总 Python 源码。",
     paperAwaiting: "模拟调仓等待用户确认",
-    timingCompleted: "最新市场仓位已生成，不涉及个股订单",
     savedBacktest: "已保存的回测",
     savedRun: "回测记录",
     noBacktests: "没有已保存的回测。",
     resultView: "回测结果视图",
     pipeline: "策略快照",
     pipelineSnapshot: "本次回测实际保存的策略管线",
-    pipelineHint: "按标的池、选股、择时、组合、风控、执行展示；六个组件版本、总 Python 源码、数据和代码指纹一起固化。",
+    pipelineHint: "按选股、组合、执行展示；股票池设置、三个组件版本、总 Python 源码、数据和代码指纹一起固化。",
     customModule: "本次回测的自定义 Python 模块",
     hardGate: "核心闸门",
     performance: "收益与基准",
     signals: "信号诊断",
     signalEvidence: "信号预测能力",
-    signalEvidenceHint: "这里使用该 BacktestRun 已保存的每期横截面评分、后续收益和择时仓位；它不重新运行策略。",
+    signalEvidenceHint: "这里使用该 BacktestRun 已保存的每期横截面评分和后续收益；它不重新运行策略。",
     meanIc: "平均 Rank IC",
     positiveIc: "IC 为正比例",
     scoreCoverage: "评分覆盖率",
     selectionTurnover: "选股换手",
-    timingExposure: "平均择时仓位",
     quantileSpread: "头尾组收益差",
     evidencePeriods: "有效检验期",
+    attribution: "Alpha/Beta 归因",
+    attributionHint: "使用随 BacktestRun 冻结的月频策略收益与因子收益，不重新执行策略。",
+    capmAlpha: "CAPM 年化 Alpha",
+    marketBeta: "市场 Beta",
+    rSquared: "R²",
+    attributionPeriods: "回归样本",
+    multiFactor: "多因子回归",
+    factorReturnCorrelation: "因子收益相关性（Pearson）",
+    selectionFactorCorrelation: "选股因子截面相关性（Spearman 中位数）",
+    estimate: "估计值",
+    tStat: "t 值",
     robustness: "稳健性",
     holdings: "持仓",
-    exposure: "仓位",
     execution: "交易执行",
     currentResult: "当前结果",
     resultIdentity: "结果身份",
     runAt: "运行于",
     strategySnapshot: "策略快照",
     benchmark: "等权基准",
-    marketBenchmark: "MKT 市场基准",
     benchmarkMissing: "该历史记录未保存基准序列，无法自动给出研究结论。",
     verdictUnavailable: "基准缺失",
     rebuildBenchmark: "重建基准并评估",
@@ -158,7 +185,6 @@ export function BacktestWorkbenchWidget() {
     max: "最大权重",
     exportHoldings: "导出持仓",
     symbol: "证券代码",
-    marketExposure: "市场仓位",
     weight: "权重",
   } : {
     mode: "Backtest workbench mode",
@@ -169,9 +195,6 @@ export function BacktestWorkbenchWidget() {
     runtime: "Local RQ",
     strategy: "StrategySnapshot",
     factorCount: "cross-sectional signals",
-    signalCount: "timing signals",
-    stockSelection: "Stock only",
-    marketTiming: "Timing only",
     startDate: "Backtest start date",
     endDate: "Backtest end date",
     running: "Running",
@@ -180,39 +203,46 @@ export function BacktestWorkbenchWidget() {
     run: "Run",
     quickRun: "Run full strategy backtest",
     runSettings: "Run setup",
-    runHint: "Choose a version-pinned six-stage project and data range. The run executes and persists the same complete Python source shown here.",
+    runHint: "Choose a version-pinned three-stage project and data range. The stock pool comes from project settings, and the run persists the same complete Python source shown here.",
     paperAwaiting: "paper rebalance awaits confirmation",
-    timingCompleted: "latest market exposure generated; no stock orders",
     savedBacktest: "Saved backtest",
     savedRun: "Saved run",
     noBacktests: "has no persisted backtests.",
     resultView: "Backtest result view",
     pipeline: "Strategy Snapshot",
     pipelineSnapshot: "Persisted pipeline used by this backtest",
-    pipelineHint: "Universe, selection, timing, portfolio, risk, and execution are shown in order with the frozen Python module, data, and code fingerprints.",
+    pipelineHint: "Selection, portfolio, and execution are shown in order with project stock-pool settings, the frozen Python module, data, and code fingerprints.",
     customModule: "Persisted custom Python module",
     hardGate: "Core gate",
     performance: "Returns & Benchmark",
     signals: "Signal Diagnostics",
     signalEvidence: "Signal predictive evidence",
-    signalEvidenceHint: "Derived from the cross-sectional scores, forward returns, and timing exposure persisted in this BacktestRun; the strategy is not rerun.",
+    signalEvidenceHint: "Derived from the cross-sectional scores and forward returns persisted in this BacktestRun; the strategy is not rerun.",
     meanIc: "Mean Rank IC",
     positiveIc: "Positive IC ratio",
     scoreCoverage: "Score coverage",
     selectionTurnover: "Selection turnover",
-    timingExposure: "Avg timing exposure",
     quantileSpread: "Top-bottom return",
     evidencePeriods: "evidence periods",
+    attribution: "Alpha/Beta Attribution",
+    attributionHint: "Uses monthly strategy and factor returns frozen with the BacktestRun; the strategy is not rerun.",
+    capmAlpha: "CAPM annual alpha",
+    marketBeta: "Market beta",
+    rSquared: "R²",
+    attributionPeriods: "Regression observations",
+    multiFactor: "Multi-factor regression",
+    factorReturnCorrelation: "Factor-return correlation (Pearson)",
+    selectionFactorCorrelation: "Selection-factor cross-sectional correlation (median Spearman)",
+    estimate: "Estimate",
+    tStat: "t-stat",
     robustness: "Robustness",
     holdings: "Holdings",
-    exposure: "Exposure",
     execution: "Execution",
     currentResult: "Current result",
     resultIdentity: "Result identity",
     runAt: "run at",
     strategySnapshot: "Strategy snapshot",
     benchmark: "Equal-weight benchmark",
-    marketBenchmark: "MKT benchmark",
     benchmarkMissing: "This legacy result did not persist a benchmark series, so a verdict cannot be produced automatically.",
     verdictUnavailable: "Benchmark unavailable",
     rebuildBenchmark: "Rebuild benchmark and evaluate",
@@ -274,7 +304,6 @@ export function BacktestWorkbenchWidget() {
     max: "Max",
     exportHoldings: "Export holdings",
     symbol: "Symbol",
-    marketExposure: "Market exposure",
     weight: "Weight",
   }
   const { selectedStrategy, setActiveMode, selectedBacktest, setSelectedBacktest } = useWorkspace()
@@ -383,6 +412,11 @@ export function BacktestWorkbenchWidget() {
   const signals = useQuery({
     queryKey: ["backtests", "signals", selectedId],
     queryFn: () => api.get<BacktestSignalDiagnostics>(`/backtests/${selectedId}/signals`),
+    enabled: Boolean(selectedId),
+  })
+  const attribution = useQuery({
+    queryKey: ["backtests", "attribution", selectedId],
+    queryFn: () => api.get<BacktestAttribution>(`/backtests/${selectedId}/attribution`),
     enabled: Boolean(selectedId),
   })
 
@@ -517,7 +551,6 @@ export function BacktestWorkbenchWidget() {
   const provenance = analysis.data?.provenance
   const selectedRecord = records.find((record) => record.id === selectedId)
   const selectedStrategyDefinition = strategies.find((strategy) => strategy.id === strategyId)
-  const isTimingResult = false
   const invalidDateRange = Boolean(startDate && endDate && startDate > endDate)
   const failedChecks = robustness.data
     ? robustness.data.checks.filter((check) => !check.passed).length
@@ -542,7 +575,7 @@ export function BacktestWorkbenchWidget() {
           </div>
           {selectedStrategyDefinition && (
             <small>
-              六阶段 Python · {selectedStrategyDefinition.name} · revision {selectedStrategyDefinition.revision}
+              三阶段 Python · {selectedStrategyDefinition.name} · revision {selectedStrategyDefinition.revision}
             </small>
           )}
         </div>
@@ -613,8 +646,6 @@ export function BacktestWorkbenchWidget() {
                 {copy.strategySnapshot}: {analysis.data.strategy_snapshot.name}{" · "}
                 {analysis.data.strategy_snapshot.implementation === "python"
                   ? "Python"
-                  : isTimingResult
-                  ? `${analysis.data.strategy_snapshot.signals.length} ${copy.signalCount}`
                   : `${analysis.data.strategy_snapshot.factors.length} ${copy.factorCount}`}
                 {" · "}{analysis.data.strategy_snapshot.rebalance_freq}
               </span>
@@ -696,6 +727,14 @@ export function BacktestWorkbenchWidget() {
             <button
               type="button"
               role="tab"
+              aria-selected={tab === "attribution"}
+              onClick={() => setTab("attribution")}
+            >
+              {copy.attribution}
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={tab === "robustness"}
               onClick={() => setTab("robustness")}
             >
@@ -715,7 +754,7 @@ export function BacktestWorkbenchWidget() {
               aria-selected={tab === "holdings"}
               onClick={() => setTab("holdings")}
             >
-              {isTimingResult ? copy.exposure : copy.holdings}
+              {copy.holdings}
             </button>
           </div>
           {tab === "pipeline" ? (
@@ -794,7 +833,7 @@ export function BacktestWorkbenchWidget() {
                   { key: "strategy", name: copy.strategyCurve },
                   ...(analysis.data.benchmark_coverage
                     ? [
-                        { key: "benchmark", name: isTimingResult ? copy.marketBenchmark : copy.benchmark },
+                        { key: "benchmark", name: copy.benchmark },
                         { key: "excess", name: copy.excess },
                       ]
                     : []),
@@ -820,20 +859,53 @@ export function BacktestWorkbenchWidget() {
                     <div className="analytics-kpi"><span>{copy.positiveIc}</span><strong>{metric(signals.data.summary.positive_ic_ratio, "pct")}</strong></div>
                     <div className="analytics-kpi"><span>{copy.scoreCoverage}</span><strong>{metric(signals.data.summary.average_coverage, "pct")}</strong></div>
                     <div className="analytics-kpi"><span>{copy.selectionTurnover}</span><strong>{metric(signals.data.summary.average_selection_turnover, "pct")}</strong></div>
-                    <div className="analytics-kpi"><span>{copy.timingExposure}</span><strong>{metric(signals.data.summary.average_timing_exposure, "pct")}</strong></div>
                     <div className="analytics-kpi"><span>{copy.evidencePeriods}</span><strong>{signals.data.evidence_periods}/{signals.data.periods}</strong></div>
                   </div>
                   <div className="analytics-table-wrap">
                     <table className="analytics-table compact">
-                      <thead><tr><th>{copy.signalDate}</th><th>{copy.scoreCoverage}</th><th>{copy.meanIc}</th><th>{copy.quantileSpread}</th><th>{copy.selectionTurnover}</th><th>{copy.timingExposure}</th></tr></thead>
+                      <thead><tr><th>{copy.signalDate}</th><th>{copy.scoreCoverage}</th><th>{copy.meanIc}</th><th>{copy.quantileSpread}</th><th>{copy.selectionTurnover}</th></tr></thead>
                       <tbody>{signals.data.rows.map((row) => (
                         <tr key={row.signal_date}>
                           <td>{row.signal_date}</td><td>{metric(row.coverage, "pct")}</td><td>{metric(row.ic, "number")}</td>
-                          <td>{metric(row.quantile_spread, "pct")}</td><td>{metric(row.selection_turnover, "pct")}</td><td>{metric(row.timing_exposure, "pct")}</td>
+                          <td>{metric(row.quantile_spread, "pct")}</td><td>{metric(row.selection_turnover, "pct")}</td>
                         </tr>
                       ))}</tbody>
                     </table>
                   </div>
+                </>
+              ) : null}
+            </div>
+          ) : tab === "attribution" ? (
+            <div className="workbench-body">
+              {attribution.isLoading ? (
+                <div className="analytics-empty">{copy.loadingResult}</div>
+              ) : attribution.error ? (
+                <div className="workbench-message error">{analyticsError(attribution.error)}</div>
+              ) : attribution.data ? (
+                <>
+                  <div className="backtest-section-heading">
+                    <div><strong>{copy.attribution}</strong><span>{copy.attributionHint}</span></div>
+                  </div>
+                  {attribution.data.warnings.map((warning) => <div className="workbench-message warning" key={warning}>{warning}</div>)}
+                  <div className="analytics-kpi-grid workbench-kpis">
+                    <div className="analytics-kpi"><span>{copy.capmAlpha}</span><strong>{metric(attribution.data.capm.alpha_annualized, "pct")}</strong></div>
+                    <div className="analytics-kpi"><span>{copy.marketBeta}</span><strong>{metric(attribution.data.capm.betas.MKT, "number")}</strong></div>
+                    <div className="analytics-kpi"><span>{copy.rSquared}</span><strong>{metric(attribution.data.capm.r_squared, "pct")}</strong></div>
+                    <div className="analytics-kpi"><span>{copy.attributionPeriods}</span><strong>{attribution.data.observations}</strong></div>
+                  </div>
+                  <div className="backtest-section-heading"><div><strong>{copy.multiFactor}</strong></div></div>
+                  <div className="analytics-table-wrap">
+                    <table className="analytics-table compact">
+                      <thead><tr><th>Factor</th><th>{copy.estimate}</th><th>{copy.tStat}</th></tr></thead>
+                      <tbody>{Object.entries(attribution.data.multi_factor.estimates).map(([name, value]) => (
+                        <tr key={name}><td><strong>{name}</strong></td><td>{metric(value.estimate, name === "alpha" ? "pct" : "number")}</td><td>{metric(value.t_stat, "number")}</td></tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                  <div className="backtest-section-heading"><div><strong>{copy.factorReturnCorrelation}</strong></div></div>
+                  <CorrelationTable labels={attribution.data.factor_return_correlation.labels} matrix={attribution.data.factor_return_correlation.pearson} />
+                  <div className="backtest-section-heading"><div><strong>{copy.selectionFactorCorrelation}</strong></div></div>
+                  <CorrelationTable labels={attribution.data.selection_score_correlation.labels} matrix={attribution.data.selection_score_correlation.median_spearman} />
                 </>
               ) : null}
             </div>
@@ -1012,7 +1084,7 @@ export function BacktestWorkbenchWidget() {
                     <option key={item.date} value={item.date}>{item.date}</option>
                   ))}
                 </select>
-                <span>{isTimingResult ? copy.marketExposure : `${snapshot?.holdings_count ?? 0} ${copy.names}`}</span>
+                <span>{snapshot?.holdings_count ?? 0} {copy.names}</span>
                 <span>{copy.gross} {metric(snapshot?.gross_exposure, "pct")}</span>
                 <span>{copy.max} {metric(snapshot?.max_weight, "pct")}</span>
                 <span>HHI {metric(snapshot?.concentration, "number")}</span>
@@ -1032,7 +1104,7 @@ export function BacktestWorkbenchWidget() {
                   <tbody>
                     {(snapshot?.top_holdings ?? []).map((holding) => (
                       <tr key={holding.symbol}>
-                        <td><strong>{isTimingResult && holding.symbol === "MARKET_EXPOSURE" ? copy.marketExposure : holding.symbol}</strong></td>
+                        <td><strong>{holding.symbol}</strong></td>
                         <td>{formatPercent(holding.weight, 2)}</td>
                       </tr>
                     ))}

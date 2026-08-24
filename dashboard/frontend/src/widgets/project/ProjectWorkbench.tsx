@@ -22,11 +22,8 @@ import { useDataProfile, type DataProfile } from "@/lib/data-profile"
 import { Widget } from "@/widgets/Widget"
 
 const STAGES: Array<{ id: PythonPipelineStage; label: string }> = [
-  { id: "universe", label: "标的池" },
   { id: "selection", label: "选股" },
-  { id: "timing", label: "择时" },
   { id: "portfolio", label: "组合" },
-  { id: "risk", label: "风控" },
   { id: "execution", label: "执行" },
 ]
 
@@ -85,7 +82,7 @@ export function ProjectWorkbenchWidget() {
     setComponents(componentRows)
     queryClient.setQueryData(["pipeline", "projects"], projectRows)
     const next = projectRows.find((item) => item.id === (preferred ?? selectedStrategy))
-      ?? projectRows.find((item) => item.id === "six-stage-default")
+      ?? projectRows.find((item) => item.id === "three-stage-default")
       ?? projectRows[0]
     if (next) await openProject(next.id)
   }
@@ -98,7 +95,7 @@ export function ProjectWorkbenchWidget() {
     if (!newName.trim()) return
     const sourceId = dialogMode === "copy"
       ? project?.id
-      : projects.find((item) => item.id === "six-stage-default")?.id
+      : projects.find((item) => item.id === "three-stage-default")?.id
     if (!sourceId) return
     setBusy(true)
     setError("")
@@ -149,7 +146,7 @@ export function ProjectWorkbenchWidget() {
       setProject(null)
       setSelectedStrategy(null)
       setSelectedStrategyRevision(null)
-      await refresh("six-stage-default")
+      await refresh("three-stage-default")
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -208,7 +205,7 @@ export function ProjectWorkbenchWidget() {
               </section>
 
               <section className="rounded border border-border bg-background p-4">
-                <div><h2 className="text-base font-semibold text-foreground">六阶段组件</h2><p className="mt-1 text-xs text-muted-foreground">点击阶段进入对应工作台研究 Python 组件。</p></div>
+                <div><h2 className="text-base font-semibold text-foreground">三阶段组件</h2><p className="mt-1 text-xs text-muted-foreground">点击阶段进入对应工作台研究 Python 组件。</p></div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {STAGES.map((stage, index) => {
                     const ref = project.components[stage.id]
@@ -224,8 +221,8 @@ export function ProjectWorkbenchWidget() {
               </section>
 
               <details className="rounded border border-border bg-background p-4">
-                <summary className="cursor-pointer text-sm font-semibold text-foreground">高级项目设置</summary>
-                <p className="mt-2 text-xs leading-5 text-muted-foreground">基础池约束、因子输入和回看窗口保存在项目设置中。通常只在需要调整底层研究输入时修改。</p>
+                <summary className="cursor-pointer text-sm font-semibold text-foreground">股票池与高级项目设置</summary>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">基础股票池、点时资格约束、因子输入和回看窗口属于项目输入，不再是可编程策略阶段。</p>
                 <textarea className="code-view code-editor mt-3 min-h-72 w-full" spellCheck={false} value={settings} onChange={(event) => setSettings(event.target.value)} readOnly={!project.editable} />
               </details>
               {!project.editable ? <div className="workbench-message">当前项目只读；请点击“新建”或“复制”创建可编辑项目。</div> : null}
@@ -235,7 +232,7 @@ export function ProjectWorkbenchWidget() {
 
         <Dialog open={dialogMode !== null} onOpenChange={(open) => { if (!open) setDialogMode(null) }}>
           <DialogContent className="max-w-sm">
-            <DialogHeader><DialogTitle>{dialogMode === "copy" ? "复制研究项目" : "新建研究项目"}</DialogTitle><DialogDescription>{dialogMode === "copy" ? "复制当前项目的六阶段组件与研究设置。" : "从默认六阶段结构创建一个可编辑项目。"}</DialogDescription></DialogHeader>
+            <DialogHeader><DialogTitle>{dialogMode === "copy" ? "复制研究项目" : "新建研究项目"}</DialogTitle><DialogDescription>{dialogMode === "copy" ? "复制当前项目的三阶段组件与研究设置。" : "从默认三阶段结构创建一个可编辑项目。"}</DialogDescription></DialogHeader>
             <label className="grid gap-1.5 text-xs text-muted-foreground"><span>项目名称</span><input autoFocus className="h-9 rounded border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary" value={newName} onChange={(event) => setNewName(event.target.value)} /></label>
             <DialogFooter><button className="secondary-command" type="button" onClick={() => setDialogMode(null)}>取消</button><button className="primary-command" type="button" onClick={() => void createProject()} disabled={busy || !newName.trim()}><Plus size={14} />创建</button></DialogFooter>
           </DialogContent>

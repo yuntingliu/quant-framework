@@ -1,4 +1,4 @@
-"""Small public facade for data and six-stage Python pipeline research."""
+"""Small public facade for data and three-stage Python pipeline research."""
 
 __version__ = "0.5.0"
 __author__ = "LYT"

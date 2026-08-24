@@ -8,8 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BUNDLE = ROOT / "integrations" / "conexus" / "alphalab-research-agent"
 TOOLS = BUNDLE / "tools"
-STAGES = ["universe", "selection", "timing", "portfolio", "risk", "execution"]
-MODES = [*STAGES[:1], "selection", "timing", "portfolio", "risk", "execution"]
+STAGES = ["selection", "portfolio", "execution"]
 
 
 def _load(path: Path) -> dict:
@@ -101,7 +100,7 @@ def test_conexus_tools_match_the_python_pipeline_contract():
     assert "stage" in preview["inputSchema"]["required"]
     assert preview["inputSchema"]["properties"]["stage"]["enum"] == STAGES
     assert "JSON.stringify({stage," in preview["code"]
-    assert "component_manifest.length!==6" in tools["alphalab_run_backtest"]["code"]
+    assert "component_manifest.length!==3" in tools["alphalab_run_backtest"]["code"]
     assert "'/api/backtests/jobs'" in tools["alphalab_run_backtest"]["code"]
     assert "job.status==='queued'||job.status==='running'" in tools["alphalab_run_backtest"]["code"]
     save_report = tools["alphalab_save_report"]
@@ -110,7 +109,7 @@ def test_conexus_tools_match_the_python_pipeline_contract():
     assert "markdown:input.markdown" in save_report["code"]
 
 
-def test_agent_and_harness_use_only_the_ten_workbenches():
+def test_agent_and_harness_use_only_the_seven_workbenches():
     agent = _load(BUNDLE / "agents" / "AlphaLab-Research-Agent.agent.json")
     assert agent["model"] == "openai/gpt-5.6-sol"
     tools = {_load(path)["toolName"] for path in TOOLS.glob("*.json")}
@@ -125,13 +124,13 @@ def test_agent_and_harness_use_only_the_ten_workbenches():
         assert removed not in agent["toolNames"]
     prompt = agent["systemPrompt"]
     for text in (
-        "DataSnapshot → build_universe → select_assets → compute_exposure",
-        "construct_portfolio → apply_risk → configure_execution → BacktestRun → ResearchReport",
+        "DataSnapshot/项目股票池与核心资格闸门 → select_assets → construct_portfolio → configure_execution",
         "不得使用或生成 YAML",
-        "纯选股使用 timing-always-on",
-        "纯择时使用 selection-pass-through",
+        "唯一策略模型是版本固定的三阶段 Python 管线",
+        "不存在 universe、timing 或独立 risk 策略阶段",
         "不得声称 Python 能绕过核心闸门",
-        "不得为选股预览继续运行 timing、portfolio、risk 或 execution",
+        "不得为选股预览继续运行 portfolio 或 execution",
+        "attribution",
         "只能调用一次 update_nodes",
         "必须在 update_nodes 前调用且只调用一次 alphalab_save_report",
     ):
@@ -146,11 +145,8 @@ def test_agent_and_harness_use_only_the_ten_workbenches():
     assert mode_enum == [
         "data",
         "project",
-        "universe",
         "selection",
-        "timing",
         "portfolio",
-        "risk",
         "execution",
         "backtest",
         "report",
