@@ -65,14 +65,40 @@ The sample is real historical data for development demonstration, not an
 unbiased investable universe. Prices end on the manifest cutoff date and must
 not be presented as realtime. Immutable parquet hashes are checked by the API.
 
-## RQ Runtime Data
+## Collaborator RQ Setup / 协作者本地 RQ 数据
 
-Install the optional RQ client and put the three connection values in the
-gitignored project `.env`:
+Each collaborator downloads RQ data to their own computer with their own RQData
+account. Credentials and downloaded vendor data must never be committed or
+shared. The commands below were verified against the `dev_liu` branch.
+
+每位协作者使用自己的 RQData 账号，把数据下载到自己的电脑。账号、密码和下载的
+数据都不会进入 Git；仓库里只共享框架代码。
+
+If the repository has not been downloaded yet:
 
 ```powershell
-pip install -e ".[rq]"
+git clone --branch dev_liu --single-branch https://github.com/yuntingliu/quant-framework.git
+cd quant-framework
 ```
+
+### Windows PowerShell
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[rq]"
+Copy-Item .env.example .env
+```
+
+### Linux or macOS
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e ".[rq]"
+cp .env.example .env
+```
+
+Open the new `.env` file and fill in the connection values supplied with the
+collaborator's RQData account:
 
 ```dotenv
 RQ_USER=
@@ -80,20 +106,40 @@ RQ_PASSWORD=
 RQ_HOST=
 ```
 
-Preview the deterministic five-year, 300-symbol plan before making a provider
-request:
+Do not copy credentials from the deployed server. Keep `.env` local; it is
+already ignored by Git.
+
+Preview the deterministic five-year, 300-symbol plan before making any provider
+request, then run the download and validation:
 
 ```powershell
-alphalab data status
-alphalab data plan rq
-alphalab data sync rq --datasets instruments,bars,fundamentals,factors
-alphalab data validate
-alphalab data jobs
+# Windows PowerShell
+.\.venv\Scripts\alphalab.exe data status
+.\.venv\Scripts\alphalab.exe data plan rq
+.\.venv\Scripts\alphalab.exe data sync rq
+.\.venv\Scripts\alphalab.exe data validate
+.\.venv\Scripts\alphalab.exe data jobs
 ```
+
+```bash
+# Linux or macOS
+.venv/bin/alphalab data status
+.venv/bin/alphalab data plan rq
+.venv/bin/alphalab data sync rq
+.venv/bin/alphalab data validate
+.venv/bin/alphalab data jobs
+```
+
+`data sync rq` is the single download command. By default it synchronizes
+instruments, daily bars, point-in-time financial statements, canonical
+fundamentals, and factor returns. Re-running it performs an incremental update;
+use `data plan rq` first to inspect the dates and scope without contacting RQ.
 
 All downloaded files, checksums, checkpoints, and task state are written below
 `data/runtime/`, which is ignored by Git. The checked-in example bundle is
-never overwritten.
+never overwritten. `data status` may report `missing` before the first sync;
+after a successful sync, `data validate` should report `passed` for all six
+runtime datasets.
 
 After a successful sync, use the runtime engine explicitly:
 
