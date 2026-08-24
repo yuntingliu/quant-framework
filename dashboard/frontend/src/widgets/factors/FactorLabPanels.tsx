@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangle,
   BookOpen,
@@ -100,10 +100,15 @@ export function FactorLibraryWidget({ embedded = false }: FactorWidgetProps) {
               {factors.map((factor) => {
                 const active = lab.draft.name === factor.name && lab.draft.source === factor.source && !lab.editingOriginalName
                 return (
-                  <button className={active ? "active" : ""} type="button" key={`${factor.source}-${factor.name}`} onClick={() => lab.selectLibraryFactor(factor)}>
-                    <span><strong>{factor.name}</strong><small>{factorDescription(factor.name, factor.description)}</small></span>
-                    <em>{sourceLabel(factor.source)}</em>
-                  </button>
+                  <div className={`factor-catalog-row${active ? " active" : ""}`} key={`${factor.source}-${factor.name}`}>
+                    <button className="factor-catalog-select" type="button" onClick={() => lab.selectLibraryFactor(factor)}>
+                      <span><strong>{factor.name}</strong><small>{factorDescription(factor.name, factor.description)}</small></span>
+                      <em>{sourceLabel(factor.source)}</em>
+                    </button>
+                    <button className="factor-catalog-insert" type="button" title={`把 ${factor.name} 加入表达式`} onClick={() => lab.requestExpressionInsert(factor.name)}>
+                      <Plus size={11} />表达式
+                    </button>
+                  </div>
                 )
               })}
             </div>
@@ -132,7 +137,7 @@ export function FactorLibraryWidget({ embedded = false }: FactorWidgetProps) {
             {lab.projectFactors.map((factor) => (
               <div key={factor.name} className={lab.editingOriginalName === factor.name ? "active" : ""}>
                 <button type="button" onClick={() => lab.selectProjectFactor(factor)}>
-                  <span><strong>{factor.name}</strong><small>{sourceLabel(factor.source)} · 权重 {formatNumber(factor.weight, 2)}</small></span>
+                  <span><strong>{factor.name}</strong><small>{sourceLabel(factor.source)} · {factor.direction === "long" ? "值越大越优" : "值越小越优"}</small></span>
                   <i>{factor.direction === "long" ? "正向" : "反向"}</i>
                 </button>
                 {lab.project?.editable ? (
@@ -152,6 +157,43 @@ export function FactorEditorWidget({ embedded = false }: FactorWidgetProps) {
   const lab = useFactorLab()
   const functions = lab.library?.expression_functions ?? []
   const availableToSave = Boolean(lab.project?.editable && lab.result && !lab.resultStale)
+  const expressionRef = useRef<HTMLTextAreaElement>(null)
+  const handledInsertId = useRef(0)
+  const draftExpression = lab.draft.expression
+  const updateDraft = lab.updateDraft
+
+  const insertExpressionTerm = useCallback((term: string, cursorInTerm = term.length) => {
+    const textarea = expressionRef.current
+    const current = draftExpression
+    const start = textarea?.selectionStart ?? current.length
+    const end = textarea?.selectionEnd ?? start
+    const prefix = start === end && start === current.length && current.trim() ? " + " : ""
+    const next = `${current.slice(0, start)}${prefix}${term}${current.slice(end)}`
+    const cursor = start + prefix.length + cursorInTerm
+    updateDraft({ expression: next })
+    window.requestAnimationFrame(() => {
+      expressionRef.current?.focus()
+      expressionRef.current?.setSelectionRange(cursor, cursor)
+    })
+  }, [draftExpression, updateDraft])
+
+  const insertFunction = useCallback((name: string) => {
+    const textarea = expressionRef.current
+    const current = draftExpression
+    const start = textarea?.selectionStart ?? current.length
+    const end = textarea?.selectionEnd ?? start
+    const selected = current.slice(start, end)
+    const term = `${name}(${selected})`
+    insertExpressionTerm(term, selected ? term.length : name.length + 1)
+  }, [draftExpression, insertExpressionTerm])
+
+  useEffect(() => {
+    const request = lab.expressionInsertRequest
+    if (!request || request.id === handledInsertId.current) return
+    handledInsertId.current = request.id
+    insertExpressionTerm(request.token)
+  }, [insertExpressionTerm, lab.expressionInsertRequest])
+
   return (
     <FactorPanel className="factor-editor-panel" embedded={embedded}>
       <div className="factor-panel-header">
@@ -173,44 +215,45 @@ export function FactorEditorWidget({ embedded = false }: FactorWidgetProps) {
           <label><span>因子名称</span><input value={lab.draft.name} readOnly={lab.draft.source !== "expression"} onChange={(event) => lab.updateDraft({ name: event.target.value })} /></label>
           <label><span>来源</span><input value={sourceLabel(lab.draft.source)} readOnly /></label>
           <label><span>方向</span><select value={lab.draft.direction} onChange={(event) => lab.updateDraft({ direction: event.target.value as "long" | "short" })}><option value="long">值越大越优</option><option value="short">值越小越优</option></select></label>
-          <label><span>组合权重</span><input type="number" min="0" step="0.1" value={lab.draft.weight} onChange={(event) => lab.updateDraft({ weight: Number(event.target.value) })} /></label>
           <label><span>双侧缩尾</span><input type="number" min="0" max="0.24" step="0.01" value={lab.draft.winsorize} onChange={(event) => lab.updateDraft({ winsorize: Number(event.target.value) })} /></label>
           <label className="factor-checkbox"><span>中性化</span><button type="button" className={lab.draft.neutralize.includes("market_cap") ? "active" : ""} onClick={() => lab.updateDraft({ neutralize: lab.draft.neutralize.includes("market_cap") ? [] : ["market_cap"] })}>{lab.draft.neutralize.includes("market_cap") ? <Check size={12} /> : null}市值</button></label>
         </div>
 
         {lab.draft.source === "expression" ? (
           <section className="factor-expression-workspace">
-            <div><strong>安全向量表达式</strong><span>引用内置因子，输出当前截面的单列数值</span></div>
-            <textarea spellCheck={false} value={lab.draft.expression} onChange={(event) => lab.updateDraft({ expression: event.target.value })} />
-            <div className="factor-function-list">{functions.map((name) => <button type="button" key={name} onClick={() => lab.updateDraft({ expression: `${name}(${lab.draft.expression || "momentum_20d"})` })}>{name}()</button>)}</div>
+            <div><strong>安全向量表达式</strong><span>从左侧或上方观察区把因子插入当前光标位置</span></div>
+            <textarea ref={expressionRef} spellCheck={false} value={lab.draft.expression} onChange={(event) => lab.updateDraft({ expression: event.target.value })} />
+            <div className="factor-function-list">{functions.map((name) => <button type="button" key={name} onClick={() => insertFunction(name)}>{name}()</button>)}</div>
           </section>
         ) : (
           <section className="factor-definition-card">
             <strong>{lab.draft.name}</strong>
             <p>{factorDescription(lab.draft.name, "系统内置因子")}</p>
-            <span>内置实现由后端因子注册表提供；项目只保存方向、权重、缩尾和中性化配置。</span>
+            <span>内置实现由后端因子注册表提供；这里保存因子的方向、缩尾和中性化。多因子权重在“信号模型”中设置。</span>
           </section>
         )}
 
-        <section className="factor-evaluation-settings">
-          <div className="factor-section-heading"><span>历史评估范围</span><strong>{lab.draft.frequency === "monthly" ? "月频" : "周频"}</strong></div>
-          <div className="factor-form-grid">
-            <label><span>开始日期</span><input type="date" value={lab.draft.startDate} onChange={(event) => lab.updateDraft({ startDate: event.target.value })} /></label>
-            <label><span>结束日期</span><input type="date" value={lab.draft.endDate} onChange={(event) => lab.updateDraft({ endDate: event.target.value })} /></label>
-            <label><span>评估频率</span><select value={lab.draft.frequency} onChange={(event) => lab.updateDraft({ frequency: event.target.value as "monthly" | "weekly" })}><option value="monthly">月频</option><option value="weekly">周频</option></select></label>
-            <label><span>分组数量</span><select value={lab.draft.quantiles} onChange={(event) => lab.updateDraft({ quantiles: Number(event.target.value) })}>{[3, 5, 10].map((value) => <option value={value} key={value}>{value} 组</option>)}</select></label>
-          </div>
-        </section>
-
         <section className="factor-contract-card">
           <FlaskConical size={15} />
-          <div><strong>研究合同</strong><span>按历史时点取数 → 截面计算 → 缩尾/中性化 → 与下一期收益对齐。评估不会自动修改项目。</span></div>
+          <div><strong>表达式数据合同</strong><span>市场字段取决策日最新 K 线，财务字段遵守 available_date；表达式输出每只证券一个截面值。</span></div>
         </section>
         <section className="factor-python-note">
           <Code2 size={14} /><div><strong>Python 自定义因子尚未伪装开放</strong><span>当前可运行的是内置因子与安全表达式。完整 Python 因子需要版本、依赖、超时和输出合同，后端完成后再进入这里。</span></div>
         </section>
       </div>
     </FactorPanel>
+  )
+}
+
+export function FactorValidationSettings() {
+  const lab = useFactorLab()
+  return (
+    <section className="factor-validation-settings">
+      <label><span>开始日期</span><input type="date" value={lab.draft.startDate} onChange={(event) => lab.updateDraft({ startDate: event.target.value })} /></label>
+      <label><span>结束日期</span><input type="date" value={lab.draft.endDate} onChange={(event) => lab.updateDraft({ endDate: event.target.value })} /></label>
+      <label><span>频率</span><select value={lab.draft.frequency} onChange={(event) => lab.updateDraft({ frequency: event.target.value as "monthly" | "weekly" })}><option value="monthly">月频</option><option value="weekly">周频</option></select></label>
+      <label><span>分组</span><select value={lab.draft.quantiles} onChange={(event) => lab.updateDraft({ quantiles: Number(event.target.value) })}>{[3, 5, 10].map((value) => <option value={value} key={value}>{value} 组</option>)}</select></label>
+    </section>
   )
 }
 

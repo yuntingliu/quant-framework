@@ -9,8 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from alphalab.analytics import evaluate_factor
 from alphalab.dataio import MissingDataError
 from alphalab.factors import list_factors
+from alphalab.factors.expression import FUNDAMENTAL_DATA_FIELDS, MARKET_DATA_FIELDS
 from alphalab.strategy import FactorSpec, UniverseSpec
-from dashboard.backend.services.data_service import _engine
+from dashboard.backend.services.data_service import _engine, research_dataset_schema
 
 router = APIRouter(prefix="/api/factor-research", tags=["factor-research"])
 
@@ -35,18 +36,109 @@ class FactorEvaluationRequest(BaseModel):
     min_average_amount: float = Field(default=0.0, ge=0)
 
 
+_FACTOR_INPUT_FIELDS = {
+    "momentum_20d": ["close"],
+    "momentum_60d": ["close"],
+    "reversal_5d": ["close"],
+    "volatility_20d": ["close"],
+    "turnover_20d": ["volume"],
+    "volume_ratio": ["volume"],
+    "rsi_14": ["close"],
+    "ma_deviation": ["close"],
+}
+
+_DATA_FIELD_LABELS = {
+    "date": "交易日期",
+    "symbol": "证券代码",
+    "quarter": "报告期",
+    "available_date": "可用日期",
+    "open": "开盘价",
+    "high": "最高价",
+    "low": "最低价",
+    "close": "收盘价",
+    "volume": "成交量",
+    "amount": "成交额",
+    "raw_close": "不复权收盘价",
+    "shares": "总股本",
+    "market_cap": "总市值",
+    "ep": "盈利收益率",
+    "bp": "账面市值比",
+    "roe": "净资产收益率",
+    "roa": "总资产收益率",
+    "profit_growth": "利润增长率",
+    "revenue_growth": "收入增长率",
+    "gross_margin": "毛利率",
+    "leverage": "财务杠杆",
+}
+
+_RESEARCH_SOURCE_SPECS = [
+    {
+        "id": "market_bars",
+        "name": "日频 K 线",
+        "endpoint": "/api/data/market/bars",
+        "frequency": "daily",
+        "point_in_time": True,
+    },
+    {
+        "id": "fundamentals",
+        "name": "季度财务",
+        "endpoint": "/api/data/fundamentals",
+        "frequency": "quarterly",
+        "point_in_time": True,
+    },
+]
+
+
+def _research_data_sources(profile: str) -> list[dict]:
+    compatible = {
+        "market_bars": set(MARKET_DATA_FIELDS),
+        "fundamentals": set(FUNDAMENTAL_DATA_FIELDS),
+    }
+    sources: list[dict] = []
+    for spec in _RESEARCH_SOURCE_SPECS:
+        fields = research_dataset_schema(profile, spec["id"])
+        sources.append(
+            {
+                **spec,
+                "profile": profile,
+                "schema_source": "parquet_metadata",
+                "fields": [
+                    {
+                        "name": field.name,
+                        "label": _DATA_FIELD_LABELS.get(
+                            field.name,
+                            field.name.replace("_", " "),
+                        ),
+                        "data_type": field.data_type,
+                        "nullable": field.nullable,
+                        "expression_compatible": (
+                            field.data_type == "number"
+                            and field.name in compatible[spec["id"]]
+                        ),
+                    }
+                    for field in fields
+                ],
+            }
+        )
+    return sources
+
+
 @router.get("/library")
-def factor_library() -> dict:
+def factor_library(profile: Literal["demo", "runtime"] = "demo") -> dict:
     rows = [
         {
             "name": factor.name,
             "source": factor.kind,
             "description": factor.description,
+            "input_fields": _FACTOR_INPUT_FIELDS.get(factor.name, [factor.name]),
+            "frequency": "daily" if factor.kind == "technical" else "quarterly",
+            "point_in_time": True,
         }
         for factor in list_factors()
     ]
     return {
         "factors": rows,
+        "data_sources": _research_data_sources(profile),
         "expression_functions": ["abs", "clip", "log", "rank", "sqrt", "zscore"],
         "neutralizers": ["market_cap"],
         "packs": [

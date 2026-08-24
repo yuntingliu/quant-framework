@@ -11,6 +11,7 @@ import json
 import sqlite3
 
 from alphalab.pipeline.builtins import (
+    EXECUTION_FIXED,
     PORTFOLIO_EQUAL_WEIGHT,
     SELECTION_FACTOR_TOP,
     SELECTION_PASS_THROUGH,
@@ -21,6 +22,8 @@ from alphalab.strategy.python_runtime import python_source_sha256
 _EXECUTION_ENTRYPOINT_MIGRATION = "execution-entrypoint-configure-v1"
 _FOUR_STAGE_CONTRACT_MIGRATION = "four-stage-pipeline-v1"
 _THREE_STAGE_CONTRACT_MIGRATION = "three-stage-pipeline-v1"
+_SIGNAL_MODEL_CONTRACT_MIGRATION = "signal-model-ownership-v1"
+_SIGNAL_ALLOCATION_CONTRACT_MIGRATION = "signal-allocation-methods-v2"
 
 
 def migrate_pipeline_contracts(connection: sqlite3.Connection) -> None:
@@ -29,6 +32,187 @@ def migrate_pipeline_contracts(connection: sqlite3.Connection) -> None:
     _migrate_execution_entrypoint(connection)
     _migrate_four_stage_projects(connection)
     _migrate_three_stage_projects(connection)
+    _migrate_signal_model_contract(connection)
+    _migrate_signal_allocation_contract(connection)
+
+
+def _migrate_signal_model_contract(connection: sqlite3.Connection) -> None:
+    """Move decision cadence and effective weights out of execution/factor UI."""
+
+    if connection.execute(
+        "SELECT 1 FROM pipeline_contract_migrations WHERE name = ?",
+        (_SIGNAL_MODEL_CONTRACT_MIGRATION,),
+    ).fetchone():
+        return
+
+    rows = connection.execute("SELECT * FROM pipeline_projects").fetchall()
+    for row in rows:
+        refs = _load_json(row["component_refs_json"], {})
+        if not {"selection", "execution"}.issubset(refs):
+            continue
+        settings = _load_json(row["settings_json"], {})
+        stage_parameters = dict(settings.get("stage_parameters") or {})
+        selection_overrides = dict(stage_parameters.get("selection") or {})
+        execution_overrides = dict(stage_parameters.get("execution") or {})
+        selection_version = _component_version(connection, dict(refs["selection"]))
+        execution_version = _component_version(connection, dict(refs["execution"]))
+        selection_defaults = _load_json(selection_version["parameters_json"], {})
+        execution_defaults = _load_json(execution_version["parameters_json"], {})
+        frequency = selection_overrides.get(
+            "signal_frequency",
+            selection_defaults.get(
+                "signal_frequency",
+                execution_overrides.get(
+                    "rebalance_freq", execution_defaults.get("rebalance_freq", "monthly")
+                ),
+            ),
+        )
+        count = int(selection_overrides.get("count", selection_defaults.get("count", 20)))
+        factors = settings.get("factors") if isinstance(settings.get("factors"), list) else []
+        legacy_weights = {
+            str(item.get("name")): float(item.get("weight", 1.0))
+            for item in factors
+            if isinstance(item, dict) and item.get("name")
+        }
+        selection_overrides.setdefault("signal_frequency", str(frequency))
+        selection_overrides.setdefault(
+            "normalization", str(selection_defaults.get("normalization", "percentile_rank"))
+        )
+        selection_overrides.setdefault(
+            "exit_rank", int(selection_defaults.get("exit_rank", count))
+        )
+        selection_overrides.setdefault("factor_weights", legacy_weights)
+        execution_overrides.pop("rebalance_freq", None)
+        stage_parameters["selection"] = selection_overrides
+        if execution_overrides:
+            stage_parameters["execution"] = execution_overrides
+        else:
+            stage_parameters.pop("execution", None)
+        settings["stage_parameters"] = stage_parameters
+        connection.execute(
+            """UPDATE pipeline_projects
+               SET revision = ?, settings_json = ?, updated_at = datetime('now')
+               WHERE id = ?""",
+            (int(row["revision"]) + 1, _json(settings), row["id"]),
+        )
+
+    selection = connection.execute(
+        "SELECT built_in FROM pipeline_components WHERE id = 'selection-factor-top'"
+    ).fetchone()
+    if selection is not None and bool(selection["built_in"]):
+        selection_parameters = {
+            "count": 20,
+            "exit_rank": 30,
+            "min_factor_coverage": 0.5,
+            "signal_frequency": "monthly",
+            "normalization": "percentile_rank",
+            "factor_weights": {},
+        }
+        connection.execute(
+            """UPDATE pipeline_component_versions
+               SET source = ?, source_sha256 = ?, parameters_json = ?,
+                   notes = 'migrated once to signal-model ownership'
+               WHERE component_id = 'selection-factor-top' AND version = 1""",
+            (
+                SELECTION_FACTOR_TOP,
+                python_source_sha256(SELECTION_FACTOR_TOP),
+                _json(selection_parameters),
+            ),
+        )
+        connection.execute(
+            """UPDATE pipeline_components
+               SET name = '多因子综合排名',
+                   description = '按决策频率归一化并组合多因子，使用进出排名缓冲生成信号集合'
+               WHERE id = 'selection-factor-top'"""
+        )
+
+    execution_parameters = {
+        "execution_price": "next_open",
+        "cost_bps": 20.0,
+        "slippage_bps": 0.0,
+        "impact_bps": 0.0,
+        "max_participation_rate": 0.1,
+        "portfolio_value": 1_000_000.0,
+    }
+    for component_id, name, description in (
+        (
+            "execution-monthly",
+            "下一交易日成交",
+            "信号形成后按下一交易日价格、流动性与成本假设成交",
+        ),
+        (
+            "execution-daily",
+            "下一交易日成交（兼容）",
+            "保留旧项目组件标识；信号频率现在由信号模型设置",
+        ),
+    ):
+        component = connection.execute(
+            "SELECT built_in FROM pipeline_components WHERE id = ?", (component_id,)
+        ).fetchone()
+        if component is None or not bool(component["built_in"]):
+            continue
+        connection.execute(
+            """UPDATE pipeline_component_versions
+               SET source = ?, source_sha256 = ?, parameters_json = ?,
+                   notes = 'migrated once to execution-only ownership'
+               WHERE component_id = ? AND version = 1""",
+            (
+                EXECUTION_FIXED,
+                python_source_sha256(EXECUTION_FIXED),
+                _json(execution_parameters),
+                component_id,
+            ),
+        )
+        connection.execute(
+            "UPDATE pipeline_components SET name = ?, description = ? WHERE id = ?",
+            (name, description, component_id),
+        )
+
+    connection.execute(
+        "INSERT INTO pipeline_contract_migrations (name) VALUES (?)",
+        (_SIGNAL_MODEL_CONTRACT_MIGRATION,),
+    )
+
+
+def _migrate_signal_allocation_contract(connection: sqlite3.Connection) -> None:
+    """Upgrade the seeded allocator used inside the signal-model workbench."""
+
+    if connection.execute(
+        "SELECT 1 FROM pipeline_contract_migrations WHERE name = ?",
+        (_SIGNAL_ALLOCATION_CONTRACT_MIGRATION,),
+    ).fetchone():
+        return
+    component = connection.execute(
+        "SELECT built_in FROM pipeline_components WHERE id = 'portfolio-equal-weight'"
+    ).fetchone()
+    if component is not None and bool(component["built_in"]):
+        parameters = {
+            "optimizer": "equal_weight",
+            "rank_decay": 1.0,
+            "max_weight": 0.1,
+            "max_gross_exposure": 1.0,
+        }
+        connection.execute(
+            """UPDATE pipeline_component_versions
+               SET source = ?, source_sha256 = ?, parameters_json = ?,
+                   notes = 'migrated once to signal-workbench allocation methods'
+               WHERE component_id = 'portfolio-equal-weight' AND version = 1""",
+            (
+                PORTFOLIO_EQUAL_WEIGHT,
+                python_source_sha256(PORTFOLIO_EQUAL_WEIGHT),
+                _json(parameters),
+            ),
+        )
+        connection.execute(
+            """UPDATE pipeline_components
+               SET name = '信号仓位分配',
+                   description = '按等权、综合得分或排名衰减生成目标权重，并限制单票权重与总敞口'
+               WHERE id = 'portfolio-equal-weight'"""
+        )
+    connection.execute(
+        "INSERT INTO pipeline_contract_migrations (name) VALUES (?)",
+        (_SIGNAL_ALLOCATION_CONTRACT_MIGRATION,),
+    )
 
 
 def _migrate_execution_entrypoint(connection: sqlite3.Connection) -> None:

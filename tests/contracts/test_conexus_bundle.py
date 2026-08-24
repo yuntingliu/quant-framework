@@ -109,7 +109,7 @@ def test_conexus_tools_match_the_python_pipeline_contract():
     assert "markdown:input.markdown" in save_report["code"]
 
 
-def test_agent_and_harness_use_only_the_eight_workbenches():
+def test_agent_and_harness_use_only_the_seven_user_facing_workbenches():
     agent = _load(BUNDLE / "agents" / "AlphaLab-Research-Agent.agent.json")
     assert agent["model"] == "openai/gpt-5.6-sol"
     tools = {_load(path)["toolName"] for path in TOOLS.glob("*.json")}
@@ -129,7 +129,8 @@ def test_agent_and_harness_use_only_the_eight_workbenches():
         "唯一策略模型是版本固定的三阶段 Python 管线",
         "不存在 universe、timing 或独立 risk 策略阶段",
         "不得声称 Python 能绕过核心闸门",
-        "不得为选股预览继续运行 portfolio 或 execution",
+        "单独的 selection API 预览仍不得继续运行 portfolio 或 execution",
+        "等权、按得分或按排名衰减的仓位分配控制",
         "attribution",
         "factor.workbench",
         "只能调用一次 update_nodes",
@@ -148,7 +149,6 @@ def test_agent_and_harness_use_only_the_eight_workbenches():
         "factor",
         "project",
         "selection",
-        "portfolio",
         "execution",
         "backtest",
         "report",

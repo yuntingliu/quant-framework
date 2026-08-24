@@ -52,10 +52,13 @@ def migrate_legacy_local_projects(connection: sqlite3.Connection) -> int:
                     "max_weight": maximum,
                     "max_gross_exposure": maximum,
                 }
-                settings["stage_parameters"]["execution"] = {
-                    "rebalance_freq": "monthly",
-                    **dict(raw.get("execution") or {}),
+                settings["stage_parameters"]["selection"] = {
+                    "signal_frequency": "monthly",
+                    "normalization": "percentile_rank",
                 }
+                legacy_execution = dict(raw.get("execution") or {})
+                legacy_execution.pop("rebalance_freq", None)
+                settings["stage_parameters"]["execution"] = legacy_execution
                 settings["factors"] = []
                 settings["migration_note"] = (
                     "Legacy market timing logic was removed; the imported project uses "
@@ -67,20 +70,31 @@ def migrate_legacy_local_projects(connection: sqlite3.Connection) -> int:
                 selection = dict(raw.get("selection") or {})
                 portfolio = dict(raw.get("portfolio") or {})
                 execution = dict(raw.get("execution") or {})
+                signal_frequency = str(
+                    execution.pop(
+                        "rebalance_freq", portfolio.get("rebalance_freq", "monthly")
+                    )
+                )
+                count = int(selection.get("n_stocks", 20))
                 settings["stage_parameters"].update(
                     {
                         "selection": {
-                            "count": int(selection.get("n_stocks", 20)),
+                            "count": count,
+                            "exit_rank": int(selection.get("exit_rank", count)),
                             "min_factor_coverage": float(selection.get("min_factor_coverage", 0.5)),
+                            "signal_frequency": signal_frequency,
+                            "normalization": str(selection.get("normalization", "percentile_rank")),
+                            "factor_weights": {
+                                str(item.get("name")): float(item.get("weight", 1.0))
+                                for item in settings["factors"]
+                                if isinstance(item, dict) and item.get("name")
+                            },
                         },
                         "portfolio": {
                             "max_weight": float(portfolio.get("max_weight", 0.1)),
                             "max_gross_exposure": 1.0,
                         },
-                        "execution": {
-                            "rebalance_freq": str(portfolio.get("rebalance_freq", "monthly")),
-                            **execution,
-                        },
+                        "execution": execution,
                     }
                 )
             refs_json = _json(components)

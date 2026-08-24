@@ -48,10 +48,16 @@ export function usePipelineStageRun(projectId: string | null, stage: PythonPipel
     if (!projectId) throw new Error("请先选择策略项目")
     const result = await preview.refetch({ throwOnError: true })
     if (result.data) {
-      setStageRunContext(stage, {
-        ...currentContext,
-        revision: result.data.revision,
-      })
+      for (const executedStage of result.data.executed_stages) {
+        queryClient.setQueryData(
+          previewKey(projectId, result.data.revision, executedStage, profile, selectedDate),
+          result.data,
+        )
+        setStageRunContext(executedStage, {
+          ...currentContext,
+          revision: result.data.revision,
+        })
+      }
     }
     return result.data
   }

@@ -23,6 +23,17 @@ def test_repository_seeds_three_stage_python_presets(tmp_path):
         assert len(project["component_manifest"]) == 3
         assert "def run_strategy(context):" in project["composed_source"]
         assert project["source_sha256"]
+        portfolio = repository.get_component("portfolio-equal-weight", 1)
+        assert portfolio is not None
+        assert portfolio["name"] == "信号仓位分配"
+        assert portfolio["parameters"] == {
+            "optimizer": "equal_weight",
+            "rank_decay": 1.0,
+            "max_weight": 0.1,
+            "max_gross_exposure": 1.0,
+        }
+        assert 'method == "score_weight"' in portfolio["source"]
+        assert 'method == "rank_decay"' in portfolio["source"]
 
         for item in project["component_manifest"]:
             detail = repository.get_component(item["component_id"], item["version"])
@@ -244,10 +255,13 @@ def test_six_stage_custom_project_is_migrated_once_and_history_is_preserved(tmp_
     try:
         project = repository.get_project("legacy-custom")
         assert project is not None
-        assert project["revision"] == 3
+        assert project["revision"] == 4
         assert tuple(project["components"]) == STAGE_NAMES
         assert [item["stage"] for item in project["component_manifest"]] == list(STAGE_NAMES)
-        assert project["settings"]["stage_parameters"] == {}
+        signal_parameters = project["settings"]["stage_parameters"]["selection"]
+        assert signal_parameters["signal_frequency"] == "monthly"
+        assert signal_parameters["normalization"] == "percentile_rank"
+        assert signal_parameters["factor_weights"] == {}
         assert project["settings"]["pipeline_migration"]["removed_universe_component"] == {
             "component_id": "legacy-universe",
             "version": 1,
@@ -268,7 +282,7 @@ def test_six_stage_custom_project_is_migrated_once_and_history_is_preserved(tmp_
 
     reopened = PipelineRepository(database)
     try:
-        assert reopened.get_project("legacy-custom")["revision"] == 3
+        assert reopened.get_project("legacy-custom")["revision"] == 4
     finally:
         reopened.close()
     connection = sqlite3.connect(database)
@@ -279,7 +293,7 @@ def test_six_stage_custom_project_is_migrated_once_and_history_is_preserved(tmp_
         ).fetchall()
     finally:
         connection.close()
-    assert [row[0] for row in versions] == [1, 3]
+    assert [row[0] for row in versions] == [1, 4]
     assert versions[0][1] == "legacy-six-stage-frozen"
 
 

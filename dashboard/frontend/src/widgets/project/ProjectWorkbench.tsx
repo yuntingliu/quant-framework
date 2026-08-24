@@ -21,10 +21,10 @@ import {
 import { useDataProfile, type DataProfile } from "@/lib/data-profile"
 import { Widget } from "@/widgets/Widget"
 
-const STAGES: Array<{ id: PythonPipelineStage; label: string }> = [
-  { id: "selection", label: "选股" },
-  { id: "portfolio", label: "组合" },
-  { id: "execution", label: "执行" },
+const STAGES: Array<{ id: PythonPipelineStage; label: string; destination: "selection" | "execution" }> = [
+  { id: "selection", label: "信号排名", destination: "selection" },
+  { id: "portfolio", label: "仓位分配", destination: "selection" },
+  { id: "execution", label: "执行", destination: "execution" },
 ]
 
 function internalId() {
@@ -38,6 +38,15 @@ function jsonText(value: unknown) {
 function editableProjectSettings(settings: Record<string, unknown>) {
   const editable = { ...settings }
   delete editable.factors
+  const stageParameters = editable.stage_parameters && typeof editable.stage_parameters === "object" && !Array.isArray(editable.stage_parameters)
+    ? { ...editable.stage_parameters as Record<string, unknown> }
+    : null
+  if (stageParameters) {
+    delete stageParameters.selection
+    delete stageParameters.portfolio
+    if (Object.keys(stageParameters).length) editable.stage_parameters = stageParameters
+    else delete editable.stage_parameters
+  }
   return jsonText(editable)
 }
 
@@ -142,6 +151,19 @@ export function ProjectWorkbenchWidget() {
       if (project.settings.factors !== undefined) {
         nextSettings.factors = project.settings.factors
       }
+      const persistedStageParameters = project.settings.stage_parameters && typeof project.settings.stage_parameters === "object" && !Array.isArray(project.settings.stage_parameters)
+        ? project.settings.stage_parameters as Record<string, unknown>
+        : {}
+      if (persistedStageParameters.selection !== undefined || persistedStageParameters.portfolio !== undefined) {
+        const editedStageParameters = nextSettings.stage_parameters && typeof nextSettings.stage_parameters === "object" && !Array.isArray(nextSettings.stage_parameters)
+          ? nextSettings.stage_parameters as Record<string, unknown>
+          : {}
+        nextSettings.stage_parameters = {
+          ...editedStageParameters,
+          ...(persistedStageParameters.selection !== undefined ? { selection: persistedStageParameters.selection } : {}),
+          ...(persistedStageParameters.portfolio !== undefined ? { portfolio: persistedStageParameters.portfolio } : {}),
+        }
+      }
       const saved = await api.put<PipelineProjectDetail>(`/pipeline/projects/${project.id}`, {
         name: name.trim(),
         description: description.trim(),
@@ -228,12 +250,12 @@ export function ProjectWorkbenchWidget() {
               </section>
 
               <section className="rounded border border-border bg-background p-4">
-                <div><h2 className="text-base font-semibold text-foreground">三阶段组件</h2><p className="mt-1 text-xs text-muted-foreground">点击阶段进入对应工作台研究 Python 组件。</p></div>
+                <div><h2 className="text-base font-semibold text-foreground">内部三阶段组件</h2><p className="mt-1 text-xs text-muted-foreground">信号排名与仓位分配统一在信号模型中管理；执行假设保留独立工作台。</p></div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {STAGES.map((stage, index) => {
                     const ref = project.components[stage.id]
                     return (
-                      <button key={stage.id} type="button" className="rounded border border-border bg-card p-3 text-left hover:border-primary/40 hover:bg-primary/5" onClick={() => setActiveMode(stage.id)}>
+                      <button key={stage.id} type="button" className="rounded border border-border bg-card p-3 text-left hover:border-primary/40 hover:bg-primary/5" onClick={() => setActiveMode(stage.destination)}>
                         <span className="text-[10px] text-muted-foreground">{index + 1}</span>
                         <strong className="mt-1 block text-sm text-foreground">{stage.label}</strong>
                         <span className="mt-1 block truncate text-[11px] text-muted-foreground">{componentNames.get(ref.component_id) ?? "正在读取组件…"}</span>
@@ -245,7 +267,7 @@ export function ProjectWorkbenchWidget() {
 
               <details className="rounded border border-border bg-background p-4">
                 <summary className="cursor-pointer text-sm font-semibold text-foreground">股票池与高级项目设置</summary>
-                <p className="mt-2 text-xs leading-5 text-muted-foreground">这里管理基础股票池、点时资格约束和回看窗口；因子定义与验证请使用独立的“因子”工作区。</p>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">这里管理基础股票池、点时资格约束和回看窗口；因子定义与信号模型参数分别在对应工作区维护。</p>
                 <textarea className="code-view code-editor mt-3 min-h-72 w-full" spellCheck={false} value={settings} onChange={(event) => setSettings(event.target.value)} readOnly={!project.editable} />
               </details>
               {!project.editable ? <div className="workbench-message">当前项目只读；请点击“新建”或“复制”创建可编辑项目。</div> : null}

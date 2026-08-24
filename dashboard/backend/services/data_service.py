@@ -10,11 +10,14 @@ import pandas as pd
 from alphalab import ResultStore, create_default_engine, create_runtime_engine
 from alphalab.dataio import DataEngine, MissingDataError
 from alphalab.dataio.catalog import DataCatalog
-from alphalab.dataio.fundamentals import CANONICAL_FIELDS
+from alphalab.dataio.schema import DatasetField, discover_parquet_fields
 from alphalab.utils.paths import APP_DATA_DIR, DATA_DIR, FACTOR_DIR, FUNDAMENTAL_DIR, MARKET_DIR
 
 
-FUNDAMENTAL_FIELDS = ("shares", "market_cap", *CANONICAL_FIELDS)
+_DATASET_METADATA_FIELDS = {
+    "market_bars": {"date", "symbol"},
+    "fundamentals": {"quarter", "available_date", "symbol"},
+}
 
 
 def _hash_file(path: Path) -> str:
@@ -100,6 +103,41 @@ def _engine(profile: str) -> DataEngine:
     raise ValueError("profile must be demo or runtime")
 
 
+def research_dataset_schema(profile: str, dataset: str) -> tuple[DatasetField, ...]:
+    """Discover the actual columns exposed by one research-data endpoint."""
+
+    if profile not in {"demo", "runtime"}:
+        raise ValueError("profile must be demo or runtime")
+    if dataset not in _DATASET_METADATA_FIELDS:
+        raise KeyError(f"unknown research dataset: {dataset}")
+    if profile == "demo":
+        paths = {
+            "market_bars": [MARKET_DIR / "bars.parquet"],
+            "fundamentals": [FUNDAMENTAL_DIR / "fundamentals.parquet"],
+        }[dataset]
+    else:
+        catalog = DataCatalog()
+        runtime_dataset = {
+            "market_bars": "rq.bars",
+            "fundamentals": "canonical.fundamentals",
+        }[dataset]
+        paths = catalog.files(runtime_dataset)
+    return discover_parquet_fields(paths)
+
+
+def research_value_fields(profile: str, dataset: str) -> tuple[str, ...]:
+    """Return every non-key field in the current physical dataset schema."""
+
+    metadata = _DATASET_METADATA_FIELDS.get(dataset)
+    if metadata is None:
+        raise KeyError(f"unknown research dataset: {dataset}")
+    return tuple(
+        field.name
+        for field in research_dataset_schema(profile, dataset)
+        if field.name not in metadata
+    )
+
+
 def _profile_range(profile: str) -> tuple[str, str]:
     if profile == "demo":
         manifest = load_manifest()
@@ -174,8 +212,11 @@ def fundamentals(
     unknown_symbols = sorted(set(normalized_symbols) - set(engine.get_symbols()))
     if unknown_symbols:
         raise KeyError(f"Unknown symbols: {unknown_symbols}")
-    requested_fields = list(dict.fromkeys(fields or FUNDAMENTAL_FIELDS))
-    unknown_fields = sorted(set(requested_fields) - set(FUNDAMENTAL_FIELDS))
+    available_fields = research_value_fields(profile, "fundamentals")
+    if not available_fields:
+        raise MissingDataError(f"No fundamental schema is available for profile {profile!r}")
+    requested_fields = list(dict.fromkeys(fields or available_fields))
+    unknown_fields = sorted(set(requested_fields) - set(available_fields))
     if unknown_fields:
         raise KeyError(f"Unknown fundamental fields: {unknown_fields}")
     profile_start, profile_end = _profile_range(profile)
@@ -260,5 +301,7 @@ __all__ = [
     "load_manifest",
     "market_bars",
     "market_symbol_options",
+    "research_dataset_schema",
+    "research_value_fields",
     "store_stats",
 ]

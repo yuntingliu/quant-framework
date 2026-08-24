@@ -86,7 +86,7 @@ def _benchmark_returns(
         list(config.universe.symbols) or engine.get_symbols(config.universe.pool),
         record["start_date"],
         record["end_date"],
-        frequency=config.execution.rebalance_freq,
+        frequency=config.selection.signal_frequency,
         execution_price=config.execution.execution_price,
     ).reindex(returns.index)
 
@@ -173,6 +173,7 @@ def analyze_record(record: dict) -> dict:
     if isinstance(strategy_source, str) and strategy_source.strip():
         settings = record.get("settings") if isinstance(record.get("settings"), dict) else {}
         manifest = record.get("component_manifest") if isinstance(record.get("component_manifest"), list) else []
+        selection_parameters = next((item.get("parameters", {}) for item in manifest if item.get("stage") == "selection"), {})
         execution = next((item.get("parameters", {}) for item in manifest if item.get("stage") == "execution"), {})
         portfolio_parameters = next((item.get("parameters", {}) for item in manifest if item.get("stage") == "portfolio"), {})
         legacy_risk = next((item.get("parameters", {}) for item in manifest if item.get("stage") == "risk"), {})
@@ -225,7 +226,9 @@ def analyze_record(record: dict) -> dict:
             "description": f"Version-pinned {len(snapshot_stage_names)}-stage Python strategy snapshot",
             "factors": factors,
             "signals": [],
-            "rebalance_freq": execution.get("rebalance_freq", "monthly"),
+            "rebalance_freq": selection_parameters.get(
+                "signal_frequency", execution.get("rebalance_freq", "monthly")
+            ),
             "execution_price": execution.get("execution_price", "next_open"),
             "cost_bps": execution.get("cost_bps", 0.0),
             "max_weight": portfolio_parameters.get("max_weight", legacy_risk.get("max_weight", 1.0)),

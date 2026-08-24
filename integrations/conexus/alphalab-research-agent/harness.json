@@ -1,5 +1,5 @@
 {
-  "summary": "面向 AlphaLab 三阶段 Python 管线的可发布 Agent，覆盖八个平行工作台、独立因子研究、项目股票池、回测归因快照与报告。",
+  "summary": "面向 AlphaLab 三阶段 Python 管线的可发布 Agent，覆盖七个用户工作台、独立因子研究、项目股票池、回测归因快照与报告。",
   "entryNodeId": "alphalab-research-agent-v1",
   "template": {
     "name": "AlphaLab Research Agent",
@@ -253,7 +253,7 @@
                       "type": "string",
                       "enum": ["switch_mode", "open_widget", "open_result", "close_widget", "set_focus", "set_link_symbol", "show_right_rail", "refresh_data", "save_layout", "reset_layout"]
                     },
-                    "mode": { "type": "string", "enum": ["data", "factor", "project", "selection", "portfolio", "execution", "backtest", "report"] },
+                    "mode": { "type": "string", "enum": ["data", "factor", "project", "selection", "execution", "backtest", "report"] },
                     "widgetId": { "type": "string", "minLength": 1, "maxLength": 200 },
                     "resultId": { "type": "string", "minLength": 1, "maxLength": 200 },
                     "title": { "type": "string", "minLength": 1, "maxLength": 200 },

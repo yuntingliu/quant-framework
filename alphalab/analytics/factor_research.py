@@ -51,7 +51,7 @@ def evaluate_factor(
         symbols,
         warmup,
         end.strftime("%Y-%m-%d"),
-        fields=["close", "volume", "amount"],
+        fields=["open", "high", "low", "close", "volume", "amount"],
         strict=False,
         use_cache=False,
     )

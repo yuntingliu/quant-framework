@@ -51,6 +51,59 @@ def test_stage_preview_stops_before_downstream_components(tmp_path):
     assert "portfolio" not in preview["diagnostics"]["complete_pipeline"]
 
 
+def test_signal_allocation_methods_emit_distinct_constrained_target_weights(tmp_path):
+    repository = PipelineRepository(tmp_path / "pipeline.db")
+    try:
+        previews = {}
+        for method in ("equal_weight", "score_weight", "rank_decay"):
+            project_id = f"allocation-{method.replace('_', '-')}"
+            project = repository.clone_project("three-stage-default", project_id)
+            settings = dict(project["settings"])
+            stage_parameters = dict(settings.get("stage_parameters") or {})
+            stage_parameters["selection"] = {
+                **dict(stage_parameters.get("selection") or {}),
+                "count": 10,
+            }
+            stage_parameters["portfolio"] = {
+                **dict(stage_parameters.get("portfolio") or {}),
+                "optimizer": method,
+                "rank_decay": 1.0,
+                "max_weight": 1.0,
+                "max_gross_exposure": 0.9,
+            }
+            settings["stage_parameters"] = stage_parameters
+            repository.update_project(
+                project_id,
+                name=project["name"],
+                description=project["description"],
+                components=project["components"],
+                settings=settings,
+            )
+            previews[method] = preview_pipeline_project(
+                repository,
+                project_id,
+                create_default_engine(),
+                "2024-12-31",
+                stage="portfolio",
+            )
+    finally:
+        repository.close()
+
+    equal_weights = list(previews["equal_weight"]["targets"].values())
+    score_weights = list(previews["score_weight"]["targets"].values())
+    rank_weights = list(previews["rank_decay"]["targets"].values())
+    assert len(equal_weights) >= 2
+    assert sum(equal_weights) == pytest.approx(0.9)
+    assert sum(score_weights) == pytest.approx(0.9)
+    assert sum(rank_weights) == pytest.approx(0.9)
+    assert max(equal_weights) == pytest.approx(min(equal_weights))
+    assert max(score_weights) > min(score_weights)
+    assert rank_weights[0] > rank_weights[-1]
+    for preview in previews.values():
+        assert preview["executed_stages"] == ["selection", "portfolio"]
+        assert max(preview["targets"].values()) <= 1.0 + 1e-9
+
+
 def test_short_backtest_uses_the_same_frozen_source(tmp_path):
     repository = PipelineRepository(tmp_path / "pipeline.db")
     try:
@@ -78,15 +131,14 @@ def test_short_backtest_uses_the_same_frozen_source(tmp_path):
     assert "factor_score_correlation" in result.result.executions[0]
 
 
-def test_daily_execution_component_drives_the_core_schedule(tmp_path):
+def test_daily_signal_model_drives_the_core_schedule(tmp_path):
     repository = PipelineRepository(tmp_path / "pipeline.db")
     try:
         project = repository.clone_project(
             "three-stage-default", "daily-project", "Daily Project"
         )
-        project["components"]["execution"] = {
-            "component_id": "execution-daily",
-            "version": 1,
+        project["settings"]["stage_parameters"] = {
+            "selection": {"signal_frequency": "daily"}
         }
         repository.update_project(
             "daily-project",
@@ -105,13 +157,13 @@ def test_daily_execution_component_drives_the_core_schedule(tmp_path):
     finally:
         repository.close()
 
-    assert result.config.execution.rebalance_freq == "daily"
+    assert result.config.selection.signal_frequency == "daily"
     assert result.result.diagnostics["frequency"] == "daily"
     assert len(result.result.returns) >= 5
-    assert {
-        item["execution_settings"]["rebalance_freq"]
+    assert all(
+        "rebalance_freq" not in item["execution_settings"]
         for item in result.result.executions
-    } == {"daily"}
+    )
 
 
 def test_backtest_treats_pre_history_rebalances_as_cash(tmp_path):
@@ -138,7 +190,7 @@ def test_backtest_treats_pre_history_rebalances_as_cash(tmp_path):
     assert result.result.executions[0]["cash_weight"] == 1.0
 
 
-def test_removed_stages_are_not_exposed_and_daily_execution_is_available(tmp_path):
+def test_removed_stages_are_not_exposed_and_execution_has_no_signal_calendar(tmp_path):
     repository = PipelineRepository(tmp_path / "pipeline.db")
     try:
         always_on = repository.get_component("timing-always-on")
@@ -151,7 +203,8 @@ def test_removed_stages_are_not_exposed_and_daily_execution_is_available(tmp_pat
     assert universe is None
     assert pass_through is not None and pass_through["stage"] == "selection"
     assert 'context["candidates"]' in pass_through["source"]
-    assert daily is not None and daily["parameters"]["rebalance_freq"] == "daily"
+    assert daily is not None and "rebalance_freq" not in daily["parameters"]
+    assert "rebalance_freq" not in daily["source"]
 
 
 def test_core_rejects_a_component_that_escapes_the_project_stock_pool(tmp_path):

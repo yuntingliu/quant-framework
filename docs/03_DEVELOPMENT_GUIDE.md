@@ -39,14 +39,17 @@ is project configuration consumed by the core before selection:
 
 | Stage | Entrypoint | Required result |
 | --- | --- | --- |
-| `selection` | `select_assets(context)` | `{"selected": [...], "scores": {...}}` |
+| `selection` (Signal Model) | `select_assets(context)` | `{"selected": [...], "scores": {...}}` |
 | `portfolio` | `construct_portfolio(context)` | `{"weights": {...}}` |
 | `execution` | `configure_execution(context)` | `{"execution": {...}}` |
 
 Do not add optional stages, alternate entrypoints, a universe/timing stage, an
-independent risk stage, or a second backtest engine. Portfolio owns static
-single-name/gross constraints and emits final target weights. Core validation
-checks those weights again. Execution emits fixed-calendar and fill assumptions
+independent risk stage, or a second backtest engine. The signal model owns the
+decision calendar, cross-sectional normalization, effective factor weights,
+coverage, target count, rank buffer, and user-facing allocation controls. The
+internal portfolio component applies the chosen allocation method and static
+single-name/gross constraints, then emits final target weights. Core validation
+checks those weights again. Execution emits fill, liquidity, and cost assumptions
 only; order creation remains inside guarded backtest or confirmed paper flow.
 
 Built-ins belong in `alphalab/pipeline/builtins.py` and must be deterministic,
@@ -55,9 +58,10 @@ immutable. Users clone then save immutable versions. Projects pin all three
 versions; changing a ref or settings creates a new project revision and composed
 source snapshot.
 
-`rebalance_freq` has one truth source: execution parameters. Supported values
-are `daily`, `weekly`, and `monthly`. The engine rejects an execution component
-whose emitted frequency disagrees with the pinned schedule.
+`signal_frequency` has one truth source: selection/signal-model parameters.
+Supported values are `daily`, `weekly`, and `monthly`. Historical
+`execution.rebalance_freq` values are migrated on read/persistence and ignored
+if an old execution component still emits them.
 
 ## Python Runtime Rules
 
@@ -69,7 +73,7 @@ gross, liquidity, cash, cost, and next-session gates.
 
 Stage preview executes the composed module through `run_stage`:
 
-- selection executes over eligible candidates from the project stock pool;
+- selection executes the signal model over eligible candidates from the project stock pool;
 - portfolio executes selection then portfolio;
 - execution preview and backtest execute all three stages.
 
@@ -123,16 +127,22 @@ New backtest writes populate `strategy_source`, `component_manifest_json`,
 
 ## Frontend Rules
 
-The eight modes are:
+The seven user-facing modes are:
 
 ```text
-data, factor, project, selection, portfolio, execution, backtest, report
+data, factor, project, selection, execution, backtest, report
 ```
 
 Factor is an independent Dockview workspace. Its default preset opens one
-Factor Research workbench with a directed sequence: select/build a factor,
-configure and run evaluation, inspect the latest cross-section and historical
-evidence, then optionally adopt the validated definition into a project. The
+Factor Research workbench with a persistent public-data surface above the
+builder. It reads the same `/api/data/market/bars` and `/api/data/fundamentals`
+contracts used elsewhere, visualizes K lines or fundamental field history, and
+shows every field discovered from the selected profile's Parquet metadata.
+Changing a profile must change the factor-library query key; never duplicate a
+vendor field list in the router or frontend. Raw data fields and base
+factors can be inserted at the expression cursor. Historical IC, grouping,
+decay, and snapshot evidence belongs in the final-validation view, not in the
+construction toolbar. The
 catalog and the project's adopted-factor basket are separate tabs, not one
 mixed list. Factor evaluation uses `/api/factor-research` and does not run or
 mutate a strategy. Saving is disabled for an unevaluated or stale definition;
@@ -145,22 +155,25 @@ factor settings; those belong to the Factor workspace. The toolbar remains
 navigation/layout chrome.
 
 Built-in technical/fundamental factors and safe vector expressions are the
-current executable factor contracts. External feature packs such as Qlib
+current executable factor contracts. Expressions may reference PIT public-data
+fields (`open/high/low/close/volume/amount` and canonical fundamental fields)
+as cross-sectional inputs. External feature packs such as Qlib
 Alpha158/Alpha360 must remain explicitly marked adapter-required until their
 data fields and point-in-time behavior are implemented. Do not expose an
 arbitrary Python factor editor without a versioned source, dependency, timeout,
 and output contract.
 
-Each stage mode opens a distinct Dockview preset and shares one preview query
-keyed by project revision, target stage, data profile, and cutoff.
+Signal Model and Execution are user-facing workbenches. Portfolio remains an
+internal version-pinned Python stage whose allocation controls and results are
+embedded in Signal Model. Stage previews share one query keyed by project
+revision, target stage, data profile, and cutoff; a portfolio-prefix preview is
+also cached for its executed selection output.
 
 Stage result panels visualize real prefix output:
 
-- selection: universe/eligibility/scoring funnel, scores and ranks, score
-  distribution, current factor-structure diagnostics, selected names, and
-  linked history;
-- portfolio: the exact upstream selection input, constrained final weights,
-  cash, gross, concentration, and explicit limit checks;
+- selection/signal model: universe/eligibility/scoring funnel, scores and ranks,
+  score distribution, current factor-structure diagnostics, selected names,
+  constrained target weights, cash/gross exposure, and linked history;
 - execution: fixed schedule, final targets, cost-model decomposition, and a
   clear distinction between preview-time gates and backtest-only fill checks.
 

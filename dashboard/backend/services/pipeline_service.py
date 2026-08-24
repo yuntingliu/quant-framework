@@ -165,14 +165,14 @@ def run_project_backtest(
         symbols,
         start_date,
         end_date,
-        frequency=pipeline.config.execution.rebalance_freq,
+        frequency=pipeline.config.selection.signal_frequency,
         execution_price=pipeline.config.execution.execution_price,
     ).reindex(returns.index)
     periods_per_year = (
         252
-        if pipeline.config.execution.rebalance_freq == "daily"
+        if pipeline.config.selection.signal_frequency == "daily"
         else 52
-        if pipeline.config.execution.rebalance_freq == "weekly"
+        if pipeline.config.selection.signal_frequency == "weekly"
         else 12
     )
     metrics = PerformanceMetrics.summarize(returns, periods_per_year)

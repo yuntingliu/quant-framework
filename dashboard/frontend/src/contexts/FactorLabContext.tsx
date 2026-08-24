@@ -30,6 +30,11 @@ export interface FactorDraft extends ProjectFactorSpec {
   quantiles: number
 }
 
+interface ExpressionInsertRequest {
+  id: number
+  token: string
+}
+
 interface FactorLabContextValue {
   library: FactorResearchLibrary | null
   libraryLoading: boolean
@@ -40,6 +45,7 @@ interface FactorLabContextValue {
   editingOriginalName: string | null
   result: FactorResearchResult | null
   resultStale: boolean
+  expressionInsertRequest: ExpressionInsertRequest | null
   running: boolean
   saving: boolean
   error: string
@@ -48,6 +54,7 @@ interface FactorLabContextValue {
   selectLibraryFactor: (factor: FactorResearchLibrary["factors"][number]) => void
   selectProjectFactor: (factor: ProjectFactorSpec) => void
   createExpressionFactor: () => void
+  requestExpressionInsert: (token: string) => void
   updateDraft: (values: Partial<FactorDraft>) => void
   evaluate: () => Promise<void>
   saveToProject: () => Promise<void>
@@ -80,6 +87,17 @@ function defaultDraft(endDate?: string | null): FactorDraft {
     quantiles: 5,
     ...defaultDates(endDate),
   }
+}
+
+function nextExpressionName(projectFactors: ProjectFactorSpec[]): string {
+  const used = new Set(projectFactors.map((factor) => factor.name))
+  let index = 1
+  let name = "custom_factor"
+  while (used.has(name)) {
+    index += 1
+    name = `custom_factor_${index}`
+  }
+  return name
 }
 
 function asProjectFactors(value: unknown): ProjectFactorSpec[] {
@@ -131,6 +149,7 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
     setSelectedStrategyRevision,
   } = useWorkspace()
   const [draft, setDraft] = useState<FactorDraft>(() => defaultDraft(selectedDate))
+  const [expressionInsertRequest, setExpressionInsertRequest] = useState<ExpressionInsertRequest | null>(null)
   const [editingOriginalName, setEditingOriginalName] = useState<string | null>(null)
   const [result, setResult] = useState<FactorResearchResult | null>(null)
   const [evaluatedSignature, setEvaluatedSignature] = useState("")
@@ -140,10 +159,10 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
   const [workspaceView, setWorkspaceView] = useState<"build" | "results">("build")
 
   const libraryQuery = useQuery({
-    queryKey: ["factor-research", "library"],
-    queryFn: () => api.get<FactorResearchLibrary>("/factor-research/library"),
+    queryKey: ["factor-research", "library", profile],
+    queryFn: () => api.get<FactorResearchLibrary>(`/factor-research/library?profile=${profile}`),
     enabled: activeMode === "factor",
-    staleTime: Infinity,
+    staleTime: 30_000,
   })
   const projectQuery = useQuery({
     queryKey: ["pipeline", "project-detail", selectedStrategy, selectedStrategyRevision],
@@ -156,6 +175,12 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
     () => asProjectFactors(project?.settings.factors),
     [project?.settings.factors],
   )
+  const projectUniverse = useMemo(
+    () => project?.settings.universe && typeof project.settings.universe === "object"
+      ? project.settings.universe as Record<string, unknown>
+      : {},
+    [project?.settings.universe],
+  )
   const signature = factorSignature(draft, profile, selectedStrategy)
 
   useEffect(() => {
@@ -164,6 +189,7 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
   }, [selectedDate])
 
   const selectLibraryFactor = useCallback((factor: FactorResearchLibrary["factors"][number]) => {
+    const direction: FactorDraft["direction"] = factor.name.includes("volatility") || factor.name.includes("leverage") ? "short" : "long"
     setWorkspaceView("build")
     setEditingOriginalName(null)
     setError("")
@@ -172,7 +198,7 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
       name: factor.name,
       source: factor.source,
       expression: "",
-      direction: factor.name.includes("volatility") || factor.name.includes("leverage") ? "short" : "long",
+      direction,
       weight: 1,
       winsorize: 0.01,
       neutralize: [],
@@ -192,13 +218,7 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
 
   const createExpressionFactor = useCallback(() => {
     setWorkspaceView("build")
-    const used = new Set(projectFactors.map((factor) => factor.name))
-    let index = 1
-    let name = "custom_factor"
-    while (used.has(name)) {
-      index += 1
-      name = `custom_factor_${index}`
-    }
+    const name = nextExpressionName(projectFactors)
     setEditingOriginalName(null)
     setError("")
     setDraft((current) => ({
@@ -211,6 +231,25 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
       winsorize: 0.01,
       neutralize: [],
     }))
+  }, [projectFactors])
+
+  const requestExpressionInsert = useCallback((token: string) => {
+    setWorkspaceView("build")
+    setEditingOriginalName(null)
+    setError("")
+    setDraft((current) => current.source === "expression"
+      ? current
+      : {
+          ...current,
+          name: nextExpressionName(projectFactors),
+          source: "expression",
+          expression: "",
+          direction: "long",
+          weight: 1,
+          winsorize: 0.01,
+          neutralize: [],
+        })
+    setExpressionInsertRequest((current) => ({ id: (current?.id ?? 0) + 1, token }))
   }, [projectFactors])
 
   const updateDraft = useCallback((values: Partial<FactorDraft>) => {
@@ -230,9 +269,6 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
     setRunning(true)
     setError("")
     try {
-      const universe = project?.settings.universe && typeof project.settings.universe === "object"
-        ? project.settings.universe as Record<string, unknown>
-        : {}
       const next = await api.post<FactorResearchResult>("/factor-research/evaluate", {
         profile,
         name: draft.name.trim(),
@@ -245,10 +281,10 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
         end_date: draft.endDate,
         frequency: draft.frequency,
         quantiles: draft.quantiles,
-        symbols: Array.isArray(universe.symbols) && universe.symbols.length ? universe.symbols : null,
-        min_price: Number(universe.min_price || 0),
-        min_history_days: Number(universe.min_history_days || 60),
-        min_average_amount: Number(universe.min_average_amount || 0),
+        symbols: Array.isArray(projectUniverse.symbols) && projectUniverse.symbols.length ? projectUniverse.symbols : null,
+        min_price: Number(projectUniverse.min_price || 0),
+        min_history_days: Number(projectUniverse.min_history_days || 60),
+        min_average_amount: Number(projectUniverse.min_average_amount || 0),
       })
       setResult(next)
       setEvaluatedSignature(signature)
@@ -258,7 +294,7 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setRunning(false)
     }
-  }, [draft, profile, project?.settings.universe, signature])
+  }, [draft, profile, projectUniverse, signature])
 
   const persistFactors = useCallback(async (factors: ProjectFactorSpec[]) => {
     if (!project) throw new Error("请先选择研究项目")
@@ -295,7 +331,9 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
         source: draft.source,
         ...(draft.source === "expression" ? { expression: draft.expression.trim() } : {}),
         direction: draft.direction,
-        weight: draft.weight,
+        // Effective combination weights belong to the project's signal model.
+        // Keep this compatibility field neutral for the guarded core.
+        weight: 1,
         winsorize: draft.winsorize,
         neutralize: draft.neutralize,
       }
@@ -333,6 +371,7 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
     editingOriginalName,
     result,
     resultStale: Boolean(result && evaluatedSignature !== signature),
+    expressionInsertRequest,
     running,
     saving,
     error: error || (libraryQuery.error instanceof Error ? libraryQuery.error.message : "") || (projectQuery.error instanceof Error ? projectQuery.error.message : ""),
@@ -341,6 +380,7 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
     selectLibraryFactor,
     selectProjectFactor,
     createExpressionFactor,
+    requestExpressionInsert,
     updateDraft,
     evaluate,
     saveToProject,
@@ -360,6 +400,7 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
     projectQuery.error,
     projectQuery.isLoading,
     removeFromProject,
+    requestExpressionInsert,
     result,
     running,
     saveToProject,
@@ -367,6 +408,7 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
     selectLibraryFactor,
     selectProjectFactor,
     signature,
+    expressionInsertRequest,
     updateDraft,
     workspaceView,
   ])

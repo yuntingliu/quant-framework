@@ -27,11 +27,21 @@ def project_strategy_config(project: dict[str, Any]) -> StrategyConfig:
         for item in project.get("component_manifest") or []
     }
     selection = parameters.get("selection", {})
+    if isinstance(selection.get("selection"), dict):
+        selection = {**selection["selection"], **{key: value for key, value in selection.items() if key != "selection"}}
     portfolio = parameters.get("portfolio", {})
     # Historical six-stage BacktestRuns keep their frozen risk parameters. This
     # read-only adaptation never makes the removed stage available to authoring.
     legacy_risk = parameters.get("risk", {})
     execution = parameters.get("execution", {})
+    factors = list(settings.get("factors") or [])
+    configured_weights = selection.get("factor_weights")
+    if not isinstance(configured_weights, dict):
+        configured_weights = {
+            str(item.get("name")): float(item.get("weight", 1.0))
+            for item in factors
+            if isinstance(item, dict) and item.get("name")
+        }
     universe = dict(settings.get("universe") or {})
     universe.setdefault("pool", "all")
     universe.setdefault("symbols", [])
@@ -40,10 +50,21 @@ def project_strategy_config(project: dict[str, Any]) -> StrategyConfig:
             "name": project["id"],
             "description": project.get("description", ""),
             "universe": universe,
-            "factors": list(settings.get("factors") or []),
+            "factors": factors,
             "selection": {
                 "min_factor_coverage": float(selection.get("min_factor_coverage", 0.0)),
                 "n_stocks": int(selection.get("count", max(1, len(universe.get("symbols") or [])) or 20)),
+                "signal_frequency": str(
+                    selection.get("signal_frequency", execution.get("rebalance_freq", "monthly"))
+                ),
+                "normalization": str(selection.get("normalization", "percentile_rank")),
+                "factor_weights": configured_weights,
+                "exit_rank": int(
+                    selection.get(
+                        "exit_rank",
+                        selection.get("count", max(1, len(universe.get("symbols") or [])) or 20),
+                    )
+                ),
             },
             "portfolio": {
                 "max_weight": float(portfolio.get("max_weight", legacy_risk.get("max_weight", 1.0))),
@@ -53,10 +74,10 @@ def project_strategy_config(project: dict[str, Any]) -> StrategyConfig:
                         legacy_risk.get("max_gross_exposure", 1.0),
                     )
                 ),
-                "optimizer": "equal_weight",
+                "optimizer": str(portfolio.get("optimizer", "equal_weight")),
+                "rank_decay": float(portfolio.get("rank_decay", 1.0)),
             },
             "execution": {
-                "rebalance_freq": str(execution.get("rebalance_freq", "monthly")),
                 "cost_bps": float(execution.get("cost_bps", 20.0)),
                 "slippage_bps": float(execution.get("slippage_bps", 0.0)),
                 "impact_bps": float(execution.get("impact_bps", 0.0)),

@@ -91,7 +91,7 @@ class SignalEngine:
             "strategy": config.name,
             "as_of_date": as_of.strftime("%Y-%m-%d"),
             "universe_size": len(symbols),
-            "factor_count": len(config.factors),
+            "factor_count": len(config.active_factor_names),
             "selected_count": 0,
             "selected_symbols": [],
             "instrument_filter_applied": not instruments.empty,
@@ -108,7 +108,7 @@ class SignalEngine:
             "requested_count": config.selection.n_stocks,
             "selected_count": 0,
             "cash_weight": 1.0,
-            "factor_names": list(config.factor_names),
+            "factor_names": list(config.active_factor_names),
             "exclusions": {},
             "rows": [],
         }
@@ -335,9 +335,20 @@ class SignalEngine:
                 "max_gross_exposure": config.portfolio.max_gross_exposure,
                 "max_stocks": config.selection.n_stocks,
             },
-            "factor_names": list(config.factor_names),
+            "factor_names": list(config.active_factor_names),
+            "factor_model": [
+                {
+                    "name": factor.name,
+                    "direction": factor.direction,
+                    "weight": config.effective_factor_weight(factor),
+                }
+                for factor in config.factors
+            ],
             "settings": {
                 "min_factor_coverage": config.selection.min_factor_coverage,
+                "signal_frequency": config.selection.signal_frequency,
+                "normalization": config.selection.normalization,
+                "exit_rank": config.selection.effective_exit_rank,
             },
             "metadata": config.metadata,
         }
@@ -544,14 +555,23 @@ class SignalEngine:
         as_of_date: str,
     ) -> pd.DataFrame:
         columns: list[pd.Series] = []
-        fundamental_names = required_fundamental_fields(config.factors)
+        active_factors = tuple(
+            factor for factor in config.factors if config.effective_factor_weight(factor) > 0
+        )
+        fundamental_names = required_fundamental_fields(active_factors)
         fundamentals = pd.DataFrame()
         if fundamental_names:
             fundamentals = self._load_latest_fundamentals(symbols, fundamental_names, as_of_date)
 
-        for factor in config.factors:
+        for factor in active_factors:
+            effective_weight = config.effective_factor_weight(factor)
             raw = compute_cross_sectional_factor(factor, data_by_symbol, fundamentals)
-            ranked = self._rank_factor(raw.reindex(symbols), factor)
+            ranked = self._rank_factor(
+                raw.reindex(symbols),
+                factor,
+                normalization=config.selection.normalization,
+                weight=effective_weight,
+            )
             if not ranked.empty:
                 columns.append(ranked.rename(factor.name))
         if not columns:
@@ -575,14 +595,30 @@ class SignalEngine:
             return pd.DataFrame(columns=["quarter", "symbol", *fields])
 
     @staticmethod
-    def _rank_factor(values: pd.Series, factor: FactorSpec) -> pd.Series:
+    def _rank_factor(
+        values: pd.Series,
+        factor: FactorSpec,
+        *,
+        normalization: str = "percentile_rank",
+        weight: float | None = None,
+    ) -> pd.Series:
         values = pd.to_numeric(values, errors="coerce").dropna()
         if values.empty:
             return pd.Series(dtype=float, name=factor.name)
-        ranks = values.rank(pct=True)
-        if factor.direction == "short":
-            ranks = 1.0 - ranks
-        return ranks * factor.weight
+        if normalization == "zscore":
+            standard_deviation = float(values.std(ddof=0))
+            normalized = (
+                (values - float(values.mean())) / standard_deviation
+                if standard_deviation > 0
+                else pd.Series(0.0, index=values.index, dtype=float)
+            )
+            if factor.direction == "short":
+                normalized = -normalized
+        else:
+            normalized = values.rank(pct=True)
+            if factor.direction == "short":
+                normalized = 1.0 - normalized
+        return normalized * (factor.weight if weight is None else weight)
 
 
 def run_backtest(
@@ -650,7 +686,7 @@ def run_backtest_detailed(
         return _empty_backtest(cfg, "no market bars")
     bars = bars.copy()
     bars["date"] = pd.to_datetime(bars["date"])
-    schedule = _rebalance_schedule(bars["date"], start, end, cfg.execution.rebalance_freq)
+    schedule = _rebalance_schedule(bars["date"], start, end, cfg.selection.signal_frequency)
     if len(schedule) < 2:
         return _empty_backtest(cfg, "insufficient rebalance periods")
 
@@ -781,7 +817,8 @@ def run_backtest_detailed(
         weights=weights_df,
         executions=tuple(executions),
         diagnostics={
-            "frequency": cfg.execution.rebalance_freq,
+            "frequency": cfg.selection.signal_frequency,
+            "signal_model": asdict(cfg.selection),
             "execution": asdict(cfg.execution),
             "pipeline_kind": "three_stage",
             "pipeline_target_stage": "execution",
@@ -817,13 +854,9 @@ def _complete_execution_config_for_period(
     if not isinstance(stage, dict) or not isinstance(stage.get("execution"), dict):
         raise ValueError("configure_execution must return {'execution': {...}}")
     overrides = dict(stage["execution"])
-    returned_frequency = str(
-        overrides.pop("rebalance_freq", config.execution.rebalance_freq)
-    )
-    if returned_frequency != config.execution.rebalance_freq:
-        raise ValueError(
-            "Execution stage rebalance_freq must match the pinned project schedule"
-        )
+    # Historical execution components may still return this field.  The signal
+    # model is authoritative now, so the legacy output is deliberately ignored.
+    overrides.pop("rebalance_freq", None)
     allowed = set(ExecutionSpec.__dataclass_fields__)
     unknown = sorted(set(overrides) - allowed)
     if unknown:
@@ -1058,7 +1091,8 @@ def _empty_backtest(config: StrategyConfig, warning: str) -> BacktestResult:
         weights=pd.DataFrame(),
         executions=(),
         diagnostics={
-            "frequency": config.execution.rebalance_freq,
+            "frequency": config.selection.signal_frequency,
+            "signal_model": asdict(config.selection),
             "execution": asdict(config.execution),
             "periods": 0,
             "warnings": [warning],

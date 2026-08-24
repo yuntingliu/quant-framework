@@ -508,6 +508,25 @@ export interface FactorResearchLibrary {
     name: string
     source: "technical" | "fundamental"
     description: string
+    input_fields: string[]
+    frequency: "daily" | "quarterly"
+    point_in_time: boolean
+  }>
+  data_sources: Array<{
+    id: "market_bars" | "fundamentals"
+    name: string
+    endpoint: string
+    frequency: "daily" | "quarterly"
+    point_in_time: boolean
+    profile: "demo" | "runtime"
+    schema_source: "parquet_metadata"
+    fields: Array<{
+      name: string
+      label: string
+      data_type: "number" | "boolean" | "date" | "string" | "mixed"
+      nullable: boolean
+      expression_compatible: boolean
+    }>
   }>
   expression_functions: string[]
   neutralizers: string[]

@@ -1,6 +1,6 @@
 # AlphaLab Conexus Research Agent
 
-The optional published Agent uses the same current API as the eight workbenches.
+The optional published Agent uses the same current API as the seven user-facing workbenches.
 Its invocation input is exactly `{"request": "non-empty string"}`.
 
 ## Supported Research Surface
@@ -55,10 +55,11 @@ next-period alignment.
 Valid modes are:
 
 ```text
-data factor project selection portfolio execution backtest report
+data factor project selection execution backtest report
 ```
 
-All eight modes use a core widget with a matching `.workbench` id. Factor's
+All seven modes use a core widget with a matching `.workbench` id. The internal
+portfolio stage is configured and previewed inside `selection.workbench`. Factor's
 `factor.library`, `factor.editor`, `factor.snapshot`, and `factor.evidence` ids
 remain optional detail panels; normal factor-research requests open
 `factor.workbench`. Commands execute only after Agent completion and a later

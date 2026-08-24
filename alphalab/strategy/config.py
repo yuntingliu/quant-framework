@@ -73,12 +73,16 @@ class FactorSpec:
         technical = set(TechnicalFactors().available_factors)
         fundamental = set(FundamentalFactors.available_factors)
         if self.source == "expression":
-            from alphalab.factors.expression import factor_dependencies
+            from alphalab.factors.expression import (
+                FUNDAMENTAL_DATA_FIELDS,
+                MARKET_DATA_FIELDS,
+                factor_dependencies,
+            )
 
             if not self.expression:
                 raise ValueError("expression factors require factor.expression")
             dependencies = factor_dependencies(self.expression)
-            available = technical | fundamental
+            available = technical | fundamental | set(MARKET_DATA_FIELDS) | set(FUNDAMENTAL_DATA_FIELDS)
             unknown = sorted(set(dependencies) - available)
             if unknown:
                 raise ValueError(f"unknown factor expression inputs: {unknown}")
@@ -92,16 +96,44 @@ class FactorSpec:
 
 @dataclass(frozen=True)
 class SelectionSpec:
-    """Selection controls after factor ranking."""
+    """Cross-sectional signal-model controls."""
 
     min_factor_coverage: float = 0.5
     n_stocks: int = 10
+    signal_frequency: str = "monthly"
+    normalization: str = "percentile_rank"
+    factor_weights: dict[str, float] = field(default_factory=dict)
+    exit_rank: int | None = None
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.min_factor_coverage) or not 0 <= self.min_factor_coverage <= 1:
             raise ValueError("selection.min_factor_coverage must be in [0, 1]")
         if self.n_stocks < 1:
             raise ValueError("selection.n_stocks must be >= 1")
+        if self.signal_frequency not in {"daily", "weekly", "monthly"}:
+            raise ValueError("selection.signal_frequency must be daily, weekly, or monthly")
+        if self.normalization not in {"percentile_rank", "zscore"}:
+            raise ValueError("selection.normalization must be percentile_rank or zscore")
+        normalized_weights: dict[str, float] = {}
+        for raw_name, raw_weight in self.factor_weights.items():
+            name = str(raw_name).strip()
+            weight = float(raw_weight)
+            if not name:
+                raise ValueError("selection.factor_weights keys must not be empty")
+            if not math.isfinite(weight) or weight < 0:
+                raise ValueError("selection.factor_weights values must be non-negative")
+            normalized_weights[name] = weight
+        object.__setattr__(self, "factor_weights", normalized_weights)
+        if self.exit_rank is not None:
+            object.__setattr__(self, "exit_rank", int(self.exit_rank))
+            if self.exit_rank < self.n_stocks:
+                raise ValueError("selection.exit_rank must be >= selection.n_stocks")
+
+    @property
+    def effective_exit_rank(self) -> int:
+        """Rank below which an existing holding may remain in the signal set."""
+
+        return self.exit_rank if self.exit_rank is not None else self.n_stocks
 
 
 @dataclass(frozen=True)
@@ -111,21 +143,23 @@ class PortfolioSpec:
     max_weight: float = 0.10
     max_gross_exposure: float = 1.0
     optimizer: str = "equal_weight"
+    rank_decay: float = 1.0
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.max_weight) or self.max_weight <= 0:
             raise ValueError("portfolio.max_weight must be positive")
         if not math.isfinite(self.max_gross_exposure) or not 0 < self.max_gross_exposure <= 1:
             raise ValueError("portfolio.max_gross_exposure must be in (0, 1]")
-        if self.optimizer != "equal_weight":
-            raise ValueError("barebone only ships the equal_weight optimizer")
+        if self.optimizer not in {"equal_weight", "score_weight", "rank_decay"}:
+            raise ValueError("portfolio.optimizer must be equal_weight, score_weight, or rank_decay")
+        if not math.isfinite(self.rank_decay) or self.rank_decay < 0:
+            raise ValueError("portfolio.rank_decay must be non-negative")
 
 
 @dataclass(frozen=True)
 class ExecutionSpec:
     """Backtest execution assumptions."""
 
-    rebalance_freq: str = "monthly"
     cost_bps: float = 20.0
     slippage_bps: float = 0.0
     impact_bps: float = 0.0
@@ -134,8 +168,6 @@ class ExecutionSpec:
     max_participation_rate: float = 0.10
 
     def __post_init__(self) -> None:
-        if self.rebalance_freq not in {"daily", "weekly", "monthly"}:
-            raise ValueError("execution.rebalance_freq must be daily, weekly, or monthly")
         for name in ("cost_bps", "slippage_bps", "impact_bps"):
             if not math.isfinite(getattr(self, name)) or getattr(self, name) < 0:
                 raise ValueError(f"execution.{name} must be non-negative")
@@ -165,6 +197,14 @@ class StrategyConfig:
         """Build a strategy from the structured public representation."""
         raw = dict(raw)
         universe_raw = dict(raw.get("universe", {}))
+        selection_raw = dict(raw.get("selection", {}))
+        execution_raw = dict(raw.get("execution", {}))
+        # Before signal models owned the decision calendar, persisted projects
+        # stored it under execution.  Accept that exact historical shape while
+        # emitting only the current contract from ``to_dict``.
+        legacy_frequency = execution_raw.pop("rebalance_freq", None)
+        if "signal_frequency" not in selection_raw and legacy_frequency is not None:
+            selection_raw["signal_frequency"] = legacy_frequency
         if universe_raw.get("symbols") is None:
             universe_raw["symbols"] = []
         return cls(
@@ -172,9 +212,9 @@ class StrategyConfig:
             description=str(raw.get("description", "")),
             universe=UniverseSpec(**universe_raw),
             factors=tuple(FactorSpec(**item) for item in raw.get("factors", [])),
-            selection=SelectionSpec(**raw.get("selection", {})),
+            selection=SelectionSpec(**selection_raw),
             portfolio=PortfolioSpec(**raw.get("portfolio", {})),
-            execution=ExecutionSpec(**raw.get("execution", {})),
+            execution=ExecutionSpec(**execution_raw),
             metadata=dict(raw.get("metadata", {})),
         )
 
@@ -197,15 +237,30 @@ class StrategyConfig:
     def factor_names(self) -> list[str]:
         return [factor.name for factor in self.factors]
 
+    def effective_factor_weight(self, factor: FactorSpec) -> float:
+        return float(self.selection.factor_weights.get(factor.name, factor.weight))
+
+    @property
+    def active_factor_names(self) -> list[str]:
+        return [factor.name for factor in self.factors if self.effective_factor_weight(factor) > 0]
+
     @property
     def total_weight(self) -> float:
-        return float(sum(factor.weight for factor in self.factors))
+        return float(
+            sum(
+                self.effective_factor_weight(factor)
+                for factor in self.factors
+            )
+        )
 
     def validate(self) -> list[str]:
         warnings: list[str] = []
         if self.factors and self.total_weight <= 0:
             warnings.append("Factor weights must sum to a positive value")
-        if self.selection.n_stocks * self.portfolio.max_weight < 1:
-            warnings.append("n_stocks * max_weight is below 100%; portfolio will hold cash")
+        unknown_weights = sorted(set(self.selection.factor_weights) - set(self.factor_names))
+        if unknown_weights:
+            warnings.append(f"Signal weights reference unknown factors: {unknown_weights}")
+        if self.selection.n_stocks * self.portfolio.max_weight < self.portfolio.max_gross_exposure:
+            warnings.append("n_stocks * max_weight is below target gross exposure; portfolio will hold extra cash")
         return warnings
 

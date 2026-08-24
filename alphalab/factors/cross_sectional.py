@@ -4,7 +4,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from alphalab.factors.expression import evaluate_factor_expression, factor_dependencies
+from alphalab.factors.expression import (
+    FUNDAMENTAL_DATA_FIELDS,
+    MARKET_DATA_FIELDS,
+    evaluate_factor_expression,
+    factor_dependencies,
+)
 from alphalab.factors.fundamental import FundamentalFactors
 from alphalab.factors.technical import TechnicalFactors
 from alphalab.strategy.config import FactorSpec
@@ -17,7 +22,7 @@ def factor_input_names(factor: FactorSpec) -> tuple[str, ...]:
 
 
 def required_fundamental_fields(factors: list[FactorSpec] | tuple[FactorSpec, ...]) -> list[str]:
-    available = set(FundamentalFactors.available_factors)
+    available = set(FUNDAMENTAL_DATA_FIELDS)
     fields: set[str] = set()
     for factor in factors:
         fields.update(name for name in factor_input_names(factor) if name in available)
@@ -40,6 +45,10 @@ def compute_cross_sectional_factor(
             inputs[name] = technical.compute(name, data_by_symbol)
         elif name in FundamentalFactors.available_factors:
             inputs[name] = fundamental.compute(name, fundamentals)
+        elif name in MARKET_DATA_FIELDS:
+            inputs[name] = _latest_market_field(name, data_by_symbol)
+        elif name in FUNDAMENTAL_DATA_FIELDS:
+            inputs[name] = _latest_fundamental_field(name, fundamentals)
         else:
             raise KeyError(f"Unknown base factor: {name}")
     if factor.source == "expression":
@@ -56,6 +65,31 @@ def compute_cross_sectional_factor(
     if factor.neutralize:
         values = _neutralize(values, fundamentals, factor.neutralize)
     return values.rename(factor.name).dropna()
+
+
+def _latest_market_field(
+    name: str,
+    data_by_symbol: dict[str, pd.DataFrame],
+) -> pd.Series:
+    values: dict[str, float] = {}
+    for symbol, frame in data_by_symbol.items():
+        if frame.empty or name not in frame:
+            continue
+        value = pd.to_numeric(frame.sort_values("date")[name], errors="coerce").dropna()
+        if not value.empty and np.isfinite(value.iloc[-1]):
+            values[str(symbol).upper()] = float(value.iloc[-1])
+    return pd.Series(values, name=name, dtype=float)
+
+
+def _latest_fundamental_field(name: str, fundamentals: pd.DataFrame) -> pd.Series:
+    if fundamentals.empty or name not in fundamentals:
+        return pd.Series(dtype=float, name=name)
+    latest = fundamentals.copy()
+    sort_columns = [column for column in ("available_date", "quarter") if column in latest]
+    if sort_columns:
+        latest = latest.sort_values(sort_columns)
+    latest = latest.groupby("symbol").tail(1).set_index("symbol")
+    return pd.to_numeric(latest[name], errors="coerce").rename(name)
 
 
 def _neutralize(

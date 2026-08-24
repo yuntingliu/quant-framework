@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from fastapi.testclient import TestClient
 
 from alphalab import PipelineRepository
@@ -34,6 +36,49 @@ def test_data_and_pipeline_read_contracts():
         item["id"] for item in factor_payload["packs"]
     }
     assert all(item["status"] == "adapter_required" for item in factor_payload["packs"])
+    momentum = next(item for item in factor_payload["factors"] if item["name"] == "momentum_20d")
+    assert momentum["input_fields"] == ["close"]
+    assert momentum["frequency"] == "daily"
+    assert momentum["point_in_time"] is True
+    sources = {item["id"]: item for item in factor_payload["data_sources"]}
+    assert set(sources) == {"market_bars", "fundamentals"}
+    assert sources["market_bars"]["endpoint"] == "/api/data/market/bars"
+    assert sources["market_bars"]["profile"] == "demo"
+    assert sources["market_bars"]["schema_source"] == "parquet_metadata"
+    assert {item["name"] for item in sources["market_bars"]["fields"]} == {
+        "date", "symbol", "open", "high", "low", "close", "volume", "amount"
+    }
+    assert not next(
+        item for item in sources["market_bars"]["fields"] if item["name"] == "date"
+    )["expression_compatible"]
+    assert next(
+        item for item in sources["market_bars"]["fields"] if item["name"] == "close"
+    ) == {
+        "name": "close",
+        "label": "收盘价",
+        "data_type": "number",
+        "nullable": True,
+        "expression_compatible": True,
+    }
+    fundamental_names = {item["name"] for item in sources["fundamentals"]["fields"]}
+    assert {"symbol", "quarter", "available_date"}.issubset(fundamental_names)
+    assert "roa" not in fundamental_names
+    assert sources["fundamentals"]["point_in_time"] is True
+    symbol = symbols.json()["symbols"][0]
+    bars = client.get(
+        "/api/data/market/bars",
+        params={"profile": "demo", "symbol": symbol},
+    )
+    assert bars.status_code == 200, bars.text
+    assert set(bars.json()["rows"][0]) == {
+        item["name"] for item in sources["market_bars"]["fields"]
+    }
+    fundamental_rows = client.get(
+        "/api/data/fundamentals",
+        params={"profile": "demo", "symbols": symbol},
+    )
+    assert fundamental_rows.status_code == 200, fundamental_rows.text
+    assert set(fundamental_rows.json()["rows"][0]) == fundamental_names
 
     projects = client.get("/api/pipeline/projects")
     assert projects.status_code == 200, projects.text
@@ -48,6 +93,37 @@ def test_data_and_pipeline_read_contracts():
     assert [item["stage"] for item in payload["component_manifest"]] == STAGES
     assert payload["source_sha256"]
     assert "def run_strategy(context):" in payload["composed_source"]
+
+
+def test_factor_evaluation_accepts_public_market_api_fields():
+    client = TestClient(app)
+    provider_payload = client.get("/api/data/providers").json()
+    end = date.fromisoformat(provider_payload["profiles"]["demo"]["latest_date"])
+    symbols = client.get(
+        "/api/data/market/symbols", params={"profile": "demo"}
+    ).json()["symbols"][:40]
+
+    response = client.post(
+        "/api/factor-research/evaluate",
+        json={
+            "profile": "demo",
+            "name": "intraday_liquidity",
+            "source": "expression",
+            "expression": "zscore((close - open) / open) + zscore(log(amount))",
+            "start_date": (end - timedelta(days=730)).isoformat(),
+            "end_date": end.isoformat(),
+            "frequency": "monthly",
+            "quantiles": 5,
+            "symbols": symbols,
+            "min_history_days": 20,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["factor"]["expression"].startswith("zscore((close - open)")
+    assert payload["periods"] > 0
+    assert payload["snapshot"]["observations"] > 0
 
 
 def test_component_validation_requires_the_stage_entrypoint():

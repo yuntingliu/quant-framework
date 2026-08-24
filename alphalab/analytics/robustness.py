@@ -317,9 +317,9 @@ def _weight_checks(
 
 
 def _periods_per_year(config: StrategyConfig) -> int:
-    if config.execution.rebalance_freq == "daily":
+    if config.selection.signal_frequency == "daily":
         return 252
-    return 52 if config.execution.rebalance_freq == "weekly" else 12
+    return 52 if config.selection.signal_frequency == "weekly" else 12
 
 
 def _annual_rows(frame: pd.DataFrame, periods_per_year: int) -> list[dict]:

@@ -8,14 +8,19 @@ The current strategy interface is Python-native and has one execution path.
 The top-level workbenches are parallel navigation destinations:
 
 ```text
-Data | Factor Research | Research Project | Selection | Portfolio | Execution | Backtest | Report
+Data | Factor Research | Research Project | Signal Model | Execution | Backtest | Report
 ```
 
 The Factor Research Workbench owns the factor library, project factor basket,
 safe-expression authoring, latest validated cross-section, and point-in-time
-single-factor evidence before those factors are consumed by selection. Its
-default surface is one directed workbench—select/build, evaluate, inspect
-evidence, then adopt into a project—rather than four peer Dockview panels. It
+single-factor evidence before those factors are consumed by the signal model. Its
+default surface is one data-first workbench: public market and fundamental API
+data remain visible as K lines or field histories while the researcher builds
+or edits a factor. Its field catalog is generated from the selected profile's
+physical Parquet schemas; it is not a hand-maintained list of vendor columns.
+Raw market/fundamental fields and executable base factors
+can be inserted at the expression cursor. Single-factor evidence is a final
+validation view rather than the primary construction surface. It
 can attach only the currently validated factor definition to the selected
 project, but it is not embedded in the project-management layout.
 
@@ -33,6 +38,7 @@ The strategy and research dependency is:
 DataSnapshot
   -> project stock pool + factor definitions and single-factor research
   -> core eligibility gates
+  -> signal model: normalize + weight + rank + holding buffer
   -> select_assets(context)
   -> construct_portfolio(context)
   -> configure_execution(context)
@@ -42,11 +48,17 @@ DataSnapshot
 ```
 
 The stock pool is structured project input rather than programmable strategy
-logic. Selection is recomputed at every decision date from eligible data and
-factors available at that date. Portfolio emits
-the final target weights, including static single-name and gross-exposure
-limits. Execution describes a fixed daily, weekly, or monthly rebalance policy
-and fill assumptions; order creation remains in the guarded engine.
+logic. The signal model owns the daily/weekly/monthly decision calendar,
+cross-sectional normalization, project-specific effective factor weights,
+minimum coverage, target count, and entry/exit rank buffer. It is recomputed at
+every decision date from eligible data and factors available at that date. The
+internal stage ID remains `selection` for persisted API compatibility.
+The Signal Model workbench also owns the user-facing allocation method, target
+gross exposure, and single-name limit. The internal `portfolio` Python stage
+remains version-pinned and emits final target weights so runtime boundaries and
+historical provenance stay intact, but it is not a separate navigation
+destination. Execution describes next-session fill, liquidity, capital, and
+cost assumptions; order creation remains in the guarded engine.
 
 There is no timing stage and no independent risk component. A drawdown-driven
 exposure change would be a stateful timing rule and is outside the current

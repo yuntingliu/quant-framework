@@ -24,6 +24,19 @@ _UNARY_OPERATORS = {
     ast.USub: lambda value: -value,
 }
 _FUNCTIONS = {"abs", "clip", "log", "rank", "sqrt", "zscore"}
+MARKET_DATA_FIELDS = ("open", "high", "low", "close", "volume", "amount")
+FUNDAMENTAL_DATA_FIELDS = (
+    "shares",
+    "market_cap",
+    "ep",
+    "bp",
+    "roe",
+    "roa",
+    "profit_growth",
+    "revenue_growth",
+    "gross_margin",
+    "leverage",
+)
 
 
 def factor_dependencies(expression: str) -> tuple[str, ...]:
@@ -148,7 +161,9 @@ def _call(name: str, arguments: list[pd.Series | float]) -> pd.Series:
 
 
 __all__ = [
+    "FUNDAMENTAL_DATA_FIELDS",
     "FactorExpressionError",
+    "MARKET_DATA_FIELDS",
     "evaluate_factor_expression",
     "factor_dependencies",
 ]
