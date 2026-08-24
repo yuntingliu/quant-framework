@@ -22,6 +22,7 @@ import { StatusBar } from "@/widgets/StatusBar"
 import { LaunchSyncBanner } from "@/widgets/home/LaunchSyncBanner"
 import { layoutPresets, LAYOUT_VERSION, normalizeWorkspaceMode, type WorkspaceMode } from "@/layouts/presets"
 import { WorkspaceProvider, useWorkspace, type LinkGroup } from "@/contexts/WorkspaceContext"
+import { FactorLabProvider } from "@/contexts/FactorLabContext"
 import { PanelContext } from "@/contexts/PanelContext"
 import { useAgentPrompt } from "@/contexts/AgentPromptContext"
 import { useAlertNotifications } from "@/lib/notifications"
@@ -769,7 +770,9 @@ function WorkspaceInner() {
 export default function Workspace() {
   return (
     <WorkspaceProvider>
-      <WorkspaceInner />
+      <FactorLabProvider>
+        <WorkspaceInner />
+      </FactorLabProvider>
     </WorkspaceProvider>
   )
 }

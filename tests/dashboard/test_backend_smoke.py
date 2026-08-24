@@ -24,6 +24,17 @@ def test_data_and_pipeline_read_contracts():
     assert symbols.json()["instruments"]
     assert {"symbol", "name"}.issubset(symbols.json()["instruments"][0])
 
+    factor_library = client.get("/api/factor-research/library")
+    assert factor_library.status_code == 200, factor_library.text
+    factor_payload = factor_library.json()
+    assert {"momentum_20d", "ep"}.issubset(
+        {item["name"] for item in factor_payload["factors"]}
+    )
+    assert {"microsoft-qlib-alpha158", "microsoft-qlib-alpha360"} == {
+        item["id"] for item in factor_payload["packs"]
+    }
+    assert all(item["status"] == "adapter_required" for item in factor_payload["packs"])
+
     projects = client.get("/api/pipeline/projects")
     assert projects.status_code == 200, projects.text
     assert any(item["id"] == "three-stage-default" for item in projects.json())

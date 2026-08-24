@@ -1,8 +1,13 @@
 import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { CalendarDays, RefreshCw } from "lucide-react"
+import { CalendarDays, Check, CircleAlert, Clock3, RefreshCw } from "lucide-react"
 
-import { CandlestickChart, HorizontalBarChart } from "@/components/charts"
+import {
+  CandlestickChart,
+  CorrelationHeatmap,
+  DistributionChart,
+  HorizontalBarChart,
+} from "@/components/charts"
 import type { CandlestickMarker } from "@/components/charts/CandlestickChart"
 import { SymbolCombobox, type SymbolOption } from "@/components/shared/SymbolCombobox"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
@@ -11,6 +16,7 @@ import {
   api,
   type MarketBar,
   type MarketInstrument,
+  type PipelineProjectDetail,
   type PipelinePreview,
   type PythonPipelineStage,
 } from "@/lib/api"
@@ -30,6 +36,10 @@ function record(value: unknown): UnknownRecord {
 
 function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : []
+}
+
+function records(value: unknown): UnknownRecord[] {
+  return Array.isArray(value) ? value.map(record).filter((item) => Object.keys(item).length) : []
 }
 
 function numbers(value: unknown): Record<string, number> {
@@ -56,6 +66,24 @@ function useStagePanel(stage: PythonPipelineStage) {
     ...run,
     output: stageOutput(run.preview, stage),
   }
+}
+
+function useStageParameters(stage: PythonPipelineStage) {
+  const { selectedStrategy, selectedStrategyRevision } = useWorkspace()
+  const project = useQuery({
+    queryKey: ["pipeline", "project-detail", selectedStrategy, selectedStrategyRevision],
+    queryFn: () => api.get<PipelineProjectDetail>(`/pipeline/projects/${selectedStrategy}`),
+    enabled: Boolean(selectedStrategy),
+    staleTime: 30_000,
+  })
+  return record(project.data?.component_manifest.find((item) => item.stage === stage)?.parameters)
+}
+
+function formatMoney(value: number): string {
+  return new Intl.NumberFormat("zh-CN", {
+    notation: Math.abs(value) >= 1_000_000 ? "compact" : "standard",
+    maximumFractionDigits: 1,
+  }).format(value)
 }
 
 function PanelToolbar({
@@ -102,7 +130,30 @@ function StagePanel({
 function EmptyRunState({ stale = false }: { stale?: boolean }) {
   return (
     <div className="analytics-empty">
-      {stale ? "项目、数据环境或数据截至日已变化，请重新运行当前阶段" : "当前上下文没有有效结果，请运行当前阶段"}
+      {stale ? "项目、数据环境或数据截至日已变化，请在「策略组件」标签重新运行当前阶段" : "当前上下文没有有效结果，请在「策略组件」标签运行当前阶段"}
+    </div>
+  )
+}
+
+type AuditStatus = "pass" | "warning" | "pending"
+
+function AuditRow({
+  label,
+  value,
+  detail,
+  status,
+}: {
+  label: string
+  value: string
+  detail: string
+  status: AuditStatus
+}) {
+  const Icon = status === "pass" ? Check : status === "warning" ? CircleAlert : Clock3
+  return (
+    <div className={`stage-audit-row ${status}`}>
+      <Icon size={15} />
+      <div><strong>{label}</strong><span>{detail}</span></div>
+      <em>{value}</em>
     </div>
   )
 }
@@ -141,6 +192,138 @@ function useStageBars(profile: DataProfile, symbol: string, end: string | null) 
     enabled: Boolean(symbol && start && end),
     staleTime: Infinity,
   })
+}
+
+export function SelectionFunnelWidget() {
+  const panel = useStagePanel("selection")
+  const snapshot = record(panel.preview?.selection)
+  const diagnostics = record(panel.preview?.diagnostics)
+  const universe = numeric(snapshot.universe_size ?? diagnostics.universe_size)
+  const eligible = numeric(snapshot.eligible_count ?? diagnostics.eligible_count)
+  const scored = numeric(snapshot.scored_count ?? diagnostics.score_count)
+  const selected = numeric(snapshot.selected_count ?? diagnostics.selected_count)
+  const exclusions = Object.entries(numbers(snapshot.exclusions ?? diagnostics.exclusions))
+    .sort((left, right) => right[1] - left[1])
+  const instrumentFilterApplied = diagnostics.instrument_filter_applied === true
+  const snapshotFuture = diagnostics.instrument_snapshot_future === true
+  const instrumentSnapshot = String(diagnostics.instrument_snapshot || "未提供")
+  const steps = [
+    { label: "项目股票池", value: universe },
+    { label: "数据可用", value: eligible },
+    { label: "完成评分", value: scored },
+    { label: "最终入选", value: selected },
+  ]
+
+  return (
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
+        <>
+          <div className="stage-funnel" aria-label="选股漏斗">
+            {steps.map((step, index) => (
+              <div className="stage-funnel-step" key={step.label}>
+                <span>{step.label}</span>
+                <strong>{step.value}</strong>
+                {index ? <small>{steps[index - 1]?.value ? formatPercent(step.value / steps[index - 1].value, 0) : "—"}</small> : <small>基准</small>}
+              </div>
+            ))}
+          </div>
+          <div className="stage-section-label">可研究性检查</div>
+          <div className="stage-audit-list">
+            <AuditRow
+              label="证券主数据时间点"
+              value={snapshotFuture ? "未来快照" : instrumentFilterApplied ? "已过滤" : "未接入"}
+              detail={instrumentFilterApplied ? `快照日期 ${instrumentSnapshot}` : "当前数据源未提供证券状态快照"}
+              status={snapshotFuture ? "warning" : instrumentFilterApplied ? "pass" : "pending"}
+            />
+          </div>
+          <div className="stage-section-label">排除原因</div>
+          {exclusions.length ? (
+            <div className="stage-reason-list">
+              {exclusions.map(([reason, count]) => (
+                <div key={reason}><span>{reason}</span><strong>{count}</strong></div>
+              ))}
+            </div>
+          ) : <div className="analytics-empty compact">没有因数据完整性被排除的证券。</div>}
+        </>
+      )}
+    </StagePanel>
+  )
+}
+
+export function SelectionDistributionWidget() {
+  const panel = useStagePanel("selection")
+  const scores = numbers(panel.output.scores)
+  const selectedSymbols = strings(panel.output.selected)
+  const values = Object.values(scores).sort((left, right) => left - right)
+  const selectedValues = selectedSymbols.map((symbol) => scores[symbol]).filter((value) => Number.isFinite(value))
+  const mean = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0
+  const middle = Math.floor(values.length / 2)
+  const median = values.length
+    ? values.length % 2 ? values[middle] ?? 0 : ((values[middle - 1] ?? 0) + (values[middle] ?? 0)) / 2
+    : 0
+  const cutoff = selectedValues.length ? Math.min(...selectedValues) : 0
+
+  return (
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : !values.length ? (
+        <div className="analytics-empty">当前选股组件没有输出可绘制的 scores。</div>
+      ) : (
+        <>
+          <div className="stage-kpi-grid three">
+            <div><span>平均分</span><strong>{formatNumber(mean, 3)}</strong></div>
+            <div><span>中位数</span><strong>{formatNumber(median, 3)}</strong></div>
+            <div><span>入选门槛</span><strong>{formatNumber(cutoff, 3)}</strong></div>
+          </div>
+          <div className="stage-chart-card">
+            <DistributionChart data={values} bins={Math.min(20, Math.max(5, Math.ceil(Math.sqrt(values.length))))} meanLine={mean} height={250} />
+          </div>
+          <div className="stage-note">分布基于当前截面的实际综合得分；入选门槛是本次入选证券中的最低分。</div>
+        </>
+      )}
+    </StagePanel>
+  )
+}
+
+export function SelectionFactorEvidenceWidget() {
+  const panel = useStagePanel("selection")
+  const snapshot = record(panel.preview?.selection)
+  const correlation = record(record(panel.preview?.diagnostics).factor_score_correlation)
+  const labels = strings(correlation.labels)
+  const rawMatrix = Array.isArray(correlation.matrix) ? correlation.matrix : []
+  const matrix = rawMatrix.map((row) => Array.isArray(row)
+    ? row.map((value) => value == null ? Number.NaN : Number(value))
+    : [])
+  const completeMatrix = labels.length > 1
+    && matrix.length === labels.length
+    && matrix.every((row) => row.length === labels.length && row.every(Number.isFinite))
+  const factors = labels.length ? labels : strings(snapshot.factor_names)
+  const observations = numeric(correlation.observations)
+
+  return (
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
+        <>
+          <div className="stage-kpi-grid">
+            <div><span>参与因子</span><strong>{factors.length}</strong></div>
+            <div><span>有效截面</span><strong>{observations}</strong></div>
+          </div>
+          <div className="stage-factor-list">
+            {factors.map((factor) => <span key={factor}>{factor}</span>)}
+          </div>
+          {completeMatrix ? (
+            <div className="stage-chart-card correlation">
+              <CorrelationHeatmap labels={labels} matrix={matrix} />
+            </div>
+          ) : (
+            <div className="analytics-empty compact">
+              {factors.length < 2 ? "至少需要两个因子才能检查截面相关性。" : "当前截面的因子相关矩阵不完整。"}
+            </div>
+          )}
+          <div className="stage-note">这里检查因子冗余；因子收益和稳定性仍以完整回测证据为准。</div>
+        </>
+      )}
+    </StagePanel>
+  )
 }
 
 export function SelectionRankingWidget() {
@@ -217,6 +400,52 @@ function SecurityChartWidget() {
 
 export const SelectionChartWidget = () => <SecurityChartWidget />
 
+export function PortfolioInputWidget() {
+  const panel = useStagePanel("portfolio")
+  const snapshot = record(panel.preview?.selection)
+  const selectedSymbols = new Set(strings(stageOutput(panel.preview, "selection").selected))
+  const snapshotRows = records(snapshot.rows)
+    .filter((row) => row.selected === true || selectedSymbols.has(String(row.symbol)))
+    .sort((left, right) => numeric(left.rank, Number.MAX_SAFE_INTEGER) - numeric(right.rank, Number.MAX_SAFE_INTEGER))
+  const fallbackScores = numbers(stageOutput(panel.preview, "selection").scores)
+  const rows = snapshotRows.length ? snapshotRows : [...selectedSymbols].map((symbol, index) => ({
+    rank: index + 1,
+    symbol,
+    composite_score: fallbackScores[symbol],
+    factor_coverage: undefined,
+  }))
+  const averageCoverage = snapshotRows.length
+    ? snapshotRows.reduce((sum, row) => sum + numeric(row.factor_coverage), 0) / snapshotRows.length
+    : null
+
+  return (
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
+        <>
+          <div className="stage-kpi-grid">
+            <div><span>上游入选</span><strong>{rows.length} 只</strong></div>
+            <div><span>平均因子覆盖</span><strong>{averageCoverage == null ? "—" : formatPercent(averageCoverage, 0)}</strong></div>
+          </div>
+          <div className="stage-table-wrap">
+            <table className="stage-table">
+              <thead><tr><th>#</th><th>证券</th><th>综合得分</th><th>因子覆盖</th></tr></thead>
+              <tbody>{rows.map((row) => (
+                <tr key={String(row.symbol)}>
+                  <td>{numeric(row.rank)}</td>
+                  <td><strong>{String(row.symbol)}</strong></td>
+                  <td>{Number.isFinite(Number(row.composite_score)) ? formatNumber(numeric(row.composite_score), 3) : "—"}</td>
+                  <td>{Number.isFinite(Number(row.factor_coverage)) ? formatPercent(numeric(row.factor_coverage), 0) : "—"}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          <div className="stage-note">这是组合构建实际接收到的选股结果，不是另一次独立筛选。</div>
+        </>
+      )}
+    </StagePanel>
+  )
+}
+
 export function PortfolioWeightsWidget() {
   const panel = useStagePanel("portfolio")
   const weights = numbers(panel.output.weights)
@@ -249,11 +478,168 @@ export function PortfolioSummaryWidget() {
   )
 }
 
+export function PortfolioConstraintsWidget() {
+  const panel = useStagePanel("portfolio")
+  const parameters = useStageParameters("portfolio")
+  const rawWeights = record(panel.output.weights)
+  const weights = numbers(rawWeights)
+  const selected = new Set(strings(stageOutput(panel.preview, "selection").selected))
+  const values = Object.values(weights)
+  const gross = values.reduce((sum, value) => sum + Math.abs(value), 0)
+  const largest = Math.max(0, ...values)
+  const maxWeight = numeric(parameters.max_weight, 1)
+  const grossLimit = numeric(parameters.max_gross_exposure, 1)
+  const invalidWeights = Object.values(rawWeights).filter((value) => !Number.isFinite(Number(value)) || Number(value) < 0)
+  const outsideSelection = Object.keys(weights).filter((symbol) => !selected.has(symbol))
+  const normalized = gross > 0 ? values.map((value) => value / gross) : []
+  const concentration = normalized.reduce((sum, value) => sum + value * value, 0)
+  const effectiveHoldings = concentration > 0 ? 1 / concentration : 0
+  const maxWeightPass = largest <= maxWeight + 1e-9
+  const grossPass = gross <= grossLimit + 1e-9
+
+  return (
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
+        <>
+          <div className="stage-kpi-grid three">
+            <div><span>现金余量</span><strong>{formatPercent(Math.max(0, 1 - gross), 1)}</strong></div>
+            <div><span>HHI 集中度</span><strong>{formatNumber(concentration, 3)}</strong></div>
+            <div><span>有效持仓数</span><strong>{formatNumber(effectiveHoldings, 1)}</strong></div>
+          </div>
+          <div className="stage-limit-meter">
+            <div><span>总敞口使用</span><strong>{formatPercent(gross, 1)} / {formatPercent(grossLimit, 1)}</strong></div>
+            <i><b style={{ width: `${Math.min(100, grossLimit > 0 ? gross / grossLimit * 100 : 0)}%` }} /></i>
+          </div>
+          <div className="stage-audit-list">
+            <AuditRow label="权重合同" value={invalidWeights.length ? `${invalidWeights.length} 项异常` : "通过"} detail="所有权重必须有限且非负" status={invalidWeights.length ? "warning" : "pass"} />
+            <AuditRow label="选股池边界" value={outsideSelection.length ? `${outsideSelection.length} 项越界` : "通过"} detail="组合不得引入未被选股阶段选中的证券" status={outsideSelection.length ? "warning" : "pass"} />
+            <AuditRow label="单股上限" value={`${formatPercent(largest, 1)} / ${formatPercent(maxWeight, 1)}`} detail="实际最大权重 / 组件参数上限" status={maxWeightPass ? "pass" : "warning"} />
+            <AuditRow label="总敞口上限" value={`${formatPercent(gross, 1)} / ${formatPercent(grossLimit, 1)}`} detail="实际总仓位 / 组件参数上限" status={grossPass ? "pass" : "warning"} />
+          </div>
+        </>
+      )}
+    </StagePanel>
+  )
+}
+
 export function ExecutionSettingsWidget() {
   const panel = useStagePanel("execution")
   const settings = record(panel.output.execution)
-  const labels: Record<string, string> = { rebalance_freq: "调仓频率", execution_price: "成交价格", cost_bps: "佣金 bps", slippage_bps: "滑点 bps", impact_bps: "冲击 bps", max_participation_rate: "最大成交占比", portfolio_value: "组合资金" }
-  return <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>{!panel.preview ? <EmptyRunState /> : <div className="stage-settings-grid">{Object.entries(settings).map(([key, value]) => <div key={key}><span>{labels[key] ?? key}</span><strong>{key.endsWith("_rate") ? formatPercent(numeric(value), 1) : String(value)}</strong></div>)}</div>}</StagePanel>
+  const frequency = String(settings.rebalance_freq || "未设置")
+  const price = String(settings.execution_price || "未设置")
+  const frequencyLabels: Record<string, string> = { daily: "每日", weekly: "每周", monthly: "每月" }
+  const priceLabels: Record<string, string> = { next_open: "下一交易日开盘", next_close: "下一交易日收盘", monthly_factor_close: "月度因子收盘" }
+  return (
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
+        <>
+          <div className="stage-execution-flow">
+            <div><span>信号形成</span><strong>{panel.preview?.signal_date}</strong></div>
+            <i>→</i>
+            <div><span>成交时点</span><strong>{priceLabels[price] ?? price}</strong></div>
+            <i>→</i>
+            <div><span>形成持仓</span><strong>成交后生效</strong></div>
+          </div>
+          <div className="stage-settings-grid">
+            <div><span>调仓频率</span><strong>{frequencyLabels[frequency] ?? frequency}</strong></div>
+            <div><span>最大成交占比</span><strong>{formatPercent(numeric(settings.max_participation_rate), 1)}</strong></div>
+            <div><span>组合资金</span><strong>¥ {formatMoney(numeric(settings.portfolio_value))}</strong></div>
+            <div><span>预览边界</span><strong>目标与假设</strong></div>
+          </div>
+          <div className="stage-note">预览确认调仓规则；确切进出场日期由完整回测按交易日历逐期生成。</div>
+        </>
+      )}
+    </StagePanel>
+  )
+}
+
+export function ExecutionCostsWidget() {
+  const panel = useStagePanel("execution")
+  const settings = record(panel.output.execution)
+  const commission = numeric(settings.cost_bps)
+  const slippage = numeric(settings.slippage_bps)
+  const impact = numeric(settings.impact_bps)
+  const total = commission + slippage + impact
+  const portfolioValue = numeric(settings.portfolio_value)
+  const fullTurnoverEstimate = portfolioValue * total / 10_000
+  const parts = [
+    { label: "固定费率", value: commission, className: "commission" },
+    { label: "滑点", value: slippage, className: "slippage" },
+    { label: "冲击", value: impact, className: "impact" },
+  ]
+
+  return (
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
+        <>
+          <div className="stage-kpi-grid three">
+            <div><span>固定成本</span><strong>{formatNumber(commission + slippage, 1)} bps</strong></div>
+            <div><span>冲击参数</span><strong>{formatNumber(impact, 1)} bps</strong></div>
+            <div><span>参数合计</span><strong>{formatNumber(total, 1)} bps</strong></div>
+          </div>
+          <div className="stage-cost-stack" aria-label="交易成本参数构成">
+            {total > 0 ? parts.map((part) => (
+              <div
+                className={part.className}
+                key={part.label}
+                style={{ width: `${total > 0 ? part.value / total * 100 : 33.333}%` }}
+                title={`${part.label} ${formatNumber(part.value, 1)} bps`}
+              />
+            )) : <div className="empty" />}
+          </div>
+          <div className="stage-cost-legend">
+            {parts.map((part) => <span className={part.className} key={part.label}>{part.label} <strong>{formatNumber(part.value, 1)}</strong></span>)}
+          </div>
+          <div className="stage-estimate-card">
+            <span>100% 单边换手、冲击达到参数值时</span>
+            <strong>约 ¥ {formatMoney(fullTurnoverEstimate)}</strong>
+          </div>
+          <div className="stage-note">这是参数情景，不是本次真实成本；真实值取决于上一期持仓、成交量和参与率。</div>
+        </>
+      )}
+    </StagePanel>
+  )
+}
+
+export function ExecutionGuardrailsWidget() {
+  const panel = useStagePanel("execution")
+  const settings = record(panel.output.execution)
+  const diagnostics = record(panel.preview?.diagnostics)
+  const snapshotApplied = diagnostics.instrument_filter_applied === true
+  const snapshotFuture = diagnostics.instrument_snapshot_future === true
+  const participation = numeric(settings.max_participation_rate)
+  return (
+    <StagePanel signalDate={panel.preview?.signal_date} profile={panel.profile} running={panel.isRunning} error={panel.error}>
+      {!panel.preview ? <EmptyRunState stale={panel.isStale} /> : (
+        <div className="stage-audit-list">
+          <AuditRow
+            label="目标权重合同"
+            value="通过"
+            detail="组合权重已通过非负、单股与总敞口硬门禁"
+            status="pass"
+          />
+          <AuditRow
+            label="证券状态时间点"
+            value={snapshotFuture ? "需检查" : snapshotApplied ? "通过" : "待数据"}
+            detail={snapshotApplied ? `主数据快照 ${String(diagnostics.instrument_snapshot || "已应用")}` : "当前数据源没有证券状态快照"}
+            status={snapshotFuture ? "warning" : snapshotApplied ? "pass" : "pending"}
+          />
+          <AuditRow
+            label="成交量参与率"
+            value={participation ? `≤ ${formatPercent(participation, 1)}` : "未设置"}
+            detail="逐证券可成交数量需在回测中结合当日成交额计算"
+            status={participation ? "pending" : "warning"}
+          />
+          <AuditRow
+            label="换手与实际成本"
+            value="回测评估"
+            detail="依赖上一期持仓，阶段预览不会虚构换手率"
+            status="pending"
+          />
+        </div>
+      )}
+    </StagePanel>
+  )
 }
 
 export function ExecutionTargetsWidget() {

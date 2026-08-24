@@ -102,6 +102,7 @@ def evaluate_factor(
     rows: list[dict] = []
     horizon_ics: dict[int, list[float]] = {1: [], 3: [], 6: []}
     previous_top: set[str] = set()
+    latest_snapshot: dict | None = None
     instrument_filter_periods = 0
     future_instrument_snapshot = False
     for signal_date in signal_dates[:-1]:
@@ -158,6 +159,35 @@ def evaluate_factor(
             else None
         )
         previous_top = top_members
+        ordered = aligned.sort_values("factor", ascending=False)
+        factor_values = ordered["factor"].astype(float)
+        latest_snapshot = {
+            "date": signal_date.strftime("%Y-%m-%d"),
+            "observations": int(len(ordered)),
+            "coverage": float(len(ordered) / max(1, len(symbols))),
+            "values": factor_values.tolist(),
+            "mean": float(factor_values.mean()),
+            "std": float(factor_values.std(ddof=0)),
+            "minimum": float(factor_values.min()),
+            "median": float(factor_values.median()),
+            "maximum": float(factor_values.max()),
+            "top": [
+                {
+                    "symbol": str(symbol),
+                    "value": float(row["factor"]),
+                    "forward_return": float(row["forward_return"]),
+                }
+                for symbol, row in ordered.head(10).iterrows()
+            ],
+            "bottom": [
+                {
+                    "symbol": str(symbol),
+                    "value": float(row["factor"]),
+                    "forward_return": float(row["forward_return"]),
+                }
+                for symbol, row in ordered.tail(10).sort_values("factor").iterrows()
+            ],
+        }
         for horizon, forward in horizons.items():
             if signal_date not in forward.index:
                 continue
@@ -232,6 +262,7 @@ def evaluate_factor(
             }
             for horizon, values in horizon_ics.items()
         },
+        "snapshot": latest_snapshot,
         "rows": rows,
         "warnings": _warnings(
             rows,
@@ -307,6 +338,7 @@ def _empty_result(
         "periods": 0,
         "summary": {},
         "decay": {},
+        "snapshot": None,
         "rows": [],
         "warnings": [warning],
     }

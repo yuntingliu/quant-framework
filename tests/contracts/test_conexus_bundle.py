@@ -109,7 +109,7 @@ def test_conexus_tools_match_the_python_pipeline_contract():
     assert "markdown:input.markdown" in save_report["code"]
 
 
-def test_agent_and_harness_use_only_the_seven_workbenches():
+def test_agent_and_harness_use_only_the_eight_workbenches():
     agent = _load(BUNDLE / "agents" / "AlphaLab-Research-Agent.agent.json")
     assert agent["model"] == "openai/gpt-5.6-sol"
     tools = {_load(path)["toolName"] for path in TOOLS.glob("*.json")}
@@ -131,6 +131,7 @@ def test_agent_and_harness_use_only_the_seven_workbenches():
         "不得声称 Python 能绕过核心闸门",
         "不得为选股预览继续运行 portfolio 或 execution",
         "attribution",
+        "factor.workbench",
         "只能调用一次 update_nodes",
         "必须在 update_nodes 前调用且只调用一次 alphalab_save_report",
     ):
@@ -144,6 +145,7 @@ def test_agent_and_harness_use_only_the_seven_workbenches():
     mode_enum = commands["properties"]["commands"]["items"]["properties"]["mode"]["enum"]
     assert mode_enum == [
         "data",
+        "factor",
         "project",
         "selection",
         "portfolio",

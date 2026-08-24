@@ -1,0 +1,381 @@
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+
+import { useWorkspace } from "@/contexts/WorkspaceContext"
+import {
+  api,
+  type FactorResearchLibrary,
+  type FactorResearchResult,
+  type PipelineProjectDetail,
+} from "@/lib/api"
+import { useDataProfile } from "@/lib/data-profile"
+
+export type FactorSource = "technical" | "fundamental" | "expression"
+
+export interface ProjectFactorSpec {
+  name: string
+  source: FactorSource
+  expression?: string | null
+  direction: "long" | "short"
+  weight: number
+  winsorize: number
+  neutralize: string[]
+}
+
+export interface FactorDraft extends ProjectFactorSpec {
+  expression: string
+  startDate: string
+  endDate: string
+  frequency: "monthly" | "weekly"
+  quantiles: number
+}
+
+interface FactorLabContextValue {
+  library: FactorResearchLibrary | null
+  libraryLoading: boolean
+  project: PipelineProjectDetail | null
+  projectLoading: boolean
+  projectFactors: ProjectFactorSpec[]
+  draft: FactorDraft
+  editingOriginalName: string | null
+  result: FactorResearchResult | null
+  resultStale: boolean
+  running: boolean
+  saving: boolean
+  error: string
+  workspaceView: "build" | "results"
+  setWorkspaceView: (view: "build" | "results") => void
+  selectLibraryFactor: (factor: FactorResearchLibrary["factors"][number]) => void
+  selectProjectFactor: (factor: ProjectFactorSpec) => void
+  createExpressionFactor: () => void
+  updateDraft: (values: Partial<FactorDraft>) => void
+  evaluate: () => Promise<void>
+  saveToProject: () => Promise<void>
+  removeFromProject: (name: string) => Promise<void>
+}
+
+const FactorLabContext = createContext<FactorLabContextValue | null>(null)
+
+function isoDate(value: Date): string {
+  return value.toISOString().slice(0, 10)
+}
+
+function defaultDates(endDate?: string | null) {
+  const end = endDate ? new Date(`${endDate}T00:00:00`) : new Date()
+  const start = new Date(end)
+  start.setFullYear(start.getFullYear() - 3)
+  return { startDate: isoDate(start), endDate: isoDate(end) }
+}
+
+function defaultDraft(endDate?: string | null): FactorDraft {
+  return {
+    name: "momentum_20d",
+    source: "technical",
+    expression: "",
+    direction: "long",
+    weight: 1,
+    winsorize: 0.01,
+    neutralize: [],
+    frequency: "monthly",
+    quantiles: 5,
+    ...defaultDates(endDate),
+  }
+}
+
+function asProjectFactors(value: unknown): ProjectFactorSpec[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return []
+    const item = raw as Record<string, unknown>
+    const source = String(item.source || "technical")
+    const direction = String(item.direction || "long")
+    const name = String(item.name || "").trim()
+    if (!name || !["technical", "fundamental", "expression"].includes(source)) return []
+    return [{
+      name,
+      source: source as FactorSource,
+      expression: item.expression == null ? null : String(item.expression),
+      direction: direction === "short" ? "short" as const : "long" as const,
+      weight: Number.isFinite(Number(item.weight)) ? Number(item.weight) : 1,
+      winsorize: Number.isFinite(Number(item.winsorize)) ? Number(item.winsorize) : 0.01,
+      neutralize: Array.isArray(item.neutralize) ? item.neutralize.map(String) : [],
+    }]
+  })
+}
+
+function factorSignature(draft: FactorDraft, profile: string, projectId: string | null): string {
+  return JSON.stringify({
+    projectId,
+    profile,
+    name: draft.name,
+    source: draft.source,
+    expression: draft.expression,
+    direction: draft.direction,
+    winsorize: draft.winsorize,
+    neutralize: draft.neutralize,
+    startDate: draft.startDate,
+    endDate: draft.endDate,
+    frequency: draft.frequency,
+    quantiles: draft.quantiles,
+  })
+}
+
+export function FactorLabProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient()
+  const [profile] = useDataProfile()
+  const {
+    activeMode,
+    selectedDate,
+    selectedStrategy,
+    selectedStrategyRevision,
+    setSelectedStrategyRevision,
+  } = useWorkspace()
+  const [draft, setDraft] = useState<FactorDraft>(() => defaultDraft(selectedDate))
+  const [editingOriginalName, setEditingOriginalName] = useState<string | null>(null)
+  const [result, setResult] = useState<FactorResearchResult | null>(null)
+  const [evaluatedSignature, setEvaluatedSignature] = useState("")
+  const [running, setRunning] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  const [workspaceView, setWorkspaceView] = useState<"build" | "results">("build")
+
+  const libraryQuery = useQuery({
+    queryKey: ["factor-research", "library"],
+    queryFn: () => api.get<FactorResearchLibrary>("/factor-research/library"),
+    enabled: activeMode === "factor",
+    staleTime: Infinity,
+  })
+  const projectQuery = useQuery({
+    queryKey: ["pipeline", "project-detail", selectedStrategy, selectedStrategyRevision],
+    queryFn: () => api.get<PipelineProjectDetail>(`/pipeline/projects/${selectedStrategy}`),
+    enabled: activeMode === "factor" && Boolean(selectedStrategy),
+    staleTime: 30_000,
+  })
+  const project = projectQuery.data ?? null
+  const projectFactors = useMemo(
+    () => asProjectFactors(project?.settings.factors),
+    [project?.settings.factors],
+  )
+  const signature = factorSignature(draft, profile, selectedStrategy)
+
+  useEffect(() => {
+    if (!selectedDate) return
+    setDraft((current) => ({ ...current, endDate: selectedDate }))
+  }, [selectedDate])
+
+  const selectLibraryFactor = useCallback((factor: FactorResearchLibrary["factors"][number]) => {
+    setWorkspaceView("build")
+    setEditingOriginalName(null)
+    setError("")
+    setDraft((current) => ({
+      ...current,
+      name: factor.name,
+      source: factor.source,
+      expression: "",
+      direction: factor.name.includes("volatility") || factor.name.includes("leverage") ? "short" : "long",
+      weight: 1,
+      winsorize: 0.01,
+      neutralize: [],
+    }))
+  }, [])
+
+  const selectProjectFactor = useCallback((factor: ProjectFactorSpec) => {
+    setWorkspaceView("build")
+    setEditingOriginalName(factor.name)
+    setError("")
+    setDraft((current) => ({
+      ...current,
+      ...factor,
+      expression: factor.expression ?? "",
+    }))
+  }, [])
+
+  const createExpressionFactor = useCallback(() => {
+    setWorkspaceView("build")
+    const used = new Set(projectFactors.map((factor) => factor.name))
+    let index = 1
+    let name = "custom_factor"
+    while (used.has(name)) {
+      index += 1
+      name = `custom_factor_${index}`
+    }
+    setEditingOriginalName(null)
+    setError("")
+    setDraft((current) => ({
+      ...current,
+      name,
+      source: "expression",
+      expression: "zscore(momentum_20d) - 0.5 * zscore(volatility_20d)",
+      direction: "long",
+      weight: 1,
+      winsorize: 0.01,
+      neutralize: [],
+    }))
+  }, [projectFactors])
+
+  const updateDraft = useCallback((values: Partial<FactorDraft>) => {
+    setDraft((current) => ({ ...current, ...values }))
+    setError("")
+  }, [])
+
+  const evaluate = useCallback(async () => {
+    if (!draft.name.trim()) {
+      setError("请输入因子名称")
+      return
+    }
+    if (draft.source === "expression" && !draft.expression.trim()) {
+      setError("请输入因子表达式")
+      return
+    }
+    setRunning(true)
+    setError("")
+    try {
+      const universe = project?.settings.universe && typeof project.settings.universe === "object"
+        ? project.settings.universe as Record<string, unknown>
+        : {}
+      const next = await api.post<FactorResearchResult>("/factor-research/evaluate", {
+        profile,
+        name: draft.name.trim(),
+        source: draft.source,
+        expression: draft.source === "expression" ? draft.expression.trim() : null,
+        direction: draft.direction,
+        winsorize: draft.winsorize,
+        neutralize: draft.neutralize,
+        start_date: draft.startDate,
+        end_date: draft.endDate,
+        frequency: draft.frequency,
+        quantiles: draft.quantiles,
+        symbols: Array.isArray(universe.symbols) && universe.symbols.length ? universe.symbols : null,
+        min_price: Number(universe.min_price || 0),
+        min_history_days: Number(universe.min_history_days || 60),
+        min_average_amount: Number(universe.min_average_amount || 0),
+      })
+      setResult(next)
+      setEvaluatedSignature(signature)
+      setWorkspaceView("results")
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setRunning(false)
+    }
+  }, [draft, profile, project?.settings.universe, signature])
+
+  const persistFactors = useCallback(async (factors: ProjectFactorSpec[]) => {
+    if (!project) throw new Error("请先选择研究项目")
+    if (!project.editable) throw new Error("当前项目只读，请先在“研究项目”工作区复制项目")
+    const saved = await api.put<PipelineProjectDetail>(`/pipeline/projects/${project.id}`, {
+      name: project.name,
+      description: project.description,
+      components: project.components,
+      settings: { ...project.settings, factors },
+    })
+    queryClient.setQueryData(
+      ["pipeline", "project-detail", saved.id, saved.revision],
+      saved,
+    )
+    setSelectedStrategyRevision(saved.revision)
+    await queryClient.invalidateQueries({ queryKey: ["pipeline", "projects"] })
+    window.dispatchEvent(new CustomEvent("alphalab:projectUpdated", { detail: saved }))
+  }, [project, queryClient, setSelectedStrategyRevision])
+
+  const saveToProject = useCallback(async () => {
+    setSaving(true)
+    setError("")
+    try {
+      if (!result || evaluatedSignature !== signature) {
+        throw new Error("请先运行当前因子定义的评估，再加入研究项目")
+      }
+      const name = draft.name.trim()
+      if (!name) throw new Error("请输入因子名称")
+      if (draft.source === "expression" && !draft.expression.trim()) {
+        throw new Error("请输入因子表达式")
+      }
+      const next: ProjectFactorSpec = {
+        name,
+        source: draft.source,
+        ...(draft.source === "expression" ? { expression: draft.expression.trim() } : {}),
+        direction: draft.direction,
+        weight: draft.weight,
+        winsorize: draft.winsorize,
+        neutralize: draft.neutralize,
+      }
+      const matchName = editingOriginalName ?? name
+      const remaining = projectFactors.filter((factor) => factor.name !== matchName && factor.name !== name)
+      await persistFactors([...remaining, next])
+      setEditingOriginalName(name)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSaving(false)
+    }
+  }, [draft, editingOriginalName, evaluatedSignature, persistFactors, projectFactors, result, signature])
+
+  const removeFromProject = useCallback(async (name: string) => {
+    setSaving(true)
+    setError("")
+    try {
+      await persistFactors(projectFactors.filter((factor) => factor.name !== name))
+      if (editingOriginalName === name) setEditingOriginalName(null)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSaving(false)
+    }
+  }, [editingOriginalName, persistFactors, projectFactors])
+
+  const value = useMemo<FactorLabContextValue>(() => ({
+    library: libraryQuery.data ?? null,
+    libraryLoading: libraryQuery.isLoading,
+    project,
+    projectLoading: projectQuery.isLoading,
+    projectFactors,
+    draft,
+    editingOriginalName,
+    result,
+    resultStale: Boolean(result && evaluatedSignature !== signature),
+    running,
+    saving,
+    error: error || (libraryQuery.error instanceof Error ? libraryQuery.error.message : "") || (projectQuery.error instanceof Error ? projectQuery.error.message : ""),
+    workspaceView,
+    setWorkspaceView,
+    selectLibraryFactor,
+    selectProjectFactor,
+    createExpressionFactor,
+    updateDraft,
+    evaluate,
+    saveToProject,
+    removeFromProject,
+  }), [
+    createExpressionFactor,
+    draft,
+    editingOriginalName,
+    error,
+    evaluate,
+    evaluatedSignature,
+    libraryQuery.data,
+    libraryQuery.error,
+    libraryQuery.isLoading,
+    project,
+    projectFactors,
+    projectQuery.error,
+    projectQuery.isLoading,
+    removeFromProject,
+    result,
+    running,
+    saveToProject,
+    saving,
+    selectLibraryFactor,
+    selectProjectFactor,
+    signature,
+    updateDraft,
+    workspaceView,
+  ])
+
+  return <FactorLabContext.Provider value={value}>{children}</FactorLabContext.Provider>
+}
+
+export function useFactorLab(): FactorLabContextValue {
+  const value = useContext(FactorLabContext)
+  if (!value) throw new Error("useFactorLab must be used inside FactorLabProvider")
+  return value
+}

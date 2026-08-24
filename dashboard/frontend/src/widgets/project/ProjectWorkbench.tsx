@@ -35,6 +35,12 @@ function jsonText(value: unknown) {
   return JSON.stringify(value, null, 2)
 }
 
+function editableProjectSettings(settings: Record<string, unknown>) {
+  const editable = { ...settings }
+  delete editable.factors
+  return jsonText(editable)
+}
+
 export function ProjectWorkbenchWidget() {
   const queryClient = useQueryClient()
   const {
@@ -68,7 +74,7 @@ export function ProjectWorkbenchWidget() {
     setProject(detail)
     setName(detail.name)
     setDescription(detail.description)
-    setSettings(jsonText(detail.settings))
+    setSettings(editableProjectSettings(detail.settings))
     setSelectedStrategy(detail.id)
     setSelectedStrategyRevision(detail.revision)
   }
@@ -90,6 +96,20 @@ export function ProjectWorkbenchWidget() {
   useEffect(() => {
     void refresh().catch((reason: Error) => setError(reason.message))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const handleProjectUpdated = (event: Event) => {
+      const next = (event as CustomEvent<PipelineProjectDetail>).detail
+      if (!next || next.id !== selectedStrategy) return
+      setProject(next)
+      setName(next.name)
+      setDescription(next.description)
+      setSettings(editableProjectSettings(next.settings))
+      setSelectedStrategyRevision(next.revision)
+    }
+    window.addEventListener("alphalab:projectUpdated", handleProjectUpdated)
+    return () => window.removeEventListener("alphalab:projectUpdated", handleProjectUpdated)
+  }, [selectedStrategy, setSelectedStrategyRevision])
 
   async function createProject() {
     if (!newName.trim()) return
@@ -119,6 +139,9 @@ export function ProjectWorkbenchWidget() {
     setError("")
     try {
       const nextSettings = JSON.parse(settings) as Record<string, unknown>
+      if (project.settings.factors !== undefined) {
+        nextSettings.factors = project.settings.factors
+      }
       const saved = await api.put<PipelineProjectDetail>(`/pipeline/projects/${project.id}`, {
         name: name.trim(),
         description: description.trim(),
@@ -126,7 +149,7 @@ export function ProjectWorkbenchWidget() {
         settings: nextSettings,
       })
       setProject(saved)
-      setSettings(jsonText(saved.settings))
+      setSettings(editableProjectSettings(saved.settings))
       setSelectedStrategyRevision(saved.revision)
       await refresh(saved.id)
     } catch (reason) {
@@ -222,7 +245,7 @@ export function ProjectWorkbenchWidget() {
 
               <details className="rounded border border-border bg-background p-4">
                 <summary className="cursor-pointer text-sm font-semibold text-foreground">股票池与高级项目设置</summary>
-                <p className="mt-2 text-xs leading-5 text-muted-foreground">基础股票池、点时资格约束、因子输入和回看窗口属于项目输入，不再是可编程策略阶段。</p>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">这里管理基础股票池、点时资格约束和回看窗口；因子定义与验证请使用独立的“因子”工作区。</p>
                 <textarea className="code-view code-editor mt-3 min-h-72 w-full" spellCheck={false} value={settings} onChange={(event) => setSettings(event.target.value)} readOnly={!project.editable} />
               </details>
               {!project.editable ? <div className="workbench-message">当前项目只读；请点击“新建”或“复制”创建可编辑项目。</div> : null}

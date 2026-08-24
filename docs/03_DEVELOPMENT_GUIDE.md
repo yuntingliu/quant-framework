@@ -123,22 +123,51 @@ New backtest writes populate `strategy_source`, `component_manifest_json`,
 
 ## Frontend Rules
 
-The seven modes are:
+The eight modes are:
 
 ```text
-data, project, selection, portfolio, execution, backtest, report
+data, factor, project, selection, portfolio, execution, backtest, report
 ```
 
-Research Project owns project selection/lifecycle, data profile, cutoff, factor
-inputs, and research thresholds. The toolbar remains navigation/layout chrome.
+Factor is an independent Dockview workspace. Its default preset opens one
+Factor Research workbench with a directed sequence: select/build a factor,
+configure and run evaluation, inspect the latest cross-section and historical
+evidence, then optionally adopt the validated definition into a project. The
+catalog and the project's adopted-factor basket are separate tabs, not one
+mixed list. Factor evaluation uses `/api/factor-research` and does not run or
+mutate a strategy. Saving is disabled for an unevaluated or stale definition;
+an accepted factor updates the selected project's structured
+`settings.factors` and therefore creates a project revision.
+
+Research Project owns project selection/lifecycle, data profile, cutoff, stock
+pool, and research thresholds. Its UI must not expose factor authoring or raw
+factor settings; those belong to the Factor workspace. The toolbar remains
+navigation/layout chrome.
+
+Built-in technical/fundamental factors and safe vector expressions are the
+current executable factor contracts. External feature packs such as Qlib
+Alpha158/Alpha360 must remain explicitly marked adapter-required until their
+data fields and point-in-time behavior are implemented. Do not expose an
+arbitrary Python factor editor without a versioned source, dependency, timeout,
+and output contract.
+
 Each stage mode opens a distinct Dockview preset and shares one preview query
 keyed by project revision, target stage, data profile, and cutoff.
 
 Stage result panels visualize real prefix output:
 
-- selection: scores/ranks, selected names, and linked history;
-- portfolio: constrained final weights, cash, gross, and concentration;
-- execution: fixed schedule, fill assumptions, and final targets.
+- selection: universe/eligibility/scoring funnel, scores and ranks, score
+  distribution, current factor-structure diagnostics, selected names, and
+  linked history;
+- portfolio: the exact upstream selection input, constrained final weights,
+  cash, gross, concentration, and explicit limit checks;
+- execution: fixed schedule, final targets, cost-model decomposition, and a
+  clear distinction between preview-time gates and backtest-only fill checks.
+
+The default stage presets should foreground these research panels. Component
+source and parameters remain available in a Dockview tab in the same workspace,
+rather than occupying the largest panel by default. New panels must consume the
+shared stage-preview cache; they must not trigger an independent strategy run.
 
 Backtest has one run action. Its tabs derive from the saved run: performance,
 selection evidence, alpha/beta and factor correlations, robustness, execution,

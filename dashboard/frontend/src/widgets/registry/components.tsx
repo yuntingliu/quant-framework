@@ -5,6 +5,13 @@ import type { ComponentType } from "react"
 
 import { BacktestWorkbenchWidget } from "../backtest/BacktestWorkbench"
 import { DataWorkbenchWidget } from "../data/DataWorkbench"
+import {
+  FactorEditorWidget,
+  FactorEvidenceWidget,
+  FactorLibraryWidget,
+  FactorSnapshotWidget,
+} from "../factors/FactorLabPanels"
+import { FactorWorkbenchWidget } from "../factors/FactorWorkbench"
 import { PaperExecutionDeskWidget } from "../execution/PaperExecutionDesk"
 import { RiskConsoleWidget } from "../execution/RiskConsole"
 import { ResearchAgentPanel } from "../research/ResearchAgent"
@@ -16,11 +23,18 @@ import {
   SelectionWorkbenchWidget,
 } from "../pipeline/StageWorkbench"
 import {
+  ExecutionCostsWidget,
+  ExecutionGuardrailsWidget,
   ExecutionSettingsWidget,
   ExecutionTargetsWidget,
+  PortfolioConstraintsWidget,
+  PortfolioInputWidget,
   PortfolioSummaryWidget,
   PortfolioWeightsWidget,
   SelectionChartWidget,
+  SelectionDistributionWidget,
+  SelectionFactorEvidenceWidget,
+  SelectionFunnelWidget,
   SelectionRankingWidget,
 } from "../pipeline/StageResultPanels"
 import { AdapterDisabledWidget } from "../system/AdapterDisabled"
@@ -51,15 +65,27 @@ export const widgetComponents: Record<string, ComponentType> = {
   // Parallel workstations backed by one sequential three-stage Python pipeline.
   "data.workbench": DataWorkbenchWidget,
   "project.workbench": ProjectWorkbenchWidget,
+  "factor.workbench": FactorWorkbenchWidget,
+  "factor.library": FactorLibraryWidget,
+  "factor.editor": FactorEditorWidget,
+  "factor.snapshot": FactorSnapshotWidget,
+  "factor.evidence": FactorEvidenceWidget,
   "selection.workbench": SelectionWorkbenchWidget,
   "portfolio.workbench": PortfolioWorkbenchWidget,
   "execution.workbench": ExecutionWorkbenchWidget,
+  "selection.funnel": SelectionFunnelWidget,
   "selection.ranking": SelectionRankingWidget,
+  "selection.distribution": SelectionDistributionWidget,
+  "selection.factor-evidence": SelectionFactorEvidenceWidget,
   "selection.chart": SelectionChartWidget,
+  "portfolio.input": PortfolioInputWidget,
   "portfolio.weights": PortfolioWeightsWidget,
   "portfolio.summary": PortfolioSummaryWidget,
+  "portfolio.constraints": PortfolioConstraintsWidget,
   "execution.settings": ExecutionSettingsWidget,
   "execution.targets": ExecutionTargetsWidget,
+  "execution.costs": ExecutionCostsWidget,
+  "execution.guardrails": ExecutionGuardrailsWidget,
   "backtest.workbench": BacktestWorkbenchWidget,
   "report.workbench": ReportWorkbenchWidget,
 

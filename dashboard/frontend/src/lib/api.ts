@@ -511,6 +511,15 @@ export interface FactorResearchLibrary {
   }>
   expression_functions: string[]
   neutralizers: string[]
+  packs: Array<{
+    id: string
+    name: string
+    description: string
+    feature_count: number
+    license: string
+    source_url: string
+    status: "adapter_required" | "available"
+  }>
 }
 
 export interface FactorResearchResult {
@@ -538,6 +547,19 @@ export interface FactorResearchResult {
     long_short?: Record<string, number>
   }
   decay: Record<string, { mean_ic: number | null; observations: number }>
+  snapshot: {
+    date: string
+    observations: number
+    coverage: number
+    values: number[]
+    mean: number
+    std: number
+    minimum: number
+    median: number
+    maximum: number
+    top: Array<{ symbol: string; value: number; forward_return: number }>
+    bottom: Array<{ symbol: string; value: number; forward_return: number }>
+  } | null
   rows: Array<{
     date: string
     observations: number

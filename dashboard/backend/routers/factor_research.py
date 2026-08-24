@@ -49,6 +49,26 @@ def factor_library() -> dict:
         "factors": rows,
         "expression_functions": ["abs", "clip", "log", "rank", "sqrt", "zscore"],
         "neutralizers": ["market_cap"],
+        "packs": [
+            {
+                "id": "microsoft-qlib-alpha158",
+                "name": "Microsoft Qlib Alpha158",
+                "description": "158 个工程化量价、K 线与滚动统计特征模板",
+                "feature_count": 158,
+                "license": "MIT",
+                "source_url": "https://github.com/microsoft/qlib/blob/main/qlib/contrib/data/loader.py",
+                "status": "adapter_required",
+            },
+            {
+                "id": "microsoft-qlib-alpha360",
+                "name": "Microsoft Qlib Alpha360",
+                "description": "六组价格/成交量字段最近 60 日的 360 维归一化特征",
+                "feature_count": 360,
+                "license": "MIT",
+                "source_url": "https://github.com/microsoft/qlib/blob/main/qlib/contrib/data/loader.py",
+                "status": "adapter_required",
+            },
+        ],
     }
 
 

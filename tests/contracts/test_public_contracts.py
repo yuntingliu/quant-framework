@@ -8,6 +8,7 @@ import alphalab
 ROOT = Path(__file__).resolve().parents[2]
 MODES = [
     "data",
+    "factor",
     "project",
     "selection",
     "portfolio",
@@ -15,7 +16,7 @@ MODES = [
     "backtest",
     "report",
 ]
-STAGES = MODES[2:5]
+STAGES = ["selection", "portfolio", "execution"]
 
 
 def test_public_facade_is_small_and_pipeline_native():
@@ -47,18 +48,20 @@ def test_public_facade_is_small_and_pipeline_native():
     assert not hasattr(alphalab, "TimingStrategyRepository")
 
 
-def test_frontend_exposes_seven_parallel_workbench_modes():
+def test_frontend_exposes_eight_parallel_workbench_modes():
     presets = (ROOT / "dashboard/frontend/src/layouts/presets.ts").read_text(encoding="utf-8")
     mode_config = (ROOT / "dashboard/frontend/src/workspace/modes.ts").read_text(encoding="utf-8")
     expected_union = " | ".join(f'"{mode}"' for mode in MODES)
     assert f"export type WorkspaceMode = {expected_union}" in presets
-    for mode in ("data", "project", "backtest", "report"):
+    for mode in ("data", "factor", "project", "backtest", "report"):
         assert f'{mode}: createWorkbenchPreset("{mode}"' in presets
     for mode in STAGES:
-        assert f'{mode}: createStagePreset("{mode}"' in presets
+        assert f'{mode}: createMultiPanelPreset("{mode}"' in presets
     for mode in MODES:
         assert f"{mode}: {{ icon:" in mode_config
+    for mode in MODES:
         assert f'{mode}: ["{mode}.workbench"' in mode_config
+    assert 'factor: ["factor.workbench", "factor.library", "factor.editor", "factor.snapshot", "factor.evidence"]' in mode_config
     assert (
         'modes: ["selection", "portfolio", "execution"]'
         in mode_config
@@ -76,7 +79,7 @@ def test_core_widget_catalog_has_one_workbench_per_boundary():
     for mode in MODES:
         assert f'"{mode}.workbench"' in catalog
         assert f'"{mode}.workbench"' in components
-    for old_id in ("factor.workbench", "strategy.workbench", "timing-strategy.workbench"):
+    for old_id in ("strategy.workbench", "timing-strategy.workbench"):
         assert old_id not in catalog
 
 
@@ -153,16 +156,39 @@ def test_stage_modes_use_distinct_multi_panel_dockview_layouts():
     panels = (ROOT / "dashboard/frontend/src/widgets/pipeline/StageResultPanels.tsx").read_text(
         encoding="utf-8"
     )
+    catalog = (ROOT / "dashboard/frontend/src/widgets/registry/catalog.ts").read_text(
+        encoding="utf-8"
+    )
+    modes = (ROOT / "dashboard/frontend/src/workspace/modes.ts").read_text(encoding="utf-8")
     expected = {
-        "selection": ("selection.ranking", "selection.chart"),
-        "portfolio": ("portfolio.weights", "portfolio.summary"),
-        "execution": ("execution.settings", "execution.targets"),
+        "selection": (
+            "selection.funnel",
+            "selection.ranking",
+            "selection.distribution",
+            "selection.factor-evidence",
+            "selection.chart",
+        ),
+        "portfolio": (
+            "portfolio.input",
+            "portfolio.weights",
+            "portfolio.summary",
+            "portfolio.constraints",
+        ),
+        "execution": (
+            "execution.settings",
+            "execution.targets",
+            "execution.costs",
+            "execution.guardrails",
+        ),
     }
     assert "position?:" in presets
+    assert 'direction?: "right" | "below" | "within"' in presets
     for widget_ids in expected.values():
         for widget_id in widget_ids:
             assert f'componentId: "{widget_id}"' in presets
             assert f'"{widget_id}"' in components
+            assert f'id: "{widget_id}"' in catalog
+            assert f'"{widget_id}"' in modes
     assert "CandlestickChart" in panels
     assert "createSeriesMarkers" in (
         ROOT / "dashboard/frontend/src/components/charts/CandlestickChart.tsx"
@@ -235,6 +261,55 @@ def test_project_workbench_owns_project_profile_and_cutoff_date():
     assert 'aria-label="数据环境"' not in toolbar
     assert 'aria-label="决策日期"' not in toolbar
     assert 'setActiveMode("project")' in stage
+
+
+def test_factor_mode_exposes_real_factor_lab_panels_separately_from_project():
+    presets = (ROOT / "dashboard/frontend/src/layouts/presets.ts").read_text(encoding="utf-8")
+    catalog = (ROOT / "dashboard/frontend/src/widgets/registry/catalog.ts").read_text(
+        encoding="utf-8"
+    )
+    components = (ROOT / "dashboard/frontend/src/widgets/registry/components.tsx").read_text(
+        encoding="utf-8"
+    )
+    context = (ROOT / "dashboard/frontend/src/contexts/FactorLabContext.tsx").read_text(
+        encoding="utf-8"
+    )
+    panels = (ROOT / "dashboard/frontend/src/widgets/factors/FactorLabPanels.tsx").read_text(
+        encoding="utf-8"
+    )
+    workbench = (ROOT / "dashboard/frontend/src/widgets/factors/FactorWorkbench.tsx").read_text(
+        encoding="utf-8"
+    )
+    for widget_id in (
+        "factor.library",
+        "factor.editor",
+        "factor.snapshot",
+        "factor.evidence",
+    ):
+        assert f'id: "{widget_id}"' in catalog
+        assert f'"{widget_id}"' in components
+    assert 'factor: createWorkbenchPreset("factor"' in presets
+    assert '"factor.workbench"' in catalog
+    assert '"factor.workbench": FactorWorkbenchWidget' in components
+    assert 'project: createWorkbenchPreset("project"' in presets
+    assert 'enabled: activeMode === "factor"' in context
+    assert 'enabled: activeMode === "project"' not in context
+    assert '"/factor-research/library"' in context
+    assert '"/factor-research/evaluate"' in context
+    assert '`/pipeline/projects/${project.id}`' in context
+    for evidence in ("IC 均值", "年化 ICIR", "Newey-West t", "Top 换手"):
+        assert evidence in panels
+    assert "Python 自定义因子尚未伪装开放" in panels
+    for text in ("构建与验证", "研究结果", "选择来源", "配置与评估", "阅读证据", "加入项目"):
+        assert text in workbench
+    for component in ("Card", "Tabs", "Badge", "Button"):
+        assert component in workbench
+    assert "请先运行当前因子定义的评估，再加入研究项目" in context
+    project = (ROOT / "dashboard/frontend/src/widgets/project/ProjectWorkbench.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "delete editable.factors" in project
+    assert "因子定义与验证请使用独立的“因子”工作区" in project
 
 
 def test_report_workbench_is_a_persisted_library():

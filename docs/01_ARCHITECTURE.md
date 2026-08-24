@@ -8,20 +8,31 @@ The current strategy interface is Python-native and has one execution path.
 The top-level workbenches are parallel navigation destinations:
 
 ```text
-Data | Research Project | Selection | Portfolio | Execution | Backtest | Report
+Data | Factor Research | Research Project | Selection | Portfolio | Execution | Backtest | Report
 ```
 
+The Factor Research Workbench owns the factor library, project factor basket,
+safe-expression authoring, latest validated cross-section, and point-in-time
+single-factor evidence before those factors are consumed by selection. Its
+default surface is one directed workbench—select/build, evaluate, inspect
+evidence, then adopt into a project—rather than four peer Dockview panels. It
+can attach only the currently validated factor definition to the selected
+project, but it is not embedded in the project-management layout.
+
 The Research Project Workbench owns project lifecycle, data profile, optional
-data cutoff, stock-pool settings, factor inputs, research thresholds, and
-navigation to the three pinned strategy components. Stage workbenches show the
-current project read-only and never duplicate project settings. A revision, profile, or cutoff
-change makes cached stage output stale until the stage is run again.
+data cutoff, stock-pool settings, research thresholds, and navigation to the
+three pinned strategy components. Factor definitions are persisted with project
+revisions but are edited only in the Factor Research Workbench. Stage
+workbenches show the current project read-only and never duplicate project
+settings. A revision, profile, or cutoff change makes cached stage output stale
+until the stage is run again.
 
 The strategy and research dependency is:
 
 ```text
 DataSnapshot
-  -> project stock pool + core eligibility gates
+  -> project stock pool + factor definitions and single-factor research
+  -> core eligibility gates
   -> select_assets(context)
   -> construct_portfolio(context)
   -> configure_execution(context)
