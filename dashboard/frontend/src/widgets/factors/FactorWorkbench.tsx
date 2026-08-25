@@ -3,11 +3,11 @@ import { useQuery } from "@tanstack/react-query"
 import { Braces, Check, FlaskConical, Library, Play, Plus, Save, Search, Settings2 } from "lucide-react"
 
 import { MarketResearchTerminal, type MarketRange, useMarketWatchlist } from "@/components/market"
+import { PythonEditor, type PythonEditorHandle } from "@/components/python"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
 import { useStrategySdk, type SdkEntrypoint, type SdkParameter } from "@/contexts/StrategySdkContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
 import { useConfirm } from "@/hooks/useConfirm"
@@ -285,7 +285,7 @@ export function FactorWorkbenchWidget() {
   const sdk = useStrategySdk()
   const confirm = useConfirm()
   const project = sdk.project
-  const editor = useRef<HTMLTextAreaElement>(null)
+  const editor = useRef<PythonEditorHandle>(null)
   const [workspaceView, setWorkspaceView] = useState<"build" | "results" | "python">("build")
   const [source, setSource] = useState("")
   const [selectedFactor, setSelectedFactor] = useState("")
@@ -325,15 +325,12 @@ export function FactorWorkbenchWidget() {
   useEffect(() => { if (activeFactor && activeFactor.id !== selectedFactor) setSelectedFactor(activeFactor.id) }, [activeFactor, selectedFactor])
 
   function insert(text: string) {
-    const target = editor.current
-    const position = target?.selectionStart ?? source.length
-    setSource(`${source.slice(0, position)}${text}${source.slice(position)}`)
-    requestAnimationFrame(() => { target?.focus(); target?.setSelectionRange(position + text.length, position + text.length) })
+    if (editor.current) editor.current.insertText(text)
+    else setSource(`${source}${text}`)
   }
   function insertFactorStatement(text: string) {
     if (!activeFactor) return
-    const target = editor.current
-    if (target && document.activeElement === target) { insert(text); return }
+    if (workspaceView === "python" && editor.current) { insert(text); return }
     const functionStart = source.indexOf(`def ${activeFactor.function}(`)
     const nextDecorator = source.indexOf("\n@", functionStart)
     const functionEnd = nextDecorator >= 0 ? nextDecorator : source.length
@@ -378,10 +375,10 @@ export function FactorWorkbenchWidget() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setInstallingTemplate("") }
   }
-  async function saveDraft() {
+  async function saveDraft(nextSource = source) {
     if (!project?.editable) return
     setBusy(true); setError("")
-    try { await sdk.updateDraft(source) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) } finally { setBusy(false) }
+    try { await sdk.updateDraft(nextSource) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) } finally { setBusy(false) }
   }
   async function evaluate(mode: "snapshot" | "history") {
     if (!project || project.dirty || source !== project.draft_source || !activeFactor) return
@@ -458,7 +455,22 @@ export function FactorWorkbenchWidget() {
 
           <TabsContent className="factor-workbench-content" value="python"><section className="factor-lab-panel embedded h-full">
             <header className="factor-panel-header"><span><strong><Braces size={14} /> 完整 canonical module</strong><small>高级编辑不会生成第二份因子定义</small></span><Badge variant={requiresFreeze ? "destructive" : "outline"}>{localDirty ? "未保存" : project.draft_source_sha256.slice(0, 16)}</Badge></header>
-            <div className="factor-editor-body"><Textarea ref={editor} className="min-h-[620px] resize-y rounded-none border-0 font-mono text-xs leading-5 focus-visible:ring-0" spellCheck={false} value={source} disabled={!project.editable} onChange={(event) => setSource(event.target.value)} /></div>
+            <div className="factor-editor-body"><PythonEditor
+              ref={editor}
+              kind="strategy"
+              documentId={project.id}
+              value={source}
+              version={project.draft_source_sha256}
+              baselineValue={project.draft_source}
+              disabled={!project.editable}
+              height={620}
+              revealLine={activeFactor?.line}
+              fields={Object.entries(fields?.datasets ?? {}).flatMap(([dataset, items]) => items.map((item) => ({ name: item.name, dataset, detail: `${item.data_type}${item.nullable ? " · 可空" : ""}` })))}
+              factors={factors.map((factor) => ({ id: factor.id, label: factor.label }))}
+              parameters={activeFactor?.parameters ?? []}
+              onChange={setSource}
+              onSave={(nextSource) => saveDraft(nextSource)}
+            /></div>
           </section></TabsContent>
         </Tabs>
       </div>

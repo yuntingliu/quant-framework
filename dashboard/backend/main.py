@@ -18,6 +18,7 @@ from dashboard.backend.routers import (
     data_sync,
     market,
     paper,
+    python_editor,
     reports,
     strategy,
     system,
@@ -50,6 +51,7 @@ app.include_router(market.router)
 app.include_router(strategy.router)
 app.include_router(backtests.router)
 app.include_router(paper.router)
+app.include_router(python_editor.router)
 app.include_router(reports.router)
 app.include_router(system.router)
 app.include_router(compat.router)

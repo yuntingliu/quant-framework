@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from "react"
 import { Code2, Database, History, Play, RefreshCw, Save, ShieldCheck } from "lucide-react"
 
 import { CumulativeReturnsChart, DrawdownChart } from "@/components/charts"
+import { PythonEditor } from "@/components/python"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
 import { useStrategySdk, type SourcePackage } from "@/contexts/StrategySdkContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
 import { useConfirm } from "@/hooks/useConfirm"
@@ -163,10 +163,10 @@ export function ValidationWorkbenchWidget() {
     finally { setBusy(false) }
   }
 
-  async function saveAsDraft() {
-    if (!project?.editable || !localDirty) return
+  async function saveAsDraft(nextSource = source) {
+    if (!project?.editable || nextSource === project.draft_source) return
     setBusy(true); setError("")
-    try { await sdk.updateDraft(source) }
+    try { await sdk.updateDraft(nextSource) }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setBusy(false) }
   }
@@ -259,7 +259,19 @@ export function ValidationWorkbenchWidget() {
 
       {tab === "source" ? <div className="workbench-body">
         <div className="backtest-section-heading"><div><strong><Code2 size={15} /> 回测页高级 Python</strong><span>修改的是项目同一份 draft；历史 Run 与已选 revision 始终保持不变。</span></div><Badge variant={localDirty ? "destructive" : project.dirty ? "outline" : "secondary"}>{localDirty ? "尚未保存" : project.dirty ? "草稿未冻结" : "与冻结版本一致"}</Badge></div>
-        <Textarea className="pipeline-code-editor min-h-[620px] resize-y font-mono text-xs leading-5" spellCheck={false} value={source} disabled={!project.editable} onChange={(event) => setSource(event.target.value)} />
+        <PythonEditor
+          kind="strategy"
+          documentId={project.id}
+          value={source}
+          version={project.draft_source_sha256}
+          baselineValue={project.draft_source}
+          disabled={!project.editable}
+          height={620}
+          fields={[]}
+          factors={project.inspection.entrypoints.filter((item) => item.kind === "factor").map((factor) => ({ id: factor.id, label: factor.label }))}
+          onChange={setSource}
+          onSave={(nextSource) => saveAsDraft(nextSource)}
+        />
         <div className="mt-3 flex justify-end"><Button disabled={!project.editable || busy || !localDirty} onClick={() => void saveAsDraft()}><Save />保存到同一草稿</Button></div>
       </div> : null}
 

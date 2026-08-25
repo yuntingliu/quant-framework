@@ -24,6 +24,35 @@ The six workbench modes are `project`, `data`, `factor`, `strategy`,
 `validation`, and `report`. They are views over shared `StrategySdkContext`
 state, not independent strategy pipelines.
 
+## Shared Python editor
+
+Every Python input is rendered by the shared Monaco-based `PythonEditor`.
+Factor, Strategy, and Backtest views open the same file URI and Monaco model for
+the project's complete `strategy.py`; changing workbenches only changes the
+visible function or line. The Data Workbench uses the same editor component but
+opens the project's separate canonical `recipe.py`, because acquisition source
+has a different SDK and lifecycle from strategy source.
+
+The project database remains authoritative. Before a document is opened, the
+backend writes a derived filesystem mirror under `data/runtime/editor/` for
+language-server access. Mirrors are ignored by git, never become a saved
+revision, and are never selected as execution input. Saves still use the
+strategy draft or data-recipe APIs and their existing validation and hashes.
+
+Two fixed local language-server bridges enrich each Python model:
+
+- Pyrefly provides completion, type diagnostics, hover, definition, references,
+  and rename against the same local Python environment used by AlphaLab;
+- Ruff provides formatting, lint diagnostics, safe fixes, and import actions;
+- AlphaLab's Monaco providers add Context methods, live research fields,
+  project factors, decorators, parameter contracts, and installed `rqdatac`
+  operations, while backend contract diagnostics add SDK-specific markers.
+
+The browser cannot choose a command or executable. The backend accepts only the
+fixed `pyrefly lsp` and `ruff server` server IDs, validates document paths and
+message sizes, and translates bounded WebSocket JSON messages to LSP stdio
+framing. This is editor tooling, not another Python execution route.
+
 ## Canonical source
 
 A valid module declares `SDK_VERSION = 1` and registers:
@@ -145,7 +174,10 @@ and cannot create a second authoritative result.
 | `alphalab/strategy/engine.py` | Preview, factor evaluation, daily events, fills, accounting |
 | `dashboard/backend/routers/strategy.py` | Current source/project/evaluation API |
 | `dashboard/backend/routers/backtests.py` | Confirmed background backtest jobs and frozen results |
+| `dashboard/backend/routers/python_editor.py` | Fixed Pyrefly/Ruff WebSocket bridge and editor document endpoints |
+| `dashboard/backend/services/python_editor_service.py` | Local server discovery, ignored source mirrors, framing, and SDK diagnostics |
 | `dashboard/frontend/src/contexts/StrategySdkContext.tsx` | Shared project, draft, revision, and hash state |
+| `dashboard/frontend/src/components/python/` | Lazy shared Monaco model, LSP runtime, AlphaLab completion, Problems, and Diff UI |
 | `integrations/conexus/alphalab-research-agent/` | SDK-aware bounded Agent tools and prompt |
 
 The package facade in `alphalab/__init__.py` intentionally exports only data,

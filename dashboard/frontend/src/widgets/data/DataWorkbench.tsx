@@ -12,7 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import { PythonEditor } from "@/components/python"
 import { useStrategySdk } from "@/contexts/StrategySdkContext"
 import { useConfirm } from "@/hooks/useConfirm"
 import { api } from "@/lib/api"
@@ -149,11 +149,11 @@ export function DataWorkbenchWidget() {
     setSyncSymbols(Array.isArray(symbols) ? symbols.join(", ") : "")
   }
 
-  async function persistSource(): Promise<RecipeDraft> {
+  async function persistSource(nextSource = source): Promise<RecipeDraft> {
     if (!project || !workspace) throw new Error("数据配方尚未加载")
-    if (!dirty) return workspace.draft
+    if (nextSource === workspace.draft.source) return workspace.draft
     const draft = await api.put<RecipeDraft>(`/data-sync/recipes/${project.id}`, {
-      source,
+      source: nextSource,
       expected_source_sha256: workspace.draft.source_sha256,
       confirm_write: true,
     })
@@ -161,9 +161,9 @@ export function DataWorkbenchWidget() {
     return draft
   }
 
-  async function saveSource() {
+  async function saveSource(nextSource = source) {
     setBusy(true); setError("")
-    try { await persistSource() }
+    try { await persistSource(nextSource) }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setBusy(false) }
   }
@@ -346,8 +346,17 @@ export function DataWorkbenchWidget() {
             </div>
             <Button size="sm" variant="outline" disabled={busy || !dirty} onClick={() => void saveSource()}><Save />保存代码</Button>
           </div>
-          <Textarea className="min-h-[560px] resize-y font-mono text-xs leading-5" value={source} onChange={(event) => setSource(event.target.value)} spellCheck={false} />
-          {workspace.draft.inspection.warnings.map((warning) => <p key={`${warning.line}-${warning.code}`} className="text-xs text-amber-600">第 {warning.line} 行：{warning.message}</p>)}
+          <PythonEditor
+            kind="data"
+            documentId={project.id}
+            value={source}
+            version={workspace.draft.source_sha256}
+            baselineValue={workspace.draft.source}
+            disabled={busy}
+            height={560}
+            onChange={setSource}
+            onSave={(nextSource) => saveSource(nextSource)}
+          />
         </section>
 
         <section className="rounded border border-border p-3">

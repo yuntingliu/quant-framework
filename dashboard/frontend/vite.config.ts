@@ -76,6 +76,9 @@ export default defineConfig({
       },
     },
   },
+  worker: {
+    format: 'es',
+  },
   build: {
     target: 'chrome128',
     modulePreload: false,

@@ -150,6 +150,28 @@ cards replace that exact source; date/symbol controls edit literal function
 defaults; preview and sync execute the current editor source after saving it.
 Keep the official RQData Python documentation link next to the editor.
 
+All Python workbench inputs use
+`dashboard/frontend/src/components/python/PythonEditor`. Do not instantiate a
+second Monaco runtime or create per-workbench source models. Strategy-facing
+views use one `file:` URI for the project's complete `strategy.py`; preserve the
+model when navigating so unsaved edits, undo history, markers, and cursor state
+remain coherent. Data recipes use a separate `recipe.py` URI through the same
+component.
+
+Monaco and the language clients are lazy-loaded. `vite.config.ts` must retain ES
+worker output. Pyrefly and Ruff come from the active backend Python environment
+installed by the `dev` extra. Their process commands are resolved server-side
+from a fixed allowlist; never accept a client-supplied executable or argument
+list. LSP mirrors belong only under ignored `data/runtime/editor/`, must stay
+path-contained and size-bounded, and must never be read by a strategy or data
+execution endpoint.
+
+AlphaLab-specific completion should be derived from public SDK contracts and
+live project/runtime metadata. A completion provider may assist authoring, but
+the backend source inspector remains authoritative for SDK errors. Ctrl+S saves
+through the existing canonical draft API; formatting and code actions come from
+Ruff and may modify only the active Monaco model until the user saves.
+
 The request-only data-template migration is intentionally narrow: only source
 that exactly matches a former built-in renderer is replaced with the equivalent
 visible RQ command recipe. Any manually changed or custom source is preserved.
@@ -164,7 +186,9 @@ python -m pytest tests -q --basetemp=data\pytest
 python scripts\check_facade_imports.py
 python -m compileall -q alphalab dashboard\backend
 cd dashboard\frontend
+npm run lint
 npm run build
+npm audit --omit=dev
 ```
 
 Also run `git diff --check` and validate every Conexus JSON document. Generated

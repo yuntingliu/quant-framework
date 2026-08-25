@@ -584,3 +584,161 @@ a[href*="TradingView"] {
   overflow: hidden !important;
 }
 
+/* ── Shared Monaco Python editor ─────────────────────────── */
+.python-editor-shell {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--card));
+}
+
+.python-editor-loading {
+  display: grid;
+  min-height: 240px;
+  place-items: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--muted) / 0.2);
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+}
+
+.python-editor-toolbar {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid hsl(var(--border));
+  padding: 0 8px;
+  background: hsl(var(--muted) / 0.35);
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+}
+
+.python-editor-toolbar button,
+.python-editor-language,
+.python-editor-server {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.python-editor-toolbar button {
+  height: 24px;
+  border-radius: 4px;
+  padding: 0 7px;
+}
+
+.python-editor-toolbar button:hover,
+.python-editor-toolbar button.active {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.python-editor-language {
+  margin-right: 2px;
+  color: hsl(var(--foreground));
+  font-weight: 650;
+}
+
+.python-editor-server {
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  padding: 2px 6px;
+}
+
+.python-editor-server.ready {
+  border-color: hsl(var(--positive) / 0.35);
+  color: hsl(var(--positive));
+}
+
+.python-editor-server.error,
+.python-editor-server.missing {
+  color: hsl(var(--warning));
+}
+
+.python-editor-position {
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.python-editor-canvas {
+  min-height: 240px;
+  background: hsl(var(--background));
+}
+
+.python-editor-runtime-error {
+  border-bottom: 1px solid hsl(var(--destructive) / 0.35);
+  padding: 8px 10px;
+  background: hsl(var(--destructive) / 0.08);
+  color: hsl(var(--destructive));
+  font-size: 11px;
+}
+
+.python-editor-problems-toggle {
+  display: flex;
+  width: 100%;
+  height: 27px;
+  align-items: center;
+  gap: 5px;
+  border-top: 1px solid hsl(var(--border));
+  padding: 0 9px;
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+}
+
+.python-editor-problems-toggle.error {
+  color: hsl(var(--destructive));
+}
+
+.python-editor-problems {
+  max-height: 150px;
+  overflow: auto;
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+.python-editor-problems > div {
+  padding: 12px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+
+.python-editor-problems > button {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid hsl(var(--border) / 0.65);
+  padding: 7px 10px;
+  text-align: left;
+  font-size: 10px;
+}
+
+.python-editor-problems > button:hover {
+  background: hsl(var(--muted) / 0.45);
+}
+
+.python-editor-problems > button strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.python-editor-problems > button em {
+  color: hsl(var(--muted-foreground));
+  font-style: normal;
+}
+
+.python-editor-problems .error {
+  color: hsl(var(--destructive));
+}
+
+.python-editor-problems .warning {
+  color: hsl(var(--warning));
+}
+

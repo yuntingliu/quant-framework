@@ -22,7 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import { PythonEditor } from "@/components/python"
 import { useStrategySdk, type SdkEntrypoint, type SdkParameter } from "@/contexts/StrategySdkContext"
 import { useConfirm } from "@/hooks/useConfirm"
 import { api } from "@/lib/api"
@@ -43,13 +43,6 @@ interface StageDefinition {
   previewLabel: string
   input: string
   output: string
-}
-
-interface EntrypointSourcePayload {
-  project_id: string
-  entrypoint_id: string
-  source_sha256: string
-  source: string
 }
 
 interface FactorBlendMetadata {
@@ -426,9 +419,6 @@ export function StrategyWorkbenchWidget() {
   const [stageId, setStageId] = useState<StageId>("selection")
   const [selectedEntrypoint, setSelectedEntrypoint] = useState("")
   const [mode, setMode] = useState<EditorMode>("visual")
-  const [functionSource, setFunctionSource] = useState("")
-  const [baseFunctionSource, setBaseFunctionSource] = useState("")
-  const [functionLoading, setFunctionLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null)
@@ -446,9 +436,8 @@ export function StrategyWorkbenchWidget() {
   const stageEntrypoints = stageGroups[activeStage.id]
   const activeEntrypoint = stageEntrypoints.find((item) => item.id === selectedEntrypoint) ?? stageEntrypoints[0]
   const localDirty = Boolean(project && source !== project.draft_source)
-  const functionDirty = functionSource !== baseFunctionSource
-  const requiresFreeze = Boolean(project?.dirty || localDirty || functionDirty)
-  const editLocked = localDirty || functionDirty
+  const requiresFreeze = Boolean(project?.dirty || localDirty)
+  const editLocked = localDirty
 
   useEffect(() => setSource(project?.draft_source ?? ""), [project?.id, project?.draft_source_sha256])
   useEffect(() => setPreview(null), [project?.id, project?.current_revision, project?.draft_source_sha256])
@@ -456,49 +445,26 @@ export function StrategyWorkbenchWidget() {
     if (activeEntrypoint && activeEntrypoint.id !== selectedEntrypoint) setSelectedEntrypoint(activeEntrypoint.id)
     if (!activeEntrypoint) setSelectedEntrypoint("")
   }, [activeEntrypoint, selectedEntrypoint])
-  useEffect(() => {
-    if (!project || !activeEntrypoint) { setFunctionSource(""); setBaseFunctionSource(""); return }
-    let current = true
-    setFunctionLoading(true)
-    void api.get<EntrypointSourcePayload>(`/strategy/projects/${project.id}/entrypoints/${encodeURIComponent(activeEntrypoint.id)}/source`).then((payload) => {
-      if (!current) return
-      setFunctionSource(payload.source); setBaseFunctionSource(payload.source)
-    }).catch((reason: Error) => { if (current) setError(reason.message) }).finally(() => { if (current) setFunctionLoading(false) })
-    return () => { current = false }
-  }, [project?.id, project?.draft_source_sha256, activeEntrypoint?.id])
-
-  async function chooseStage(next: StageId) {
+  function chooseStage(next: StageId) {
     if (next === stageId) return
-    if (functionDirty && !await confirm({ title: "放弃当前环节的未保存代码？", description: "切换环节会重新读取对应 Python 函数。尚未保存的函数修改将丢失。", confirmText: "放弃并切换" })) return
-    setFunctionSource(baseFunctionSource); setStageId(next); setSelectedEntrypoint(""); setPreview(null); setMode("visual")
+    setStageId(next); setSelectedEntrypoint(""); setPreview(null); setMode("visual")
   }
 
-  async function chooseEntrypoint(id: string) {
+  function chooseEntrypoint(id: string) {
     if (id === activeEntrypoint?.id) return
-    if (functionDirty && !await confirm({ title: "放弃当前函数的未保存代码？", description: "切换规则会重新读取另一段 Python。", confirmText: "放弃并切换" })) return
-    setFunctionSource(baseFunctionSource); setSelectedEntrypoint(id)
+    setSelectedEntrypoint(id)
   }
 
-  async function saveDraft() {
-    if (!project?.editable || !localDirty || functionDirty) return
+  async function saveDraft(nextSource = source) {
+    if (!project?.editable || nextSource === project.draft_source) return
     setBusy(true); setError("")
-    try { await sdk.updateDraft(source) }
+    try { await sdk.updateDraft(nextSource) }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setBusy(false) }
   }
 
-  async function saveFunction() {
-    if (!project?.editable || !activeEntrypoint || !functionDirty || localDirty) return
-    setBusy(true); setError("")
-    try {
-      await sdk.structuredEdit({ operation: "replace_function", entrypoint_id: activeEntrypoint.id, function_source: functionSource })
-      setBaseFunctionSource(functionSource)
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
-    finally { setBusy(false) }
-  }
-
   async function freezeRevision() {
-    if (!project?.editable || localDirty || functionDirty) return
+    if (!project?.editable || localDirty) return
     if (!await confirm({ title: "验证并冻结策略版本", description: "系统将导入完整 Python 并探测选股、仓位、持有期事件和成交合同。成功后形成不可变 revision。", confirmText: "验证并冻结" })) return
     setBusy(true); setError("")
     try { await sdk.saveRevision() }
@@ -527,8 +493,8 @@ export function StrategyWorkbenchWidget() {
             <div className="pipeline-pinned-component"><span>策略项目</span><strong>{project.name}</strong></div>
             <div className="pipeline-pinned-component"><span>当前版本</span><strong>r{project.current_revision} · {project.draft_source_sha256.slice(0, 12)}</strong></div>
             <div className="pipeline-stage-actions">
-              <Badge variant={requiresFreeze ? "destructive" : "secondary"}>{functionDirty ? "当前函数未保存" : localDirty ? "完整源码未保存" : project.dirty ? "草稿未冻结" : "可复现"}</Badge>
-              <button className="primary-command" type="button" disabled={!project.editable || busy || !project.dirty || localDirty || functionDirty} onClick={() => void freezeRevision()}>冻结新版本</button>
+              <Badge variant={requiresFreeze ? "destructive" : "secondary"}>{localDirty ? "Python 尚未保存" : project.dirty ? "草稿未冻结" : "可复现"}</Badge>
+              <button className="primary-command" type="button" disabled={!project.editable || busy || !project.dirty || localDirty} onClick={() => void freezeRevision()}>冻结新版本</button>
             </div>
           </div>
         </section>
@@ -545,7 +511,7 @@ export function StrategyWorkbenchWidget() {
             const structuredSchedule = signal?.metadata.schedule as Record<string, string> | undefined
             const projected = items.reduce((count, item) => count + item.parameters.filter((parameter) => parameter.editable).length, 0) + (structuredSchedule?.mode === "structured" ? 1 : 0) + ((blend?.mode === "single" || blend?.mode === "structured") ? factorCount + 1 : 0)
             return <div className="strategy-flow-step" key={stage.id}>
-              <button type="button" className={stageId === stage.id ? "active" : ""} onClick={() => void chooseStage(stage.id)}>
+              <button type="button" className={stageId === stage.id ? "active" : ""} onClick={() => chooseStage(stage.id)}>
                 <header><span className="strategy-flow-number">{index + 1}</span><Icon size={18} /><Badge variant={items.length ? "secondary" : "outline"}>{items.length ? "已配置" : "可选"}</Badge></header>
                 <strong>{stage.title}</strong><small>{stage.subtitle}</small>
                 <footer><span>{summary}</span><em>{projected ? `${projected} 个无代码参数` : items.length ? "自定义 Python" : "未添加规则"}</em></footer>
@@ -561,7 +527,7 @@ export function StrategyWorkbenchWidget() {
             <div className="strategy-contract-flow"><div><span>输入</span><strong>{activeStage.input}</strong></div><ArrowRight size={14} /><div><span>输出</span><strong>{activeStage.output}</strong></div></div>
             <div className="strategy-stage-rules-heading"><strong>本环节规则</strong><span>{stageEntrypoints.length}</span></div>
             <div className="strategy-stage-rule-list">
-              {stageEntrypoints.map((entrypoint) => <button key={entrypoint.id} type="button" className={activeEntrypoint?.id === entrypoint.id ? "active" : ""} onClick={() => void chooseEntrypoint(entrypoint.id)}><span><strong>{entrypointBusinessLabel(entrypoint)}</strong><small>{entrypointTypeLabel(entrypoint)}{entrypoint.event ? ` · ${EVENT_LABELS[entrypoint.event] || entrypoint.event}` : ""}</small></span><em>{entrypoint.parameters.length} 参数</em></button>)}
+              {stageEntrypoints.map((entrypoint) => <button key={entrypoint.id} type="button" className={activeEntrypoint?.id === entrypoint.id ? "active" : ""} onClick={() => chooseEntrypoint(entrypoint.id)}><span><strong>{entrypointBusinessLabel(entrypoint)}</strong><small>{entrypointTypeLabel(entrypoint)}{entrypoint.event ? ` · ${EVENT_LABELS[entrypoint.event] || entrypoint.event}` : ""}</small></span><em>{entrypoint.parameters.length} 参数</em></button>)}
             </div>
             {!stageEntrypoints.length ? <div className="strategy-empty-stage"><ShieldCheck size={20} /><strong>这个环节尚未配置</strong><p>{activeStage.id === "risk" ? "没有持有期事件时，仓位会一直保持到下一次调仓。可在完整 Python 中添加 @on_event。" : "请在完整 Python 中添加对应的 SDK 函数。"}</p><Button size="sm" variant="outline" onClick={() => setMode("module")}><Code2 />打开完整 Python</Button></div> : null}
             {activeEntrypoint ? <details className="strategy-technical-details"><summary>Python 接口信息</summary><dl><div><dt>注册类型</dt><dd>@{activeEntrypoint.kind}</dd></div><div><dt>公开 ID</dt><dd>{activeEntrypoint.id}</dd></div><div><dt>函数名</dt><dd>{activeEntrypoint.function}</dd></div><div><dt>源码位置</dt><dd>L{activeEntrypoint.line}</dd></div></dl></details> : null}
@@ -575,7 +541,7 @@ export function StrategyWorkbenchWidget() {
 
             <div className="strategy-authoring-content">
               {mode === "visual" ? <div className="strategy-visual-editor">
-                {editLocked ? <div className="workbench-message warning">{functionDirty ? "当前环节有未保存 Python；保存或放弃后才能使用无代码控件。" : "完整模块有未保存修改；保存或放弃后才能使用无代码控件。"}</div> : null}
+                {editLocked ? <div className="workbench-message warning">Python 有未保存修改；保存或放弃后才能使用无代码控件。</div> : null}
                 {signalEntrypoint ? <ScheduleEditor entrypoint={signalEntrypoint} locked={editLocked} onError={setError} /> : null}
                 {signalEntrypoint ? <MultiFactorEditor entrypoint={signalEntrypoint} factors={factorEntrypoints} locked={editLocked} onError={setError} onOpenCode={() => { setSelectedEntrypoint(signalEntrypoint.id); setMode("function") }} /> : null}
                 {activeEntrypoint ? <>
@@ -588,17 +554,40 @@ export function StrategyWorkbenchWidget() {
               </div> : null}
 
               {mode === "function" ? <div className="strategy-code-editor-view">
-                <div className="strategy-code-note"><Braces size={17} /><div><strong>只编辑当前环节</strong><span>保存时按 entrypoint ID 精确替换这一个注册函数，其他因子和交易环节保持不变。</span></div><Badge variant={functionDirty ? "destructive" : "secondary"}>{functionDirty ? "未保存" : "已同步"}</Badge></div>
-                {functionLoading ? <div className="analytics-empty">正在读取函数源码…</div> : <Textarea className="pipeline-code-editor strategy-function-editor font-mono text-xs leading-5" spellCheck={false} value={functionSource} disabled={!project.editable || localDirty} onChange={(event) => setFunctionSource(event.target.value)} />}
-                <div className="strategy-code-actions"><span>{localDirty ? "请先处理完整模块中的未保存修改。" : "保存后系统会重新解析参数，并自动回填无代码界面。"}</span><Button variant="outline" disabled={!functionDirty || busy} onClick={() => setFunctionSource(baseFunctionSource)}>放弃修改</Button><Button disabled={!project.editable || !functionDirty || localDirty || busy} onClick={() => void saveFunction()}><Save />保存当前函数</Button></div>
+                <div className="strategy-code-note"><Braces size={17} /><div><strong>定位到当前环节</strong><span>这里仍是项目唯一的 strategy.py，只是自动跳转到当前注册函数，不会复制函数源码。</span></div><Badge variant={localDirty ? "destructive" : "secondary"}>{localDirty ? "未保存" : "已同步"}</Badge></div>
+                <PythonEditor
+                  kind="strategy"
+                  documentId={project.id}
+                  value={source}
+                  version={project.draft_source_sha256}
+                  baselineValue={project.draft_source}
+                  disabled={!project.editable}
+                  height={620}
+                  revealLine={activeEntrypoint?.line}
+                  factors={factorEntrypoints.map((factor) => ({ id: factor.id, label: factor.label }))}
+                  parameters={activeEntrypoint?.parameters ?? []}
+                  onChange={setSource}
+                  onSave={(nextSource) => saveDraft(nextSource)}
+                />
+                <div className="strategy-code-actions"><span>保存后重新解析当前函数，并自动回填无代码界面。</span><Button variant="outline" disabled={!localDirty || busy} onClick={() => setSource(project.draft_source)}>放弃修改</Button><Button disabled={!project.editable || !localDirty || busy} onClick={() => void saveDraft()}><Save />保存草稿</Button></div>
               </div> : null}
 
               {mode === "module" ? <div className="strategy-code-editor-view">
                 <div className="strategy-code-note"><Code2 size={17} /><div><strong>完整 canonical module</strong><span>适合新增持有期事件、辅助函数或完全自定义逻辑；保存后所有工作台都会从这里重新投影。</span></div><Badge variant={localDirty ? "destructive" : "outline"}>{localDirty ? "未保存" : project.draft_source_sha256.slice(0, 12)}</Badge></div>
-                {functionDirty ? <div className="workbench-message warning">当前环节代码尚未保存。为避免互相覆盖，完整模块暂时只读。</div> : null}
-                <Textarea className="pipeline-code-editor strategy-function-editor font-mono text-xs leading-5" spellCheck={false} value={source} disabled={!project.editable || functionDirty} onChange={(event) => setSource(event.target.value)} />
-                {project.inspection.warnings.map((warning) => <div key={`${warning.line}-${warning.message}`} className="workbench-message warning">L{warning.line}: {warning.message}</div>)}
-                <div className="strategy-code-actions"><span>完整源码保存为同一项目草稿，不会创建第二套策略。</span><Button variant="outline" disabled={!localDirty || busy} onClick={() => setSource(project.draft_source)}>放弃修改</Button><Button disabled={!project.editable || !localDirty || functionDirty || busy} onClick={() => void saveDraft()}><Save />保存完整草稿</Button></div>
+                <PythonEditor
+                  kind="strategy"
+                  documentId={project.id}
+                  value={source}
+                  version={project.draft_source_sha256}
+                  baselineValue={project.draft_source}
+                  disabled={!project.editable}
+                  height={620}
+                  factors={factorEntrypoints.map((factor) => ({ id: factor.id, label: factor.label }))}
+                  parameters={project.inspection.entrypoints.flatMap((entrypoint) => entrypoint.parameters)}
+                  onChange={setSource}
+                  onSave={(nextSource) => saveDraft(nextSource)}
+                />
+                <div className="strategy-code-actions"><span>完整源码保存为同一项目草稿，不会创建第二套策略。</span><Button variant="outline" disabled={!localDirty || busy} onClick={() => setSource(project.draft_source)}>放弃修改</Button><Button disabled={!project.editable || !localDirty || busy} onClick={() => void saveDraft()}><Save />保存完整草稿</Button></div>
               </div> : null}
 
               {mode === "preview" ? <div className="strategy-preview-view">
