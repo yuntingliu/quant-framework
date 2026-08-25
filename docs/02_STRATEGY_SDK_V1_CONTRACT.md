@@ -342,6 +342,10 @@ context.history("close", window=120)
 context.history(["open", "high", "low", "close", "volume"], window=120)
 context.fundamental("roe")
 context.factor("momentum_20d", window=20)
+context.combine_factors(
+    weights={"momentum_20d": 0.6, "low_volatility": -0.4},
+    normalization="rank",
+)
 ```
 
 `context.random` MUST be a run-seeded random source. Strategy code SHOULD use it
@@ -400,6 +404,29 @@ Cycles fail before evaluation.
 Single-factor evaluation MUST load the complete saved module, resolve the
 registered factor ID, and invoke that exact function. It MUST NOT translate the
 function into another expression runtime.
+
+`context.combine_factors(...)` is the standard Python form for visual
+multi-factor selection. It resolves the same registered factor functions as
+`context.factor(...)`, aligns them to the active universe, applies `raw`,
+cross-sectional `rank`, or `zscore` normalization, and combines them after
+normalizing absolute weights to one. Positive weights prefer larger values;
+negative weights prefer smaller values. Optional per-factor overrides use
+`parameters={"factor_id": {"parameter": value}}`.
+
+The workbench MAY structurally edit literal `weights` and `normalization` in
+this call. A single literal `context.factor(...)` call MAY be converted to this
+form while preserving literal call parameters. Conditional blends,
+neutralization, regime switching, grouping, and arbitrary formulas remain
+ordinary Python and MUST display as `custom`; the workbench MUST NOT interpret
+them through a second expression language.
+
+The built-in factor library is a catalog of complete SDK Python templates, not
+a second factor runtime. Adding a template MUST copy its `@factor` function into
+the current draft and merge its declared data requirements. From that point the
+copied function is ordinary canonical project source: forms edit its literal
+defaults, the source editor may replace any supported logic, and evaluation and
+backtest invoke that exact function. Template catalog changes MUST NOT mutate a
+factor already copied into a project.
 
 ## 12. Signal Contract
 
@@ -723,6 +750,17 @@ Python Lab is not a separate authoritative strategy lifecycle. A scratch editor
 MAY exist, but saving useful code inserts it into the canonical project source
 and follows the normal revision workflow. No candidate/promotion object is
 required for ordinary authoring.
+
+The Strategy surface projects a recognized `context.combine_factors(...)` call
+as the multi-factor selector: factor membership, signed direction/weight, and
+normalization. Applying the form changes that call in the same signal function;
+single-factor tests, cross-sectional previews, and backtests continue to invoke
+the registered Python factor functions from the same revision.
+
+The Factor surface lists both factors already registered in the project and the
+built-in Python template catalog. Installing a template is a confirmed draft
+write and is unavailable while the browser has unsaved source edits, preventing
+one source projection from overwriting another.
 
 ## 23. Codex and Agent Contract
 

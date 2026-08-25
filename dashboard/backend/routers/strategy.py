@@ -66,15 +66,23 @@ class SourceValidationRequest(BaseModel):
     source: str = Field(min_length=1, max_length=300_000)
 
 
+class AddFactorTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    confirm_write: bool
+
+
 class StructuredEditRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: Literal["parameter", "schedule", "replace_function"]
+    operation: Literal["parameter", "schedule", "factor_blend", "replace_function"]
     entrypoint_id: str = Field(min_length=1, max_length=100)
     parameter: str | None = None
     value: Any = None
     frequency: Literal["daily", "weekly", "monthly"] | None = None
     selector: Literal["every", "first_trading_day", "last_trading_day"] | None = None
     at: Literal["open", "close"] | None = None
+    factor_weights: dict[str, float] | None = None
+    normalization: Literal["raw", "rank", "zscore"] | None = None
     function_source: str | None = Field(default=None, max_length=100_000)
     expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
     confirm_write: bool
@@ -85,6 +93,8 @@ class StructuredEditRequest(BaseModel):
             raise ValueError("parameter is required for a parameter edit")
         if self.operation == "schedule" and (not self.frequency or not self.at):
             raise ValueError("frequency and at are required for a schedule edit")
+        if self.operation == "factor_blend" and (not self.factor_weights or not self.normalization):
+            raise ValueError("factor_weights and normalization are required")
         if self.operation == "replace_function" and not self.function_source:
             raise ValueError("function_source is required")
         return self
@@ -176,6 +186,11 @@ def fields(profile: Literal["demo", "runtime"] = "demo") -> dict[str, Any]:
         return {"profile": profile, "start_date": start, "end_date": end, "datasets": datasets}
     except Exception as exc:
         raise _translate_error(exc) from exc
+
+
+@router.get("/factor-templates")
+def factor_templates() -> dict[str, Any]:
+    return strategy_service.factor_template_catalog()
 
 
 @router.get("/projects/{project_id}")
@@ -274,6 +289,14 @@ def validate(request: SourceValidationRequest) -> dict[str, Any]:
         raise _translate_error(exc) from exc
 
 
+@router.get("/projects/{project_id}/entrypoints/{entrypoint_id}/source")
+def entrypoint_source(project_id: str, entrypoint_id: str) -> dict[str, Any]:
+    try:
+        return strategy_service.get_entrypoint_source(project_id, entrypoint_id)
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
 @router.post("/projects/{project_id}/edits")
 def edit(project_id: str, request: StructuredEditRequest) -> dict[str, Any]:
     _confirmed(request.confirm_write, "updating strategy source requires confirmation")
@@ -281,6 +304,21 @@ def edit(project_id: str, request: StructuredEditRequest) -> dict[str, Any]:
         return strategy_service.structured_edit(
             project_id,
             request.model_dump(exclude={"confirm_write"}, exclude_none=True),
+        )
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/factor-templates/{template_id}")
+def add_factor_template(
+    project_id: str, template_id: str, request: AddFactorTemplateRequest
+) -> dict[str, Any]:
+    _confirmed(request.confirm_write, "adding a factor template requires confirmation")
+    try:
+        return strategy_service.add_project_factor_template(
+            project_id,
+            template_id,
+            expected_source_sha256=request.expected_source_sha256,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc

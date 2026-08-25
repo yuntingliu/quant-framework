@@ -28,6 +28,9 @@ second Lab execution path.
 
 - Public user strategy types belong in `alphalab/sdk/v1/`.
 - AST/CST source behavior belongs in `alphalab/strategy/source.py`.
+- Built-in reusable factor source belongs in
+  `alphalab/strategy/factor_templates.py`; templates must be complete SDK
+  `@factor` functions, never callbacks into the legacy factor evaluator.
 - Draft/package persistence belongs in `alphalab/strategy/repository.py`.
 - User-code invocation and boundary coercion belong in
   `alphalab/strategy/sdk_runtime.py`.
@@ -67,7 +70,11 @@ def momentum(context, *, window: int = 20):
 
 @signal(id="monthly", schedule=Monthly.last_trading_day(at="close"))
 def monthly(context, state, *, top_n: int = 1):
-    scores = context.factor("momentum", window=20).dropna()
+    scores = context.combine_factors(
+        weights={"momentum": 1.0},
+        normalization="rank",
+        parameters={"momentum": {"window": 20}},
+    ).dropna()
     selected = list(scores.nlargest(top_n).index)
     return SignalResult(selected=selected, scores=scores, state=state)
 
@@ -86,6 +93,16 @@ def next_open(context, decision):
 Keyword-only literal defaults are form-editable. Anything else displays as
 custom. Structured edits must use LibCST and target the registered entrypoint
 ID; never replace an arbitrary number or text match.
+
+Literal `context.combine_factors(weights=..., normalization=...)` calls are the
+form-editable multi-factor boundary. Signed weights encode factor direction.
+Keep conditional or non-literal formulas in Python and project them as custom;
+do not add an expression evaluator.
+
+Adding a built-in factor merges the template's data requirements and inserts
+its function before the registered signal with LibCST. Reject duplicate public
+IDs and functions. Once installed, the project owns that Python copy; later
+catalog edits do not rewrite saved strategy source.
 
 ## Validation and errors
 
@@ -115,6 +132,9 @@ All six workbenches use `StrategySdkContext`. A full-source edit saves the same
 draft; parameter and schedule forms call the CST edit endpoint. Factor field and
 dependency buttons insert valid Python into the active factor function. Factor
 tests and backtests are disabled for dirty drafts until a revision is frozen.
+The factor template catalog may add only to a clean editable draft and must then
+refresh the shared project context so Factor and Strategy views see the same
+registered factors immediately.
 
 Inactive legacy widgets may not be registered in `widgetComponents`, a layout
 preset, Agent workspace commands, or navigation.

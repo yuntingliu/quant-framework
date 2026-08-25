@@ -99,15 +99,19 @@ New backtests persist `strategy_project_id`, `strategy_revision`,
 weights, returns, attribution, settings, and provenance.
 
 Old pipeline tables and old BacktestRuns remain only for one-time migration and
-read-only inspection. Legacy pipeline, factor-expression, and Python Lab routers
-are not mounted, are not Agent tools, and cannot create a second authoritative
-result.
+read-only inspection. Migration converts every recognized legacy factor into an
+SDK `@factor` function and preserves its signed blend weight; an unrecognized
+legacy expression becomes an explicit review-required Python function instead
+of silently falling back to another factor. Legacy pipeline,
+factor-expression, and Python Lab routers are not mounted, are not Agent tools,
+and cannot create a second authoritative result.
 
 ## Code map
 
 | Path | Responsibility |
 | --- | --- |
 | `alphalab/sdk/v1/` | Stable public strategy types and decorators |
+| `alphalab/strategy/factor_templates.py` | Built-in SDK Python factor templates and CST-aware installation |
 | `alphalab/strategy/source.py` | AST inspection, dependency checks, and LibCST edits |
 | `alphalab/strategy/repository.py` | Drafts, immutable packages, probes, migration |
 | `alphalab/strategy/sdk_runtime.py` | Trusted-local child-process runner and boundary validation |

@@ -16,8 +16,9 @@ from typing import Any, Mapping
 import pandas as pd
 
 from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
+from alphalab.strategy.factor_templates import get_factor_template
 from alphalab.strategy.sdk_runtime import load_strategy_module, probe_sdk_operation
-from alphalab.strategy.source import SourceInspection, inspect_strategy_source
+from alphalab.strategy.source import SourceInspection, StrategySourceError, inspect_strategy_source
 from alphalab.utils.paths import APP_DATA_DIR
 
 
@@ -26,6 +27,7 @@ _DEFAULT_DB = APP_DATA_DIR / "alphalab.db"
 _ID = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 _DEFAULT_PROJECT_ID = "sdk-v1-default"
 _MIGRATION_NAME = "strategy-sdk-v1-cutover"
+_FACTOR_REPAIR_MIGRATION = "strategy-sdk-v1-factor-repair"
 
 
 def normalize_project_id(value: str) -> str:
@@ -49,6 +51,7 @@ class StrategyRepository:
         self._conn.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
         self._seed_default()
         self._migrate_pipeline_projects()
+        self._repair_legacy_factor_migrations()
 
     def close(self) -> None:
         self._conn.close()
@@ -508,31 +511,151 @@ class StrategyRepository:
         )
         self._conn.commit()
 
+    def _repair_legacy_factor_migrations(self) -> None:
+        if self._conn.execute(
+            "SELECT 1 FROM strategy_contract_migrations WHERE name = ?",
+            (_FACTOR_REPAIR_MIGRATION,),
+        ).fetchone():
+            return
+        table = self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='pipeline_projects'"
+        ).fetchone()
+        repaired: list[str] = []
+        skipped_dirty: list[str] = []
+        if table:
+            rows = self._conn.execute(
+                "SELECT id, settings_json FROM pipeline_projects WHERE built_in = 0 ORDER BY id"
+            ).fetchall()
+            for row in rows:
+                project_id = normalize_project_id(str(row["id"]))
+                project = self._conn.execute(
+                    "SELECT * FROM strategy_projects WHERE id = ?", (project_id,)
+                ).fetchone()
+                if project is None:
+                    continue
+                legacy_settings = _load_json(row["settings_json"], {})
+                expected_ids = {
+                    str(item.get("name") or "").strip()
+                    for item in legacy_settings.get("factors") or []
+                    if isinstance(item, Mapping) and str(item.get("name") or "").strip()
+                }
+                current_inspection = inspect_strategy_source(str(project["draft_source"]))
+                current_ids = {
+                    item.id for item in current_inspection.entrypoints if item.kind == "factor"
+                }
+                if not expected_ids - current_ids:
+                    continue
+                package = self.get_package(
+                    project_id, int(project["current_revision"]), include_source=False
+                )
+                if not package or package["source_sha256"] != project["draft_source_sha256"]:
+                    skipped_dirty.append(project_id)
+                    continue
+                source = _legacy_source(legacy_settings)
+                inspection = inspect_strategy_source(source)
+                self._conn.execute(
+                    """UPDATE strategy_projects
+                       SET draft_source = ?, draft_source_sha256 = ?, updated_at = datetime('now')
+                       WHERE id = ?""",
+                    (source, inspection.source_sha256, project_id),
+                )
+                repaired.append(project_id)
+        self._conn.execute(
+            "INSERT INTO strategy_contract_migrations (name, detail_json) VALUES (?, ?)",
+            (
+                _FACTOR_REPAIR_MIGRATION,
+                _json({"repaired_projects": repaired, "skipped_dirty_projects": skipped_dirty}),
+            ),
+        )
+        self._conn.commit()
+
 
 def _legacy_source(settings: Mapping[str, Any]) -> str:
     universe = dict(settings.get("universe") or {})
     symbols = tuple(str(value).upper() for value in universe.get("symbols") or ())
-    factors = [item for item in settings.get("factors") or [] if isinstance(item, Mapping)]
-    factor = factors[0] if factors else {"name": "momentum_20d"}
-    factor_id = str(factor.get("name") or "momentum_20d")
-    factor_function = re.sub(r"\W+", "_", factor_id).strip("_") or "migrated_factor"
-    return f"""from alphalab.sdk.v1 import (ExecutionPolicy, Monthly, PortfolioDecision, SignalResult, UniverseResult, execution, factor, portfolio, signal, universe)
+    raw_factors = [
+        dict(item) for item in settings.get("factors") or [] if isinstance(item, Mapping)
+    ]
+    if not raw_factors:
+        raw_factors = [{"name": "momentum_20d", "weight": 1.0, "direction": "long"}]
+    stage_parameters = dict(settings.get("stage_parameters") or {})
+    selection = dict(settings.get("selection") or stage_parameters.get("selection") or {})
+    selection_weights = dict(selection.get("factor_weights") or {})
+    requirements: dict[str, list[str]] = {
+        "bars": ["open", "high", "low", "close", "volume", "amount"]
+    }
+    definitions: list[str] = []
+    weights: dict[str, float] = {}
+    used_ids: set[str] = set()
+    used_functions: set[str] = set()
+
+    for raw_factor in raw_factors:
+        factor_id = str(raw_factor.get("name") or "").strip()
+        if not factor_id or factor_id in used_ids:
+            continue
+        used_ids.add(factor_id)
+        function_name = re.sub(r"\W+", "_", factor_id).strip("_") or "migrated_factor"
+        while function_name in used_functions:
+            function_name += "_migrated"
+        used_functions.add(function_name)
+        try:
+            template = get_factor_template(factor_id)
+        except StrategySourceError:
+            expression = str(raw_factor.get("expression") or "").strip()
+            message = (
+                f"Legacy expression factor {factor_id!r} requires manual Python conversion"
+                + (f": {expression}" if expression else "")
+            )
+            definitions.append(
+                f"""@factor(id={factor_id!r}, label={f"迁移待复核：{factor_id}"!r}, inputs=[])
+def {function_name}(context):
+    raise RuntimeError({message!r})"""
+            )
+        else:
+            definitions.append(template.source.strip())
+            for dataset, fields in template.requirements.items():
+                current = requirements.setdefault(dataset, [])
+                current.extend(field for field in fields if field not in current)
+
+        raw_weight = selection_weights.get(factor_id, raw_factor.get("weight", 1.0))
+        weight = float(raw_weight)
+        if weight > 0:
+            weights[factor_id] = -weight if raw_factor.get("direction") == "short" else weight
+
+    if not used_ids:
+        template = get_factor_template("momentum_20d")
+        used_ids.add(template.id)
+        definitions.append(template.source.strip())
+        for dataset, fields in template.requirements.items():
+            current = requirements.setdefault(dataset, [])
+            current.extend(field for field in fields if field not in current)
+    if not weights:
+        weights[next(iter(used_ids))] = 1.0
+
+    frequency = str(selection.get("signal_frequency") or "monthly")
+    schedule = {
+        "daily": 'Daily.at("close")',
+        "weekly": 'Weekly.last_trading_day(at="close")',
+        "monthly": 'Monthly.last_trading_day(at="close")',
+    }.get(frequency, 'Monthly.last_trading_day(at="close")')
+    normalization = "zscore" if selection.get("normalization") == "zscore" else "rank"
+    top_n = max(1, int(selection.get("n_stocks") or selection.get("count") or 20))
+    factor_source = "\n\n\n".join(definitions)
+    return f"""from alphalab.sdk.v1 import (Daily, ExecutionPolicy, Monthly, PortfolioDecision, SignalResult, UniverseResult, Weekly, execution, factor, portfolio, signal, universe)
 
 SDK_VERSION = 1
 MIGRATED_SYMBOLS = {symbols!r}
+DATA_REQUIREMENTS = {requirements!r}
 
 @universe(id="migrated_universe")
 def migrated_universe(context):
     return UniverseResult(symbols=MIGRATED_SYMBOLS or context.universe)
 
-@factor(id={factor_id!r}, inputs=["close"])
-def {factor_function}(context, *, window: int = 20):
-    close = context.history("close", window=window + 1)
-    return close.iloc[-1] / close.iloc[0] - 1.0
+{factor_source}
 
-@signal(id="migrated_signal", schedule=Monthly.last_trading_day(at="close"))
-def migrated_signal(context, state, *, top_n: int = 20):
-    scores = context.factor({factor_id!r}, window=20).dropna()
+@signal(id="migrated_signal", schedule={schedule})
+def migrated_signal(context, state, *, top_n: int = {top_n}):
+    scores = context.combine_factors(weights={weights!r}, normalization={normalization!r}).dropna()
     selected = list(scores.nlargest(top_n).index)
     return SignalResult(selected=selected, scores=scores, state=state)
 

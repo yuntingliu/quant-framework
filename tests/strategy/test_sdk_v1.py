@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 from pathlib import Path
 
 import pandas as pd
@@ -8,6 +10,10 @@ from alphalab.sdk.v1 import Event, FactorContext
 from alphalab.dataio import create_default_engine
 from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
 from alphalab.strategy.engine import run_strategy_backtest
+from alphalab.strategy.factor_templates import (
+    install_factor_template,
+    list_factor_templates,
+)
 from alphalab.strategy.repository import StrategyRepository
 from alphalab.strategy.sdk_runtime import SdkExecutionSession
 from alphalab.strategy.source import (
@@ -16,7 +22,10 @@ from alphalab.strategy.source import (
     factor_field_snippet,
     inspect_strategy_source,
     insert_source,
+    registered_function_source,
+    replace_registered_function,
     update_parameter_default,
+    update_signal_factor_blend,
     update_signal_schedule,
 )
 
@@ -53,6 +62,119 @@ def _payload() -> dict:
     }
 
 
+def test_builtin_factor_catalog_is_native_sdk_python_and_all_templates_install(tmp_path: Path):
+    templates = list_factor_templates()
+    assert {item.id for item in templates} == {
+        "bp",
+        "ep",
+        "gross_margin",
+        "leverage",
+        "ma_deviation",
+        "momentum_20d",
+        "momentum_60d",
+        "profit_growth",
+        "reversal_5d",
+        "revenue_growth",
+        "roa",
+        "roe",
+        "rsi_14",
+        "turnover_20d",
+        "volatility_20d",
+        "volume_ratio",
+    }
+    assert all(item.source.startswith("@factor(") for item in templates)
+
+    source = DEFAULT_STRATEGY_SOURCE
+    for template in templates:
+        if template.id != "momentum_20d":
+            source, inspection = install_factor_template(source, template_id=template.id)
+
+    factor_ids = {item.id for item in inspection.entrypoints if item.kind == "factor"}
+    assert factor_ids == {item.id for item in templates}
+    assert set(inspection.data_requirements["fundamentals"]) == {
+        "bp",
+        "ep",
+        "gross_margin",
+        "leverage",
+        "profit_growth",
+        "revenue_growth",
+        "roa",
+        "roe",
+    }
+    assert "def momentum_60d(context" in source
+    assert 'return context.fundamental("roe")' in source
+
+    repository = StrategyRepository(tmp_path / "all-templates.db")
+    try:
+        created = repository.create_project(
+            "all-factor-templates", name="All Factor Templates", source=source
+        )
+        assert created["current_package"]["revision"] == 1
+    finally:
+        repository.close()
+
+
+def test_factor_template_install_rejects_duplicate_registration():
+    try:
+        install_factor_template(DEFAULT_STRATEGY_SOURCE, template_id="momentum_20d")
+    except StrategySourceError as exc:
+        assert exc.phase == "edit"
+        assert "already registered" in str(exc)
+    else:
+        raise AssertionError("duplicate built-in factor was installed")
+
+
+def test_legacy_pipeline_migration_preserves_all_factors_and_weights(tmp_path: Path):
+    database = tmp_path / "legacy.db"
+    connection = sqlite3.connect(database)
+    connection.execute(
+        """CREATE TABLE pipeline_projects (
+               id TEXT PRIMARY KEY,
+               name TEXT NOT NULL,
+               description TEXT NOT NULL,
+               settings_json TEXT NOT NULL,
+               built_in INTEGER NOT NULL DEFAULT 0
+           )"""
+    )
+    settings = {
+        "universe": {"symbols": ["AAA", "BBB"]},
+        "factors": [
+            {"name": "momentum_20d", "weight": 0.6, "direction": "long"},
+            {"name": "volatility_20d", "weight": 0.4, "direction": "short"},
+        ],
+        "stage_parameters": {
+            "selection": {
+                "count": 7,
+                "factor_weights": {"momentum_20d": 0.6, "volatility_20d": 0.4},
+                "signal_frequency": "weekly",
+                "normalization": "zscore",
+            }
+        },
+    }
+    connection.execute(
+        "INSERT INTO pipeline_projects VALUES (?, ?, ?, ?, 0)",
+        ("legacy-multi", "Legacy Multi", "old pipeline", json.dumps(settings)),
+    )
+    connection.commit()
+    connection.close()
+
+    repository = StrategyRepository(database)
+    try:
+        project = repository.get_project("legacy-multi")
+        assert project is not None
+        source = project["draft_source"]
+        factors = {
+            item["id"] for item in project["inspection"]["entrypoints"] if item["kind"] == "factor"
+        }
+        assert factors == {"momentum_20d", "volatility_20d"}
+        assert "weights={'momentum_20d': 0.6, 'volatility_20d': -0.4}" in source
+        assert "normalization='zscore'" in source
+        assert "Weekly.last_trading_day" in source
+        assert "top_n: int = 7" in source
+    finally:
+        repository.close()
+
+
 def test_cst_parameter_and_schedule_edits_change_only_canonical_source():
     source = DEFAULT_STRATEGY_SOURCE.replace(
         '@factor(id="momentum_20d", label="20 日动量", inputs=["close"])',
@@ -77,6 +199,142 @@ def test_cst_parameter_and_schedule_edits_change_only_canonical_source():
     assert "Weekly.last_trading_day" in scheduled
     signal = next(item for item in inspected.entrypoints if item.kind == "signal")
     assert signal.metadata["schedule"]["frequency"] == "weekly"
+
+
+def test_factor_blend_projects_single_factor_and_converts_one_call():
+    source = DEFAULT_STRATEGY_SOURCE.replace(
+        """    scores = context.combine_factors(
+        weights={"momentum_20d": 1.0},
+        normalization="raw",
+        parameters={"momentum_20d": {"window": 20}},
+    ).dropna()
+""",
+        '    scores = context.factor("momentum_20d", window=20).dropna()\n',
+    ).replace(
+        "\n\n@signal(",
+        """
+
+@factor(id="quality", label="质量")
+def quality(context):
+    return context.factor("momentum_20d") * -1.0
+
+
+@signal(""",
+    )
+    initial = inspect_strategy_source(source)
+    signal = next(item for item in initial.entrypoints if item.id == "monthly_momentum")
+    assert signal.metadata["factor_blend"] == {
+        "mode": "single",
+        "weights": {"momentum_20d": 1.0},
+        "normalization": "raw",
+        "parameters": {"momentum_20d": {"window": 20}},
+    }
+
+    updated, inspection = update_signal_factor_blend(
+        source,
+        signal_id="monthly_momentum",
+        factor_weights={"momentum_20d": 0.7, "quality": -0.3},
+        normalization="rank",
+    )
+    assert "context.combine_factors(" in updated
+    assert 'context.factor("momentum_20d", window=20).dropna()' not in updated
+    assert "parameters={'momentum_20d': {'window': 20}}" in updated
+    projected = next(
+        item for item in inspection.entrypoints if item.id == "monthly_momentum"
+    ).metadata["factor_blend"]
+    assert projected["mode"] == "structured"
+    assert projected["weights"] == {"momentum_20d": 0.7, "quality": -0.3}
+    assert projected["normalization"] == "rank"
+
+
+def test_context_combines_factors_with_signed_rank_weights():
+    context = FactorContext(
+        event=Event.SESSION_CLOSE,
+        as_of="2024-01-02",
+        sessions=["2024-01-02"],
+        symbols=["A", "B"],
+        bars=pd.DataFrame({"date": ["2024-01-02", "2024-01-02"], "symbol": ["A", "B"]}),
+        factor_resolver=lambda factor_id, parameters: {
+            "momentum": pd.Series({"A": 1.0, "B": 2.0}),
+            "volatility": pd.Series({"A": 2.0, "B": 1.0}),
+        }[factor_id],
+    )
+    scores = context.combine_factors({"momentum": 1.0, "volatility": -1.0}, normalization="rank")
+    assert scores.to_dict() == {"A": -0.25, "B": 0.25}
+
+
+def test_custom_factor_formula_stays_python_only():
+    source = DEFAULT_STRATEGY_SOURCE.replace(
+        """    scores = context.combine_factors(
+        weights={"momentum_20d": 1.0},
+        normalization="raw",
+        parameters={"momentum_20d": {"window": 20}},
+    ).dropna()
+""",
+        """    fast = context.factor("momentum_20d", window=10)
+    slow = context.factor("momentum_20d", window=40)
+    scores = (fast.where(fast > 0, 0.0) - slow).dropna()
+""",
+    )
+    signal = next(
+        item
+        for item in inspect_strategy_source(source).entrypoints
+        if item.id == "monthly_momentum"
+    )
+    assert signal.metadata["factor_blend"] == {
+        "mode": "custom",
+        "factor_ids": ["momentum_20d"],
+    }
+    try:
+        update_signal_factor_blend(
+            source,
+            signal_id="monthly_momentum",
+            factor_weights={"momentum_20d": 1.0},
+            normalization="rank",
+        )
+    except StrategySourceError as exc:
+        assert exc.phase == "edit"
+        assert "custom factor logic" in str(exc)
+    else:
+        raise AssertionError("custom Python formula must not be structurally rewritten")
+
+
+def test_structured_blend_edit_preserves_unrelated_call_parameters():
+    source = DEFAULT_STRATEGY_SOURCE.replace(
+        'parameters={"momentum_20d": {"window": 20}},',
+        """parameters={
+            # Keep factor-specific tuning with the factor call.
+            "momentum_20d": {"window": 20},
+        },""",
+    )
+    updated, inspection = update_signal_factor_blend(
+        source,
+        signal_id="monthly_momentum",
+        factor_weights={"momentum_20d": 1.0},
+        normalization="zscore",
+    )
+    assert "# Keep factor-specific tuning with the factor call." in updated
+    assert "normalization='zscore'" in updated
+    blend = next(item for item in inspection.entrypoints if item.id == "monthly_momentum").metadata[
+        "factor_blend"
+    ]
+    assert blend["parameters"] == {"momentum_20d": {"window": 20}}
+
+
+def test_registered_function_source_is_exact_replaceable_unit():
+    function_source = registered_function_source(
+        DEFAULT_STRATEGY_SOURCE, entrypoint_id="monthly_momentum"
+    )
+    assert function_source.startswith("@signal(")
+    assert "def monthly_momentum" in function_source
+    assert "def equal_weight" not in function_source
+    updated, inspection = replace_registered_function(
+        DEFAULT_STRATEGY_SOURCE,
+        entrypoint_id="monthly_momentum",
+        function_source=function_source.replace("top_n: int = 10", "top_n: int = 5"),
+    )
+    assert "top_n: int = 5" in updated
+    assert next(item for item in inspection.entrypoints if item.id == "monthly_momentum")
 
 
 def test_annotated_parameter_metadata_is_projected_and_enforced():
@@ -320,7 +578,12 @@ def test_rejected_fill_does_not_change_actual_positions(tmp_path: Path):
             'Daily.at("close")',
         )
         .replace(
-            '    scores = context.factor("momentum_20d", window=20).dropna()\n',
+            """    scores = context.combine_factors(
+        weights={"momentum_20d": 1.0},
+        normalization="raw",
+        parameters={"momentum_20d": {"window": 20}},
+    ).dropna()
+""",
             "    scores = __import__('pandas').Series({symbol: 1.0 for symbol in context.universe}, dtype=float)\n",
         )
     )

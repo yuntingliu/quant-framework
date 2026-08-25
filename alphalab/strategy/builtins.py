@@ -50,7 +50,11 @@ def momentum_20d(
     schedule=Monthly.last_trading_day(at="close"),
 )
 def monthly_momentum(context, state, *, top_n: int = 10):
-    scores = context.factor("momentum_20d", window=20).dropna()
+    scores = context.combine_factors(
+        weights={"momentum_20d": 1.0},
+        normalization="raw",
+        parameters={"momentum_20d": {"window": 20}},
+    ).dropna()
     selected = list(scores.nlargest(top_n).index)
     return SignalResult(selected=selected, scores=scores, state=state)
 

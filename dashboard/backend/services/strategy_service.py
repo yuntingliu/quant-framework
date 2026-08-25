@@ -21,14 +21,21 @@ from alphalab.strategy.engine import (
     preview_strategy,
     run_strategy_backtest,
 )
+from alphalab.strategy.factor_templates import (
+    get_factor_template,
+    install_factor_template,
+    list_factor_templates,
+)
 from alphalab.strategy.repository import StrategyRepository
 from alphalab.strategy.source import (
     factor_dependency_snippet,
     factor_field_snippet,
     insert_source,
     inspect_strategy_source,
+    registered_function_source,
     replace_registered_function,
     update_parameter_default,
+    update_signal_factor_blend,
     update_signal_schedule,
 )
 from dashboard.backend.services.data_service import _engine, _profile_range
@@ -138,6 +145,46 @@ def validate_source(source: str) -> dict[str, Any]:
     return inspect_strategy_source(source).to_dict()
 
 
+def factor_template_catalog() -> dict[str, Any]:
+    return {"templates": [item.to_dict() for item in list_factor_templates()]}
+
+
+def add_project_factor_template(
+    project_id: str,
+    template_id: str,
+    *,
+    expected_source_sha256: str | None = None,
+) -> dict[str, Any]:
+    project = get_project(project_id)
+    if project is None:
+        raise KeyError(project_id)
+    if expected_source_sha256 and expected_source_sha256 != project["draft_source_sha256"]:
+        raise RuntimeError("draft changed since it was inspected")
+    updated, inspection = install_factor_template(project["draft_source"], template_id=template_id)
+    updated_project = update_draft(
+        project_id,
+        updated,
+        expected_source_sha256=project["draft_source_sha256"],
+    )
+    return {
+        "project": updated_project,
+        "inspection": inspection.to_dict(),
+        "template": get_factor_template(template_id).to_dict(),
+    }
+
+
+def get_entrypoint_source(project_id: str, entrypoint_id: str) -> dict[str, Any]:
+    project = get_project(project_id)
+    if project is None:
+        raise KeyError(project_id)
+    return {
+        "project_id": project_id,
+        "entrypoint_id": entrypoint_id,
+        "source_sha256": project["draft_source_sha256"],
+        "source": registered_function_source(project["draft_source"], entrypoint_id=entrypoint_id),
+    }
+
+
 def structured_edit(project_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     project = get_project(project_id)
     if project is None:
@@ -161,6 +208,13 @@ def structured_edit(project_id: str, payload: Mapping[str, Any]) -> dict[str, An
             frequency=str(payload["frequency"]),
             selector=str(payload.get("selector") or "every"),
             at=str(payload["at"]),
+        )
+    elif operation == "factor_blend":
+        updated, inspection = update_signal_factor_blend(
+            source,
+            signal_id=str(payload["entrypoint_id"]),
+            factor_weights=dict(payload["factor_weights"]),
+            normalization=str(payload["normalization"]),
         )
     elif operation == "replace_function":
         updated, inspection = replace_registered_function(
@@ -415,11 +469,14 @@ def run_project_backtest(
 
 
 __all__ = [
+    "add_project_factor_template",
     "clone_project",
     "create_project",
     "delete_project",
     "factor_history",
     "factor_snapshot",
+    "factor_template_catalog",
+    "get_entrypoint_source",
     "get_project",
     "get_revision",
     "insertion",

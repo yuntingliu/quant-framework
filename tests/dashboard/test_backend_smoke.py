@@ -28,6 +28,12 @@ def test_data_and_strategy_sdk_read_contracts(tmp_path, monkeypatch):
     assert project["current_package"]["sdk_version"] == 1
     assert project["inspection"]["source_sha256"] == project["draft_source_sha256"]
     assert "@factor" in project["draft_source"]
+    entrypoint = client.get(
+        "/api/strategy/projects/sdk-v1-default/entrypoints/monthly_momentum/source"
+    )
+    assert entrypoint.status_code == 200, entrypoint.text
+    assert entrypoint.json()["source_sha256"] == project["draft_source_sha256"]
+    assert entrypoint.json()["source"].startswith("@signal(")
 
 
 def test_strategy_clone_cst_edit_and_revision_confirmation(tmp_path, monkeypatch):
@@ -66,10 +72,104 @@ def test_strategy_clone_cst_edit_and_revision_confirmation(tmp_path, monkeypatch
     assert 'Parameter(label="窗口", minimum=2, maximum=500, step=1)' in edited_source
     assert "] = 30" in edited_source
     assert edited.json()["project"]["draft_source_sha256"] != original_hash
+    blended = client.post(
+        "/api/strategy/projects/custom/edits",
+        json={
+            "operation": "factor_blend",
+            "entrypoint_id": "monthly_momentum",
+            "factor_weights": {"momentum_20d": 1.0},
+            "normalization": "rank",
+            "expected_source_sha256": edited.json()["project"]["draft_source_sha256"],
+            "confirm_write": True,
+        },
+    )
+    assert blended.status_code == 200, blended.text
+    assert "context.combine_factors(" in blended.json()["project"]["draft_source"]
     saved = client.post(
         "/api/strategy/projects/custom/revisions",
         json={
-            "expected_source_sha256": edited.json()["project"]["draft_source_sha256"],
+            "expected_source_sha256": blended.json()["project"]["draft_source_sha256"],
+            "confirm_save": True,
+            "confirm_python_execution": True,
+        },
+    )
+    assert saved.status_code == 201, saved.text
+    assert saved.json()["revision"] == 2
+
+
+def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, monkeypatch):
+    database = tmp_path / "factor-templates.db"
+    monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
+    client = TestClient(app)
+
+    catalog = client.get("/api/strategy/factor-templates")
+    assert catalog.status_code == 200, catalog.text
+    templates = catalog.json()["templates"]
+    assert len(templates) == 16
+    assert {item["id"] for item in templates} >= {"momentum_60d", "roe", "rsi_14"}
+    assert all(item["source"].startswith("@factor(") for item in templates)
+
+    cloned = client.post(
+        "/api/strategy/projects/sdk-v1-default/clone",
+        json={
+            "target_id": "template-project",
+            "name": "Template Project",
+            "confirm_save": True,
+            "confirm_python_execution": True,
+        },
+    )
+    assert cloned.status_code == 201, cloned.text
+    source_hash = cloned.json()["draft_source_sha256"]
+    installed = client.post(
+        "/api/strategy/projects/template-project/factor-templates/momentum_60d",
+        json={"expected_source_sha256": source_hash, "confirm_write": True},
+    )
+    assert installed.status_code == 200, installed.text
+    project = installed.json()["project"]
+    assert "def momentum_60d(context" in project["draft_source"]
+    assert {item["id"] for item in project["inspection"]["entrypoints"]} >= {
+        "momentum_20d",
+        "momentum_60d",
+    }
+    assert project["dirty"] is True
+
+    blended = client.post(
+        "/api/strategy/projects/template-project/edits",
+        json={
+            "operation": "factor_blend",
+            "entrypoint_id": "monthly_momentum",
+            "factor_weights": {"momentum_20d": 0.6, "momentum_60d": 0.4},
+            "normalization": "rank",
+            "expected_source_sha256": project["draft_source_sha256"],
+            "confirm_write": True,
+        },
+    )
+    assert blended.status_code == 200, blended.text
+    project = blended.json()["project"]
+    assert "'momentum_60d': 0.4" in project["draft_source"]
+
+    duplicate = client.post(
+        "/api/strategy/projects/template-project/factor-templates/momentum_60d",
+        json={
+            "expected_source_sha256": project["draft_source_sha256"],
+            "confirm_write": True,
+        },
+    )
+    assert duplicate.status_code == 422
+
+    denied = client.post(
+        "/api/strategy/projects/template-project/factor-templates/roe",
+        json={
+            "expected_source_sha256": project["draft_source_sha256"],
+            "confirm_write": False,
+        },
+    )
+    assert denied.status_code == 409
+
+    saved = client.post(
+        "/api/strategy/projects/template-project/revisions",
+        json={
+            "expected_source_sha256": project["draft_source_sha256"],
             "confirm_save": True,
             "confirm_python_execution": True,
         },

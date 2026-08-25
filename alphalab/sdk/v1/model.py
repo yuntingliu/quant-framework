@@ -1,4 +1,5 @@
 """Public value objects and point-in-time contexts for Strategy SDK v1."""
+
 from __future__ import annotations
 
 import copy
@@ -148,7 +149,9 @@ class SignalResult:
 
     def __post_init__(self) -> None:
         selected = _symbols(self.selected)
-        raw_scores = self.scores.to_dict() if isinstance(self.scores, pd.Series) else dict(self.scores)
+        raw_scores = (
+            self.scores.to_dict() if isinstance(self.scores, pd.Series) else dict(self.scores)
+        )
         scores: dict[str, float] = {}
         for raw_symbol, raw_score in raw_scores.items():
             symbol = str(raw_symbol).strip().upper()
@@ -259,7 +262,10 @@ class CalendarView:
 
     def is_month_end(self, session: Any) -> bool:
         index = self._position(session)
-        return index == len(self.sessions) - 1 or self.sessions[index + 1].month != self.sessions[index].month
+        return (
+            index == len(self.sessions) - 1
+            or self.sessions[index + 1].month != self.sessions[index].month
+        )
 
     def is_month_start(self, session: Any) -> bool:
         index = self._position(session)
@@ -267,11 +273,19 @@ class CalendarView:
 
     def is_week_end(self, session: Any) -> bool:
         index = self._position(session)
-        return index == len(self.sessions) - 1 or self.sessions[index + 1].isocalendar().week != self.sessions[index].isocalendar().week
+        return (
+            index == len(self.sessions) - 1
+            or self.sessions[index + 1].isocalendar().week
+            != self.sessions[index].isocalendar().week
+        )
 
     def is_week_start(self, session: Any) -> bool:
         index = self._position(session)
-        return index == 0 or self.sessions[index - 1].isocalendar().week != self.sessions[index].isocalendar().week
+        return (
+            index == 0
+            or self.sessions[index - 1].isocalendar().week
+            != self.sessions[index].isocalendar().week
+        )
 
 
 class StrategyContext:
@@ -311,9 +325,7 @@ class StrategyContext:
             as_of_value = as_of_value.tz_localize(None)
         self._as_of = as_of_value
         self._event = Event(event)
-        self.calendar = CalendarView(
-            tuple(pd.Timestamp(value).normalize() for value in sessions)
-        )
+        self.calendar = CalendarView(tuple(pd.Timestamp(value).normalize() for value in sessions))
         self._symbols = _symbols(symbols)
         self._bars = _pit_frame(bars, as_of_value, "date")
         self._instruments = _pit_frame(instruments, as_of_value, "snapshot_date", optional=True)
@@ -322,9 +334,7 @@ class StrategyContext:
             self._instruments = self._instruments.loc[
                 self._instruments["snapshot_date"].eq(latest_snapshot)
             ].reset_index(drop=True)
-        self._fundamentals = _pit_frame(
-            fundamentals, as_of_value, "available_date", optional=True
-        )
+        self._fundamentals = _pit_frame(fundamentals, as_of_value, "available_date", optional=True)
         self._portfolio = portfolio or PortfolioSnapshot()
         self._last_decision = last_decision
         self._random = random.Random(int(seed))
@@ -386,7 +396,9 @@ class StrategyContext:
             raise KeyError(f"market fields are unavailable: {missing}")
         rows = self._bars.loc[self._bars["symbol"].isin(requested)].sort_values("date")
         if len(names) == 1:
-            result = rows.pivot_table(index="date", columns="symbol", values=names[0], aggfunc="last")
+            result = rows.pivot_table(
+                index="date", columns="symbol", values=names[0], aggfunc="last"
+            )
             return result.reindex(columns=requested).tail(int(window)).copy()
         pieces = {
             name: rows.pivot_table(index="date", columns="symbol", values=name, aggfunc="last")
@@ -396,9 +408,7 @@ class StrategyContext:
         }
         return pd.concat(pieces, axis=1).copy()
 
-    def fundamental(
-        self, field: str, *, symbols: Sequence[str] | None = None
-    ) -> pd.Series:
+    def fundamental(self, field: str, *, symbols: Sequence[str] | None = None) -> pd.Series:
         requested = self._requested_symbols(symbols)
         if field not in self._fundamentals:
             raise KeyError(f"fundamental field is unavailable: {field}")
@@ -413,6 +423,70 @@ class StrategyContext:
         if self._factor_resolver is None:
             raise RuntimeError("factor registry is unavailable in this context")
         return self._factor_resolver(str(factor_id), parameters).copy()
+
+    def combine_factors(
+        self,
+        weights: Mapping[str, float],
+        *,
+        normalization: str = "rank",
+        parameters: Mapping[str, Mapping[str, Any]] | None = None,
+    ) -> pd.Series:
+        """Resolve, normalize, and combine registered factors on the active universe.
+
+        Positive weights prefer larger factor values and negative weights prefer
+        smaller values. The absolute weights are normalized to one so score scale
+        stays stable when a factor is added or removed.
+        """
+
+        if normalization not in {"raw", "rank", "zscore"}:
+            raise ValueError("factor normalization must be raw, rank, or zscore")
+        raw_parameters = dict(parameters or {})
+        unknown_parameters = sorted(set(raw_parameters) - set(weights))
+        if unknown_parameters:
+            raise ValueError(
+                f"factor parameters reference unweighted factors: {unknown_parameters}"
+            )
+
+        resolved: list[pd.Series] = []
+        total_weight = 0.0
+        seen: set[str] = set()
+        for raw_factor_id, raw_weight in dict(weights).items():
+            factor_id = str(raw_factor_id).strip()
+            if not factor_id or factor_id.startswith("_"):
+                raise ValueError("factor weights require public factor ids")
+            if factor_id in seen:
+                raise ValueError(f"duplicate factor weight: {factor_id}")
+            seen.add(factor_id)
+            if isinstance(raw_weight, bool):
+                raise ValueError(f"factor weight for {factor_id} must be numeric")
+            weight = float(raw_weight)
+            if not math.isfinite(weight):
+                raise ValueError(f"factor weight for {factor_id} must be finite")
+            if abs(weight) <= 1e-12:
+                continue
+
+            factor_parameters = raw_parameters.get(factor_id, {})
+            if not isinstance(factor_parameters, Mapping):
+                raise ValueError(f"parameters for factor {factor_id} must be a mapping")
+            values = pd.to_numeric(
+                self.factor(factor_id, **dict(factor_parameters)), errors="coerce"
+            ).reindex(self.universe)
+            if normalization == "rank":
+                values = values.rank(method="average", pct=True)
+            elif normalization == "zscore":
+                deviation = float(values.std(ddof=0))
+                values = (
+                    (values - float(values.mean())) / deviation
+                    if math.isfinite(deviation) and deviation > 1e-12
+                    else values.where(values.isna(), 0.0)
+                )
+            resolved.append(values * weight)
+            total_weight += abs(weight)
+
+        if not resolved or total_weight <= 1e-12:
+            raise ValueError("factor weights must contain at least one non-zero value")
+        combined = pd.concat(resolved, axis=1).sum(axis=1, min_count=len(resolved))
+        return (combined / total_weight).reindex(self.universe).copy()
 
     def _requested_symbols(self, symbols: Sequence[str] | None) -> list[str]:
         requested = list(_symbols(symbols or self._symbols))

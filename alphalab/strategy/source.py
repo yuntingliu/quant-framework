@@ -140,6 +140,8 @@ def inspect_strategy_source(source: str) -> SourceInspection:
         counts[kind] = counts.get(kind, 0) + 1
         _validate_signature(node, kind)
         metadata = _decorator_metadata(kind, decorator)
+        if kind == "signal":
+            metadata["factor_blend"] = _signal_factor_blend_metadata(node)
         parameters = tuple(_parameters(node, source))
         entrypoints.append(
             EntrypointSpec(
@@ -225,6 +227,68 @@ def update_signal_schedule(
     return updated, inspect_strategy_source(updated)
 
 
+def update_signal_factor_blend(
+    source: str,
+    *,
+    signal_id: str,
+    factor_weights: dict[str, float],
+    normalization: str,
+) -> tuple[str, SourceInspection]:
+    inspection = inspect_strategy_source(source)
+    if normalization not in {"raw", "rank", "zscore"}:
+        raise StrategySourceError("unsupported factor normalization", phase="edit")
+    signal_spec = next(
+        (item for item in inspection.entrypoints if item.kind == "signal" and item.id == signal_id),
+        None,
+    )
+    if signal_spec is None:
+        raise StrategySourceError(f"signal {signal_id!r} was not found", phase="edit")
+    blend = signal_spec.metadata.get("factor_blend") or {}
+    if blend.get("mode") not in {"single", "structured"}:
+        raise StrategySourceError(
+            "custom factor logic must be edited in the signal Python function", phase="edit"
+        )
+
+    registered_factors = {item.id for item in inspection.entrypoints if item.kind == "factor"}
+    normalized_weights: dict[str, float] = {}
+    for raw_factor_id, raw_weight in factor_weights.items():
+        factor_id = str(raw_factor_id).strip()
+        if factor_id not in registered_factors:
+            raise StrategySourceError(
+                f"signal references unknown factor {factor_id!r}", phase="edit"
+            )
+        if isinstance(raw_weight, bool):
+            raise StrategySourceError("factor weights must be numeric", phase="edit")
+        weight = float(raw_weight)
+        if not math.isfinite(weight):
+            raise StrategySourceError("factor weights must be finite", phase="edit")
+        if abs(weight) > 1e-12:
+            normalized_weights[factor_id] = weight
+    if not normalized_weights:
+        raise StrategySourceError(
+            "factor weights must contain at least one non-zero value", phase="edit"
+        )
+
+    parameters = blend.get("parameters") or {}
+    replacement = _factor_blend_call(
+        normalized_weights,
+        normalization=normalization,
+        parameters=parameters,
+    )
+    transformer = _SignalFactorBlendTransformer(
+        signal_id,
+        replacement,
+        convert_single=blend.get("mode") == "single",
+        replace_parameters=any(factor_id not in normalized_weights for factor_id in parameters),
+    )
+    updated = cst.parse_module(source).visit(transformer).code
+    if not transformer.changed:
+        raise StrategySourceError(
+            f"structured factor blend for signal {signal_id!r} was not found", phase="edit"
+        )
+    return updated, inspect_strategy_source(updated)
+
+
 def replace_registered_function(
     source: str,
     *,
@@ -240,6 +304,20 @@ def replace_registered_function(
     if not transformer.changed:
         raise StrategySourceError(f"entrypoint {entrypoint_id!r} was not found", phase="edit")
     return updated, inspect_strategy_source(updated)
+
+
+def registered_function_source(source: str, *, entrypoint_id: str) -> str:
+    """Return one registered function, including decorators, without module-leading trivia."""
+
+    inspect_strategy_source(source)
+    module = cst.parse_module(source)
+    for item in module.body:
+        if not isinstance(item, cst.FunctionDef):
+            continue
+        _, public_id = _cst_public_id(item)
+        if public_id == entrypoint_id:
+            return module.code_for_node(item.with_changes(leading_lines=())).rstrip() + "\n"
+    raise StrategySourceError(f"entrypoint {entrypoint_id!r} was not found", phase="edit")
 
 
 def insert_source(source: str, *, cursor: int, snippet: str) -> tuple[str, SourceInspection | None]:
@@ -427,6 +505,120 @@ def _schedule_metadata(value: ast.expr) -> dict[str, Any]:
     if selector in {"first_trading_day", "last_trading_day"} and at in {"open", "close"}:
         return {"mode": "structured", "frequency": owner.id.lower(), "selector": selector, "at": at}
     return {"mode": "custom", "source": ast.unparse(value)}
+
+
+def _context_call(node: ast.Call, context_name: str, method: str) -> bool:
+    return (
+        isinstance(node.func, ast.Attribute)
+        and node.func.attr == method
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == context_name
+    )
+
+
+def _literal_factor_parameters(value: ast.expr | None) -> dict[str, dict[str, Any]] | None:
+    if value is None:
+        return {}
+    try:
+        raw = ast.literal_eval(value)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(raw, dict) or not all(
+        isinstance(key, str) and isinstance(item, dict) for key, item in raw.items()
+    ):
+        return None
+    return {str(key): dict(item) for key, item in raw.items()}
+
+
+def _signal_factor_blend_metadata(node: ast.FunctionDef) -> dict[str, Any]:
+    context_name = node.args.args[0].arg
+    blend_calls = [
+        child
+        for child in ast.walk(node)
+        if isinstance(child, ast.Call) and _context_call(child, context_name, "combine_factors")
+    ]
+    direct_calls = [
+        child
+        for child in ast.walk(node)
+        if isinstance(child, ast.Call) and _context_call(child, context_name, "factor")
+    ]
+    detected_ids: list[str] = []
+    for call in [*blend_calls, *direct_calls]:
+        if call.args:
+            try:
+                value = ast.literal_eval(call.args[0])
+            except (TypeError, ValueError):
+                value = None
+            if isinstance(value, str) and value not in detected_ids:
+                detected_ids.append(value)
+
+    if len(blend_calls) == 1:
+        call = blend_calls[0]
+        weights_value = next(
+            (item.value for item in call.keywords if item.arg == "weights"),
+            call.args[0] if call.args else None,
+        )
+        normalization_value = next(
+            (item.value for item in call.keywords if item.arg == "normalization"), None
+        )
+        parameters_value = next(
+            (item.value for item in call.keywords if item.arg == "parameters"), None
+        )
+        try:
+            raw_weights = ast.literal_eval(weights_value) if weights_value is not None else None
+            normalization = (
+                ast.literal_eval(normalization_value) if normalization_value is not None else "rank"
+            )
+        except (TypeError, ValueError):
+            raw_weights = None
+            normalization = None
+        parameters = _literal_factor_parameters(parameters_value)
+        if (
+            isinstance(raw_weights, dict)
+            and raw_weights
+            and all(
+                isinstance(key, str)
+                and not isinstance(weight, bool)
+                and isinstance(weight, (int, float))
+                and math.isfinite(float(weight))
+                for key, weight in raw_weights.items()
+            )
+            and normalization in {"raw", "rank", "zscore"}
+            and parameters is not None
+        ):
+            return {
+                "mode": "structured",
+                "weights": {key: float(weight) for key, weight in raw_weights.items()},
+                "normalization": normalization,
+                "parameters": parameters,
+            }
+        return {
+            "mode": "custom",
+            "factor_ids": detected_ids,
+            "source": ast.unparse(call),
+        }
+
+    if not blend_calls and len(direct_calls) == 1:
+        call = direct_calls[0]
+        try:
+            factor_id = ast.literal_eval(call.args[0]) if call.args else None
+            parameters = {
+                item.arg: ast.literal_eval(item.value)
+                for item in call.keywords
+                if item.arg is not None
+            }
+        except (TypeError, ValueError):
+            factor_id = None
+            parameters = None
+        if isinstance(factor_id, str) and parameters is not None:
+            return {
+                "mode": "single",
+                "weights": {factor_id: 1.0},
+                "normalization": "raw",
+                "parameters": {factor_id: parameters} if parameters else {},
+            }
+
+    return {"mode": "custom", "factor_ids": detected_ids}
 
 
 def _decorator_metadata(kind: str, decorator: ast.Call) -> dict[str, Any]:
@@ -744,6 +936,150 @@ def _literal_cst(value: Any) -> cst.BaseExpression:
     return cst.parse_expression(repr(value))
 
 
+def _factor_blend_call(
+    weights: dict[str, float],
+    *,
+    normalization: str,
+    parameters: dict[str, dict[str, Any]],
+) -> cst.Call:
+    equals = cst.AssignEqual(
+        whitespace_before=cst.SimpleWhitespace(""),
+        whitespace_after=cst.SimpleWhitespace(""),
+    )
+    arguments = [
+        cst.Arg(
+            value=cst.parse_expression(repr(weights)),
+            keyword=cst.Name("weights"),
+            equal=equals,
+        ),
+        cst.Arg(
+            value=cst.SimpleString(repr(normalization)),
+            keyword=cst.Name("normalization"),
+            equal=equals,
+        ),
+    ]
+    retained_parameters = {
+        factor_id: value
+        for factor_id, value in parameters.items()
+        if factor_id in weights and value
+    }
+    if retained_parameters:
+        arguments.append(
+            cst.Arg(
+                value=cst.parse_expression(repr(retained_parameters)),
+                keyword=cst.Name("parameters"),
+                equal=equals,
+            )
+        )
+    return cst.Call(
+        func=cst.Attribute(value=cst.Name("context"), attr=cst.Name("combine_factors")),
+        args=tuple(arguments),
+    )
+
+
+class _FactorBlendCallTransformer(cst.CSTTransformer):
+    def __init__(
+        self,
+        replacement: cst.Call,
+        *,
+        context_name: str,
+        convert_single: bool,
+        replace_parameters: bool,
+    ) -> None:
+        self.replacement = replacement
+        self.context_name = context_name
+        self.convert_single = convert_single
+        self.replace_parameters = replace_parameters
+        self.changed = 0
+
+    def _is_context_call(self, node: cst.Call, method: str) -> bool:
+        return (
+            isinstance(node.func, cst.Attribute)
+            and node.func.attr.value == method
+            and isinstance(node.func.value, cst.Name)
+            and node.func.value.value == self.context_name
+        )
+
+    def leave_Call(self, original_node: cst.Call, updated_node: cst.Call) -> cst.Call:
+        method = "factor" if self.convert_single else "combine_factors"
+        if not self._is_context_call(original_node, method):
+            return updated_node
+        self.changed += 1
+        if self.convert_single:
+            return self.replacement.with_changes(
+                func=self.replacement.func.with_changes(value=cst.Name(self.context_name))
+            )
+
+        replacement_arguments = {
+            item.keyword.value: item for item in self.replacement.args if item.keyword is not None
+        }
+        arguments: list[cst.Arg] = []
+        replaced: set[str] = set()
+        for index, argument in enumerate(updated_node.args):
+            keyword = argument.keyword.value if argument.keyword is not None else None
+            replaceable = {"weights", "normalization"}
+            if self.replace_parameters:
+                replaceable.add("parameters")
+            if keyword in replaceable:
+                replacement = replacement_arguments.get(keyword)
+                if replacement is not None:
+                    arguments.append(argument.with_changes(value=replacement.value))
+                    replaced.add(keyword)
+                continue
+            if index == 0 and keyword is None:
+                arguments.append(
+                    argument.with_changes(value=replacement_arguments["weights"].value)
+                )
+                replaced.add("weights")
+                continue
+            arguments.append(argument)
+        appendable = ["weights", "normalization"]
+        if self.replace_parameters:
+            appendable.append("parameters")
+        for keyword in appendable:
+            if keyword not in replaced and keyword in replacement_arguments:
+                arguments.append(replacement_arguments[keyword])
+        return updated_node.with_changes(args=tuple(arguments))
+
+
+class _SignalFactorBlendTransformer(cst.CSTTransformer):
+    def __init__(
+        self,
+        signal_id: str,
+        replacement: cst.Call,
+        *,
+        convert_single: bool,
+        replace_parameters: bool,
+    ) -> None:
+        self.signal_id = signal_id
+        self.replacement = replacement
+        self.convert_single = convert_single
+        self.replace_parameters = replace_parameters
+        self.changed = False
+
+    def leave_FunctionDef(
+        self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef
+    ) -> cst.FunctionDef:
+        kind, public_id = _cst_public_id(original_node)
+        if kind != "signal" or public_id != self.signal_id:
+            return updated_node
+        context_name = original_node.params.params[0].name.value
+        transformer = _FactorBlendCallTransformer(
+            self.replacement,
+            context_name=context_name,
+            convert_single=self.convert_single,
+            replace_parameters=self.replace_parameters,
+        )
+        result = updated_node.visit(transformer)
+        if transformer.changed != 1:
+            raise StrategySourceError(
+                "structured factor editing requires exactly one recognized factor call",
+                phase="edit",
+            )
+        self.changed = True
+        return result
+
+
 def _cst_decorator_name(decorator: cst.Decorator) -> str | None:
     value = decorator.decorator
     target = value.func if isinstance(value, cst.Call) else value
@@ -871,7 +1207,9 @@ __all__ = [
     "factor_field_snippet",
     "insert_source",
     "inspect_strategy_source",
+    "registered_function_source",
     "replace_registered_function",
     "update_parameter_default",
+    "update_signal_factor_blend",
     "update_signal_schedule",
 ]
