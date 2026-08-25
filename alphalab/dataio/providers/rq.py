@@ -1,4 +1,5 @@
 """Optional RQData providers configured only through project environment values."""
+
 from __future__ import annotations
 
 import importlib
@@ -99,12 +100,23 @@ class RQDataProvider:
         *,
         adjust_type: str = "pre",
         fundamental_batch_size: int = 200,
+        instrument_types: tuple[str, ...] = ("CS",),
+        market: str = "cn",
     ):
         if fundamental_batch_size <= 0:
             raise ValueError("fundamental_batch_size must be positive")
+        normalized_types = tuple(
+            dict.fromkeys(str(value).strip().upper() for value in instrument_types)
+        )
+        if not normalized_types or any(not value for value in normalized_types):
+            raise ValueError("instrument_types must not be empty")
         self.client = client
         self.adjust_type = adjust_type
         self.fundamental_batch_size = fundamental_batch_size
+        self.instrument_types = normalized_types
+        self.market = str(market).strip().lower()
+        if not self.market:
+            raise ValueError("market must not be empty")
         self._instrument_cache: pd.DataFrame | None = None
 
     @classmethod
@@ -138,6 +150,7 @@ class RQDataProvider:
                 fields=rq_fields,
                 adjust_type=self.adjust_type,
                 expect_df=True,
+                market=self.market,
             )
         except Exception as exc:
             raise DataLoadError("RQData market request failed") from exc
@@ -172,13 +185,17 @@ class RQDataProvider:
                 fields=None,
                 adjust_type=self.adjust_type,
                 expect_df=True,
+                market=self.market,
             )
         except Exception as exc:
             raise DataLoadError("RQData market request failed") from exc
         return _normalize_discovered_bars(raw)
 
     def get_symbols(self, universe: str = "all") -> list[str]:
-        if universe.lower() not in {"all", "stock", "stocks", "cs"}:
+        supported = {"all", *(value.lower() for value in self.instrument_types)}
+        if "CS" in self.instrument_types:
+            supported.update({"stock", "stocks"})
+        if universe.lower() not in supported:
             raise MissingDataError(f"RQData universe is not supported: {universe!r}")
         frame = self.get_instruments()
         return sorted(frame["symbol"].dropna().astype(str).unique().tolist())
@@ -194,16 +211,31 @@ class RQDataProvider:
             out = self._instrument_cache.copy()
         else:
             rq = self.client.connect()
-            try:
-                raw = rq.all_instruments(type="CS", market="cn")
-            except Exception as exc:
-                raise DataLoadError("RQData instrument request failed") from exc
-            frame = _reset_index(pd.DataFrame(raw))
-            if frame.empty:
+            frames: list[pd.DataFrame] = []
+            for instrument_type in self.instrument_types:
+                try:
+                    raw = rq.all_instruments(
+                        type=instrument_type,
+                        market=self.market,
+                    )
+                except Exception as exc:
+                    raise DataLoadError("RQData instrument request failed") from exc
+                frame = _reset_index(pd.DataFrame(raw))
+                if not frame.empty:
+                    frame["__requested_asset_type"] = instrument_type
+                    frames.append(frame)
+            if not frames:
                 self._instrument_cache = pd.DataFrame(
-                    columns=["snapshot_date", "symbol", "listed_date", "de_listed_date"]
+                    columns=[
+                        "snapshot_date",
+                        "symbol",
+                        "asset_type",
+                        "listed_date",
+                        "de_listed_date",
+                    ]
                 )
                 return self._instrument_cache.copy()
+            frame = pd.concat(frames, ignore_index=True)
             columns = _columns(frame)
             symbol_column = columns.get("order_book_id") or columns.get("symbol")
             if symbol_column is None:
@@ -212,6 +244,7 @@ class RQDataProvider:
                 {
                     "snapshot_date": pd.Timestamp.now().normalize(),
                     "symbol": frame[symbol_column].map(_from_rq_symbol),
+                    "asset_type": frame["__requested_asset_type"],
                     "listed_date": _optional_datetime(
                         frame,
                         columns,
@@ -270,7 +303,7 @@ class RQDataProvider:
                     end_quarter=end_quarter,
                     date=asof_date,
                     statements="all",
-                    market="cn",
+                    market=self.market,
                 )
             except Exception as exc:
                 raise DataLoadError("RQData fundamental request failed") from exc
@@ -289,9 +322,7 @@ class RQDataProvider:
         combined = combined.sort_values(
             ["symbol", "quarter", "if_adjusted", "available_date"]
         ).drop_duplicates(["quarter", "symbol"], keep="first")
-        return combined.sort_values(
-            ["available_date", "quarter", "symbol"]
-        ).reset_index(drop=True)
+        return combined.sort_values(["available_date", "quarter", "symbol"]).reset_index(drop=True)
 
 
 def _normalize_bars(raw: Any, fields: list[str]) -> pd.DataFrame:
@@ -320,9 +351,7 @@ def _normalize_bars(raw: Any, fields: list[str]) -> pd.DataFrame:
     if "volume" in out:
         out["volume"] = out["volume"] / 100.0
     return (
-        out.dropna(subset=["date", "symbol"])
-        .sort_values(["date", "symbol"])
-        .reset_index(drop=True)
+        out.dropna(subset=["date", "symbol"]).sort_values(["date", "symbol"]).reset_index(drop=True)
     )
 
 
@@ -382,9 +411,7 @@ def _normalize_fundamentals(
     symbol_column = columns.get("order_book_id") or columns.get("symbol")
     quarter_column = columns.get("quarter")
     date_column = (
-        columns.get("available_date")
-        or columns.get("info_date")
-        or columns.get("announce_date")
+        columns.get("available_date") or columns.get("info_date") or columns.get("announce_date")
     )
     if symbol_column is None or quarter_column is None:
         raise DataValidationError("RQData fundamentals must include order_book_id and quarter")
@@ -446,9 +473,7 @@ def _empty_bars(fields: list[str]) -> pd.DataFrame:
 
 
 def _empty_fundamentals(fields: list[str]) -> pd.DataFrame:
-    return pd.DataFrame(
-        columns=["quarter", "available_date", "symbol", "if_adjusted", *fields]
-    )
+    return pd.DataFrame(columns=["quarter", "available_date", "symbol", "if_adjusted", *fields])
 
 
 def _reset_index(frame: pd.DataFrame) -> pd.DataFrame:

@@ -1,4 +1,5 @@
 """RQ runtime synchronization plans, jobs, and execution."""
+
 from __future__ import annotations
 
 import threading
@@ -8,7 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import pandas as pd
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from alphalab.dataio.errors import DataLoadError, MissingDataError
 from alphalab.dataio.factor_returns import build_factor_returns
@@ -19,6 +20,7 @@ from alphalab.dataio.fundamentals import (
 )
 from alphalab.dataio.quality import validate_dataset
 from alphalab.dataio.rq_sync import RQAcquirer
+from alphalab.dataio.rq_templates import get_rq_sync_template
 from alphalab.dataio.runtime import OperationsStore, RuntimeStore
 from alphalab.dataio.symbols import canonical_a_share_symbol
 from alphalab.utils.paths import RUNTIME_DIR
@@ -29,6 +31,7 @@ _ALLOWED_DATASETS = {"instruments", "bars", "fundamentals", "factors"}
 
 class SyncRequest(BaseModel):
     source: Literal["rq"] = "rq"
+    template_id: str = "rq.a_share_research"
     datasets: list[SyncDataset] = Field(
         default_factory=lambda: ["instruments", "bars", "fundamentals", "factors"]
     )
@@ -36,6 +39,17 @@ class SyncRequest(BaseModel):
     start: str | None = None
     end: str | None = None
     force: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_template_defaults(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        template = get_rq_sync_template(normalized.get("template_id", "rq.a_share_research"))
+        normalized["template_id"] = template.id
+        normalized["datasets"] = list(template.resolve_datasets(normalized.get("datasets")))
+        return normalized
 
     @field_validator("datasets")
     @classmethod
@@ -70,6 +84,7 @@ def build_sync_plan(
     resolved_symbols: list[str] | None = None,
     symbol_source: str | None = None,
 ) -> dict:
+    template = get_rq_sync_template(request.template_id)
     runtime_root = Path(root) if root is not None else RUNTIME_DIR
     store = RuntimeStore(runtime_root)
     end = pd.Timestamp(request.end or date.today()).normalize()
@@ -81,6 +96,7 @@ def build_sync_plan(
             _read_cached_instruments(store),
             start=start,
             end=end,
+            instrument_types=template.instrument_types,
         )
         if request.symbols is None and resolved_symbols is None
         else []
@@ -91,7 +107,7 @@ def build_sync_plan(
         "explicit_symbols"
         if request.symbols is not None
         else symbol_source
-        or ("cached_rq_instruments" if cached_symbols else "rq_all_a_shares")
+        or ("cached_rq_instruments" if cached_symbols else f"rq_template:{template.id}")
     )
 
     bars_start = start
@@ -102,10 +118,7 @@ def build_sync_plan(
     start_quarter = _date_quarter(start)
     end_quarter = _date_quarter(end)
     finance_mode = "full"
-    if (
-        not request.force
-        and store.catalog.status("canonical.fundamentals")["status"] == "ready"
-    ):
+    if not request.force and store.catalog.status("canonical.fundamentals")["status"] == "ready":
         start_quarter = _shift_quarter(end_quarter, -7)
         finance_mode = "revision_lookback"
 
@@ -163,8 +176,10 @@ def build_sync_plan(
         )
     return {
         "source": "rq",
+        "template_id": template.id,
+        "template": template.to_dict(),
         "runtime_root": str(runtime_root),
-        "scope": "custom" if request.symbols is not None else "all_a_shares",
+        "scope": "custom" if request.symbols is not None else template.scope,
         "symbol_source": resolved_source,
         "symbols_resolved": symbols_resolved,
         "symbols": symbols,
@@ -173,9 +188,7 @@ def build_sync_plan(
         "requested_end": end.strftime("%Y-%m-%d"),
         "force": request.force,
         "steps": steps,
-        "estimated_batches": (
-            _estimate_batches(steps, len(symbols)) if symbols_resolved else None
-        ),
+        "estimated_batches": (_estimate_batches(steps, len(symbols)) if symbols_resolved else None),
         "writes_are_local": True,
     }
 
@@ -197,6 +210,7 @@ class RQSyncService:
         if job is None:
             raise KeyError(job_id)
         request = SyncRequest.model_validate(job["request"])
+        template = get_rq_sync_template(request.template_id)
         progress = 0
         total = 0
         self.operations.update_job(
@@ -204,7 +218,7 @@ class RQSyncService:
             status="running",
             total=0,
             message=(
-                "Resolving all A-share instruments from RQData"
+                f"Resolving {template.label} instruments from RQData"
                 if request.symbols is None
                 else "Preparing explicit RQData symbols"
             ),
@@ -214,15 +228,21 @@ class RQSyncService:
             acquirer = self.acquirer or RQAcquirer.from_env()
             if request.symbols is None:
                 unresolved = build_sync_plan(request, root=self.root)
-                instrument_frame = acquirer.instruments(unresolved["requested_end"])
+                instrument_frame = acquirer.instruments(
+                    unresolved["requested_end"],
+                    instrument_types=template.instrument_types,
+                    market=template.market,
+                )
                 symbols = _symbols_from_instruments(
                     instrument_frame,
                     start=pd.Timestamp(unresolved["requested_start"]),
                     end=pd.Timestamp(unresolved["requested_end"]),
+                    instrument_types=template.instrument_types,
                 )
                 if not symbols:
                     raise MissingDataError(
-                        "RQData returned no A-share instruments active in the requested range"
+                        f"RQData returned no {template.label} instruments active in "
+                        "the requested range"
                     )
                 plan = build_sync_plan(
                     request,
@@ -256,7 +276,12 @@ class RQSyncService:
                 self._check_cancel(job_id)
                 frame = instrument_frame
                 if frame is None:
-                    frame = acquirer.instruments(plan["requested_end"])
+                    frame = acquirer.instruments(
+                        plan["requested_end"],
+                        instrument_types=template.instrument_types,
+                        market=template.market,
+                    )
+                frame = _select_instruments(frame, plan["symbols"])
                 self.store.write("rq.instruments", frame)
                 progress = self._complete_step(job_id, "rq.instruments", progress, total)
 
@@ -267,6 +292,7 @@ class RQSyncService:
                     plan["symbols"],
                     step["start"],
                     step["end"],
+                    market=template.market,
                     progress=lambda message: self.operations.update_job(
                         job_id,
                         message=message,
@@ -286,6 +312,7 @@ class RQSyncService:
                     list(INCOME_FIELDS),
                     income_step["start_quarter"],
                     income_step["end_quarter"],
+                    market=template.market,
                     progress=lambda message: self.operations.update_job(
                         job_id,
                         message=message,
@@ -306,6 +333,7 @@ class RQSyncService:
                     list(BALANCE_FIELDS),
                     balance_step["start_quarter"],
                     balance_step["end_quarter"],
+                    market=template.market,
                     progress=lambda message: self.operations.update_job(
                         job_id,
                         message=message,
@@ -484,14 +512,21 @@ def _symbols_from_instruments(
     *,
     start: pd.Timestamp,
     end: pd.Timestamp,
+    instrument_types: tuple[str, ...] | None = None,
 ) -> list[str]:
     if frame.empty or "symbol" not in frame:
         return []
     candidates = frame.copy()
+    if instrument_types:
+        requested_types = {value.upper() for value in instrument_types}
+        if "asset_type" in candidates:
+            candidates = candidates.loc[
+                candidates["asset_type"].astype(str).str.upper().isin(requested_types)
+            ]
+        elif requested_types != {"CS"}:
+            return []
     if "snapshot_date" in candidates:
-        candidates["snapshot_date"] = pd.to_datetime(
-            candidates["snapshot_date"], errors="coerce"
-        )
+        candidates["snapshot_date"] = pd.to_datetime(candidates["snapshot_date"], errors="coerce")
         snapshots = candidates["snapshot_date"].dropna()
         if not snapshots.empty:
             on_or_before = snapshots.loc[snapshots.le(end)]
@@ -510,10 +545,21 @@ def _symbols_from_instruments(
     ]
     return sorted(
         dict.fromkeys(
-            canonical_a_share_symbol(value)
-            for value in candidates["symbol"].dropna().astype(str)
+            canonical_a_share_symbol(value) for value in candidates["symbol"].dropna().astype(str)
         )
     )
+
+
+def _select_instruments(frame: pd.DataFrame, symbols: list[str]) -> pd.DataFrame:
+    requested = set(symbols)
+    selected = frame.loc[frame["symbol"].astype(str).isin(requested)].copy()
+    available = set(selected["symbol"].astype(str))
+    missing = sorted(requested - available)
+    if missing:
+        raise MissingDataError(
+            f"RQData instrument snapshot is missing requested symbols: {missing[:10]}"
+        )
+    return selected
 
 
 def _date_quarter(value: pd.Timestamp) -> str:
@@ -538,7 +584,9 @@ def _estimate_batches(steps: list[dict], symbol_count: int) -> int:
         if step["dataset"] == "rq.bars":
             total += stock_batches * 2
         elif step["dataset"].startswith("rq.financials."):
-            start_year, start_quarter = int(step["start_quarter"][:4]), int(step["start_quarter"][-1])
+            start_year, start_quarter = int(step["start_quarter"][:4]), int(
+                step["start_quarter"][-1]
+            )
             end_year, end_quarter = int(step["end_quarter"][:4]), int(step["end_quarter"][-1])
             quarters = (end_year - start_year) * 4 + end_quarter - start_quarter + 1
             total += stock_batches * max(1, (quarters + 49) // 50)

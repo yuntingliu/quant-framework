@@ -335,12 +335,21 @@ def _provider_cache_token(provider: object) -> tuple[str, int, int]:
     return (str(path), 0, 0)
 
 
-def create_rq_engine_from_env(cache: DataCache | None = None) -> DataEngine:
+def create_rq_engine_from_env(
+    cache: DataCache | None = None,
+    *,
+    template_id: str = "rq.a_share_research",
+) -> DataEngine:
     """Create an engine whose market and fundamental source is RQData."""
 
     from alphalab.dataio.providers.rq import RQDataProvider
+    from alphalab.dataio.rq_templates import get_rq_sync_template
 
-    provider = RQDataProvider.from_env()
+    template = get_rq_sync_template(template_id)
+    provider = RQDataProvider.from_env(
+        instrument_types=template.instrument_types,
+        market=template.market,
+    )
     engine = DataEngine(cache=cache)
     engine.register_market("rq", provider, default=True)
     engine.register_instrument("rq", provider, default=True)

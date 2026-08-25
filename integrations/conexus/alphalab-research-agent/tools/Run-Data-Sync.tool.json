@@ -8,13 +8,17 @@
     "additionalProperties": false,
     "properties": {
       "source": { "type": "string", "const": "rq", "default": "rq" },
+      "template_id": {
+        "type": "string",
+        "enum": ["rq.a_share_daily", "rq.etf_daily", "rq.exchange_fund_daily", "rq.a_share_research"],
+        "default": "rq.a_share_research"
+      },
       "datasets": {
         "type": "array",
         "minItems": 1,
         "maxItems": 4,
         "uniqueItems": true,
-        "items": { "type": "string", "enum": ["instruments", "bars", "fundamentals", "factors"] },
-        "default": ["instruments", "bars", "fundamentals", "factors"]
+        "items": { "type": "string", "enum": ["instruments", "bars", "fundamentals", "factors"] }
       },
       "symbols": {
         "type": "array",

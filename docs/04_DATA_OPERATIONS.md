@@ -28,14 +28,28 @@ and `raw_close`. Instrument snapshots likewise retain provider metadata columns.
 Numeric market and canonical PIT fields are discovered from Parquet metadata and
 become safe factor-expression inputs without a frontend whitelist update.
 
-## Synchronization
+## RQData templates
 
-Omitting `symbols` means all China A-share instruments returned by RQData, not
-the 300-symbol bundled demo manifest. A read-only plan reuses the latest local
-RQ instrument snapshot when available; otherwise it marks the count and batch
-estimate as pending. The job resolves the exact symbols from a live dated
-`all_instruments(type="CS", market="cn")` snapshot before downloading data. An
-explicit `symbols` list remains the bounded custom-scope path. Initial sync covers five years;
+The Data Workbench and CLI expose four built-in acquisition templates:
+
+| Template | RQ instrument types | Default datasets |
+| --- | --- | --- |
+| `rq.a_share_daily` | `CS` | instruments, bars |
+| `rq.etf_daily` | `ETF` | instruments, bars |
+| `rq.exchange_fund_daily` | `ETF`, `LOF`, `INDX` | instruments, bars |
+| `rq.a_share_research` | `CS` | instruments, bars, fundamentals, factors |
+
+A template defines source scope and allowed datasets only. All templates use
+the same acquirer, local partitions, quality checks, DataEngine contracts, and
+backtest profile. Unsupported combinations fail validation; for example the ETF
+daily template cannot silently request A-share PIT financial statements.
+
+Omitting `symbols` means all instruments in the selected template, not the
+300-symbol bundled demo manifest. A read-only plan reuses a matching local RQ
+instrument snapshot when available; otherwise it marks the count and batch
+estimate as pending. The job resolves the exact symbols from live dated
+`all_instruments(...)` snapshots before downloading data. An explicit `symbols`
+list remains the bounded custom-scope path. Initial sync covers five years;
 incremental bars overlap seven calendar days (at least five trading days) and
 financials overlap eight quarters.
 
@@ -67,22 +81,24 @@ CLI:
 ```powershell
 alphalab data catalog
 alphalab data status
-alphalab data plan rq
-alphalab data sync rq
+alphalab data templates
+alphalab data plan rq --template rq.etf_daily
+alphalab data sync rq --template rq.a_share_daily
 alphalab data validate
 alphalab data jobs
 ```
 
-FastAPI exposes health, catalog, plan, job, cancel, and validation routes below
-`/api/data-sync`. The backend uses one in-process worker and performs no startup
-sync. Jobs left queued or running during a restart become `interrupted`.
+FastAPI exposes templates, health, an explicit connection probe, plan, job,
+cancel, and validation routes below `/api/data-sync`. The backend uses one
+in-process worker and performs no startup sync. Jobs left queued or running
+during a restart become `interrupted`.
 
 The Data Workbench keeps symbol selection and the daily market view as its
 primary workflow. Local update planning, synchronization, catalog inspection,
 bounded queries, job history, and detailed quality reports live under its
 collapsed advanced data-management section.
 
-The typed tool registry exposes `data.catalog`, `data.status`,
+The typed tool registry exposes `data.templates`, `data.catalog`, `data.status`,
 `data.plan_sync`, `data.run_sync`, `data.validate`, and `data.query`. The query
 tool is bounded to 1,000 rows. The same registry is discoverable and invokable
 through `/api/agent/data-tools`; `data.run_sync` additionally requires
@@ -91,6 +107,19 @@ is enabled in AlphaLab itself. The optional published Conexus Harness is
 authorized to plan and run required RQ synchronization autonomously; its
 RQ-sync adapter supplies the bridge assertion internally instead of asking the
 user to click Data Workbench.
+
+## Arbitrary Python data sources
+
+RQData is an official adapter, not a closed data boundary. Trusted local Python
+can implement the small provider protocols and register them through
+`alphalab.data_sdk.v1`. This is useful for CSV/Parquet, an internal database,
+another vendor SDK, or a proprietary HTTP service. It is not a second backtest
+path: the resulting object is the ordinary `DataEngine` used everywhere else.
+
+See [05_DATA_SDK_V1_CONTRACT.md](05_DATA_SDK_V1_CONTRACT.md) for schemas and a
+complete example. User provider code runs as trusted local Python; it is not a
+security sandbox, and strategy `Context` still never receives provider handles,
+credentials, connections, or file paths.
 
 ## Failure Semantics
 

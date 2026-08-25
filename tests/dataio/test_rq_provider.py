@@ -127,6 +127,36 @@ def test_rq_market_discovery_preserves_all_daily_fields() -> None:
     assert bars["amount"].tolist() == [10200.0, 40400.0]
 
 
+def test_rq_provider_supports_etf_and_lof_instrument_scopes() -> None:
+    class FundRQData(FakeRQData):
+        def __init__(self) -> None:
+            super().__init__()
+            self.instrument_calls: list[dict] = []
+
+        def all_instruments(self, **kwargs):
+            self.instrument_calls.append(kwargs)
+            symbol = "510300.XSHG" if kwargs["type"] == "ETF" else "160105.XSHE"
+            return pd.DataFrame({"order_book_id": [symbol], "exchange": ["XSHG"]})
+
+    module = FundRQData()
+    client = RQDataClient(
+        RQDataConfig(user="demo", password="secret", host="rq.example:16011"),
+        module=module,
+    )
+    provider = RQDataProvider(client, instrument_types=("ETF", "LOF"))
+
+    instruments = provider.get_instruments()
+
+    assert module.instrument_calls == [
+        {"type": "ETF", "market": "cn"},
+        {"type": "LOF", "market": "cn"},
+    ]
+    assert instruments[["symbol", "asset_type"]].to_dict("records") == [
+        {"symbol": "510300.SH", "asset_type": "ETF"},
+        {"symbol": "160105.SZ", "asset_type": "LOF"},
+    ]
+
+
 def test_rq_fundamentals_are_point_in_time_and_batched() -> None:
     provider, module = _provider()
     provider.fundamental_batch_size = 1

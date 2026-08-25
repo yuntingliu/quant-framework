@@ -119,11 +119,12 @@ class _FakeAcquirer:
         self.income, self.balance, self.bars = _financial_frames()
         self.bar_symbols: list[str] = []
 
-    def instruments(self, snapshot_date: str) -> pd.DataFrame:
+    def instruments(self, snapshot_date: str, **kwargs) -> pd.DataFrame:
         return pd.DataFrame(
             {
                 "snapshot_date": [pd.Timestamp(snapshot_date)],
                 "symbol": ["000001.SZ"],
+                "asset_type": ["CS"],
                 "name": ["Example"],
                 "listed_date": [pd.Timestamp("1991-01-01")],
                 "de_listed_date": [pd.NaT],
@@ -178,15 +179,15 @@ def test_default_sync_scope_resolves_all_a_shares_from_rq_instruments(tmp_path) 
         force=True,
     )
     preview = build_sync_plan(request, root=tmp_path)
-    assert preview["scope"] == "all_a_shares"
-    assert preview["symbol_source"] == "rq_all_a_shares"
+    assert preview["scope"] == "a_share_research"
+    assert preview["symbol_source"] == "rq_template:rq.a_share_research"
     assert preview["symbols_resolved"] is False
     assert preview["symbol_count"] is None
     assert preview["estimated_batches"] is None
 
     class AllAShareAcquirer(_FakeAcquirer):
-        def instruments(self, snapshot_date: str) -> pd.DataFrame:
-            first = super().instruments(snapshot_date)
+        def instruments(self, snapshot_date: str, **kwargs) -> pd.DataFrame:
+            first = super().instruments(snapshot_date, **kwargs)
             second = first.copy()
             second["symbol"] = "600000.SH"
             second["name"] = "Second"
@@ -203,6 +204,49 @@ def test_default_sync_scope_resolves_all_a_shares_from_rq_instruments(tmp_path) 
         "000001.SZ",
         "600000.SH",
     }
+
+
+def test_etf_template_resolves_only_etfs_and_uses_daily_defaults(tmp_path) -> None:
+    request = SyncRequest(
+        template_id="rq.etf_daily",
+        start="2025-01-01",
+        end="2025-03-31",
+        force=True,
+    )
+    assert request.datasets == ["instruments", "bars"]
+    preview = build_sync_plan(request, root=tmp_path)
+    assert preview["scope"] == "etfs"
+    assert preview["template"]["instrument_types"] == ("ETF",)
+
+    class ETFDataAcquirer(_FakeAcquirer):
+        def instruments(self, snapshot_date: str, **kwargs) -> pd.DataFrame:
+            assert kwargs == {"instrument_types": ("ETF",), "market": "cn"}
+            frame = super().instruments(snapshot_date, **kwargs)
+            frame["symbol"] = "510300.SH"
+            frame["asset_type"] = "ETF"
+            return frame
+
+        def daily_bars(self, symbols, *args, **kwargs) -> pd.DataFrame:
+            frame = super().daily_bars(symbols, *args, **kwargs)
+            frame["symbol"] = "510300.SH"
+            return frame
+
+    acquirer = ETFDataAcquirer()
+    operations = OperationsStore(tmp_path)
+    job_id = operations.create_job(request.model_dump(mode="json"))
+    result = RQSyncService(tmp_path, acquirer=acquirer).run(job_id)
+
+    assert result["status"] == "succeeded"
+    assert acquirer.bar_symbols == ["510300.SH"]
+    instruments = RuntimeStore(tmp_path).read("rq.instruments")
+    assert instruments[["symbol", "asset_type"]].to_dict("records") == [
+        {"symbol": "510300.SH", "asset_type": "ETF"}
+    ]
+
+
+def test_template_rejects_unsupported_dataset_combination() -> None:
+    with pytest.raises(ValueError, match="does not support datasets"):
+        SyncRequest(template_id="rq.etf_daily", datasets=["fundamentals"])
 
 
 def test_sync_plan_reuses_cached_rq_instrument_scope(tmp_path) -> None:
@@ -238,9 +282,7 @@ def test_sync_plan_uses_incremental_bar_and_financial_lookbacks(tmp_path) -> Non
         root=tmp_path,
     )
     bar_step = next(item for item in plan["steps"] if item["dataset"] == "rq.bars")
-    income_step = next(
-        item for item in plan["steps"] if item["dataset"] == "rq.financials.income"
-    )
+    income_step = next(item for item in plan["steps"] if item["dataset"] == "rq.financials.income")
     assert bar_step["mode"] == "incremental"
     assert bar_step["start"] == "2025-03-23"
     assert income_step["mode"] == "revision_lookback"
@@ -361,6 +403,7 @@ def test_data_tool_registry_returns_bounded_structured_rows(tmp_path) -> None:
     registry = create_data_tool_registry(tmp_path)
 
     assert {item["name"] for item in registry.describe()} == {
+        "data.templates",
         "data.catalog",
         "data.status",
         "data.plan_sync",

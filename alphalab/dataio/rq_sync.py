@@ -1,4 +1,5 @@
 """Focused RQ acquisition helpers used by the runtime synchronizer."""
+
 from __future__ import annotations
 
 import time
@@ -65,12 +66,31 @@ class RQAcquirer:
     def from_env(cls, **kwargs: Any) -> "RQAcquirer":
         return cls(RQDataClient.from_env(), **kwargs)
 
-    def instruments(self, snapshot_date: str) -> pd.DataFrame:
+    def instruments(
+        self,
+        snapshot_date: str,
+        *,
+        instrument_types: tuple[str, ...] = ("CS",),
+        market: str = "cn",
+    ) -> pd.DataFrame:
         rq = self.client.connect()
-        raw = self._retry(lambda: rq.all_instruments(type="CS", market="cn"))
-        frame = _reset(pd.DataFrame(raw))
-        if frame.empty:
-            raise DataLoadError("RQData returned no A-share instruments")
+        frames: list[pd.DataFrame] = []
+        for instrument_type in instrument_types:
+            raw = self._retry(
+                lambda instrument_type=instrument_type: rq.all_instruments(
+                    type=instrument_type,
+                    market=market,
+                )
+            )
+            typed = _reset(pd.DataFrame(raw))
+            if not typed.empty:
+                typed["__requested_asset_type"] = instrument_type
+                frames.append(typed)
+        if not frames:
+            raise DataLoadError(
+                f"RQData returned no instruments for types {list(instrument_types)}"
+            )
+        frame = pd.concat(frames, ignore_index=True)
         columns = _columns(frame)
         symbol_column = columns.get("order_book_id") or columns.get("symbol")
         if symbol_column is None:
@@ -79,6 +99,7 @@ class RQAcquirer:
             {
                 "snapshot_date": pd.Timestamp(snapshot_date).normalize(),
                 "symbol": frame[symbol_column].map(to_framework_symbol),
+                "asset_type": frame["__requested_asset_type"],
                 "name": _series(frame, columns, "symbol", "display_name", "name"),
                 "listed_date": pd.to_datetime(
                     _series(frame, columns, "listed_date", "listed_at"),
@@ -112,6 +133,7 @@ class RQAcquirer:
         start: str,
         end: str,
         *,
+        market: str = "cn",
         progress: Callable[[str], None] | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> pd.DataFrame:
@@ -119,8 +141,16 @@ class RQAcquirer:
         for index, batch in enumerate(_chunks(symbols, self.stock_batch_size), start=1):
             if cancelled and cancelled():
                 break
-            adjusted_provider = RQDataProvider(self.client, adjust_type="pre")
-            raw_provider = RQDataProvider(self.client, adjust_type="none")
+            adjusted_provider = RQDataProvider(
+                self.client,
+                adjust_type="pre",
+                market=market,
+            )
+            raw_provider = RQDataProvider(
+                self.client,
+                adjust_type="none",
+                market=market,
+            )
             adjusted = self._retry(
                 lambda batch=list(batch): adjusted_provider.get_daily_bars_all_fields(
                     batch, start, end
@@ -155,6 +185,7 @@ class RQAcquirer:
         start_quarter: str,
         end_quarter: str,
         *,
+        market: str = "cn",
         progress: Callable[[str], None] | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> pd.DataFrame:
@@ -177,7 +208,7 @@ class RQAcquirer:
                             start_quarter=quarter_batch[0],
                             end_quarter=quarter_batch[-1],
                             statements="all",
-                            market="cn",
+                            market=market,
                         )
                     )
                 )
@@ -207,11 +238,7 @@ class RQAcquirer:
         if frame.empty:
             raise DataLoadError("RQData returned no risk-free yield curve")
         columns = _columns(frame)
-        date_column = (
-            columns.get("date")
-            or columns.get("trade_date")
-            or columns.get("datetime")
-        )
+        date_column = columns.get("date") or columns.get("trade_date") or columns.get("datetime")
         value_column = columns.get(tenor.lower()) or columns.get("yield")
         if date_column is None:
             first = frame.columns[0]
@@ -258,20 +285,22 @@ def _normalize_financials(raw: Any, fields: list[str]) -> pd.DataFrame:
     quarter_column = columns.get("quarter")
     info_column = columns.get("info_date") or columns.get("announce_date")
     if symbol_column is None or quarter_column is None or info_column is None:
-        raise DataValidationError(
-            "RQ PIT financials require order_book_id, quarter, and info_date"
-        )
+        raise DataValidationError("RQ PIT financials require order_book_id, quarter, and info_date")
     output = pd.DataFrame(
         {
             "symbol": frame[symbol_column].map(to_framework_symbol),
             "quarter": frame[quarter_column].astype(str).str.lower(),
             "info_date": pd.to_datetime(frame[info_column], errors="coerce"),
             "if_adjusted": pd.to_numeric(
-                frame[columns["if_adjusted"]]
-                if "if_adjusted" in columns
-                else pd.Series(0, index=frame.index),
+                (
+                    frame[columns["if_adjusted"]]
+                    if "if_adjusted" in columns
+                    else pd.Series(0, index=frame.index)
+                ),
                 errors="coerce",
-            ).fillna(0).astype(int),
+            )
+            .fillna(0)
+            .astype(int),
         }
     )
     for field in fields:

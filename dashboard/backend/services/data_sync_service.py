@@ -1,12 +1,20 @@
 """Thin dashboard service over the runtime data control plane."""
+
 from __future__ import annotations
 
 import os
 from functools import lru_cache
 from importlib.util import find_spec
+from importlib.metadata import PackageNotFoundError, version
 
 from alphalab.dataio.catalog import DataCatalog
+from alphalab.dataio.errors import DataLoadError
 from alphalab.dataio.quality import validate_all, validate_dataset
+from alphalab.dataio.providers.rq import RQDataClient
+from alphalab.dataio.rq_templates import (
+    get_rq_sync_template,
+    list_rq_sync_templates,
+)
 from alphalab.dataio.sync import SyncJobManager, SyncRequest, build_sync_plan
 from alphalab.tools import create_data_tool_registry
 from alphalab.utils.env import load_env_files
@@ -30,9 +38,7 @@ def get_health() -> dict:
     rq_status = (
         "not_installed"
         if not installed
-        else "not_configured"
-        if not credentials_configured
-        else "configured"
+        else "not_configured" if not credentials_configured else "configured"
     )
     if ready and latest and latest["status"] == "failed":
         rq_status = "unavailable"
@@ -46,6 +52,7 @@ def get_health() -> dict:
             "ready": ready,
             "missing": missing,
             "connected": False,
+            "connection_test_required": ready,
             "last_error": latest.get("error") if latest and latest["status"] == "failed" else None,
         },
         "realtime": {"status": "not_configured"},
@@ -54,6 +61,43 @@ def get_health() -> dict:
             "count": len(create_data_tool_registry().describe()),
         },
         "planner": {"status": "not_configured"},
+    }
+
+
+def templates() -> dict:
+    return {
+        "templates": [item.to_dict() for item in list_rq_sync_templates()],
+        "python_sdk": {
+            "version": 1,
+            "import": "alphalab.data_sdk.v1",
+            "execution": "trusted_local_python",
+            "uses_data_engine_contracts": True,
+        },
+    }
+
+
+def test_connection(template_id: str) -> dict:
+    template = get_rq_sync_template(template_id)
+    client = RQDataClient.from_env()
+    rq = client.connect()
+    try:
+        latest = rq.get_latest_trading_date(market=template.market)
+    except Exception as exc:
+        raise DataLoadError(
+            f"RQData connection succeeded but calendar probe failed for {template.market}"
+        ) from exc
+    try:
+        sdk_version = version("rqdatac")
+    except PackageNotFoundError:
+        sdk_version = "unknown"
+    return {
+        "status": "connected",
+        "connected": True,
+        "template_id": template.id,
+        "market": template.market,
+        "instrument_types": list(template.instrument_types),
+        "latest_trading_date": str(latest),
+        "rqdatac_version": sdk_version,
     }
 
 

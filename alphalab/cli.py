@@ -1,4 +1,5 @@
 """Command-line entry point for local AlphaLab data operations."""
+
 from __future__ import annotations
 
 import argparse
@@ -9,6 +10,7 @@ from typing import Any
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.quality import validate_all, validate_dataset
 from alphalab.dataio.runtime import OperationsStore
+from alphalab.dataio.rq_templates import list_rq_sync_templates
 from alphalab.dataio.sync import SyncJobManager, SyncRequest, build_sync_plan
 
 
@@ -19,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     data_commands = data.add_subparsers(dest="data_command", required=True)
     data_commands.add_parser("catalog", help="List runtime datasets")
     data_commands.add_parser("status", help="Show runtime readiness")
+    data_commands.add_parser("templates", help="List built-in RQ sync templates")
 
     plan = data_commands.add_parser("plan", help="Preview an RQ sync")
     _add_sync_arguments(plan)
@@ -35,13 +38,19 @@ def build_parser() -> argparse.ArgumentParser:
 def _add_sync_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("source", choices=["rq"])
     parser.add_argument(
+        "--template",
+        default="rq.a_share_research",
+        choices=[item.id for item in list_rq_sync_templates()],
+        help="Acquisition template; datasets default to the template contract",
+    )
+    parser.add_argument(
         "--datasets",
-        default="instruments,bars,fundamentals,factors",
+        default=None,
         help="Comma-separated: instruments,bars,fundamentals,factors",
     )
     parser.add_argument(
         "--symbols",
-        help="Comma-separated framework symbols; omit to resolve all A-shares from RQData",
+        help="Comma-separated framework symbols; omit to resolve the full template scope",
     )
     parser.add_argument("--start")
     parser.add_argument("--end")
@@ -57,6 +66,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = DataCatalog().list()
     elif args.data_command == "status":
         result = DataCatalog().summary()
+    elif args.data_command == "templates":
+        result = [item.to_dict() for item in list_rq_sync_templates()]
     elif args.data_command == "jobs":
         result = OperationsStore().list_jobs(limit=max(1, args.limit))
     elif args.data_command == "validate":
@@ -64,7 +75,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.data_command in {"plan", "sync"}:
         request = SyncRequest(
             source=args.source,
-            datasets=_split(args.datasets),
+            template_id=args.template,
+            datasets=_split(args.datasets) if args.datasets else None,
             symbols=_split(args.symbols) if args.symbols else None,
             start=args.start,
             end=args.end,

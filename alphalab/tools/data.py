@@ -1,4 +1,5 @@
 """Structured, dataframe-safe tools for the runtime data control plane."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from pydantic import BaseModel, Field
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.quality import validate_dataset
 from alphalab.dataio.runtime import RuntimeStore
+from alphalab.dataio.rq_templates import list_rq_sync_templates
 from alphalab.dataio.sync import SyncJobManager, SyncRequest, build_sync_plan
 
 
@@ -78,6 +80,14 @@ def create_data_tool_registry(root: str | Path | None = None) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(
         ToolSpec(
+            "data.templates",
+            "List built-in RQ synchronization templates and their data contracts.",
+            EmptyInput,
+            lambda _value: [item.to_dict() for item in list_rq_sync_templates()],
+        )
+    )
+    registry.register(
+        ToolSpec(
             "data.catalog",
             "List runtime datasets and their contracts.",
             EmptyInput,
@@ -134,7 +144,11 @@ def _query(runtime: RuntimeStore, request: QueryInput) -> dict:
         requested = {str(value).strip().upper() for value in request.symbols}
         frame = frame.loc[frame["symbol"].astype(str).str.upper().isin(requested)]
     date_column = next(
-        (name for name in ("date", "available_date", "info_date", "snapshot_date") if name in frame),
+        (
+            name
+            for name in ("date", "available_date", "info_date", "snapshot_date")
+            if name in frame
+        ),
         None,
     )
     if date_column:

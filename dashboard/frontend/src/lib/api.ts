@@ -366,11 +366,21 @@ export interface SyncJob {
   message?: string | null
   error?: string | null
   created_at: string
+  request?: { template_id?: string; datasets?: string[] }
 }
 
 export interface SyncPlan {
   source: string
-  scope: "all_a_shares" | "custom"
+  template_id: string
+  template: {
+    id: string
+    label: string
+    market: string
+    instrument_types: string[]
+    datasets: string[]
+    scope: string
+  }
+  scope: string
   symbol_source: string
   symbols_resolved: boolean
   symbol_count: number | null
@@ -391,6 +401,7 @@ export interface DataSyncHealth {
     ready: boolean
     missing: string[]
     connected: boolean
+    connection_test_required?: boolean
     last_error?: string | null
   }
   realtime: { status: string }

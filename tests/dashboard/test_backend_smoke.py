@@ -5,7 +5,12 @@ from fastapi.testclient import TestClient
 from alphalab import ResultStore
 from alphalab.strategy.repository import StrategyRepository
 from dashboard.backend.main import app
-from dashboard.backend.services import backtest_analytics_service, result_service, strategy_service
+from dashboard.backend.services import (
+    backtest_analytics_service,
+    data_sync_service,
+    result_service,
+    strategy_service,
+)
 
 
 def test_data_and_strategy_sdk_read_contracts(tmp_path, monkeypatch):
@@ -34,6 +39,54 @@ def test_data_and_strategy_sdk_read_contracts(tmp_path, monkeypatch):
     assert entrypoint.status_code == 200, entrypoint.text
     assert entrypoint.json()["source_sha256"] == project["draft_source_sha256"]
     assert entrypoint.json()["source"].startswith("@signal(")
+
+
+def test_data_sync_templates_expose_rq_and_python_sdk_contracts() -> None:
+    response = TestClient(app).get("/api/data-sync/templates")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert {item["id"] for item in payload["templates"]} == {
+        "rq.a_share_daily",
+        "rq.etf_daily",
+        "rq.exchange_fund_daily",
+        "rq.a_share_research",
+    }
+    assert payload["python_sdk"]["import"] == "alphalab.data_sdk.v1"
+
+
+def test_data_sync_connection_probe_uses_selected_template(monkeypatch) -> None:
+    class FakeRQ:
+        def get_latest_trading_date(self, **kwargs):
+            assert kwargs == {"market": "cn"}
+            return "2026-08-24"
+
+    class FakeClient:
+        def connect(self):
+            return FakeRQ()
+
+    monkeypatch.setattr(
+        data_sync_service.RQDataClient,
+        "from_env",
+        lambda: FakeClient(),
+    )
+    monkeypatch.setattr(data_sync_service, "version", lambda _name: "3.6.3")
+
+    response = TestClient(app).post(
+        "/api/data-sync/connection-test",
+        json={"template_id": "rq.etf_daily"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "connected",
+        "connected": True,
+        "template_id": "rq.etf_daily",
+        "market": "cn",
+        "instrument_types": ["ETF"],
+        "latest_trading_date": "2026-08-24",
+        "rqdatac_version": "3.6.3",
+    }
 
 
 def test_strategy_clone_cst_edit_and_revision_confirmation(tmp_path, monkeypatch):

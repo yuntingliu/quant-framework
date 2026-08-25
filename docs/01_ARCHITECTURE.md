@@ -88,6 +88,13 @@ leave the unfilled portion in the actual portfolio.
 profiles. Context construction filters all dated rows at `as_of`; instrument
 listing/delisting and current-session tradability are core-owned.
 
+RQ synchronization templates are declarative acquisition scopes over that same
+runtime store; they do not create provider-specific strategy APIs. Trusted local
+Python can connect any other source through the versioned
+`alphalab.data_sdk.v1` provider facade and receives the same `DataEngine`
+validation and cache behavior. The contract is documented in
+[05_DATA_SDK_V1_CONTRACT.md](05_DATA_SDK_V1_CONTRACT.md).
+
 The bundled demo derives an explicit instrument snapshot from its market file
 only because the shipped sample has no separate instrument parquet. Runtime
 providers must supply their own instrument snapshots.
@@ -111,6 +118,8 @@ and cannot create a second authoritative result.
 | Path | Responsibility |
 | --- | --- |
 | `alphalab/sdk/v1/` | Stable public strategy types and decorators |
+| `alphalab/data_sdk/v1/` | Stable public custom-data provider facade |
+| `alphalab/dataio/rq_templates.py` | Declarative RQ acquisition templates |
 | `alphalab/strategy/factor_templates.py` | Built-in SDK Python factor templates and CST-aware installation |
 | `alphalab/strategy/source.py` | AST inspection, dependency checks, and LibCST edits |
 | `alphalab/strategy/repository.py` | Drafts, immutable packages, probes, migration |

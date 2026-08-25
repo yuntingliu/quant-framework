@@ -1,4 +1,5 @@
 """Runtime data synchronization endpoints."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -15,6 +16,10 @@ class ValidateRequest(BaseModel):
     dataset: str | None = None
 
 
+class ConnectionTestRequest(BaseModel):
+    template_id: str = "rq.a_share_daily"
+
+
 @router.get("/health")
 def health() -> dict:
     return data_sync_service.get_health()
@@ -23,6 +28,19 @@ def health() -> dict:
 @router.get("/catalog")
 def catalog() -> dict:
     return data_sync_service.catalog()
+
+
+@router.get("/templates")
+def templates() -> dict:
+    return data_sync_service.templates()
+
+
+@router.post("/connection-test")
+def connection_test(request: ConnectionTestRequest) -> dict:
+    try:
+        return data_sync_service.test_connection(request.template_id)
+    except (ValueError, DataLoadError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/plan")
