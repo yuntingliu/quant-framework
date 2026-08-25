@@ -42,7 +42,15 @@ def evaluate_factor(
     if start >= end:
         raise ValueError("factor research start_date must be before end_date")
     universe_spec = universe or UniverseSpec()
-    symbols = list(universe_spec.symbols) or engine.get_symbols(universe_spec.pool)
+    symbols = list(universe_spec.symbols)
+    if not symbols and universe_spec.pool.lower() in {"all", "stock", "stocks", "cs"}:
+        instruments = engine.get_instruments(end.strftime("%Y-%m-%d"))
+        if not instruments.empty and "symbol" in instruments:
+            symbols = sorted(
+                instruments["symbol"].dropna().astype(str).str.upper().unique().tolist()
+            )
+    if not symbols:
+        symbols = engine.get_symbols(universe_spec.pool)
     if not symbols:
         return _empty_result(factor, frequency, quantiles, "empty universe")
 

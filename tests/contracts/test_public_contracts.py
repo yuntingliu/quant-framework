@@ -360,7 +360,10 @@ def test_factor_mode_exposes_real_factor_lab_panels_separately_from_project():
     assert '`/pipeline/projects/${project.id}`' in context
     for evidence in ("IC 均值", "年化 ICIR", "Newey-West t", "Top 换手"):
         assert evidence in panels
-    assert "Python 自定义因子尚未伪装开放" in panels
+    assert "Python 自定义因子尚未伪装开放" not in panels
+    assert "addLibraryFactorToProject" in context
+    assert "保存到因子库" in panels
+    assert "加入项目" in panels
     for text in (
         "因子编辑",
         "最终验证",
@@ -379,7 +382,7 @@ def test_factor_mode_exposes_real_factor_lab_panels_separately_from_project():
     assert '`/data/market/bars?' in workbench
     assert '`/data/fundamentals?' in workbench
     assert "requestExpressionInsert" in panels
-    assert "请先运行当前因子定义的评估，再加入研究项目" in context
+    assert "请先运行当前因子定义的评估，再加入研究项目" not in context
     project = (ROOT / "dashboard/frontend/src/widgets/project/ProjectWorkbench.tsx").read_text(
         encoding="utf-8"
     )
@@ -395,7 +398,7 @@ def test_factor_mode_exposes_real_factor_lab_panels_separately_from_project():
         assert component in data_workbench
     assert "symbols: scopeMode === 'custom' ? researchScope.symbols : []" in data_workbench
     assert "window.dispatchEvent(new CustomEvent('alphalab:projectUpdated'" in data_workbench
-    assert "多因子权重在“信号模型”中设置" in panels
+    assert "多因子权重在“信号模型”中设置" not in panels
     assert "组合权重" not in panels
 
 

@@ -52,11 +52,13 @@ interface FactorLabContextValue {
   workspaceView: "build" | "results"
   setWorkspaceView: (view: "build" | "results") => void
   selectLibraryFactor: (factor: FactorResearchLibrary["factors"][number]) => void
+  addLibraryFactorToProject: (factor: FactorResearchLibrary["factors"][number]) => Promise<void>
   selectProjectFactor: (factor: ProjectFactorSpec) => void
   createExpressionFactor: () => void
   requestExpressionInsert: (token: string) => void
   updateDraft: (values: Partial<FactorDraft>) => void
   evaluate: () => Promise<void>
+  saveCustomFactor: () => Promise<void>
   saveToProject: () => Promise<void>
   removeFromProject: (name: string) => Promise<void>
 }
@@ -98,6 +100,10 @@ function nextExpressionName(projectFactors: ProjectFactorSpec[]): string {
     name = `custom_factor_${index}`
   }
   return name
+}
+
+function defaultDirection(name: string): FactorDraft["direction"] {
+  return name.includes("volatility") || name.includes("leverage") ? "short" : "long"
 }
 
 function asProjectFactors(value: unknown): ProjectFactorSpec[] {
@@ -183,7 +189,6 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
   const signature = factorSignature(draft, profile, selectedStrategy)
 
   const selectLibraryFactor = useCallback((factor: FactorResearchLibrary["factors"][number]) => {
-    const direction: FactorDraft["direction"] = factor.name.includes("volatility") || factor.name.includes("leverage") ? "short" : "long"
     setWorkspaceView("build")
     setEditingOriginalName(null)
     setError("")
@@ -191,11 +196,11 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
       ...current,
       name: factor.name,
       source: factor.source,
-      expression: "",
-      direction,
+      expression: factor.expression ?? "",
+      direction: factor.direction ?? defaultDirection(factor.name),
       weight: 1,
-      winsorize: 0.01,
-      neutralize: [],
+      winsorize: factor.winsorize ?? 0.01,
+      neutralize: factor.neutralize ?? [],
     }))
   }, [])
 
@@ -312,9 +317,6 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
     setSaving(true)
     setError("")
     try {
-      if (!result || evaluatedSignature !== signature) {
-        throw new Error("请先运行当前因子定义的评估，再加入研究项目")
-      }
       const name = draft.name.trim()
       if (!name) throw new Error("请输入因子名称")
       if (draft.source === "expression" && !draft.expression.trim()) {
@@ -340,7 +342,61 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setSaving(false)
     }
-  }, [draft, editingOriginalName, evaluatedSignature, persistFactors, projectFactors, result, signature])
+  }, [draft, editingOriginalName, persistFactors, projectFactors])
+
+  const saveCustomFactor = useCallback(async () => {
+    setSaving(true)
+    setError("")
+    try {
+      const name = draft.name.trim()
+      if (!name) throw new Error("请输入因子名称")
+      if (draft.source !== "expression" || !draft.expression.trim()) {
+        throw new Error("只有完整的表达式因子可以保存到自定义因子库")
+      }
+      const saved = await api.put<FactorResearchLibrary["factors"][number]>(
+        `/factor-research/factors/${encodeURIComponent(name)}`,
+        {
+          description: "自定义表达式因子",
+          expression: draft.expression.trim(),
+          direction: draft.direction,
+          winsorize: draft.winsorize,
+          neutralize: draft.neutralize,
+        },
+      )
+      queryClient.setQueryData<FactorResearchLibrary>(
+        ["factor-research", "library", profile],
+        (current) => current ? {
+          ...current,
+          factors: [...current.factors.filter((factor) => factor.name !== saved.name), saved],
+        } : current,
+      )
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSaving(false)
+    }
+  }, [draft, profile, queryClient])
+
+  const addLibraryFactorToProject = useCallback(async (factor: FactorResearchLibrary["factors"][number]) => {
+    if (projectFactors.some((item) => item.name === factor.name)) return
+    setSaving(true)
+    setError("")
+    try {
+      await persistFactors([...projectFactors, {
+        name: factor.name,
+        source: factor.source,
+        ...(factor.source === "expression" ? { expression: factor.expression ?? "" } : {}),
+        direction: factor.direction ?? defaultDirection(factor.name),
+        weight: 1,
+        winsorize: factor.winsorize ?? 0.01,
+        neutralize: factor.neutralize ?? [],
+      }])
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSaving(false)
+    }
+  }, [persistFactors, projectFactors])
 
   const removeFromProject = useCallback(async (name: string) => {
     setSaving(true)
@@ -372,15 +428,18 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
     workspaceView,
     setWorkspaceView,
     selectLibraryFactor,
+    addLibraryFactorToProject,
     selectProjectFactor,
     createExpressionFactor,
     requestExpressionInsert,
     updateDraft,
     evaluate,
+    saveCustomFactor,
     saveToProject,
     removeFromProject,
   }), [
     createExpressionFactor,
+    addLibraryFactorToProject,
     draft,
     editingOriginalName,
     error,
@@ -397,6 +456,7 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
     requestExpressionInsert,
     result,
     running,
+    saveCustomFactor,
     saveToProject,
     saving,
     selectLibraryFactor,

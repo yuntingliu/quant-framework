@@ -5,8 +5,9 @@ from datetime import date, timedelta
 from fastapi.testclient import TestClient
 
 from alphalab import PipelineRepository
+from alphalab.factors.repository import FactorDefinitionRepository
 from dashboard.backend.main import app
-from dashboard.backend.routers import backtests
+from dashboard.backend.routers import backtests, factor_research
 from dashboard.backend.services import pipeline_service
 
 
@@ -124,6 +125,42 @@ def test_factor_evaluation_accepts_public_market_api_fields():
     assert payload["factor"]["expression"].startswith("zscore((close - open)")
     assert payload["periods"] > 0
     assert payload["snapshot"]["observations"] > 0
+
+
+def test_custom_expression_factor_is_saved_back_to_the_reusable_library(tmp_path, monkeypatch):
+    database = tmp_path / "factors.db"
+    monkeypatch.setattr(
+        factor_research,
+        "factor_repository",
+        lambda: FactorDefinitionRepository(database),
+    )
+    client = TestClient(app)
+
+    saved = client.put(
+        "/api/factor-research/factors/intraday_strength",
+        json={
+            "description": "日内价格强度",
+            "expression": "zscore((close - open) / open)",
+            "direction": "long",
+            "winsorize": 0.02,
+            "neutralize": ["market_cap"],
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["custom"] is True
+    assert saved.json()["input_fields"] == ["close", "open"]
+
+    library = client.get("/api/factor-research/library").json()["factors"]
+    custom = next(item for item in library if item["name"] == "intraday_strength")
+    assert custom["source"] == "expression"
+    assert custom["expression"] == "zscore((close - open) / open)"
+    assert custom["neutralize"] == ["market_cap"]
+
+    protected = client.put(
+        "/api/factor-research/factors/momentum_20d",
+        json={"expression": "zscore(close)"},
+    )
+    assert protected.status_code == 422
 
 
 def test_component_validation_requires_the_stage_entrypoint():

@@ -208,7 +208,9 @@ function FactorResearchDataBrowser() {
 export function FactorWorkbenchWidget() {
   const lab = useFactorLab()
   const validated = Boolean(lab.result && !lab.resultStale)
-  const canSave = Boolean(lab.project?.editable && validated)
+  const savesToLibrary = lab.draft.source === "expression" && !lab.editingOriginalName
+  const draftComplete = Boolean(lab.draft.name.trim() && (lab.draft.source !== "expression" || lab.draft.expression.trim()))
+  const canSave = Boolean(draftComplete && (savesToLibrary || lab.project?.editable))
   const runDisabled = !lab.draft.name.trim() || (lab.draft.source === "expression" && !lab.draft.expression.trim())
 
   return (
@@ -225,7 +227,7 @@ export function FactorWorkbenchWidget() {
             {lab.workspaceView === "results" ? (
               <div className="factor-workbench-actions">
                 <span className={validated ? "factor-validation-ready" : "factor-build-hint"}>{validated ? `已验证 · ${lab.result?.periods ?? 0} 个截面` : "尚未运行最终验证"}</span>
-                <Button size="sm" onClick={() => void lab.saveToProject()} disabled={!canSave} isLoading={lab.saving} title={canSave ? "把当前已验证定义保存到项目" : "需要当前定义验证通过且项目可编辑"}><Save />{lab.editingOriginalName ? "更新项目因子" : "加入项目"}</Button>
+                <Button size="sm" onClick={() => void (savesToLibrary ? lab.saveCustomFactor() : lab.saveToProject())} disabled={!canSave} isLoading={lab.saving} title={canSave ? savesToLibrary ? "保存到可用因子库" : "保存到当前项目" : "请填写完整因子定义；项目因子还需要选择可编辑项目"}><Save />{lab.editingOriginalName ? "保存项目修改" : savesToLibrary ? "保存到因子库" : "加入项目"}</Button>
               </div>
             ) : <span className="factor-build-hint">构建阶段不运行：先把数据字段和表达式定义清楚</span>}
           </div>

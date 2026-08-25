@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from alphalab.analytics import evaluate_factor
 from alphalab.dataio import MissingDataError
 from alphalab.factors import list_factors
+from alphalab.factors.repository import FactorDefinitionRepository
 from alphalab.strategy import FactorSpec, UniverseSpec
 from dashboard.backend.services.data_service import _engine, research_dataset_schema
 
@@ -33,6 +34,16 @@ class FactorEvaluationRequest(BaseModel):
     min_price: float = Field(default=0.0, ge=0)
     min_history_days: int = Field(default=60, ge=2, le=2_000)
     min_average_amount: float = Field(default=0.0, ge=0)
+
+
+class CustomFactorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    description: str = Field(default="", max_length=240)
+    expression: str = Field(min_length=1, max_length=500)
+    direction: Literal["long", "short"] = "long"
+    winsorize: float = Field(default=0.01, ge=0, lt=0.25)
+    neutralize: list[Literal["market_cap"]] = Field(default_factory=list)
 
 
 _FACTOR_INPUT_FIELDS = {
@@ -88,6 +99,28 @@ _RESEARCH_SOURCE_SPECS = [
 ]
 
 
+def factor_repository() -> FactorDefinitionRepository:
+    return FactorDefinitionRepository()
+
+
+def _custom_factor_rows() -> list[dict]:
+    repository = factor_repository()
+    try:
+        return [
+            {
+                **item,
+                "source": "expression",
+                "description": item["description"] or "自定义表达式因子",
+                "frequency": "daily",
+                "point_in_time": True,
+                "custom": True,
+            }
+            for item in repository.list()
+        ]
+    finally:
+        repository.close()
+
+
 def _research_data_sources(profile: str) -> list[dict]:
     sources: list[dict] = []
     for spec in _RESEARCH_SOURCE_SPECS:
@@ -125,9 +158,11 @@ def factor_library(profile: Literal["demo", "runtime"] = "demo") -> dict:
             "input_fields": _FACTOR_INPUT_FIELDS.get(factor.name, [factor.name]),
             "frequency": "daily" if factor.kind == "technical" else "quarterly",
             "point_in_time": True,
+            "custom": False,
         }
         for factor in list_factors()
     ]
+    rows.extend(_custom_factor_rows())
     return {
         "factors": rows,
         "data_sources": _research_data_sources(profile),
@@ -154,6 +189,33 @@ def factor_library(profile: Literal["demo", "runtime"] = "demo") -> dict:
             },
         ],
     }
+
+
+@router.put("/factors/{factor_name}")
+def save_custom_factor(factor_name: str, request: CustomFactorRequest) -> dict:
+    repository = factor_repository()
+    try:
+        item = repository.save(
+            factor_name,
+            description=request.description,
+            expression=request.expression,
+            direction=request.direction,
+            winsorize=request.winsorize,
+            neutralize=request.neutralize,
+            reserved_names=(factor.name for factor in list_factors()),
+        )
+        return {
+            **item,
+            "source": "expression",
+            "description": item["description"] or "自定义表达式因子",
+            "frequency": "daily",
+            "point_in_time": True,
+            "custom": True,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        repository.close()
 
 
 @router.post("/evaluate")

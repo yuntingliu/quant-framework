@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pandas as pd
+
+from alphalab.engine import SignalEngine
 from alphalab.pipeline.builtins import SELECTION_FACTOR_TOP
 from alphalab.strategy import StrategyConfig
 from alphalab.strategy.python_runtime import execute_python_strategy
@@ -35,6 +38,22 @@ def test_signal_model_weights_override_legacy_factor_weights() -> None:
 
     assert config.total_weight == 1.0
     assert config.active_factor_names == ["momentum_20d"]
+
+
+def test_all_scope_resolves_initial_candidates_from_instrument_master() -> None:
+    class DataStub:
+        def get_instruments(self, asof_date=None):
+            assert asof_date == "2025-01-31"
+            return pd.DataFrame({"symbol": ["BBB", "AAA", "BBB"]})
+
+        def get_symbols(self, universe="all"):
+            return ["AAA"]
+
+    config = StrategyConfig(name="all-a-shares")
+
+    symbols = SignalEngine(DataStub())._resolve_symbols(config, "2025-01-31")
+
+    assert symbols == ["AAA", "BBB"]
 
 
 def test_rank_buffer_keeps_an_incumbent_until_exit_rank() -> None:

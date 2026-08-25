@@ -77,7 +77,7 @@ class SignalEngine:
             if latest and pd.Timestamp(latest) < as_of:
                 as_of = pd.Timestamp(latest)
 
-        symbols = self._resolve_symbols(config)
+        symbols = self._resolve_symbols(config, as_of.strftime("%Y-%m-%d"))
         instruments = self._data.get_instruments(as_of.strftime("%Y-%m-%d"))
         instrument_snapshot = None
         if not instruments.empty:
@@ -542,9 +542,19 @@ class SignalEngine:
             eligible[symbol] = history
         return eligible, exclusions
 
-    def _resolve_symbols(self, config: StrategyConfig) -> list[str]:
+    def _resolve_symbols(
+        self,
+        config: StrategyConfig,
+        as_of_date: str | None = None,
+    ) -> list[str]:
         if config.universe.symbols:
             return list(config.universe.symbols)
+        if config.universe.pool.lower() in {"all", "stock", "stocks", "cs"}:
+            instruments = self._data.get_instruments(as_of_date)
+            if not instruments.empty and "symbol" in instruments:
+                return sorted(
+                    instruments["symbol"].dropna().astype(str).str.upper().unique().tolist()
+                )
         return self._data.get_symbols(config.universe.pool)
 
     def _factor_scores(
@@ -677,7 +687,7 @@ def run_backtest_detailed(
     if start >= end:
         raise ValueError("start_date must be before end_date")
     engine = SignalEngine(data_engine or create_default_engine())
-    symbols = engine._resolve_symbols(cfg)
+    symbols = engine._resolve_symbols(cfg, end.strftime("%Y-%m-%d"))
     if not symbols:
         return _empty_backtest(cfg, "empty universe")
 

@@ -26,7 +26,7 @@ import {
 import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh'
 import { useIndicatorSelection } from '../../hooks/useIndicatorSelection'
 import { useLanguage } from '../../contexts/LanguageContext'
-import { useDataProfile } from '../../lib/data-profile'
+import { hasExplicitDataProfile, setDetectedDataProfile, useDataProfile } from '../../lib/data-profile'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { RiskDataWorkspace } from './RiskDataWorkspace'
 
@@ -461,6 +461,21 @@ export function DataWorkbenchWidget() {
   }, [catalog, datasetId, selectedDataset, setSelectedDataset])
 
   useEffect(() => {
+    const runtimeInstruments = catalog?.datasets.find(
+      (dataset) => dataset.id === 'rq.instruments',
+    )
+    const runtimeBars = catalog?.datasets.find((dataset) => dataset.id === 'rq.bars')
+    if (
+      profile === 'demo'
+      && !hasExplicitDataProfile()
+      && runtimeInstruments?.status === 'ready'
+      && runtimeBars?.status === 'ready'
+    ) {
+      setDetectedDataProfile('runtime')
+    }
+  }, [catalog, profile])
+
+  useEffect(() => {
     void refresh()
     const timer = window.setInterval(() => { void refresh() }, 5000)
     return () => window.clearInterval(timer)
@@ -718,9 +733,14 @@ export function DataWorkbenchWidget() {
     }
   }
 
+  const runtimeInstrumentCount = catalog?.datasets.find(
+    (dataset) => dataset.id === 'rq.instruments' && dataset.status === 'ready',
+  )?.symbol_count
   const initialCandidateCount = scopeMode === 'custom'
     ? researchScope.symbols.length
-    : marketSymbols.length || profileStatus?.symbol_count || 0
+    : profile === 'runtime'
+      ? runtimeInstrumentCount ?? profileStatus?.symbol_count ?? marketSymbols.length
+      : marketSymbols.length || profileStatus?.symbol_count || 0
   const customScopeInvalid = scopeMode === 'custom' && researchScope.symbols.length === 0
 
   if (error) return <div className="panel"><p className="error">{error}</p></div>

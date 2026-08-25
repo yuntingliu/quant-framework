@@ -514,11 +514,16 @@ export interface RobustnessPeriodMetrics {
 export interface FactorResearchLibrary {
   factors: Array<{
     name: string
-    source: "technical" | "fundamental"
+    source: "technical" | "fundamental" | "expression"
     description: string
     input_fields: string[]
     frequency: "daily" | "quarterly"
     point_in_time: boolean
+    custom: boolean
+    expression?: string
+    direction?: "long" | "short"
+    winsorize?: number
+    neutralize?: string[]
   }>
   data_sources: Array<{
     id: "market_bars" | "fundamentals"

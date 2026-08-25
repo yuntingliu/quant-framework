@@ -151,9 +151,12 @@ decay, and snapshot evidence belongs in the final-validation view, not in the
 construction toolbar. The
 catalog and the project's adopted-factor basket are separate tabs, not one
 mixed list. Factor evaluation uses `/api/factor-research` and does not run or
-mutate a strategy. Saving is disabled for an unevaluated or stale definition;
-an accepted factor updates the selected project's structured
-`settings.factors` and therefore creates a project revision.
+mutate a strategy. Catalog factors can be adopted directly, and complete custom
+expressions can be saved to the reusable factor library before final validation.
+Adopting a built-in or custom library factor copies its complete executable
+definition into the selected project's structured `settings.factors` and therefore
+creates a project revision. Later library edits do not mutate adopted project
+definitions; changing the active draft still marks earlier validation evidence stale.
 
 Research Project owns project selection/lifecycle and data profile. Data owns the
 user-facing research scope and structured eligibility filters, while persisting them

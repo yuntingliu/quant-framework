@@ -75,8 +75,19 @@ def list_provider_status() -> dict:
                     None,
                 ),
                 "symbol_count": next(
-                    (item["symbol_count"] for item in runtime["datasets"] if item["id"] == "rq.bars"),
-                    0,
+                    (
+                        item["symbol_count"]
+                        for item in runtime["datasets"]
+                        if item["id"] == "rq.instruments" and item["status"] == "ready"
+                    ),
+                    next(
+                        (
+                            item["symbol_count"]
+                            for item in runtime["datasets"]
+                            if item["id"] == "rq.bars"
+                        ),
+                        0,
+                    ),
                 ),
                 "factor_returns": runtime_factor_status,
             },

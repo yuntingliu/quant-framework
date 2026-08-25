@@ -20,7 +20,7 @@ import { formatNumber, formatPercent } from "@/lib/utils"
 import { Widget } from "@/widgets/Widget"
 
 function sourceLabel(source: string): string {
-  return source === "technical" ? "技术" : source === "fundamental" ? "基本面" : "表达式"
+  return source === "technical" ? "技术" : source === "fundamental" ? "基本面" : "自定义"
 }
 
 function factorDescription(name: string, fallback: string): string {
@@ -57,7 +57,7 @@ function FactorPanel({ children, className = "", embedded = false }: { children:
 export function FactorLibraryWidget({ embedded = false }: FactorWidgetProps) {
   const lab = useFactorLab()
   const [query, setQuery] = useState("")
-  const [source, setSource] = useState<"all" | "technical" | "fundamental">("all")
+  const [source, setSource] = useState<"all" | "technical" | "fundamental" | "expression">("all")
   const [libraryTab, setLibraryTab] = useState<"catalog" | "project">("catalog")
   const factors = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -76,7 +76,7 @@ export function FactorLibraryWidget({ embedded = false }: FactorWidgetProps) {
       <div className="factor-library-controls">
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索因子" aria-label="搜索因子" />
         <div>
-          {(["all", "technical", "fundamental"] as const).map((item) => (
+          {(["all", "technical", "fundamental", "expression"] as const).map((item) => (
             <button className={source === item ? "active" : ""} type="button" key={item} onClick={() => setSource(item)}>
               {item === "all" ? "全部" : sourceLabel(item)}
             </button>
@@ -94,19 +94,30 @@ export function FactorLibraryWidget({ embedded = false }: FactorWidgetProps) {
 
         <TabsContent className="factor-panel-scroll factor-library-tab-content" value="catalog">
           <section className="factor-library-section">
-            <div className="factor-section-heading"><span>内置可运行因子</span><strong>{factors.length}</strong></div>
+            <div className="factor-section-heading"><span>可用因子</span><strong>{factors.length}</strong></div>
             {lab.libraryLoading ? <div className="factor-empty"><Loader2 className="spin" size={14} />正在读取因子库…</div> : null}
             <div className="factor-catalog-list">
               {factors.map((factor) => {
                 const active = lab.draft.name === factor.name && lab.draft.source === factor.source && !lab.editingOriginalName
+                const adopted = lab.projectFactors.some((item) => item.name === factor.name)
+                const canAdopt = Boolean(lab.project?.editable && !adopted && !lab.saving)
                 return (
                   <div className={`factor-catalog-row${active ? " active" : ""}`} key={`${factor.source}-${factor.name}`}>
                     <button className="factor-catalog-select" type="button" onClick={() => lab.selectLibraryFactor(factor)}>
                       <span><strong>{factor.name}</strong><small>{factorDescription(factor.name, factor.description)}</small></span>
                       <em>{sourceLabel(factor.source)}</em>
                     </button>
-                    <button className="factor-catalog-insert" type="button" title={`把 ${factor.name} 加入表达式`} onClick={() => lab.requestExpressionInsert(factor.name)}>
+                    <button className="factor-catalog-insert" type="button" title={`把 ${factor.name} 加入表达式`} onClick={() => lab.requestExpressionInsert(factor.source === "expression" ? `(${factor.expression ?? ""})` : factor.name)}>
                       <Plus size={11} />表达式
+                    </button>
+                    <button
+                      className={`factor-catalog-add${adopted ? " adopted" : ""}`}
+                      type="button"
+                      title={adopted ? "当前项目已使用这个因子" : lab.project?.editable ? `把 ${factor.name} 加入当前项目` : "请先选择可编辑的研究项目"}
+                      disabled={!canAdopt}
+                      onClick={() => void lab.addLibraryFactorToProject(factor)}
+                    >
+                      {adopted ? <Check size={11} /> : <Plus size={11} />}{adopted ? "已加入" : "加入项目"}
                     </button>
                   </div>
                 )
@@ -132,7 +143,7 @@ export function FactorLibraryWidget({ embedded = false }: FactorWidgetProps) {
           <section className="factor-library-section">
           <div className="factor-section-heading"><span>项目因子篮子</span><strong>{lab.projectFactors.length}</strong></div>
           {!lab.project ? <div className="factor-empty">请先在“研究项目”工作区选择研究项目。</div> : null}
-          {lab.project && !lab.projectFactors.length ? <div className="factor-empty">当前项目还没有因子。切换到“可用因子”，完成评估后再加入项目。</div> : null}
+          {lab.project && !lab.projectFactors.length ? <div className="factor-empty">当前项目还没有因子。可从“可用因子”直接加入，或新建并保存表达式因子。</div> : null}
           <div className="factor-project-list">
             {lab.projectFactors.map((factor) => (
               <div key={factor.name} className={lab.editingOriginalName === factor.name ? "active" : ""}>
@@ -156,7 +167,9 @@ export function FactorLibraryWidget({ embedded = false }: FactorWidgetProps) {
 export function FactorEditorWidget({ embedded = false }: FactorWidgetProps) {
   const lab = useFactorLab()
   const functions = lab.library?.expression_functions ?? []
-  const availableToSave = Boolean(lab.project?.editable && lab.result && !lab.resultStale)
+  const draftComplete = Boolean(lab.draft.name.trim() && (lab.draft.source !== "expression" || lab.draft.expression.trim()))
+  const savesToLibrary = lab.draft.source === "expression" && !lab.editingOriginalName
+  const availableToSave = Boolean(draftComplete && (savesToLibrary || lab.project?.editable))
   const expressionRef = useRef<HTMLTextAreaElement>(null)
   const handledInsertId = useRef(0)
   const draftExpression = lab.draft.expression
@@ -198,14 +211,14 @@ export function FactorEditorWidget({ embedded = false }: FactorWidgetProps) {
     <FactorPanel className="factor-editor-panel" embedded={embedded}>
       <div className="factor-panel-header">
         <div><Code2 size={15} /><span><strong>因子定义</strong><small>{sourceLabel(lab.draft.source)}因子</small></span></div>
-        {!embedded ? <div className="factor-editor-actions">
-          <button className="secondary-command" type="button" onClick={() => void lab.evaluate()} disabled={lab.running}>
+        <div className="factor-editor-actions">
+          {!embedded ? <button className="secondary-command" type="button" onClick={() => void lab.evaluate()} disabled={lab.running}>
             {lab.running ? <Loader2 className="spin" size={13} /> : <Play size={13} />}{lab.running ? "评估中" : "运行评估"}
+          </button> : null}
+          <button className="primary-command" type="button" onClick={() => void (savesToLibrary ? lab.saveCustomFactor() : lab.saveToProject())} disabled={lab.saving || !availableToSave} title={availableToSave ? savesToLibrary ? "保存到可用因子库" : "保存到当前项目" : "请填写完整因子定义；项目因子还需要选择可编辑项目"}>
+            {lab.saving ? <Loader2 className="spin" size={13} /> : <Save size={13} />}{lab.editingOriginalName ? "保存项目修改" : savesToLibrary ? "保存到因子库" : "加入项目"}
           </button>
-          <button className="primary-command" type="button" onClick={() => void lab.saveToProject()} disabled={lab.saving || !availableToSave} title={availableToSave ? "保存到当前项目" : "请先完成当前定义的评估，并确认项目可编辑"}>
-            {lab.saving ? <Loader2 className="spin" size={13} /> : <Save size={13} />}{lab.editingOriginalName ? "更新项目因子" : "加入项目"}
-          </button>
-        </div> : null}
+        </div>
       </div>
       <div className="factor-panel-scroll factor-editor-body">
         {!embedded && lab.error ? <div className="workbench-message error">{lab.error}</div> : null}
@@ -225,21 +238,7 @@ export function FactorEditorWidget({ embedded = false }: FactorWidgetProps) {
             <textarea ref={expressionRef} spellCheck={false} value={lab.draft.expression} onChange={(event) => lab.updateDraft({ expression: event.target.value })} />
             <div className="factor-function-list">{functions.map((name) => <button type="button" key={name} onClick={() => insertFunction(name)}>{name}()</button>)}</div>
           </section>
-        ) : (
-          <section className="factor-definition-card">
-            <strong>{lab.draft.name}</strong>
-            <p>{factorDescription(lab.draft.name, "系统内置因子")}</p>
-            <span>内置实现由后端因子注册表提供；这里保存因子的方向、缩尾和中性化。多因子权重在“信号模型”中设置。</span>
-          </section>
-        )}
-
-        <section className="factor-contract-card">
-          <FlaskConical size={15} />
-          <div><strong>表达式数据合同</strong><span>市场字段取决策日最新 K 线，财务字段遵守 available_date；表达式输出每只证券一个截面值。</span></div>
-        </section>
-        <section className="factor-python-note">
-          <Code2 size={14} /><div><strong>Python 自定义因子尚未伪装开放</strong><span>当前可运行的是内置因子与安全表达式。完整 Python 因子需要版本、依赖、超时和输出合同，后端完成后再进入这里。</span></div>
-        </section>
+        ) : null}
       </div>
     </FactorPanel>
   )

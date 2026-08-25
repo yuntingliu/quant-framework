@@ -5179,7 +5179,7 @@ button {
 }
 
 .factor-catalog-row {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
 }
 
 .factor-project-list > div:hover,
@@ -5256,7 +5256,8 @@ button {
   text-align: left;
 }
 
-.factor-catalog-insert {
+.factor-catalog-insert,
+.factor-catalog-add {
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
@@ -5270,7 +5271,21 @@ button {
   white-space: nowrap;
 }
 
-.factor-catalog-insert:hover { background: hsl(var(--primary) / 0.08); }
+.factor-catalog-insert:hover,
+.factor-catalog-add:hover:not(:disabled) { background: hsl(var(--primary) / 0.08); }
+
+.factor-catalog-add {
+  color: hsl(var(--foreground));
+}
+
+.factor-catalog-add.adopted {
+  color: hsl(var(--chart-2));
+}
+
+.factor-catalog-add:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
 
 .factor-project-list .factor-remove-button {
   display: inline-flex;
@@ -5337,9 +5352,7 @@ button {
   gap: 0.65rem;
 }
 
-.factor-readonly-note,
-.factor-contract-card,
-.factor-python-note {
+.factor-readonly-note {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
@@ -5354,15 +5367,6 @@ button {
 }
 
 .factor-readonly-note { border-color: hsl(var(--chart-4) / 0.3); color: hsl(var(--chart-4)); }
-.factor-contract-card { border-color: hsl(var(--primary) / 0.25); }
-.factor-contract-card > svg { color: hsl(var(--primary)); }
-.factor-python-note > svg { color: hsl(var(--muted-foreground)); }
-.factor-contract-card strong,
-.factor-contract-card span,
-.factor-python-note strong,
-.factor-python-note span { display: block; }
-.factor-contract-card strong,
-.factor-python-note strong { margin-bottom: 0.1rem; color: hsl(var(--foreground)); }
 
 .factor-form-grid {
   display: grid;
@@ -5408,7 +5412,6 @@ button {
 }
 
 .factor-expression-workspace,
-.factor-definition-card,
 .factor-evaluation-settings {
   border: 1px solid hsl(var(--border));
   border-radius: 0.4rem;
@@ -5422,12 +5425,8 @@ button {
   margin-bottom: 0.4rem;
 }
 
-.factor-expression-workspace strong,
-.factor-definition-card strong { font-size: 0.64rem; }
-.factor-expression-workspace span,
-.factor-definition-card p,
-.factor-definition-card span { color: hsl(var(--muted-foreground)); font-size: 0.55rem; }
-.factor-definition-card p { margin: 0.3rem 0; }
+.factor-expression-workspace strong { font-size: 0.64rem; }
+.factor-expression-workspace span { color: hsl(var(--muted-foreground)); font-size: 0.55rem; }
 
 .factor-expression-workspace textarea {
   width: 100%;
@@ -5723,9 +5722,7 @@ button.factor-source-field:hover { border-color: hsl(var(--primary) / 0.45); bac
 .factor-workbench-shell .factor-catalog-list strong { font-size: 0.68rem; }
 .factor-workbench-shell .factor-project-list small,
 .factor-workbench-shell .factor-catalog-list small,
-.factor-workbench-shell .factor-form-grid label > span,
-.factor-workbench-shell .factor-definition-card p,
-.factor-workbench-shell .factor-definition-card span { font-size: 0.59rem; }
+.factor-workbench-shell .factor-form-grid label > span { font-size: 0.59rem; }
 
 @media (max-width: 1050px) {
   .factor-source-browser { min-height: 31rem; }

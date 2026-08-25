@@ -96,6 +96,23 @@ CREATE TABLE IF NOT EXISTS pipeline_contract_migrations (
     migrated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Reusable safe-expression factors. Project revisions copy the complete
+-- expression and preprocessing settings so later library edits cannot change
+-- historical strategy behavior.
+CREATE TABLE IF NOT EXISTS factor_definitions (
+    name TEXT PRIMARY KEY,
+    description TEXT NOT NULL DEFAULT '',
+    expression TEXT NOT NULL,
+    direction TEXT NOT NULL DEFAULT 'long' CHECK(direction IN ('long', 'short')),
+    winsorize REAL NOT NULL DEFAULT 0.01,
+    neutralize_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_factor_definitions_updated
+    ON factor_definitions(updated_at DESC, name);
+
 CREATE INDEX IF NOT EXISTS idx_backtests_strategy ON backtests(strategy_id);
 CREATE INDEX IF NOT EXISTS idx_backtests_run_at ON backtests(run_at DESC);
 

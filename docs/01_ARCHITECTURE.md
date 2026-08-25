@@ -137,7 +137,7 @@ selection-factor correlation, and configured research-threshold checks.
 | Path | Responsibility |
 | --- | --- |
 | `alphalab/dataio/` | Provider protocols, `DataEngine`, runtime partitions, sync, and quality. |
-| `alphalab/factors/` | Cross-sectional technical/fundamental inputs and safe expressions. |
+| `alphalab/factors/` | Cross-sectional technical/fundamental inputs, safe expressions, and reusable custom-factor definitions. |
 | `alphalab/pipeline/` | Three-stage models, built-ins, composition, repository, runtime adapter, and narrow migrations. |
 | `alphalab/strategy/python_runtime.py` | Source validation and timeout-bounded child execution. |
 | `alphalab/engine.py` | Point-in-time features, fixed schedules, core gates, execution simulation, and parity. |
