@@ -7,11 +7,10 @@ import alphalab
 
 ROOT = Path(__file__).resolve().parents[2]
 MODES = [
+    "project",
     "data",
     "factor",
-    "project",
     "selection",
-    "execution",
     "backtest",
     "report",
 ]
@@ -47,27 +46,24 @@ def test_public_facade_is_small_and_pipeline_native():
     assert not hasattr(alphalab, "TimingStrategyRepository")
 
 
-def test_frontend_exposes_seven_user_facing_workbench_modes():
+def test_frontend_exposes_six_user_facing_workbench_modes():
     presets = (ROOT / "dashboard/frontend/src/layouts/presets.ts").read_text(encoding="utf-8")
     mode_config = (ROOT / "dashboard/frontend/src/workspace/modes.ts").read_text(encoding="utf-8")
     expected_union = " | ".join(f'"{mode}"' for mode in MODES)
     assert f"export type WorkspaceMode = {expected_union}" in presets
-    for mode in ("data", "factor", "project", "selection", "backtest", "report"):
+    for mode in MODES:
         assert f'{mode}: createWorkbenchPreset("{mode}"' in presets
-    assert 'execution: createMultiPanelPreset("execution"' in presets
     for mode in MODES:
         assert f"{mode}: {{ icon:" in mode_config
     for mode in MODES:
         assert f'{mode}: ["{mode}.workbench"' in mode_config
     assert 'factor: ["factor.workbench", "factor.library", "factor.editor", "factor.snapshot", "factor.evidence"]' in mode_config
-    assert (
-        'modes: ["selection", "execution"]'
-        in mode_config
-    )
+    assert "MODE_GROUPS" not in mode_config
     assert 'portfolio: createMultiPanelPreset("portfolio"' not in presets
-    assert '"portfolio" | "execution"' not in presets
+    assert 'execution: createMultiPanelPreset("execution"' not in presets
     assert 'if (value === "portfolio") return "selection"' in presets
-    assert 'export const DEFAULT_MODE: WorkspaceMode = "data"' in presets
+    assert 'if (value === "execution") return "backtest"' in presets
+    assert 'export const DEFAULT_MODE: WorkspaceMode = "project"' in presets
 
 
 def test_core_widget_catalog_has_one_workbench_per_boundary():
@@ -167,7 +163,7 @@ def test_stage_workbench_supports_versions_code_and_real_preview():
     assert "overflow: auto" in styles
 
 
-def test_signal_model_embeds_allocation_while_execution_keeps_result_panels():
+def test_signal_model_and_backtest_embed_internal_portfolio_and_execution_stages():
     presets = (ROOT / "dashboard/frontend/src/layouts/presets.ts").read_text(encoding="utf-8")
     components = (ROOT / "dashboard/frontend/src/widgets/registry/components.tsx").read_text(
         encoding="utf-8"
@@ -201,8 +197,6 @@ def test_signal_model_embeds_allocation_while_execution_keeps_result_panels():
         "selection.factor-evidence",
         "selection.chart",
     )
-    assert "position?:" in presets
-    assert 'direction?: "right" | "below" | "within"' in presets
     assert 'selection: createWorkbenchPreset("selection"' in presets
     assert 'selection: ["selection.workbench"]' in modes
     for widget_id in selection_results:
@@ -228,10 +222,24 @@ def test_signal_model_embeds_allocation_while_execution_keeps_result_panels():
         assert f'id: "{widget_id}"' in catalog
         assert f'"{widget_id}"' not in modes
     for widget_id in execution_widgets:
-        assert f'componentId: "{widget_id}"' in presets
+        assert f'componentId: "{widget_id}"' not in presets
         assert f'"{widget_id}"' in components
         assert f'id: "{widget_id}"' in catalog
-        assert f'"{widget_id}"' in modes
+        assert f'"{widget_id}"' not in modes
+    backtest = (ROOT / "dashboard/frontend/src/widgets/backtest/BacktestWorkbench.tsx").read_text(
+        encoding="utf-8"
+    )
+    for field in (
+        "execution_price",
+        "portfolio_value",
+        "cost_bps",
+        "slippage_bps",
+        "impact_bps",
+        "max_participation_rate",
+    ):
+        assert field in backtest
+    assert "CorrelationHeatmap" in backtest
+    assert "由信号模型控制" in backtest
     assert "CandlestickChart" in panels
     assert "createSeriesMarkers" in (
         ROOT / "dashboard/frontend/src/components/charts/CandlestickChart.tsx"
@@ -246,7 +254,7 @@ def test_backtest_shows_and_runs_the_frozen_complete_module():
     assert "/backtests/jobs" in source
     assert "/backtests/run" not in source
     assert "pipeline_manifest.composed_source" in source
-    assert "同一份总 Python 源码" in source
+    assert "stage_parameters" in source
     assert "strategy_yaml" not in source
     assert "runResearch" not in source
     assert "回测 + 稳健性验证" not in source
@@ -268,6 +276,13 @@ def test_sidebar_has_fixed_modes_without_search_or_tab_management():
         "onToggleModeHidden",
     ):
         assert removed not in sidebar
+    modes = (ROOT / "dashboard/frontend/src/workspace/modes.ts").read_text(encoding="utf-8")
+    assert '"project", "data", "factor", "selection", "backtest", "report"' in modes
+    assert "MODE_GROUPS" not in modes
+    assert "MODE_GROUPS" not in sidebar
+    assert 'disabled={disabled}' in sidebar
+    assert 't("sidebar.projectRequired")' in sidebar
+    assert 'selectedStrategyEditable' in sidebar
     for removed in ("HIDDEN_MODES_KEY", "loadHiddenModes", "toggleModeHidden"):
         assert removed not in workspace
     toolbar = (ROOT / "dashboard/frontend/src/workspace/Toolbar.tsx").read_text(encoding="utf-8")

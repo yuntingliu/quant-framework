@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Clock3, Database, Play, ReceiptText, RefreshCw, ShieldCheck } from "lucide-react"
+import { Clock3, Database, Play, ReceiptText, RefreshCw, Save, ShieldCheck } from "lucide-react"
 
-import { CumulativeReturnsChart, DrawdownChart } from "@/components/charts"
+import { CorrelationHeatmap, CumulativeReturnsChart, DrawdownChart } from "@/components/charts"
 import { CSVExportButton } from "@/components/shared/CSVExportButton"
 import { useLanguage } from "@/contexts/LanguageContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
@@ -16,6 +16,7 @@ import {
   type BacktestSignalDiagnostics,
   type DataManifest,
   type ProviderStatus,
+  type PipelineProjectDetail,
   type PipelineProjectSummary,
   type RuntimeCatalog,
 } from "@/lib/api"
@@ -46,23 +47,42 @@ function researchStatusLabel(status: string, language: "zh" | "en"): string {
 function CorrelationTable({
   labels,
   matrix,
+  exactValuesLabel,
 }: {
   labels: string[]
   matrix: Array<Array<number | null>>
+  exactValuesLabel: string
 }) {
   if (!labels.length || !matrix.length) return <div className="analytics-empty">—</div>
   return (
-    <div className="analytics-table-wrap">
-      <table className="analytics-table compact">
-        <thead><tr><th>Factor</th>{labels.map((label) => <th key={label}>{label}</th>)}</tr></thead>
-        <tbody>{labels.map((label, rowIndex) => (
-          <tr key={label}><td><strong>{label}</strong></td>{labels.map((column, columnIndex) => (
-            <td key={column}>{metric(matrix[rowIndex]?.[columnIndex], "number")}</td>
-          ))}</tr>
-        ))}</tbody>
-      </table>
+    <div className="backtest-correlation-view">
+      <CorrelationHeatmap labels={labels} matrix={matrix} />
+      <details>
+        <summary>{exactValuesLabel}</summary>
+        <div className="analytics-table-wrap">
+          <table className="analytics-table compact">
+            <thead><tr><th>Factor</th>{labels.map((label) => <th key={label}>{label}</th>)}</tr></thead>
+            <tbody>{labels.map((label, rowIndex) => (
+              <tr key={label}><td><strong>{label}</strong></td>{labels.map((column, columnIndex) => (
+                <td key={column}>{metric(matrix[rowIndex]?.[columnIndex], "number")}</td>
+              ))}</tr>
+            ))}</tbody>
+          </table>
+        </div>
+      </details>
     </div>
   )
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function asFiniteNumber(value: unknown, fallback: number): number {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
 }
 
 export function BacktestWorkbenchWidget() {
@@ -84,7 +104,33 @@ export function BacktestWorkbenchWidget() {
     run: "运行",
     quickRun: "运行完整策略回测",
     runSettings: "运行设置",
-    runHint: "这里选择版本固定的三阶段策略项目和数据区间；股票池来自项目设置，回测保存工作台中看到的同一份总 Python 源码。",
+    runHint: "在一个地方确认数据区间和成交假设；调仓频率与目标仓位始终继承信号模型。",
+    strategySetup: "策略与样本",
+    executionAssumptions: "成交与成本假设",
+    executionAssumptionsHint: "每个信号日重新计算排名和目标仓位，并在下一可交易日按以下假设成交。",
+    rebalanceFrequency: "调仓频率",
+    frequencyHint: "由信号模型控制",
+    allocationPolicy: "仓位策略",
+    equalWeight: "等权",
+    scoreWeight: "按综合得分",
+    rankDecay: "按排名衰减",
+    executionPrice: "成交价格",
+    nextOpen: "下一交易日开盘",
+    nextClose: "下一交易日收盘",
+    portfolioValue: "模拟资金（元）",
+    commission: "手续费（bps）",
+    slippage: "滑点（bps）",
+    marketImpact: "冲击成本（bps）",
+    participation: "最大成交占比（%）",
+    saveExecution: "保存回测假设",
+    savingExecution: "保存中",
+    executionSaved: "回测假设已保存",
+    executionUnsaved: "成交假设有改动，请先保存",
+    readonlyExecution: "内置项目只读；复制项目后可调整成交假设。",
+    invalidExecution: "请检查模拟资金、成本和最大成交占比。",
+    daily: "日频",
+    weekly: "周频",
+    monthly: "月频",
     paperAwaiting: "模拟调仓等待用户确认",
     savedBacktest: "已保存的回测",
     savedRun: "回测记录",
@@ -92,7 +138,7 @@ export function BacktestWorkbenchWidget() {
     resultView: "回测结果视图",
     pipeline: "策略快照",
     pipelineSnapshot: "本次回测实际保存的策略管线",
-    pipelineHint: "按信号模型、组合、执行展示；股票池设置、三个组件版本、总 Python 源码、数据和代码指纹一起固化。",
+    pipelineHint: "信号排名与仓位分配来自信号模型，成交假设来自本次回测设置；组件版本、总 Python 源码、数据和代码指纹一起固化。",
     customModule: "本次回测的自定义 Python 模块",
     hardGate: "核心闸门",
     performance: "收益与基准",
@@ -114,11 +160,14 @@ export function BacktestWorkbenchWidget() {
     multiFactor: "多因子回归",
     factorReturnCorrelation: "因子收益相关性（Pearson）",
     selectionFactorCorrelation: "信号因子截面相关性（Spearman 中位数）",
+    factorReturnCorrelationHint: "检验因子收益序列是否长期同涨同跌，避免组合中堆叠高度相似的风险来源。",
+    selectionFactorCorrelationHint: "汇总每个调仓截面的因子得分相关性，观察选股信息是否重复。",
+    exactValues: "查看精确数值",
     estimate: "估计值",
     tStat: "t 值",
     robustness: "稳健性",
     holdings: "持仓",
-    execution: "交易执行",
+    execution: "换手与成本",
     currentResult: "当前结果",
     resultIdentity: "结果身份",
     runAt: "运行于",
@@ -203,7 +252,33 @@ export function BacktestWorkbenchWidget() {
     run: "Run",
     quickRun: "Run full strategy backtest",
     runSettings: "Run setup",
-    runHint: "Choose a version-pinned three-stage project and data range. The stock pool comes from project settings, and the run persists the same complete Python source shown here.",
+    runHint: "Confirm the sample and fill assumptions in one place. Rebalance frequency and target weights always come from the Signal Model.",
+    strategySetup: "Strategy & sample",
+    executionAssumptions: "Fill & cost assumptions",
+    executionAssumptionsHint: "Rankings and target weights are recomputed on each signal date, then filled on the next tradable session using these assumptions.",
+    rebalanceFrequency: "Rebalance frequency",
+    frequencyHint: "Controlled by Signal Model",
+    allocationPolicy: "Allocation policy",
+    equalWeight: "Equal weight",
+    scoreWeight: "Score weighted",
+    rankDecay: "Rank decay",
+    executionPrice: "Fill price",
+    nextOpen: "Next-session open",
+    nextClose: "Next-session close",
+    portfolioValue: "Portfolio value",
+    commission: "Commission (bps)",
+    slippage: "Slippage (bps)",
+    marketImpact: "Market impact (bps)",
+    participation: "Max participation (%)",
+    saveExecution: "Save backtest assumptions",
+    savingExecution: "Saving",
+    executionSaved: "Backtest assumptions saved",
+    executionUnsaved: "Save changed fill assumptions before running",
+    readonlyExecution: "Built-in projects are read-only. Clone the project to change fill assumptions.",
+    invalidExecution: "Check portfolio value, costs, and maximum participation.",
+    daily: "Daily",
+    weekly: "Weekly",
+    monthly: "Monthly",
     paperAwaiting: "paper rebalance awaits confirmation",
     savedBacktest: "Saved backtest",
     savedRun: "Saved run",
@@ -211,7 +286,7 @@ export function BacktestWorkbenchWidget() {
     resultView: "Backtest result view",
     pipeline: "Strategy Snapshot",
     pipelineSnapshot: "Persisted pipeline used by this backtest",
-    pipelineHint: "Selection, portfolio, and execution are shown in order with project stock-pool settings, the frozen Python module, data, and code fingerprints.",
+    pipelineHint: "Signal ranking and allocation come from Signal Model, while fill assumptions come from this backtest setup. Component versions, Python source, data, and code fingerprints are frozen together.",
     customModule: "Persisted custom Python module",
     hardGate: "Core gate",
     performance: "Returns & Benchmark",
@@ -233,11 +308,14 @@ export function BacktestWorkbenchWidget() {
     multiFactor: "Multi-factor regression",
     factorReturnCorrelation: "Factor-return correlation (Pearson)",
     selectionFactorCorrelation: "Selection-factor cross-sectional correlation (median Spearman)",
+    factorReturnCorrelationHint: "Shows whether factor-return series move together through time, helping detect duplicated risk sources.",
+    selectionFactorCorrelationHint: "Aggregates score correlations across rebalance cross-sections to reveal overlapping selection information.",
+    exactValues: "View exact values",
     estimate: "Estimate",
     tStat: "t-stat",
     robustness: "Robustness",
     holdings: "Holdings",
-    execution: "Execution",
+    execution: "Trading & Costs",
     currentResult: "Current result",
     resultIdentity: "Result identity",
     runAt: "run at",
@@ -306,7 +384,14 @@ export function BacktestWorkbenchWidget() {
     symbol: "Symbol",
     weight: "Weight",
   }
-  const { selectedStrategy, setActiveMode, selectedBacktest, setSelectedBacktest } = useWorkspace()
+  const {
+    selectedStrategy,
+    selectedStrategyRevision,
+    setActiveMode,
+    selectedBacktest,
+    setSelectedBacktest,
+    setSelectedStrategyRevision,
+  } = useWorkspace()
   const selectedStrategyRef = useRef(selectedStrategy)
   const selectedBacktestRef = useRef(selectedBacktest)
   selectedStrategyRef.current = selectedStrategy
@@ -325,6 +410,18 @@ export function BacktestWorkbenchWidget() {
   const [view, setView] = useState<WorkbenchView>("inspect")
   const [holdingDate, setHoldingDate] = useState("")
   const [forceRobustness, setForceRobustness] = useState(false)
+  const [project, setProject] = useState<PipelineProjectDetail | null>(null)
+  const [signalFrequency, setSignalFrequency] = useState("monthly")
+  const [allocationMethod, setAllocationMethod] = useState("equal_weight")
+  const [executionPrice, setExecutionPrice] = useState("next_open")
+  const [portfolioValue, setPortfolioValue] = useState(1_000_000)
+  const [costBps, setCostBps] = useState(20)
+  const [slippageBps, setSlippageBps] = useState(0)
+  const [impactBps, setImpactBps] = useState(0)
+  const [participationPercent, setParticipationPercent] = useState(10)
+  const [executionDirty, setExecutionDirty] = useState(false)
+  const [executionSaved, setExecutionSaved] = useState(false)
+  const [savingExecution, setSavingExecution] = useState(false)
 
   useEffect(() => {
     setSetupError("")
@@ -380,6 +477,39 @@ export function BacktestWorkbenchWidget() {
       })
       .catch((error: Error) => setSetupError(error.message))
   }, [profile, setSelectedBacktest])
+
+  useEffect(() => {
+    if (!strategyId) {
+      setProject(null)
+      return
+    }
+    let cancelled = false
+    api.get<PipelineProjectDetail>(`/pipeline/projects/${strategyId}`)
+      .then((value) => {
+        if (cancelled) return
+        const selection = asRecord(value.component_manifest.find((item) => item.stage === "selection")?.parameters)
+        const portfolio = asRecord(value.component_manifest.find((item) => item.stage === "portfolio")?.parameters)
+        const execution = asRecord(value.component_manifest.find((item) => item.stage === "execution")?.parameters)
+        setProject(value)
+        setSignalFrequency(String(selection.signal_frequency || "monthly"))
+        setAllocationMethod(String(portfolio.optimizer || "equal_weight"))
+        setExecutionPrice(String(execution.execution_price) === "next_close" ? "next_close" : "next_open")
+        setPortfolioValue(asFiniteNumber(execution.portfolio_value, 1_000_000))
+        setCostBps(asFiniteNumber(execution.cost_bps, 20))
+        setSlippageBps(asFiniteNumber(execution.slippage_bps, 0))
+        setImpactBps(asFiniteNumber(execution.impact_bps, 0))
+        setParticipationPercent(asFiniteNumber(execution.max_participation_rate, 0.1) * 100)
+        setExecutionDirty(false)
+        setExecutionSaved(false)
+        setSelectedStrategyRevision(value.revision)
+      })
+      .catch((error: Error) => {
+        if (!cancelled) setSetupError(error.message)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [strategyId, selectedStrategyRevision, setSelectedStrategyRevision])
 
   useEffect(() => {
     if (selectedStrategy && selectedStrategy !== strategyId && strategies.some((item) => item.id === selectedStrategy)) {
@@ -479,6 +609,47 @@ export function BacktestWorkbenchWidget() {
     }
   }, [activeJob, profile, setSelectedBacktest])
 
+  async function saveExecutionAssumptions() {
+    if (!project?.editable || invalidExecutionSettings) return
+    setSavingExecution(true)
+    setSetupError("")
+    setExecutionSaved(false)
+    try {
+      const stageParameters = asRecord(project.settings.stage_parameters)
+      const currentExecution = asRecord(stageParameters.execution)
+      const saved = await api.put<PipelineProjectDetail>(`/pipeline/projects/${project.id}`, {
+        name: project.name,
+        description: project.description,
+        components: project.components,
+        settings: {
+          ...project.settings,
+          stage_parameters: {
+            ...stageParameters,
+            execution: {
+              ...currentExecution,
+              execution_price: executionPrice,
+              portfolio_value: portfolioValue,
+              cost_bps: costBps,
+              slippage_bps: slippageBps,
+              impact_bps: impactBps,
+              max_participation_rate: participationPercent / 100,
+            },
+          },
+        },
+      })
+      setProject(saved)
+      setStrategies((current) => current.map((item) => item.id === saved.id ? saved : item))
+      setExecutionDirty(false)
+      setExecutionSaved(true)
+      setSelectedStrategyRevision(saved.revision)
+      window.dispatchEvent(new CustomEvent("alphalab:projectUpdated", { detail: saved }))
+    } catch (error) {
+      setSetupError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSavingExecution(false)
+    }
+  }
+
   async function runBacktest() {
     setRunning(true)
     setSetupError("")
@@ -552,6 +723,29 @@ export function BacktestWorkbenchWidget() {
   const selectedRecord = records.find((record) => record.id === selectedId)
   const selectedStrategyDefinition = strategies.find((strategy) => strategy.id === strategyId)
   const invalidDateRange = Boolean(startDate && endDate && startDate > endDate)
+  const invalidExecutionSettings = !Number.isFinite(portfolioValue)
+    || portfolioValue <= 0
+    || !Number.isFinite(costBps)
+    || costBps < 0
+    || !Number.isFinite(slippageBps)
+    || slippageBps < 0
+    || !Number.isFinite(impactBps)
+    || impactBps < 0
+    || !Number.isFinite(participationPercent)
+    || participationPercent <= 0
+    || participationPercent > 100
+  const frequencyLabel = signalFrequency === "daily"
+    ? copy.daily
+    : signalFrequency === "weekly"
+      ? copy.weekly
+      : signalFrequency === "monthly"
+        ? copy.monthly
+        : signalFrequency
+  const allocationLabel = allocationMethod === "score_weight"
+    ? copy.scoreWeight
+    : allocationMethod === "rank_decay"
+      ? copy.rankDecay
+      : copy.equalWeight
   const failedChecks = robustness.data
     ? robustness.data.checks.filter((check) => !check.passed).length
     : null
@@ -575,33 +769,89 @@ export function BacktestWorkbenchWidget() {
           </div>
           {selectedStrategyDefinition && (
             <small>
-              三阶段 Python · {selectedStrategyDefinition.name} · revision {selectedStrategyDefinition.revision}
+              Python Pipeline · {selectedStrategyDefinition.name} · revision {selectedStrategyDefinition.revision}
             </small>
           )}
         </div>
-        <div className="backtest-run-controls">
-          <div className="pipeline-pinned-component">
-            <span>{copy.profile}</span>
-            <strong>{profile === "demo" ? copy.demo : copy.runtime}</strong>
+        <div className="backtest-setup-grid">
+          <div className="backtest-setup-card">
+            <div className="backtest-setup-card-heading">
+              <strong>{copy.strategySetup}</strong>
+              <span>{copy.frequencyHint}</span>
+            </div>
+            <div className="backtest-run-controls">
+              <div className="pipeline-pinned-component">
+                <span>{copy.profile}</span>
+                <strong>{profile === "demo" ? copy.demo : copy.runtime}</strong>
+              </div>
+              <div className="pipeline-pinned-component">
+                <span>{copy.strategy}</span>
+                <strong>{selectedStrategyDefinition?.name ?? "—"}</strong>
+              </div>
+              <div className="pipeline-pinned-component readonly">
+                <span>{copy.rebalanceFrequency}</span>
+                <strong>{frequencyLabel}</strong>
+              </div>
+              <div className="pipeline-pinned-component readonly">
+                <span>{copy.allocationPolicy}</span>
+                <strong>{allocationLabel}</strong>
+              </div>
+              <label>
+                <span>{copy.startDate}</span>
+                <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+              </label>
+              <label>
+                <span>{copy.endDate}</span>
+                <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+              </label>
+            </div>
           </div>
-          <div className="pipeline-pinned-component">
-            <span>{copy.strategy}</span>
-            <strong>{selectedStrategyDefinition?.name ?? "—"}</strong>
+          <div className="backtest-setup-card">
+            <div className="backtest-setup-card-heading">
+              <div><strong>{copy.executionAssumptions}</strong><span>{copy.executionAssumptionsHint}</span></div>
+              {project && <small>{project.editable ? (executionDirty ? copy.executionUnsaved : executionSaved ? copy.executionSaved : `revision ${project.revision}`) : copy.readonlyExecution}</small>}
+            </div>
+            <div className="backtest-execution-controls">
+              <label>
+                <span>{copy.executionPrice}</span>
+                <select
+                  value={executionPrice}
+                  disabled={!project?.editable}
+                  onChange={(event) => { setExecutionPrice(event.target.value); setExecutionDirty(true); setExecutionSaved(false) }}
+                >
+                  <option value="next_open">{copy.nextOpen}</option>
+                  <option value="next_close">{copy.nextClose}</option>
+                </select>
+              </label>
+              <label><span>{copy.portfolioValue}</span><input type="number" min="1" step="10000" value={portfolioValue} disabled={!project?.editable} onChange={(event) => { setPortfolioValue(Number(event.target.value)); setExecutionDirty(true); setExecutionSaved(false) }} /></label>
+              <label><span>{copy.commission}</span><input type="number" min="0" step="1" value={costBps} disabled={!project?.editable} onChange={(event) => { setCostBps(Number(event.target.value)); setExecutionDirty(true); setExecutionSaved(false) }} /></label>
+              <label><span>{copy.slippage}</span><input type="number" min="0" step="1" value={slippageBps} disabled={!project?.editable} onChange={(event) => { setSlippageBps(Number(event.target.value)); setExecutionDirty(true); setExecutionSaved(false) }} /></label>
+              <label><span>{copy.marketImpact}</span><input type="number" min="0" step="1" value={impactBps} disabled={!project?.editable} onChange={(event) => { setImpactBps(Number(event.target.value)); setExecutionDirty(true); setExecutionSaved(false) }} /></label>
+              <label><span>{copy.participation}</span><input type="number" min="0.01" max="100" step="1" value={participationPercent} disabled={!project?.editable} onChange={(event) => { setParticipationPercent(Number(event.target.value)); setExecutionDirty(true); setExecutionSaved(false) }} /></label>
+            </div>
           </div>
-          <label>
-            <span>{copy.startDate}</span>
-            <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
-          </label>
-          <label>
-            <span>{copy.endDate}</span>
-            <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
-          </label>
+        </div>
+        <div className="backtest-run-footer">
+          <span className={executionDirty || invalidExecutionSettings ? "warning" : ""}>
+            {invalidExecutionSettings ? copy.invalidExecution : executionDirty ? copy.executionUnsaved : copy.executionAssumptionsHint}
+          </span>
           <div className="backtest-run-actions">
+            {project?.editable && (
+              <button
+                className="secondary-command"
+                type="button"
+                onClick={() => void saveExecutionAssumptions()}
+                disabled={savingExecution || !executionDirty || invalidExecutionSettings}
+              >
+                <Save aria-hidden="true" />
+                {savingExecution ? copy.savingExecution : copy.saveExecution}
+              </button>
+            )}
             <button
               className="primary-command"
               type="button"
               onClick={runBacktest}
-              disabled={running || !strategyId || !startDate || !endDate || invalidDateRange}
+              disabled={running || savingExecution || executionDirty || invalidExecutionSettings || !strategyId || !startDate || !endDate || invalidDateRange}
             >
               <Play aria-hidden="true" />
               {running ? copy.running : copy.quickRun}
@@ -902,10 +1152,16 @@ export function BacktestWorkbenchWidget() {
                       ))}</tbody>
                     </table>
                   </div>
-                  <div className="backtest-section-heading"><div><strong>{copy.factorReturnCorrelation}</strong></div></div>
-                  <CorrelationTable labels={attribution.data.factor_return_correlation.labels} matrix={attribution.data.factor_return_correlation.pearson} />
-                  <div className="backtest-section-heading"><div><strong>{copy.selectionFactorCorrelation}</strong></div></div>
-                  <CorrelationTable labels={attribution.data.selection_score_correlation.labels} matrix={attribution.data.selection_score_correlation.median_spearman} />
+                  <div className="backtest-correlation-grid">
+                    <section className="backtest-correlation-card">
+                      <div className="backtest-section-heading"><div><strong>{copy.factorReturnCorrelation}</strong><span>{copy.factorReturnCorrelationHint}</span></div></div>
+                      <CorrelationTable labels={attribution.data.factor_return_correlation.labels} matrix={attribution.data.factor_return_correlation.pearson} exactValuesLabel={copy.exactValues} />
+                    </section>
+                    <section className="backtest-correlation-card">
+                      <div className="backtest-section-heading"><div><strong>{copy.selectionFactorCorrelation}</strong><span>{copy.selectionFactorCorrelationHint}</span></div></div>
+                      <CorrelationTable labels={attribution.data.selection_score_correlation.labels} matrix={attribution.data.selection_score_correlation.median_spearman} exactValuesLabel={copy.exactValues} />
+                    </section>
+                  </div>
                 </>
               ) : null}
             </div>

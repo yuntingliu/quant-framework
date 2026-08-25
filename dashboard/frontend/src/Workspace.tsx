@@ -259,6 +259,11 @@ function WorkspaceInner() {
   const pendingWidgetOpenRef = useRef<PendingWidgetOpen[]>([])
   const workspace = useWorkspace()
   const { activeMode, setActiveMode } = workspace
+  const projectReady = Boolean(
+    workspace.selectedStrategy
+    && workspace.selectedStrategyEditable
+    && workspace.selectedStrategyRevision != null
+  )
   const { language } = useLanguage()
   const activeModeRef = useRef(activeMode)
   const [mountedModes, setMountedModes] = useState<Set<WorkspaceMode>>(() => new Set([activeMode]))
@@ -279,8 +284,9 @@ function WorkspaceInner() {
 
   const switchMode = useCallback((rawMode: unknown) => {
     const mode = normalizeWorkspaceMode(rawMode)
-    if (!(mode in MODE_CONFIG)) return
-    if (mode === activeModeRef.current) return
+    if (!(mode in MODE_CONFIG)) return false
+    if (mode !== "project" && !projectReady) return false
+    if (mode === activeModeRef.current) return true
     const previousMode = activeModeRef.current
     const previousApi = apiRefsRef.current[previousMode]
     if (previousApi) saveLayout(previousApi, previousMode)
@@ -298,7 +304,12 @@ function WorkspaceInner() {
       relabelPanels(nextApi, language)
       saveLayout(nextApi, mode)
     }
-  }, [language, setActiveMode])
+    return true
+  }, [language, projectReady, setActiveMode])
+
+  useEffect(() => {
+    if (!projectReady && activeModeRef.current !== "project") switchMode("project")
+  }, [projectReady, switchMode])
 
   const openAgentRail = useCallback(() => {
     setRightRailCollapsed(false)
@@ -345,6 +356,7 @@ function WorkspaceInner() {
       return Promise.resolve(undefined)
     }
     const targetMode = rawMode ? normalizeWorkspaceMode(rawMode) : activeModeRef.current
+    if (targetMode !== "project" && !projectReady) return Promise.resolve(undefined)
     const targetApi = apiRefsRef.current[targetMode] ?? null
 
     return new Promise((resolve) => {
@@ -370,7 +382,7 @@ function WorkspaceInner() {
 
       pendingWidgetOpenRef.current.push({ widgetId, title, mode: targetMode, ...options, resolve })
     })
-  }, [addWidgetToApi, openAgentRail, switchMode])
+  }, [addWidgetToApi, openAgentRail, projectReady, switchMode])
 
   const toggleSidebarCollapsed = useCallback(() => {
     setSidebarCollapsed((prev) => {
@@ -405,7 +417,7 @@ function WorkspaceInner() {
           saveLayout(modeApi, mode)
         }
       }
-      switchMode("data")
+      switchMode("project")
       return
     }
 
@@ -446,7 +458,9 @@ function WorkspaceInner() {
   ): Promise<Omit<AgentWorkspaceCommandReceipt, "index">> => {
     switch (command.type) {
       case "switch_mode":
-        switchMode(command.mode)
+        if (!switchMode(command.mode)) {
+          return { type: command.type, success: false, message: "请先新建或选择可编辑的研究项目" }
+        }
         return { type: command.type, success: true, message: `已切换到 ${command.mode} 板块` }
       case "open_widget": {
         if (!widgetComponents[command.widgetId] || !isActiveWidgetId(command.widgetId)) {

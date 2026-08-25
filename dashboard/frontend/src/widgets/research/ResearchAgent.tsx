@@ -46,7 +46,7 @@ function customNodePayload(value: unknown, expectedType: string): unknown {
 }
 
 const WORKSPACE_CAPABILITIES = {
-  modes: ["data", "factor", "project", "selection", "execution", "backtest", "report"],
+  modes: ["data", "factor", "project", "selection", "backtest", "report"],
   widgets: agentWorkspaceWidgetIds,
   commandTypes: [
     "switch_mode",

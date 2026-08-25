@@ -6,7 +6,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 
 interface CorrelationHeatmapProps {
   labels: string[]
-  matrix: number[][]
+  matrix: Array<Array<number | null>>
   height?: number
 }
 
@@ -121,6 +121,8 @@ export function CorrelationHeatmap({
             const x = LABEL_AREA + colIdx * cellSize
             const y = TOP_LABEL_HEIGHT + rowIdx * cellSize
             const isDiagonal = rowIdx === colIdx
+            const hasValue = value != null && Number.isFinite(value)
+            const numericValue = hasValue ? value as number : 0
 
             return (
               <g key={`cell-${rowIdx}-${colIdx}`}>
@@ -129,7 +131,7 @@ export function CorrelationHeatmap({
                   y={y}
                   width={cellSize}
                   height={cellSize}
-                  fill={interpolateColor(value)}
+                  fill={hasValue ? interpolateColor(numericValue) : 'hsl(var(--muted))'}
                   stroke={isDiagonal ? 'hsl(var(--foreground))' : 'hsl(var(--border))'}
                   strokeWidth={isDiagonal ? 2 : 0.5}
                   rx={2}
@@ -138,12 +140,12 @@ export function CorrelationHeatmap({
                   x={x + cellSize / 2}
                   y={y + cellSize / 2 + 4}
                   textAnchor="middle"
-                  fill={getTextColor(value)}
+                  fill={hasValue ? getTextColor(numericValue) : 'hsl(var(--muted-foreground))'}
                   fontFamily="JetBrains Mono, monospace"
                   fontSize={cellSize > 40 ? 11 : 9}
                   fontWeight={isDiagonal ? 700 : 400}
                 >
-                  {value.toFixed(2)}
+                  {hasValue ? numericValue.toFixed(2) : '—'}
                 </text>
               </g>
             )

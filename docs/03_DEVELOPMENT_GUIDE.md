@@ -127,10 +127,10 @@ New backtest writes populate `strategy_source`, `component_manifest_json`,
 
 ## Frontend Rules
 
-The seven user-facing modes are:
+The six user-facing modes are:
 
 ```text
-data, factor, project, selection, execution, backtest, report
+project, data, factor, selection, backtest, report
 ```
 
 Factor is an independent Dockview workspace. Its default preset opens one
@@ -153,6 +153,9 @@ Research Project owns project selection/lifecycle, data profile, cutoff, stock
 pool, and research thresholds. Its UI must not expose factor authoring or raw
 factor settings; those belong to the Factor workspace. The toolbar remains
 navigation/layout chrome.
+The sidebar is one ungrouped list with Research Project first. All later modes
+are disabled until the selected project has been validated and is editable;
+built-in projects may be inspected or cloned but do not unlock the workflow.
 
 Built-in technical/fundamental factors and safe vector expressions are the
 current executable factor contracts. Expressions may reference PIT public-data
@@ -163,28 +166,33 @@ data fields and point-in-time behavior are implemented. Do not expose an
 arbitrary Python factor editor without a versioned source, dependency, timeout,
 and output contract.
 
-Signal Model and Execution are user-facing workbenches. Portfolio remains an
+Signal Model and Backtest are user-facing workbenches. Portfolio remains an
 internal version-pinned Python stage whose allocation controls and results are
-embedded in Signal Model. Stage previews share one query keyed by project
-revision, target stage, data profile, and cutoff; a portfolio-prefix preview is
-also cached for its executed selection output.
+embedded in Signal Model. Execution also remains an internal version-pinned
+Python stage, while its fill, liquidity, capital, and cost controls are embedded
+in Backtest run setup. Stage previews share one query keyed by project revision,
+target stage, data profile, and cutoff; a portfolio-prefix preview is also cached
+for its executed selection output.
 
 Stage result panels visualize real prefix output:
 
 - selection/signal model: universe/eligibility/scoring funnel, scores and ranks,
   score distribution, current factor-structure diagnostics, selected names,
   constrained target weights, cash/gross exposure, and linked history;
-- execution: fixed schedule, final targets, cost-model decomposition, and a
-  clear distinction between preview-time gates and backtest-only fill checks.
+- backtest: read-only Signal Model frequency, editable fill/cost assumptions,
+  saved execution audit, and a clear distinction between target weights and
+  historical fills.
 
 The default stage presets should foreground these research panels. Component
 source and parameters remain available in a Dockview tab in the same workspace,
 rather than occupying the largest panel by default. New panels must consume the
 shared stage-preview cache; they must not trigger an independent strategy run.
 
-Backtest has one run action. Its tabs derive from the saved run: performance,
-selection evidence, alpha/beta and factor correlations, robustness, execution,
-and holdings. Do not add stage history or independent strategy execution.
+Backtest has one run action. Each decision date uses the frequency and allocation
+policy saved by Signal Model, then applies Backtest's next-session execution
+assumptions. Its tabs derive from the saved run: performance, selection evidence,
+alpha/beta and factor correlations, robustness, execution audit, and holdings.
+Do not add stage history or an independent execution workspace.
 
 Immutable versions, ids, and hashes remain internal authoring details. Historical
 provenance belongs in backtest inspection.

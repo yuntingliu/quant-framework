@@ -95,7 +95,6 @@ export const coreWorkflowWidgetIds = [
   "factor.workbench",
   "project.workbench",
   "selection.workbench",
-  "execution.workbench",
   "backtest.workbench",
   "report.workbench",
 ] as const
@@ -109,7 +108,6 @@ export const factorResearchWidgetIds = [
 
 export const stageResultWidgetIds = [
   "selection.funnel", "selection.ranking", "selection.distribution", "selection.factor-evidence", "selection.chart",
-  "execution.settings", "execution.targets", "execution.costs", "execution.guardrails",
 ] as const
 
 const activeWidgetIds = new Set<string>([

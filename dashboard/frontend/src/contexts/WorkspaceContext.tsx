@@ -7,10 +7,10 @@ import type { PythonPipelineStage } from "@/lib/api"
 
 const MODE_KEY = "alphalab-active-mode"
 const PROJECT_KEY = "alphalab-selected-project"
-// Startup always lands on the Data workbench. Users can switch workstations
+// Startup always lands on the Research Project workbench. Users can switch workstations
 // during the session or request another one explicitly through the URL.
 const DEFAULT_MODE_VERSION_KEY = "alphalab-default-mode-version"
-const DEFAULT_MODE_VERSION = "8"
+const DEFAULT_MODE_VERSION = "9"
 
 /** Symbol link channels. Panels assigned to the same group follow
  * the same symbol; `null` group falls back to the global selectedSymbol. */
@@ -39,6 +39,8 @@ interface WorkspaceContextValue {
   setSelectedStrategy: (id: string | null) => void
   selectedStrategyRevision: number | null
   setSelectedStrategyRevision: (revision: number | null) => void
+  selectedStrategyEditable: boolean | null
+  setSelectedStrategyEditable: (editable: boolean | null) => void
   stageRunContexts: Partial<Record<PythonPipelineStage, StageRunContext>>
   setStageRunContext: (stage: PythonPipelineStage, value: StageRunContext) => void
   selectedDataset: string | null
@@ -87,6 +89,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [activeMode, _setActiveMode] = useState<WorkspaceMode>(loadMode)
   const [selectedStrategy, setSelectedStrategy] = useState<string | null>(loadProject)
   const [selectedStrategyRevision, setSelectedStrategyRevision] = useState<number | null>(null)
+  const [selectedStrategyEditable, setSelectedStrategyEditable] = useState<boolean | null>(null)
   const [stageRunContexts, setStageRunContexts] = useState<Partial<Record<PythonPipelineStage, StageRunContext>>>({})
   const [selectedDataset, setSelectedDataset] = useState<string | null>(null)
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
@@ -103,6 +106,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const selectStrategy = useCallback((value: string | null) => {
     setSelectedStrategy(value)
+    setSelectedStrategyEditable(null)
     try {
       if (value) localStorage.setItem(PROJECT_KEY, value)
       else localStorage.removeItem(PROJECT_KEY)
@@ -116,6 +120,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         setActiveMode,
         selectedStrategy,
         selectedStrategyRevision,
+        selectedStrategyEditable,
         stageRunContexts,
         selectedDataset,
         selectedSymbol,
@@ -133,6 +138,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         selectedDate,
         setSelectedStrategy: selectStrategy,
         setSelectedStrategyRevision: useCallback((v) => setSelectedStrategyRevision(v), []),
+        setSelectedStrategyEditable: useCallback((v) => setSelectedStrategyEditable(v), []),
         setStageRunContext: useCallback((stage, value) => {
           setStageRunContexts((current) => ({ ...current, [stage]: value }))
         }, []),
@@ -157,6 +163,7 @@ export function useWorkspace(): WorkspaceContextValue {
       setActiveMode: () => {},
       selectedStrategy: null,
       selectedStrategyRevision: null,
+      selectedStrategyEditable: null,
       stageRunContexts: {},
       selectedDataset: null,
       selectedSymbol: null,
@@ -168,6 +175,7 @@ export function useWorkspace(): WorkspaceContextValue {
       selectedDate: null,
       setSelectedStrategy: () => {},
       setSelectedStrategyRevision: () => {},
+      setSelectedStrategyEditable: () => {},
       setStageRunContext: () => {},
       setSelectedDataset: () => {},
       setSelectedSymbol: () => {},

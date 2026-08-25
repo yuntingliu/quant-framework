@@ -21,10 +21,10 @@ import {
 import { useDataProfile, type DataProfile } from "@/lib/data-profile"
 import { Widget } from "@/widgets/Widget"
 
-const STAGES: Array<{ id: PythonPipelineStage; label: string; destination: "selection" | "execution" }> = [
+const STAGES: Array<{ id: PythonPipelineStage; label: string; destination: "selection" | "backtest" }> = [
   { id: "selection", label: "信号排名", destination: "selection" },
   { id: "portfolio", label: "仓位分配", destination: "selection" },
-  { id: "execution", label: "执行", destination: "execution" },
+  { id: "execution", label: "成交与成本", destination: "backtest" },
 ]
 
 function internalId() {
@@ -44,6 +44,7 @@ function editableProjectSettings(settings: Record<string, unknown>) {
   if (stageParameters) {
     delete stageParameters.selection
     delete stageParameters.portfolio
+    delete stageParameters.execution
     if (Object.keys(stageParameters).length) editable.stage_parameters = stageParameters
     else delete editable.stage_parameters
   }
@@ -58,6 +59,7 @@ export function ProjectWorkbenchWidget() {
     setActiveMode,
     setSelectedDate,
     setSelectedStrategy,
+    setSelectedStrategyEditable,
     setSelectedStrategyRevision,
   } = useWorkspace()
   const [profile, setProfile] = useDataProfile()
@@ -85,6 +87,7 @@ export function ProjectWorkbenchWidget() {
     setDescription(detail.description)
     setSettings(editableProjectSettings(detail.settings))
     setSelectedStrategy(detail.id)
+    setSelectedStrategyEditable(detail.editable)
     setSelectedStrategyRevision(detail.revision)
   }
 
@@ -154,7 +157,7 @@ export function ProjectWorkbenchWidget() {
       const persistedStageParameters = project.settings.stage_parameters && typeof project.settings.stage_parameters === "object" && !Array.isArray(project.settings.stage_parameters)
         ? project.settings.stage_parameters as Record<string, unknown>
         : {}
-      if (persistedStageParameters.selection !== undefined || persistedStageParameters.portfolio !== undefined) {
+      if (persistedStageParameters.selection !== undefined || persistedStageParameters.portfolio !== undefined || persistedStageParameters.execution !== undefined) {
         const editedStageParameters = nextSettings.stage_parameters && typeof nextSettings.stage_parameters === "object" && !Array.isArray(nextSettings.stage_parameters)
           ? nextSettings.stage_parameters as Record<string, unknown>
           : {}
@@ -162,6 +165,7 @@ export function ProjectWorkbenchWidget() {
           ...editedStageParameters,
           ...(persistedStageParameters.selection !== undefined ? { selection: persistedStageParameters.selection } : {}),
           ...(persistedStageParameters.portfolio !== undefined ? { portfolio: persistedStageParameters.portfolio } : {}),
+          ...(persistedStageParameters.execution !== undefined ? { execution: persistedStageParameters.execution } : {}),
         }
       }
       const saved = await api.put<PipelineProjectDetail>(`/pipeline/projects/${project.id}`, {
@@ -190,6 +194,7 @@ export function ProjectWorkbenchWidget() {
       setDeleteOpen(false)
       setProject(null)
       setSelectedStrategy(null)
+      setSelectedStrategyEditable(null)
       setSelectedStrategyRevision(null)
       await refresh("three-stage-default")
     } catch (reason) {
@@ -250,7 +255,7 @@ export function ProjectWorkbenchWidget() {
               </section>
 
               <section className="rounded border border-border bg-background p-4">
-                <div><h2 className="text-base font-semibold text-foreground">内部三阶段组件</h2><p className="mt-1 text-xs text-muted-foreground">信号排名与仓位分配统一在信号模型中管理；执行假设保留独立工作台。</p></div>
+                <div><h2 className="text-base font-semibold text-foreground">内部三阶段组件</h2><p className="mt-1 text-xs text-muted-foreground">信号排名与仓位分配统一在信号模型中管理；成交与成本假设统一在回测运行设置中管理。</p></div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {STAGES.map((stage, index) => {
                     const ref = project.components[stage.id]

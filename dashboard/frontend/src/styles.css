@@ -2394,6 +2394,47 @@ button {
   padding: 0.65rem 0.75rem;
 }
 
+.backtest-setup-grid {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.backtest-setup-card {
+  min-width: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.45rem;
+  background: hsl(var(--card));
+  padding: 0.6rem;
+}
+
+.backtest-setup-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.backtest-setup-card-heading strong,
+.backtest-setup-card-heading span {
+  display: block;
+}
+
+.backtest-setup-card-heading strong {
+  font-size: 0.6875rem;
+}
+
+.backtest-setup-card-heading span,
+.backtest-setup-card-heading small {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.625rem;
+  line-height: 1.4;
+}
+
+.backtest-setup-card-heading span {
+  margin-top: 0.12rem;
+}
+
 .backtest-section-heading {
   display: flex;
   align-items: flex-start;
@@ -2431,19 +2472,27 @@ button {
 
 .backtest-run-controls {
   display: grid;
-  grid-template-columns: 6.5rem minmax(9rem, 1fr) 8.5rem 8.5rem auto;
+  grid-template-columns: 6.5rem minmax(9rem, 1fr) 7rem 8rem 8.5rem 8.5rem;
   gap: 0.45rem;
   align-items: end;
 }
 
-.backtest-run-controls > label {
+.backtest-execution-controls {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1.3fr) repeat(5, minmax(7rem, 1fr));
+  gap: 0.45rem;
+}
+
+.backtest-run-controls > label,
+.backtest-execution-controls > label {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 0.25rem;
 }
 
-.backtest-run-controls > label > span {
+.backtest-run-controls > label > span,
+.backtest-execution-controls > label > span {
   color: hsl(var(--muted-foreground));
   font-size: 0.625rem;
   font-weight: 600;
@@ -2451,6 +2500,8 @@ button {
 
 .backtest-run-controls select,
 .backtest-run-controls input,
+.backtest-execution-controls select,
+.backtest-execution-controls input,
 .backtest-result-identity select {
   min-width: 0;
   height: 1.875rem;
@@ -2461,6 +2512,29 @@ button {
   color: hsl(var(--foreground));
   padding: 0 0.45rem;
   font-size: 0.6875rem;
+}
+
+.backtest-execution-controls input:disabled,
+.backtest-execution-controls select:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.backtest-run-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.55rem;
+}
+
+.backtest-run-footer > span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.625rem;
+}
+
+.backtest-run-footer > span.warning {
+  color: hsl(var(--warning, 38 92% 50%));
 }
 
 .backtest-run-actions {
@@ -2632,6 +2706,35 @@ button {
   text-overflow: ellipsis;
 }
 
+.backtest-correlation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(20rem, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.backtest-correlation-card {
+  min-width: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.45rem;
+  background: hsl(var(--card));
+  padding: 0.65rem;
+}
+
+.backtest-correlation-view {
+  overflow-x: auto;
+}
+
+.backtest-correlation-view details {
+  margin-top: 0.35rem;
+}
+
+.backtest-correlation-view summary {
+  cursor: pointer;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.625rem;
+}
+
 @container (max-width: 980px) {
   .backtest-run-controls {
     grid-template-columns: minmax(7rem, 0.7fr) minmax(10rem, 1.3fr) repeat(2, minmax(8rem, 1fr));
@@ -2639,6 +2742,14 @@ button {
 
   .backtest-run-actions {
     grid-column: 1 / -1;
+  }
+
+  .backtest-execution-controls {
+    grid-template-columns: repeat(3, minmax(7rem, 1fr));
+  }
+
+  .backtest-correlation-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .backtest-result-identity {
@@ -2656,6 +2767,7 @@ button {
   }
 
   .backtest-run-controls,
+  .backtest-execution-controls,
   .backtest-result-identity,
   .backtest-verdict-summary {
     grid-template-columns: minmax(0, 1fr);
@@ -2663,6 +2775,12 @@ button {
 
   .backtest-run-actions {
     flex-wrap: wrap;
+  }
+
+  .backtest-run-footer,
+  .backtest-setup-card-heading {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .backtest-benchmark-missing {

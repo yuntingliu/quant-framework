@@ -32,6 +32,7 @@ export function WorkspaceToolbar({
     activeMode,
     selectedStrategy,
     setSelectedStrategy,
+    setSelectedStrategyEditable,
     setSelectedStrategyRevision,
   } = useWorkspace()
   const projectQuery = useQuery({
@@ -58,17 +59,22 @@ export function WorkspaceToolbar({
   useEffect(() => {
     const projects = projectQuery.data ?? []
     if (!selectedStrategy) {
+      setSelectedStrategyEditable(null)
       setSelectedStrategyRevision(null)
       return
     }
     const selected = projects.find((item) => item.id === selectedStrategy)
     if (!selected && projectQuery.isSuccess) {
       setSelectedStrategy(null)
+      setSelectedStrategyEditable(null)
       setSelectedStrategyRevision(null)
       return
     }
-    if (selected) setSelectedStrategyRevision(selected.revision)
-  }, [projectQuery.data, projectQuery.isSuccess, selectedStrategy, setSelectedStrategy, setSelectedStrategyRevision])
+    if (selected) {
+      setSelectedStrategyEditable(selected.editable)
+      setSelectedStrategyRevision(selected.revision)
+    }
+  }, [projectQuery.data, projectQuery.isSuccess, selectedStrategy, setSelectedStrategy, setSelectedStrategyEditable, setSelectedStrategyRevision])
 
   const addWidget = (widgetId: string, title: string) => {
     onAddWidget(widgetId, title)

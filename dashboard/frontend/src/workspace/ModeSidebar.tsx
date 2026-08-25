@@ -12,7 +12,7 @@ import { useWorkspace } from "@/contexts/WorkspaceContext"
 import type { WorkspaceMode } from "@/layouts/presets"
 import { cn } from "@/lib/utils"
 
-import { MODE_CONFIG, MODE_GROUPS } from "./modes"
+import { MODE_CONFIG, WORKSPACE_MODES } from "./modes"
 
 interface ModeSidebarProps {
   collapsed: boolean
@@ -27,9 +27,10 @@ export function ModeSidebar({
   onToggleCollapsed,
   onSwitchMode,
 }: ModeSidebarProps) {
-  const { activeMode } = useWorkspace()
+  const { activeMode, selectedStrategy, selectedStrategyEditable, selectedStrategyRevision } = useWorkspace()
   const { language, toggleLanguage, t } = useLanguage()
   const { theme, toggleTheme } = useTheme()
+  const projectReady = Boolean(selectedStrategy && selectedStrategyEditable && selectedStrategyRevision != null)
 
   return (
     <aside
@@ -48,43 +49,40 @@ export function ModeSidebar({
         )}
       </div>
 
-      <nav className="min-h-0 flex-1 space-y-2 overflow-auto p-2">
-        {MODE_GROUPS.map((group, groupIndex) => {
+      <nav className="min-h-0 flex-1 space-y-1 overflow-auto p-2">
+        {WORKSPACE_MODES.map((mode) => {
+          const { icon: Icon, labelKey, detailKey } = MODE_CONFIG[mode]
+          const isActive = activeMode === mode
+          const disabled = mode !== "project" && !projectReady
           return (
-            <div key={group.labelKey} className="space-y-1">
-              {!collapsed ? (
-                <div className="px-2 pt-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
-                  {t(group.labelKey)}
-                </div>
-              ) : groupIndex > 0 ? <div className="mx-2 border-t border-border" /> : null}
-              {group.modes.map((mode) => {
-                const { icon: Icon, labelKey, detailKey } = MODE_CONFIG[mode]
-                const isActive = activeMode === mode
-                return (
-                  <button
-                    key={mode}
-                    className={cn(
-                      "relative flex min-w-0 items-center rounded text-xs transition-colors",
-                      collapsed ? "h-10 w-10 justify-center" : "h-11 w-full gap-2 px-2 text-left",
-                      isActive
-                        ? "bg-primary/10 text-foreground ring-1 ring-primary/20"
-                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-                    )}
-                    onClick={() => onSwitchMode(mode)}
-                    title={t(detailKey)}
-                  >
-                    <Icon className={cn("h-4 w-4 shrink-0", isActive && "text-primary")} />
-                    {!collapsed && (
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{t(labelKey)}</span>
-                        <span className="block truncate text-[10px] text-muted-foreground">{t(detailKey)}</span>
-                      </span>
-                    )}
-                    {isActive && <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r bg-primary" />}
-                  </button>
-                )
-              })}
-            </div>
+            <button
+              key={mode}
+              type="button"
+              disabled={disabled}
+              aria-disabled={disabled}
+              className={cn(
+                "relative flex min-w-0 items-center rounded text-xs transition-colors",
+                collapsed ? "h-10 w-10 justify-center" : "h-11 w-full gap-2 px-2 text-left",
+                disabled
+                  ? "cursor-not-allowed text-muted-foreground/35 opacity-60"
+                  : isActive
+                    ? "bg-primary/10 text-foreground ring-1 ring-primary/20"
+                    : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+              )}
+              onClick={() => onSwitchMode(mode)}
+              title={disabled ? t("sidebar.projectRequired") : t(detailKey)}
+            >
+              <Icon className={cn("h-4 w-4 shrink-0", isActive && !disabled && "text-primary")} />
+              {!collapsed && (
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{t(labelKey)}</span>
+                  <span className="block truncate text-[10px] text-muted-foreground">
+                    {disabled ? t("sidebar.projectRequired") : t(detailKey)}
+                  </span>
+                </span>
+              )}
+              {isActive && !disabled && <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r bg-primary" />}
+            </button>
           )
         })}
       </nav>

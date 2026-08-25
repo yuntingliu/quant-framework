@@ -109,7 +109,7 @@ def test_conexus_tools_match_the_python_pipeline_contract():
     assert "markdown:input.markdown" in save_report["code"]
 
 
-def test_agent_and_harness_use_only_the_seven_user_facing_workbenches():
+def test_agent_and_harness_use_only_the_six_user_facing_workbenches():
     agent = _load(BUNDLE / "agents" / "AlphaLab-Research-Agent.agent.json")
     assert agent["model"] == "openai/gpt-5.6-sol"
     tools = {_load(path)["toolName"] for path in TOOLS.glob("*.json")}
@@ -133,6 +133,7 @@ def test_agent_and_harness_use_only_the_seven_user_facing_workbenches():
         "等权、按得分或按排名衰减的仓位分配控制",
         "attribution",
         "factor.workbench",
+        "执行假设请求切换 backtest",
         "只能调用一次 update_nodes",
         "必须在 update_nodes 前调用且只调用一次 alphalab_save_report",
     ):
@@ -149,7 +150,6 @@ def test_agent_and_harness_use_only_the_seven_user_facing_workbenches():
         "factor",
         "project",
         "selection",
-        "execution",
         "backtest",
         "report",
     ]

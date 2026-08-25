@@ -87,7 +87,9 @@ def test_seed_database_is_complete():
     assert counts["pipeline_projects"] >= 1
     assert counts["pipeline_project_versions"] >= counts["pipeline_projects"]
     assert authorable_stages == {"selection", "portfolio", "execution"}
-    assert default_project == (1, 1)
+    assert default_project is not None
+    assert default_project[0] == 1
+    assert default_project[1] >= 1
     assert counts["backtests"] >= 6
     assert counts["backtest_returns"] >= 360
     assert counts["backtest_weights"] > 0

@@ -8,7 +8,7 @@ The current strategy interface is Python-native and has one execution path.
 The top-level workbenches are parallel navigation destinations:
 
 ```text
-Data | Factor Research | Research Project | Signal Model | Execution | Backtest | Report
+Research Project | Data | Factor Research | Signal Model | Backtest | Report
 ```
 
 The Factor Research Workbench owns the factor library, project factor basket,
@@ -31,6 +31,10 @@ revisions but are edited only in the Factor Research Workbench. Stage
 workbenches show the current project read-only and never duplicate project
 settings. A revision, profile, or cutoff change makes cached stage output stale
 until the stage is run again.
+It is the first navigation destination. Data, Factor Research, Signal Model,
+Backtest, and Report remain disabled until an editable research project has been
+created or selected; the built-in default project is a creation template rather
+than an active research context.
 
 The strategy and research dependency is:
 
@@ -57,8 +61,10 @@ The Signal Model workbench also owns the user-facing allocation method, target
 gross exposure, and single-name limit. The internal `portfolio` Python stage
 remains version-pinned and emits final target weights so runtime boundaries and
 historical provenance stay intact, but it is not a separate navigation
-destination. Execution describes next-session fill, liquidity, capital, and
-cost assumptions; order creation remains in the guarded engine.
+destination. Backtest owns the user-facing next-session fill, liquidity,
+capital, and cost assumptions. The internal `execution` Python stage remains
+version-pinned for runtime provenance; order creation remains in the guarded
+engine.
 
 There is no timing stage and no independent risk component. A drawdown-driven
 exposure change would be a stateful timing rule and is outside the current
