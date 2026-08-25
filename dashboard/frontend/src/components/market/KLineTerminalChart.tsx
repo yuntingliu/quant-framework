@@ -31,6 +31,7 @@ interface KLineTerminalChartProps {
   symbol: string
   chartType: MarketChartType
   indicators: string[]
+  compact?: boolean
   onCrosshairChange?: (bar: MarketBar | null) => void
 }
 
@@ -38,11 +39,15 @@ function timestampFor(date: string): number {
   return Date.parse(`${date}T00:00:00+08:00`)
 }
 
-function chartStyles(theme: "light" | "dark", chartType: MarketChartType): DeepPartial<Styles> {
+function chartStyles(theme: "light" | "dark", chartType: MarketChartType, compact: boolean): DeepPartial<Styles> {
   const dark = theme === "dark"
   const text = dark ? "#919aaa" : "#667085"
   const border = dark ? "#2b313b" : "#dce1e8"
   const grid = dark ? "rgba(145,154,170,0.075)" : "rgba(102,112,133,0.11)"
+  const chartTextSize = compact ? 9 : 10
+  const tooltipMargins = compact
+    ? { marginLeft: 3, marginTop: 2, marginRight: 3, marginBottom: 2 }
+    : { marginLeft: 4, marginTop: 3, marginRight: 4, marginBottom: 3 }
   return {
     grid: {
       horizontal: { show: true, color: grid, size: 1, style: "dashed", dashedValue: [2, 2] },
@@ -72,6 +77,13 @@ function chartStyles(theme: "light" | "dark", chartType: MarketChartType): DeepP
       tooltip: {
         showRule: "follow_cross",
         showType: "standard",
+        title: { size: chartTextSize, ...tooltipMargins },
+        legend: { size: chartTextSize, ...tooltipMargins },
+      },
+      priceMark: {
+        high: { textSize: chartTextSize },
+        low: { textSize: chartTextSize },
+        last: { text: { size: chartTextSize } },
       },
     },
     indicator: {
@@ -84,17 +96,19 @@ function chartStyles(theme: "light" | "dark", chartType: MarketChartType): DeepP
       tooltip: {
         showRule: "follow_cross",
         showType: "standard",
+        title: { size: chartTextSize, ...tooltipMargins },
+        legend: { size: chartTextSize, ...tooltipMargins },
       },
     },
     xAxis: {
       axisLine: { show: true, color: border, size: 1 },
       tickLine: { show: true, color: border, size: 1, length: 3 },
-      tickText: { show: true, color: text, size: 10, family: "IBM Plex Mono" },
+      tickText: { show: true, color: text, size: chartTextSize, family: "IBM Plex Mono" },
     },
     yAxis: {
       axisLine: { show: true, color: border, size: 1 },
       tickLine: { show: true, color: border, size: 1, length: 3 },
-      tickText: { show: true, color: text, size: 10, family: "IBM Plex Mono" },
+      tickText: { show: true, color: text, size: chartTextSize, family: "IBM Plex Mono" },
     },
     separator: {
       size: 1,
@@ -105,11 +119,11 @@ function chartStyles(theme: "light" | "dark", chartType: MarketChartType): DeepP
     crosshair: {
       horizontal: {
         line: { color: text, size: 1, style: "dashed", dashedValue: [4, 2] },
-        text: { color: dark ? "#f8fafc" : "#ffffff", backgroundColor: dark ? "#465063" : "#58657a", size: 10 },
+        text: { color: dark ? "#f8fafc" : "#ffffff", backgroundColor: dark ? "#465063" : "#58657a", size: chartTextSize },
       },
       vertical: {
         line: { color: text, size: 1, style: "dashed", dashedValue: [4, 2] },
-        text: { color: dark ? "#f8fafc" : "#ffffff", backgroundColor: dark ? "#465063" : "#58657a", size: 10 },
+        text: { color: dark ? "#f8fafc" : "#ffffff", backgroundColor: dark ? "#465063" : "#58657a", size: chartTextSize },
       },
     },
   }
@@ -133,7 +147,7 @@ function asMarketBar(data: KLineData | undefined): MarketBar | null {
 }
 
 export const KLineTerminalChart = forwardRef<KLineTerminalChartHandle, KLineTerminalChartProps>(
-  function KLineTerminalChart({ rows, symbol, chartType, indicators, onCrosshairChange }, forwardedRef) {
+  function KLineTerminalChart({ rows, symbol, chartType, indicators, compact = false, onCrosshairChange }, forwardedRef) {
     const { theme } = useTheme()
     const containerRef = useRef<HTMLDivElement>(null)
     const chartRef = useRef<Chart | null>(null)
@@ -163,7 +177,7 @@ export const KLineTerminalChart = forwardRef<KLineTerminalChartHandle, KLineTerm
       const chart = init(container, {
         locale: "zh-CN",
         timezone: "Asia/Shanghai",
-        styles: chartStyles(theme, chartType),
+        styles: chartStyles(theme, chartType, compact),
       })
       if (!chart) return
       chartRef.current = chart
@@ -189,8 +203,8 @@ export const KLineTerminalChart = forwardRef<KLineTerminalChartHandle, KLineTerm
     }, [])
 
     useEffect(() => {
-      chartRef.current?.setStyles(chartStyles(theme, chartType))
-    }, [chartType, theme])
+      chartRef.current?.setStyles(chartStyles(theme, chartType, compact))
+    }, [chartType, compact, theme])
 
     useEffect(() => {
       const chart = chartRef.current

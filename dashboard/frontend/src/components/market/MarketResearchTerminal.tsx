@@ -20,6 +20,7 @@ import {
 } from "./KLineTerminalChart"
 
 export type MarketRange = "3m" | "6m" | "1y" | "all"
+export type MarketTerminalDensity = "regular" | "compact"
 
 interface MarketResearchTerminalProps {
   instruments: MarketInstrument[]
@@ -37,6 +38,7 @@ interface MarketResearchTerminalProps {
   contextPanelLabel?: string
   dataLabel?: string
   emptyLabel?: string
+  density?: MarketTerminalDensity
 }
 
 const MAIN_INDICATORS = ["MA", "EMA", "BOLL", "SAR"]
@@ -70,6 +72,7 @@ export function MarketResearchTerminal({
   contextPanelLabel = "研究字段",
   dataLabel = "日线 · 前复权",
   emptyLabel = "当前证券没有可用行情。",
+  density = "regular",
 }: MarketResearchTerminalProps) {
   const [universeView, setUniverseView] = useState<"all" | "watchlist">("all")
   const [search, setSearch] = useState("")
@@ -98,7 +101,7 @@ export function MarketResearchTerminal({
   const rowVirtualizer = useVirtualizer({
     count: filteredInstruments.length,
     getScrollElement: () => listRef.current,
-    estimateSize: () => 42,
+    estimateSize: () => density === "compact" ? 34 : 42,
     overscan: 8,
   })
 
@@ -124,7 +127,7 @@ export function MarketResearchTerminal({
   }
 
   return (
-    <section className={`market-terminal ${contextPanel ? "with-context" : ""}`} aria-label="行情研究终端">
+    <section className={`market-terminal ${contextPanel ? "with-context" : ""} ${density === "compact" ? "is-compact" : ""}`} aria-label="行情研究终端">
       <aside className="market-terminal-universe">
         <div className="market-terminal-universe-tabs" role="tablist" aria-label="证券列表">
           <button type="button" role="tab" aria-selected={universeView === "all"} onClick={() => setUniverseView("all")}>全部 <span>{instruments.length}</span></button>
@@ -214,7 +217,7 @@ export function MarketResearchTerminal({
 
         <div className="market-terminal-chart">
           {rows.length ? (
-            <KLineTerminalChart ref={chartRef} rows={rows} symbol={symbol} chartType={chartType} indicators={indicators} onCrosshairChange={setCrosshairBar} />
+            <KLineTerminalChart ref={chartRef} rows={rows} symbol={symbol} chartType={chartType} indicators={indicators} compact={density === "compact"} onCrosshairChange={setCrosshairBar} />
           ) : (
             <div className={`market-terminal-empty ${error ? "error" : ""}`}>
               {error || (loading ? "正在加载行情…" : emptyLabel)}

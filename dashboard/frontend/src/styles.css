@@ -3413,6 +3413,152 @@ button {
   background: hsl(var(--card));
 }
 
+/* Factor Research embeds the terminal in a shorter analysis band. Compact
+   density scales the quote chrome and KLineChart labels with the chart area. */
+.market-terminal.is-compact .market-terminal-universe-tabs button {
+  min-height: 1.72rem;
+  font-size: 0.56rem;
+}
+
+.market-terminal.is-compact .market-terminal-universe-tabs span,
+.market-terminal.is-compact .market-terminal-list-heading {
+  font-size: 0.43rem;
+}
+
+.market-terminal.is-compact .market-terminal-search {
+  height: 1.55rem;
+  gap: 0.25rem;
+  margin: 0.3rem;
+  padding: 0 0.38rem;
+}
+
+.market-terminal.is-compact .market-terminal-search input,
+.market-terminal.is-compact .market-terminal-symbol-main strong {
+  font-size: 0.53rem;
+}
+
+.market-terminal.is-compact .market-terminal-search svg,
+.market-terminal.is-compact .market-terminal-star svg,
+.market-terminal.is-compact .market-terminal-identity svg {
+  width: 0.68rem;
+  height: 0.68rem;
+}
+
+.market-terminal.is-compact .market-terminal-list-heading {
+  min-height: 1.12rem;
+  padding: 0 0.42rem;
+}
+
+.market-terminal.is-compact .market-terminal-symbol {
+  grid-template-columns: minmax(0, 1fr) 1.42rem;
+}
+
+.market-terminal.is-compact .market-terminal-symbol-main {
+  gap: 0.03rem;
+  padding: 0.2rem 0.16rem 0.2rem 0.46rem;
+}
+
+.market-terminal.is-compact .market-terminal-symbol-main small {
+  font-size: 0.43rem;
+}
+
+.market-terminal.is-compact .market-terminal-quote {
+  min-height: 2.75rem;
+  grid-template-columns: minmax(7rem, auto) minmax(6.2rem, auto) minmax(18rem, 1fr) auto;
+  gap: 0.5rem;
+  padding: 0.28rem 0.5rem;
+}
+
+.market-terminal.is-compact .market-terminal-identity {
+  gap: 0.22rem;
+}
+
+.market-terminal.is-compact .market-terminal-identity > span {
+  gap: 0.04rem;
+}
+
+.market-terminal.is-compact .market-terminal-identity strong {
+  font-size: 0.68rem;
+}
+
+.market-terminal.is-compact .market-terminal-identity small {
+  font-size: 0.45rem;
+}
+
+.market-terminal.is-compact .market-terminal-identity > button {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+.market-terminal.is-compact .market-terminal-last {
+  gap: 0.02rem;
+}
+
+.market-terminal.is-compact .market-terminal-last strong {
+  font-size: 0.86rem;
+}
+
+.market-terminal.is-compact .market-terminal-last span {
+  font-size: 0.45rem;
+}
+
+.market-terminal.is-compact .market-terminal-ohlcv {
+  grid-template-columns: repeat(3, minmax(4.2rem, 1fr));
+  gap: 0.08rem 0.4rem;
+}
+
+.market-terminal.is-compact .market-terminal-ohlcv > div {
+  gap: 0.2rem;
+}
+
+.market-terminal.is-compact .market-terminal-ohlcv dt,
+.market-terminal.is-compact .market-terminal-date {
+  font-size: 0.42rem;
+}
+
+.market-terminal.is-compact .market-terminal-ohlcv dd {
+  font-size: 0.46rem;
+}
+
+.market-terminal.is-compact .market-terminal-toolbar {
+  min-height: 1.72rem;
+  gap: 0.2rem;
+  padding: 0.16rem 0.3rem;
+}
+
+.market-terminal.is-compact .market-terminal-tool-group button,
+.market-terminal.is-compact .market-terminal-indicators button {
+  min-width: 1.38rem;
+  height: 1.25rem;
+  gap: 0.12rem;
+  padding: 0 0.2rem;
+  font-size: 0.44rem;
+}
+
+.market-terminal.is-compact .market-terminal-tool-group svg {
+  width: 0.65rem;
+  height: 0.65rem;
+}
+
+.market-terminal.is-compact .market-terminal-ranges button {
+  min-width: 1.7rem;
+}
+
+.market-terminal.is-compact .market-terminal-indicators > span {
+  margin-left: 0.12rem;
+  font-size: 0.4rem;
+}
+
+.market-terminal.is-compact .market-terminal-tool-divider {
+  height: 0.8rem;
+}
+
+.market-terminal.is-compact .market-terminal-loading {
+  top: 0.28rem;
+  padding: 0.12rem 0.32rem;
+  font-size: 0.42rem;
+}
+
 @media (max-width: 1180px) {
   .market-terminal.with-context {
     height: auto;

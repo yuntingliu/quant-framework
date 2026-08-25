@@ -130,6 +130,7 @@ function FactorResearchDataBrowser() {
         onToggleWatchlist={toggleWatchlist}
         dataLabel={`日线 · 截至 ${endDate}`}
         emptyLabel="当前证券没有可用 K 线。"
+        density="compact"
         contextPanelLabel="表达式数据字段"
         contextPanel={(
           <div className="factor-source-fields">

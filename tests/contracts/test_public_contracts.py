@@ -383,6 +383,7 @@ def test_factor_mode_exposes_real_factor_lab_panels_separately_from_project():
     assert '`/factor-research/library?profile=${profile}`' in context
     for component in ("MarketResearchTerminal", "useMarketWatchlist", "Tabs", "Button"):
         assert component in workbench
+    assert 'density="compact"' in workbench
     for text in ("全部", "自选", "技术指标", "行情区间", "MA", "VOL", "MACD", "KDJ"):
         assert text in market_terminal
     assert "useVirtualizer" in market_terminal
@@ -390,6 +391,8 @@ def test_factor_mode_exposes_real_factor_lab_panels_separately_from_project():
     assert 'upColor: "#ef4444"' in kline_terminal
     assert 'downColor: "#16a34a"' in kline_terminal
     assert 'chart.createIndicator({ name, paneId: "candle_pane" }, true)' in kline_terminal
+    assert "chartTextSize = compact ? 9 : 10" in kline_terminal
+    assert 'compact={density === "compact"}' in market_terminal
     assert "factor-workflow-strip" not in workbench
     assert '`/data/market/bars?' in workbench
     assert '`/data/fundamentals?' in workbench
