@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BarChart3, CalendarDays, ChevronDown, Database, ListFilter, Play, Plus, RefreshCw, Save, Search, ShieldCheck, Star, X } from 'lucide-react'
-import { CandlestickChart } from '../../components/charts'
+import { ChevronDown, Database, ListFilter, Play, Plus, RefreshCw, Save, Search, ShieldCheck, Star, X } from 'lucide-react'
+import { MarketResearchTerminal, type MarketRange, useMarketWatchlist } from '../../components/market'
 import { CSVExportButton } from '../../components/shared/CSVExportButton'
-import { IndicatorMenu } from '../../components/shared/IndicatorMenu'
-import { SymbolCombobox } from '../../components/shared/SymbolCombobox'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card'
@@ -24,16 +22,13 @@ import {
   type SyncPlan,
 } from '../../lib/api'
 import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh'
-import { useIndicatorSelection } from '../../hooks/useIndicatorSelection'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { hasExplicitDataProfile, setDetectedDataProfile, useDataProfile } from '../../lib/data-profile'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { RiskDataWorkspace } from './RiskDataWorkspace'
 
 type DataWorkbenchTab = 'catalog' | 'risk' | 'preview' | 'jobs'
-type MarketRange = '3m' | '6m' | '1y' | 'all'
 type ResearchScopeMode = 'all' | 'custom'
-const WATCHLIST_STORAGE_KEY = 'alphalab.data-watchlist.v1'
 
 interface ResearchScope {
   symbols: string[]
@@ -115,26 +110,6 @@ function rangeStart(end: string, range: MarketRange): string | null {
   if (range === '6m') start.setMonth(start.getMonth() - 6)
   if (range === '1y') start.setFullYear(start.getFullYear() - 1)
   return start.toISOString().slice(0, 10)
-}
-
-function compactNumber(value: number | undefined, locale: string): string {
-  if (value === undefined || !Number.isFinite(value)) return '—'
-  return new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 2 }).format(value)
-}
-
-function loadWatchlist(): string[] {
-  try {
-    const stored = JSON.parse(window.localStorage.getItem(WATCHLIST_STORAGE_KEY) ?? '[]')
-    if (!Array.isArray(stored)) return []
-    return [...new Set(
-      stored
-        .filter((item): item is string => typeof item === 'string')
-        .map((item) => item.trim().toUpperCase())
-        .filter(Boolean),
-    )]
-  } catch {
-    return []
-  }
 }
 
 export function DataWorkbenchWidget() {
@@ -385,8 +360,7 @@ export function DataWorkbenchWidget() {
   const [marketBusy, setMarketBusy] = useState(false)
   const [marketError, setMarketError] = useState('')
   const [marketReloadRevision, setMarketReloadRevision] = useState(0)
-  const [watchlist, setWatchlist] = useState<string[]>(loadWatchlist)
-  const [selectedIndicators, setSelectedIndicators] = useIndicatorSelection('data-workbench-market')
+  const { watchlist, toggleWatchlist } = useMarketWatchlist()
 
   const refresh = useCallback(async () => {
     try {
@@ -500,26 +474,13 @@ export function DataWorkbenchWidget() {
     return () => { active = false }
   }, [profile, refreshRevision])
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(watchlist))
-    } catch {
-      // The workbench remains usable when browser storage is disabled.
-    }
-  }, [watchlist])
-
   const marketSymbols = useMemo(
     () => marketInstruments.map((item) => item.symbol),
-    [marketInstruments],
-  )
-  const marketInstrumentBySymbol = useMemo(
-    () => new Map(marketInstruments.map((item) => [item.symbol, item])),
     [marketInstruments],
   )
   const marketSymbol = selectedSymbol && marketSymbols.includes(selectedSymbol)
     ? selectedSymbol
     : marketSymbols[0] ?? ''
-  const marketSymbolIsWatched = watchlist.includes(marketSymbol)
   const profileStatus = status?.profiles[profile]
   const marketEnd = profileStatus?.latest_date ?? null
 
@@ -538,6 +499,7 @@ export function DataWorkbenchWidget() {
     const start = rangeStart(marketEnd, marketRange)
     if (start) params.set('start', start)
     setMarketBusy(true)
+    setMarketRows([])
     setMarketError('')
     apiGet<{ rows: MarketBar[] }>(`/data/market/bars?${params.toString()}`)
       .then((payload) => {
@@ -636,14 +598,6 @@ export function DataWorkbenchWidget() {
   )
   const qualityPassed = qualityReports?.filter((item) => item.status === 'passed').length ?? 0
   const latestJob = jobs[0]
-  const latestBar = marketRows.at(-1)
-  const previousBar = marketRows.at(-2)
-  const dailyChange = latestBar && previousBar && previousBar.close
-    ? latestBar.close / previousBar.close - 1
-    : null
-  const rangeChange = latestBar && marketRows[0]?.close
-    ? latestBar.close / marketRows[0].close - 1
-    : null
 
   function chooseDataset(id: string) {
     setDatasetId(id)
@@ -653,13 +607,6 @@ export function DataWorkbenchWidget() {
 
   function datasetLabel(id: string): string {
     return catalog?.datasets.find((item) => item.id === id)?.label ?? id
-  }
-
-  function toggleWatchlist(symbol: string) {
-    if (!symbol) return
-    setWatchlist((current) => current.includes(symbol)
-      ? current.filter((item) => item !== symbol)
-      : [...current, symbol])
   }
 
   function changeScopeMode(mode: ResearchScopeMode) {
@@ -851,97 +798,21 @@ export function DataWorkbenchWidget() {
         </CardContent>
       </Card>
       <div className="workbench-body market-kline-workbench">
-        <div className="market-kline-toolbar">
-          <SymbolCombobox
-            symbols={marketInstruments}
-            value={marketSymbol}
-            onChange={setSelectedSymbol}
-            ariaLabel={copy.marketSymbol}
-          />
-          <button
-            className={`watchlist-toggle ${marketSymbolIsWatched ? 'active' : ''}`}
-            type="button"
-            aria-pressed={marketSymbolIsWatched}
-            onClick={() => toggleWatchlist(marketSymbol)}
-            disabled={!marketSymbol}
-            title={marketSymbolIsWatched ? copy.removeWatchlist : copy.addWatchlist}
-          >
-            <Star size={14} fill={marketSymbolIsWatched ? 'currentColor' : 'none'} />
-            {marketSymbolIsWatched ? copy.removeWatchlist : copy.addWatchlist}
-          </button>
-          <select aria-label={copy.klineRange} value={marketRange} onChange={(event) => setMarketRange(event.target.value as MarketRange)}>
-            <option value="3m">{copy.threeMonths}</option>
-            <option value="6m">{copy.sixMonths}</option>
-            <option value="1y">{copy.oneYear}</option>
-            <option value="all">{copy.allHistory}</option>
-          </select>
-          <IndicatorMenu selected={selectedIndicators} onChange={setSelectedIndicators} />
-          <button
-            className="market-refresh-button"
-            type="button"
-            onClick={() => setMarketReloadRevision((value) => value + 1)}
-            disabled={marketBusy || !marketSymbol}
-            title={copy.reloadChartTitle}
-          >
-            <RefreshCw size={14} /> {copy.reloadChart}
-          </button>
-          <span className="status-pill neutral"><CalendarDays size={13} /> {copy.dailyAdjusted}</span>
-        </div>
-        <section className="data-watchlist" aria-label={copy.watchlist}>
-          <div className="data-watchlist-heading">
-            <strong><Star size={13} /> {copy.watchlist}</strong>
-            <span>{watchlist.length} · {copy.watchlistLocal}</span>
-          </div>
-          {watchlist.length ? (
-            <div className="data-watchlist-list">
-              {watchlist.map((symbol) => {
-                const instrument = marketInstrumentBySymbol.get(symbol)
-                return (
-                  <div className={`data-watchlist-item ${symbol === marketSymbol ? 'active' : ''}`} key={symbol}>
-                    <button
-                      className="data-watchlist-select"
-                      type="button"
-                      disabled={!instrument}
-                      onClick={() => setSelectedSymbol(symbol)}
-                      title={instrument ? `${symbol}${instrument.name ? ` ${instrument.name}` : ''}` : copy.unavailableSymbol}
-                    >
-                      <strong>{symbol}</strong>
-                      <span>{instrument?.name || (!instrument ? copy.unavailableSymbol : '—')}</span>
-                    </button>
-                    <button
-                      className="data-watchlist-remove"
-                      type="button"
-                      aria-label={`${copy.removeWatchlist}: ${symbol}`}
-                      onClick={() => toggleWatchlist(symbol)}
-                      title={copy.removeWatchlist}
-                    >
-                      <X size={13} />
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            <p className="data-watchlist-empty">{copy.watchlistEmpty}</p>
-          )}
-        </section>
-        {marketError ? <div className="workbench-message error">{marketError}</div> : null}
-        {!marketError && marketBusy && marketRows.length === 0 ? <div className="analytics-empty">{copy.loadingBars}</div> : null}
-        {!marketError && !marketBusy && marketRows.length === 0 ? <div className="analytics-empty">{copy.noBars}</div> : null}
-        {marketRows.length > 0 ? (
-          <>
-            <div className="analytics-kpi-grid market-kline-kpis">
-              <div className="analytics-kpi"><span><BarChart3 size={12} /> {copy.lastClose}</span><strong>{latestBar?.close.toFixed(2) ?? '—'}</strong></div>
-              <div className="analytics-kpi"><span>{copy.dailyChange}</span><strong className={dailyChange !== null && dailyChange < 0 ? 'gate-fail-text' : 'gate-pass-text'}>{dailyChange === null ? '—' : `${(dailyChange * 100).toFixed(2)}%`}</strong></div>
-              <div className="analytics-kpi"><span>{copy.rangeChange}</span><strong className={rangeChange !== null && rangeChange < 0 ? 'gate-fail-text' : 'gate-pass-text'}>{rangeChange === null ? '—' : `${(rangeChange * 100).toFixed(2)}%`}</strong></div>
-              <div className="analytics-kpi"><span>{copy.latestVolume}</span><strong>{compactNumber(latestBar?.volume, language === 'zh' ? 'zh-CN' : 'en-US')}</strong></div>
-              <div className="analytics-kpi"><span>{copy.latestDate}</span><strong>{latestBar?.date ?? '—'}</strong></div>
-            </div>
-            <div className="market-kline-frame">
-              <CandlestickChart rows={marketRows} selectedIndicators={selectedIndicators} />
-            </div>
-          </>
-        ) : null}
+        <MarketResearchTerminal
+          instruments={marketInstruments}
+          rows={marketRows}
+          symbol={marketSymbol}
+          onSymbolChange={setSelectedSymbol}
+          range={marketRange}
+          onRangeChange={setMarketRange}
+          loading={marketBusy}
+          error={marketError}
+          onReload={() => setMarketReloadRevision((value) => value + 1)}
+          watchlist={watchlist}
+          onToggleWatchlist={toggleWatchlist}
+          dataLabel={copy.dailyAdjusted}
+          emptyLabel={copy.noBars}
+        />
       </div>
 
       <details className="data-management">

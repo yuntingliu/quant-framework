@@ -1,19 +1,13 @@
 import { useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
-  ChartCandlestick,
-  Database,
   FlaskConical,
-  Loader2,
   Plus,
   Play,
   Save,
-  TableProperties,
 } from "lucide-react"
 
-import { CandlestickChart, RollingLineChart } from "@/components/charts"
-import { SymbolCombobox } from "@/components/shared/SymbolCombobox"
-import { Badge } from "@/components/ui/badge"
+import { MarketResearchTerminal, type MarketRange, useMarketWatchlist } from "@/components/market"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useFactorLab } from "@/contexts/FactorLabContext"
@@ -31,17 +25,14 @@ import {
   FactorValidationSettings,
 } from "./FactorLabPanels"
 
-type ResearchDataset = "market_bars" | "fundamentals"
-type MarketRange = "3m" | "6m" | "1y"
-const NO_INDICATORS: [] = []
-
 interface FundamentalPayload {
   fields: string[]
   asof_date: string
   rows: Array<Record<string, string | number | null>>
 }
 
-function dateBefore(endDate: string, range: MarketRange): string {
+function dateBefore(endDate: string, range: MarketRange): string | null {
+  if (range === "all") return null
   const start = new Date(`${endDate}T00:00:00`)
   if (range === "3m") start.setMonth(start.getMonth() - 3)
   if (range === "6m") start.setMonth(start.getMonth() - 6)
@@ -62,12 +53,11 @@ function FactorResearchDataBrowser() {
   const lab = useFactorLab()
   const [profile] = useDataProfile()
   const { activeMode, selectedSymbol, setSelectedSymbol } = useWorkspace()
-  const [dataset, setDataset] = useState<ResearchDataset>("market_bars")
   const [range, setRange] = useState<MarketRange>("6m")
-  const [fundamentalField, setFundamentalField] = useState("roe")
+  const [reloadRevision, setReloadRevision] = useState(0)
+  const { watchlist, toggleWatchlist } = useMarketWatchlist()
   const endDate = lab.draft.endDate
   const sources = lab.library?.data_sources ?? []
-  const activeSource = sources.find((source) => source.id === dataset)
   const fieldCount = sources.reduce((count, source) => count + source.fields.length, 0)
 
   const symbolQuery = useQuery({
@@ -86,14 +76,15 @@ function FactorResearchDataBrowser() {
   }, [selectedSymbol, setSelectedSymbol, symbol])
 
   const barsQuery = useQuery({
-    queryKey: ["factor-research", "data", "bars", profile, symbol, endDate, range],
+    queryKey: ["factor-research", "data", "bars", profile, symbol, endDate, range, reloadRevision],
     queryFn: () => {
       const params = new URLSearchParams({
         profile,
         symbol,
-        start: dateBefore(endDate, range),
         end: endDate,
       })
+      const start = dateBefore(endDate, range)
+      if (start) params.set("start", start)
       return api.get<{ rows: MarketBar[] }>(`/data/market/bars?${params.toString()}`)
     },
     enabled: activeMode === "factor" && Boolean(symbol),
@@ -118,61 +109,36 @@ function FactorResearchDataBrowser() {
     [fundamentalsQuery.data?.rows],
   )
   const latestFundamental = fundamentalRows.at(-1)
-  const fundamentalSeries = fundamentalRows.flatMap((row) => {
-    const value = row[fundamentalField]
-    return typeof value === "number" && Number.isFinite(value)
-      ? [{ date: String(row.quarter ?? row.available_date ?? ""), value }]
-      : []
-  })
-  const loading = dataset === "market_bars" ? barsQuery.isLoading : fundamentalsQuery.isLoading
-  const error = dataset === "market_bars" ? barsQuery.error : fundamentalsQuery.error
 
-  function insertField(sourceId: ResearchDataset, name: string) {
-    setDataset(sourceId)
-    if (sourceId === "fundamentals") setFundamentalField(name)
+  function insertField(name: string) {
     lab.requestExpressionInsert(name)
   }
 
   return (
     <section className="factor-source-browser" aria-label="因子研究数据">
-      <div className="factor-source-browser-toolbar">
-        <div className="factor-source-heading">
-          <span><Database size={15} /></span>
-          <div><strong>研究数据</strong><small>来自公共数据 API，点击字段直接加入表达式</small></div>
-        </div>
-        <div className="factor-source-tabs" role="tablist" aria-label="研究数据源">
-          {sources.map((source) => (
-            <button type="button" role="tab" aria-selected={dataset === source.id} className={dataset === source.id ? "active" : ""} key={source.id} onClick={() => setDataset(source.id)}>
-              {source.id === "market_bars" ? <ChartCandlestick size={12} /> : <TableProperties size={12} />}{source.name}
-            </button>
-          ))}
-        </div>
-        <SymbolCombobox symbols={instruments} value={symbol} onChange={setSelectedSymbol} ariaLabel="研究证券" />
-        {dataset === "market_bars" ? (
-          <select aria-label="K 线区间" value={range} onChange={(event) => setRange(event.target.value as MarketRange)}>
-            <option value="3m">3 个月</option><option value="6m">6 个月</option><option value="1y">1 年</option>
-          </select>
-        ) : <Badge variant="outline">截至 {fundamentalsQuery.data?.asof_date ?? endDate}</Badge>}
-      </div>
-
-      <div className="factor-source-browser-grid">
-        <div className="factor-source-visual">
-          {loading ? (
-            <div className="factor-source-empty"><Loader2 className="spin" size={15} />正在读取 {activeSource?.endpoint ?? "数据 API"}…</div>
-          ) : error ? (
-            <div className="factor-source-empty error">{error instanceof Error ? error.message : String(error)}</div>
-          ) : dataset === "market_bars" ? (
-              bars.length ? <CandlestickChart rows={bars} selectedIndicators={NO_INDICATORS} height={216} /> : <div className="factor-source-empty">当前证券没有可用 K 线。</div>
-          ) : fundamentalSeries.length ? (
-            <RollingLineChart data={fundamentalSeries} series={[{ key: "value", name: fundamentalField, color: "#2962ff" }]} height={216} />
-          ) : <div className="factor-source-empty">当前字段没有可视化数据。</div>}
-        </div>
-
-        <aside className="factor-source-fields">
+      <MarketResearchTerminal
+        instruments={instruments}
+        rows={bars}
+        symbol={symbol}
+        onSymbolChange={setSelectedSymbol}
+        range={range}
+        onRangeChange={setRange}
+        loading={symbolQuery.isLoading || barsQuery.isLoading}
+        error={barsQuery.error instanceof Error ? barsQuery.error.message : barsQuery.error ? String(barsQuery.error) : ""}
+        onReload={() => setReloadRevision((value) => value + 1)}
+        watchlist={watchlist}
+        onToggleWatchlist={toggleWatchlist}
+        dataLabel={`日线 · 截至 ${endDate}`}
+        emptyLabel="当前证券没有可用 K 线。"
+        contextPanelLabel="表达式数据字段"
+        contextPanel={(
+          <div className="factor-source-fields">
           <div className="factor-source-fields-heading">
             <div><strong>当前数据全部字段</strong><small>{profile === "runtime" ? "Local RQ" : "Demo"} Schema 自动生成；可计算字段点击后加入</small></div>
             <span>{fieldCount} 个字段</span>
           </div>
+          {fundamentalsQuery.isLoading ? <div className="factor-source-fields-status">正在读取财务截面…</div> : null}
+          {fundamentalsQuery.error ? <div className="factor-source-fields-status error">{fundamentalsQuery.error instanceof Error ? fundamentalsQuery.error.message : String(fundamentalsQuery.error)}</div> : null}
           <div className="factor-source-field-groups">
             {sources.map((source) => (
               <section className="factor-source-field-group" key={source.id}>
@@ -190,7 +156,7 @@ function FactorResearchDataBrowser() {
                       </>
                     )
                     return field.expression_compatible ? (
-                      <button className="factor-source-field" type="button" key={`${source.id}-${field.name}`} title={`把 ${field.name} 插入表达式`} onClick={() => insertField(source.id, field.name)}>{content}</button>
+                      <button className="factor-source-field" type="button" key={`${source.id}-${field.name}`} title={`把 ${field.name} 插入表达式`} onClick={() => insertField(field.name)}>{content}</button>
                     ) : (
                       <div className="factor-source-field index" key={`${source.id}-${field.name}`} title={`${field.name}：当前字段只读`}>{content}</div>
                     )
@@ -199,8 +165,9 @@ function FactorResearchDataBrowser() {
               </section>
             ))}
           </div>
-        </aside>
-      </div>
+          </div>
+        )}
+      />
     </section>
   )
 }

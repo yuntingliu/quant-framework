@@ -87,6 +87,7 @@ export default defineConfig({
           const pkg = id.replace(/\\/g, '/').split('node_modules/')[1] ?? ''
           if (pkg.startsWith('dockview/')) return 'vendor-dockview'
           if (pkg.startsWith('recharts/') || pkg.startsWith('d3-')) return 'vendor-charts'
+          if (pkg.startsWith('klinecharts/') || pkg.startsWith('lightweight-charts/')) return 'vendor-market-charts'
           if (pkg.startsWith('@tanstack/')) return 'vendor-query'
           if (pkg.startsWith('@radix-ui/') || pkg.startsWith('cmdk/') || pkg.startsWith('sonner/')) return 'vendor-ui'
           if (pkg.startsWith('framer-motion/')) return 'vendor-motion'

@@ -15,9 +15,12 @@ The Factor Research Workbench owns the factor library, project factor basket,
 safe-expression authoring, latest validated cross-section, and point-in-time
 single-factor evidence before those factors are consumed by the signal model. Its
 default surface is one data-first workbench: public market and fundamental API
-data remain visible as K lines or field histories while the researcher builds
-or edits a factor. Its field catalog is generated from the selected profile's
-physical Parquet schemas; it is not a hand-maintained list of vendor columns.
+data remain visible in the shared market terminal while the researcher builds
+or edits a factor. K lines, native technical indicators, the security list, and
+crosshair quotes use the same component as the Data Workbench; Factor Research
+adds the expression-field inspector on the right. Its field catalog is generated
+from the selected profile's physical Parquet schemas; it is not a hand-maintained
+list of vendor columns.
 Raw market/fundamental fields and executable base factors
 can be inserted at the expression cursor. Single-factor evidence is a final
 validation view rather than the primary construction surface. It

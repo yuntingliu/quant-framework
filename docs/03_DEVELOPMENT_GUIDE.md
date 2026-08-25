@@ -142,7 +142,7 @@ project, data, factor, selection, backtest, report
 Factor is an independent Dockview workspace. Its default preset opens one
 Factor Research workbench with a persistent public-data surface above the
 builder. It reads the same `/api/data/market/bars` and `/api/data/fundamentals`
-contracts used elsewhere, visualizes K lines or fundamental field history, and
+contracts used elsewhere, visualizes K lines and current point-in-time field values, and
 shows every field discovered from the selected profile's Parquet metadata.
 Changing a profile must change the factor-library query key; never duplicate a
 vendor field list in the router or frontend. Raw data fields and base
@@ -157,6 +157,11 @@ Adopting a built-in or custom library factor copies its complete executable
 definition into the selected project's structured `settings.factors` and therefore
 creates a project revision. Later library edits do not mutate adopted project
 definitions; changing the active draft still marks earlier validation evidence stale.
+
+Data and Factor Research must reuse `components/market/MarketResearchTerminal`.
+Keep vendor chart calls inside `KLineTerminalChart`; workbenches provide rows,
+selection state, and an optional context panel. Do not create another local
+watchlist, symbol picker, or OHLCV/indicator implementation for either workflow.
 
 Research Project owns project selection/lifecycle and data profile. Data owns the
 user-facing research scope and structured eligibility filters, while persisting them

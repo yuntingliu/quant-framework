@@ -2842,194 +2842,6 @@ button {
   gap: 8px;
 }
 
-.market-kline-toolbar {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-
-.market-kline-toolbar .symbol-combobox {
-  width: min(260px, 45%);
-}
-
-.market-kline-toolbar select {
-  height: 30px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 5px;
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
-  padding: 0 8px;
-  font-size: 12px;
-}
-
-.market-refresh-button {
-  display: inline-flex;
-  height: 30px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 5px;
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
-  cursor: pointer;
-  padding: 0 9px;
-  font-size: 11px;
-}
-
-.watchlist-toggle {
-  display: inline-flex;
-  height: 30px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 5px;
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  padding: 0 9px;
-  font-size: 11px;
-}
-
-.watchlist-toggle:hover:not(:disabled),
-.watchlist-toggle.active {
-  border-color: hsl(var(--primary) / 0.45);
-  background: hsl(var(--primary) / 0.08);
-  color: hsl(var(--primary));
-}
-
-.watchlist-toggle:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
-.data-watchlist {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  min-height: 44px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 6px;
-  background: hsl(var(--muted) / 0.28);
-  padding: 6px 8px;
-}
-
-.data-watchlist-heading {
-  display: grid;
-  gap: 2px;
-  min-width: 112px;
-}
-
-.data-watchlist-heading strong {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-}
-
-.data-watchlist-heading span,
-.data-watchlist-empty {
-  color: hsl(var(--muted-foreground));
-  font-size: 10px;
-}
-
-.data-watchlist-list {
-  display: flex;
-  min-width: 0;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-.data-watchlist-item {
-  display: flex;
-  flex: 0 0 auto;
-  overflow: hidden;
-  border: 1px solid hsl(var(--border));
-  border-radius: 5px;
-  background: hsl(var(--card));
-}
-
-.data-watchlist-item.active {
-  border-color: hsl(var(--primary) / 0.55);
-  box-shadow: inset 2px 0 hsl(var(--primary));
-}
-
-.data-watchlist-select {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 7px;
-  min-width: 160px;
-  max-width: 230px;
-  height: 30px;
-  border: 0;
-  background: transparent;
-  color: hsl(var(--foreground));
-  cursor: pointer;
-  padding: 0 8px;
-  text-align: left;
-}
-
-.data-watchlist-select:hover:not(:disabled) {
-  background: hsl(var(--muted));
-}
-
-.data-watchlist-select:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
-.data-watchlist-select strong {
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 11px;
-}
-
-.data-watchlist-select span {
-  overflow: hidden;
-  color: hsl(var(--muted-foreground));
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.data-watchlist-remove {
-  display: inline-flex;
-  width: 27px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-left: 1px solid hsl(var(--border));
-  background: transparent;
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-}
-
-.data-watchlist-remove:hover {
-  background: hsl(var(--destructive) / 0.1);
-  color: hsl(var(--destructive));
-}
-
-.data-watchlist-empty {
-  margin: 0;
-}
-
-.market-refresh-button:hover:not(:disabled) {
-  border-color: hsl(var(--primary) / 0.45);
-  color: hsl(var(--primary));
-}
-
-.market-refresh-button:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
 .data-management {
   margin-top: 12px;
   border: 1px solid hsl(var(--border));
@@ -3152,27 +2964,486 @@ button {
   display: block;
 }
 
-.market-kline-kpis {
-  margin-top: 2px;
-}
-
-.market-kline-kpis .analytics-kpi span {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.market-kline-frame {
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid hsl(var(--border));
-  border-radius: 6px;
-  background: hsl(var(--background));
-}
-
 .candlestick-chart {
   width: 100%;
   min-width: 0;
+}
+
+/* Shared market research terminal. Data and factor research use the same
+   quote/list/chart surface and add only their own contextual controls. */
+.market-terminal {
+  display: grid;
+  width: 100%;
+  height: clamp(31rem, 66vh, 45rem);
+  min-width: 0;
+  min-height: 31rem;
+  grid-template-columns: 12rem minmax(28rem, 1fr);
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  background: hsl(var(--background));
+  box-shadow: 0 1px 2px hsl(var(--foreground) / 0.04);
+}
+
+.market-terminal.with-context {
+  grid-template-columns: 11.5rem minmax(27rem, 1.25fr) minmax(20rem, 0.8fr);
+}
+
+.market-terminal button,
+.market-terminal input {
+  font: inherit;
+}
+
+.market-terminal-universe {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  border-right: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+.market-terminal-universe-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.market-terminal-universe-tabs button {
+  display: flex;
+  min-height: 2.2rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.28rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  font-size: 0.66rem;
+}
+
+.market-terminal-universe-tabs button[aria-selected="true"] {
+  border-bottom-color: hsl(var(--primary));
+  color: hsl(var(--foreground));
+  font-weight: 700;
+}
+
+.market-terminal-universe-tabs span {
+  color: hsl(var(--muted-foreground));
+  font: 500 0.5rem/1 "IBM Plex Mono", monospace;
+}
+
+.market-terminal-search {
+  display: flex;
+  height: 2rem;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.45rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.35rem;
+  background: hsl(var(--background));
+  color: hsl(var(--muted-foreground));
+  padding: 0 0.5rem;
+}
+
+.market-terminal-search:focus-within {
+  border-color: hsl(var(--primary) / 0.55);
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.08);
+}
+
+.market-terminal-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: 0.62rem;
+}
+
+.market-terminal-list-heading {
+  display: flex;
+  min-height: 1.45rem;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid hsl(var(--border) / 0.7);
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.35);
+  color: hsl(var(--muted-foreground));
+  padding: 0 0.55rem;
+  font-size: 0.5rem;
+}
+
+.market-terminal-list {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.market-terminal-symbol {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1.7rem;
+  align-items: stretch;
+  border-bottom: 1px solid hsl(var(--border) / 0.55);
+}
+
+.market-terminal-symbol:hover {
+  background: hsl(var(--muted) / 0.55);
+}
+
+.market-terminal-symbol.active {
+  background: hsl(var(--primary) / 0.09);
+  box-shadow: inset 2px 0 hsl(var(--primary));
+}
+
+.market-terminal-symbol-main {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  gap: 0.08rem;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  padding: 0.3rem 0.2rem 0.3rem 0.58rem;
+  text-align: left;
+}
+
+.market-terminal-symbol-main strong {
+  overflow: hidden;
+  font-size: 0.63rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.market-terminal-symbol-main small {
+  color: hsl(var(--muted-foreground));
+  font: 500 0.52rem/1.15 "IBM Plex Mono", monospace;
+}
+
+.market-terminal-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground) / 0.6);
+  cursor: pointer;
+}
+
+.market-terminal-star:hover,
+.market-terminal-star.active {
+  color: #f0a528;
+}
+
+.market-terminal-list-empty {
+  display: flex;
+  min-height: 8rem;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.58rem;
+}
+
+.market-terminal-main {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  background: hsl(var(--background));
+}
+
+.market-terminal-quote {
+  display: grid;
+  min-width: 0;
+  min-height: 3.8rem;
+  grid-template-columns: minmax(8.5rem, auto) minmax(7.3rem, auto) minmax(24rem, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  padding: 0.45rem 0.7rem;
+}
+
+.market-terminal-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.market-terminal-identity > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.market-terminal-identity strong {
+  overflow: hidden;
+  font-size: 0.83rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.market-terminal-identity small {
+  color: hsl(var(--muted-foreground));
+  font: 600 0.56rem/1 "IBM Plex Mono", monospace;
+}
+
+.market-terminal-identity > button {
+  display: inline-flex;
+  width: 1.65rem;
+  height: 1.65rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+}
+
+.market-terminal-identity > button.active,
+.market-terminal-identity > button:hover:not(:disabled) {
+  background: rgba(240, 165, 40, 0.1);
+  color: #f0a528;
+}
+
+.market-terminal-last {
+  display: grid;
+  gap: 0.08rem;
+}
+
+.market-terminal-last strong {
+  font: 700 1.08rem/1.05 "IBM Plex Mono", monospace;
+}
+
+.market-terminal-last span {
+  font: 600 0.56rem/1.2 "IBM Plex Mono", monospace;
+  white-space: pre;
+}
+
+.market-terminal-last.rise,
+.market-terminal-ohlcv .rise {
+  color: #ef4444;
+}
+
+.market-terminal-last.fall,
+.market-terminal-ohlcv .fall {
+  color: #16a34a;
+}
+
+.market-terminal-last.neutral {
+  color: hsl(var(--muted-foreground));
+}
+
+.market-terminal-ohlcv {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(3, minmax(5rem, 1fr));
+  gap: 0.18rem 0.6rem;
+  margin: 0;
+}
+
+.market-terminal-ohlcv > div {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.market-terminal-ohlcv dt {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.5rem;
+}
+
+.market-terminal-ohlcv dd {
+  overflow: hidden;
+  margin: 0;
+  font: 550 0.55rem/1.2 "IBM Plex Mono", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.market-terminal-date {
+  color: hsl(var(--muted-foreground));
+  font: 500 0.5rem/1.2 "IBM Plex Mono", monospace;
+  white-space: nowrap;
+}
+
+.market-terminal-toolbar {
+  display: flex;
+  min-width: 0;
+  min-height: 2.25rem;
+  align-items: center;
+  gap: 0.4rem;
+  overflow-x: auto;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.18);
+  padding: 0.28rem 0.42rem;
+  scrollbar-width: none;
+}
+
+.market-terminal-toolbar::-webkit-scrollbar { display: none; }
+
+.market-terminal.with-context .market-terminal-tool-group button,
+.market-terminal.with-context .market-terminal-indicators button {
+  min-width: 1.55rem;
+  padding-right: 0.24rem;
+  padding-left: 0.24rem;
+}
+
+.market-terminal.with-context .market-terminal-toolbar {
+  gap: 0.28rem;
+}
+
+.market-terminal-tool-group,
+.market-terminal-indicators {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.12rem;
+}
+
+.market-terminal-tool-group button,
+.market-terminal-indicators button {
+  display: inline-flex;
+  min-width: 1.75rem;
+  height: 1.55rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  padding: 0 0.32rem;
+  font-size: 0.52rem;
+}
+
+.market-terminal-tool-group button:hover:not(:disabled),
+.market-terminal-indicators button:hover,
+.market-terminal-tool-group button.active,
+.market-terminal-indicators button.active {
+  border-color: hsl(var(--primary) / 0.3);
+  background: hsl(var(--primary) / 0.08);
+  color: hsl(var(--primary));
+}
+
+.market-terminal-ranges {
+  border-radius: 0.28rem;
+  background: hsl(var(--muted) / 0.65);
+  padding: 0.08rem;
+}
+
+.market-terminal-ranges button {
+  min-width: 2rem;
+}
+
+.market-terminal-indicators > span {
+  margin-left: 0.22rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.46rem;
+}
+
+.market-terminal-tool-divider {
+  width: 1px;
+  height: 1rem;
+  flex: 0 0 auto;
+  background: hsl(var(--border));
+}
+
+.market-terminal-tool-spacer {
+  min-width: 0.4rem;
+  flex: 1 1 auto;
+}
+
+.market-terminal-chart {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.market-terminal-chart-canvas {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.market-terminal-empty {
+  display: flex;
+  height: 100%;
+  min-height: 14rem;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.64rem;
+}
+
+.market-terminal-empty.error,
+.factor-source-fields-status.error {
+  color: hsl(var(--destructive));
+}
+
+.market-terminal-loading {
+  position: absolute;
+  top: 0.45rem;
+  right: 4.4rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  background: hsl(var(--background) / 0.88);
+  color: hsl(var(--muted-foreground));
+  padding: 0.18rem 0.42rem;
+  font-size: 0.48rem;
+  backdrop-filter: blur(4px);
+}
+
+.market-terminal-context {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+@media (max-width: 1180px) {
+  .market-terminal.with-context {
+    height: auto;
+    min-height: 44rem;
+    grid-template-columns: 11rem minmax(25rem, 1fr);
+    grid-template-rows: minmax(30rem, 1fr) 14rem;
+  }
+
+  .market-terminal.with-context .market-terminal-universe { grid-row: 1 / -1; }
+  .market-terminal.with-context .market-terminal-context {
+    grid-column: 2;
+    border-top: 1px solid hsl(var(--border));
+    border-left: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .market-terminal,
+  .market-terminal.with-context {
+    height: auto;
+    min-height: 52rem;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 13rem 31rem minmax(12rem, auto);
+  }
+
+  .market-terminal-universe,
+  .market-terminal.with-context .market-terminal-universe { grid-row: auto; border-right: 0; border-bottom: 1px solid hsl(var(--border)); }
+  .market-terminal.with-context .market-terminal-context { grid-column: auto; }
+  .market-terminal-quote { grid-template-columns: minmax(7rem, 1fr) auto; }
+  .market-terminal-ohlcv { grid-column: 1 / -1; }
+  .market-terminal-date { display: none; }
 }
 
 .robustness-header {
@@ -3301,18 +3572,6 @@ button {
 }
 
 @container (max-width: 680px) {
-  .market-kline-toolbar {
-    flex-wrap: wrap;
-  }
-
-  .market-kline-toolbar .symbol-combobox {
-    width: 100%;
-  }
-
-  .data-watchlist {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .data-management > summary {
     grid-template-columns: auto minmax(0, 1fr) auto;
   }
@@ -5586,37 +5845,11 @@ button {
   padding: 0.55rem 0.75rem 0.65rem;
 }
 
-.factor-source-browser-toolbar {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: auto auto minmax(12rem, 18rem) auto;
-  align-items: center;
-  gap: 0.55rem;
-}
-
-.factor-source-heading,
-.factor-source-tabs,
 .factor-source-fields-heading {
   display: flex;
   align-items: center;
 }
-
-.factor-source-heading { min-width: 0; gap: 0.4rem; }
-.factor-source-heading > span { display: inline-flex; width: 1.65rem; height: 1.65rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 0.4rem; background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); }
-.factor-source-heading > div { display: grid; min-width: 0; gap: 0.04rem; }
-.factor-source-heading strong { font-size: 0.68rem; }
-.factor-source-heading small { overflow: hidden; color: hsl(var(--muted-foreground)); font-size: 0.52rem; text-overflow: ellipsis; white-space: nowrap; }
-
-.factor-source-tabs { gap: 0.2rem; border-radius: 0.38rem; background: hsl(var(--muted)); padding: 0.18rem; }
-.factor-source-tabs button { display: inline-flex; align-items: center; gap: 0.25rem; border: 0; border-radius: 0.28rem; background: transparent; color: hsl(var(--muted-foreground)); cursor: pointer; padding: 0.28rem 0.45rem; font-size: 0.54rem; }
-.factor-source-tabs button.active { background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: 0 1px 2px hsl(var(--foreground) / 0.08); }
-.factor-source-browser-toolbar .symbol-combobox { width: 100%; }
-.factor-source-browser-toolbar > select { min-height: 1.85rem; border: 1px solid hsl(var(--border)); border-radius: 0.35rem; background: hsl(var(--background)); color: hsl(var(--foreground)); padding: 0 1.6rem 0 0.45rem; font-size: 0.56rem; }
-
-.factor-source-browser-grid { display: grid; min-height: 14rem; grid-template-columns: minmax(24rem, 1.35fr) minmax(30rem, 1fr); gap: 0.5rem; }
-.factor-source-visual,
 .factor-source-fields { min-width: 0; overflow: hidden; border: 1px solid hsl(var(--border)); border-radius: 0.45rem; background: hsl(var(--card)); }
-.factor-source-visual { padding: 0.15rem 0.2rem; }
 .factor-source-fields { padding: 0.42rem 0.5rem; }
 .factor-source-fields-heading { justify-content: space-between; gap: 0.5rem; margin-bottom: 0.35rem; }
 .factor-source-fields-heading > div { display: grid; min-width: 0; gap: 0.04rem; }
@@ -5642,9 +5875,6 @@ button.factor-source-field:hover { border-color: hsl(var(--primary) / 0.45); bac
 .factor-source-field-grid strong { overflow: hidden; grid-column: 1 / -1; color: hsl(var(--muted-foreground)); font: 550 0.49rem/1.2 "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .factor-source-field-grid svg { grid-column: 2; grid-row: 1; color: hsl(var(--primary)); }
 .factor-source-field-grid em { grid-column: 2; grid-row: 1; color: hsl(var(--muted-foreground)); font-size: 0.41rem; font-style: normal; }
-.factor-source-empty { display: flex; min-height: 9rem; align-items: center; justify-content: center; gap: 0.4rem; color: hsl(var(--muted-foreground)); font-size: 0.56rem; }
-.factor-source-empty.error { color: hsl(var(--destructive)); }
-
 .factor-workbench-tabs {
   display: flex;
   min-height: 0;
@@ -5726,8 +5956,6 @@ button.factor-source-field:hover { border-color: hsl(var(--primary) / 0.45); bac
 
 @media (max-width: 1050px) {
   .factor-source-browser { min-height: 31rem; }
-  .factor-source-browser-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .factor-source-browser-grid { grid-template-columns: minmax(0, 1fr); }
   .factor-final-validation-intro { align-items: stretch; flex-wrap: wrap; }
   .factor-validation-settings { min-width: 100%; }
   .factor-build-grid,
@@ -5740,11 +5968,79 @@ button.factor-source-field:hover { border-color: hsl(var(--primary) / 0.45); bac
   .factor-workbench-toolbar { align-items: stretch; flex-direction: column; }
   .factor-workbench-actions { justify-content: flex-end; }
   .factor-source-browser { max-height: 25rem; overflow: auto; }
-  .factor-source-browser-toolbar { grid-template-columns: minmax(0, 1fr); }
-  .factor-source-tabs { width: fit-content; }
   .factor-source-field-grid { grid-template-columns: minmax(0, 1fr); }
   .factor-final-validation-intro { align-items: stretch; flex-direction: column; }
   .factor-validation-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.factor-source-browser {
+  height: clamp(22rem, 42vh, 29rem);
+  min-height: 22rem;
+  padding: 0.55rem 0.75rem 0.65rem;
+}
+
+.factor-source-browser > .market-terminal {
+  height: 100%;
+  min-height: 0;
+}
+
+.market-terminal-context .factor-source-fields {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.55rem;
+  scrollbar-width: thin;
+}
+
+.market-terminal-context .factor-source-fields-heading {
+  position: sticky;
+  z-index: 2;
+  top: -0.55rem;
+  margin: -0.1rem -0.1rem 0.45rem;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--card) / 0.96);
+  padding: 0.3rem 0.1rem 0.45rem;
+  backdrop-filter: blur(5px);
+}
+
+.market-terminal-context .factor-source-field-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.factor-source-fields-status {
+  margin-bottom: 0.4rem;
+  border-radius: 0.3rem;
+  background: hsl(var(--muted) / 0.55);
+  color: hsl(var(--muted-foreground));
+  padding: 0.35rem 0.45rem;
+  font-size: 0.5rem;
+}
+
+@media (max-width: 1180px) {
+  .factor-source-browser {
+    height: clamp(31rem, 56vh, 39rem);
+    min-height: 31rem;
+  }
+
+  .market-terminal-context .factor-source-field-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .factor-source-browser {
+    height: auto;
+    max-height: none;
+    min-height: 52rem;
+    overflow: visible;
+  }
+
+  .market-terminal-context .factor-source-field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* Signal Model mirrors the factor workbench hierarchy: stable context first,

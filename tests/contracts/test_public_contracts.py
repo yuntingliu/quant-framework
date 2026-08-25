@@ -341,6 +341,12 @@ def test_factor_mode_exposes_real_factor_lab_panels_separately_from_project():
     workbench = (ROOT / "dashboard/frontend/src/widgets/factors/FactorWorkbench.tsx").read_text(
         encoding="utf-8"
     )
+    market_terminal = (
+        ROOT / "dashboard/frontend/src/components/market/MarketResearchTerminal.tsx"
+    ).read_text(encoding="utf-8")
+    kline_terminal = (
+        ROOT / "dashboard/frontend/src/components/market/KLineTerminalChart.tsx"
+    ).read_text(encoding="utf-8")
     for widget_id in (
         "factor.library",
         "factor.editor",
@@ -370,14 +376,20 @@ def test_factor_mode_exposes_real_factor_lab_panels_separately_from_project():
         "研究数据",
         "当前数据全部字段",
         "Schema 自动生成",
-        "K 线区间",
     ):
         assert text in workbench
     assert "source.fields.map" in workbench
     assert "field.expression_compatible" in workbench
     assert '`/factor-research/library?profile=${profile}`' in context
-    for component in ("CandlestickChart", "RollingLineChart", "SymbolCombobox", "Tabs", "Badge", "Button"):
+    for component in ("MarketResearchTerminal", "useMarketWatchlist", "Tabs", "Button"):
         assert component in workbench
+    for text in ("全部", "自选", "技术指标", "行情区间", "MA", "VOL", "MACD", "KDJ"):
+        assert text in market_terminal
+    assert "useVirtualizer" in market_terminal
+    assert 'from "klinecharts"' in kline_terminal
+    assert 'upColor: "#ef4444"' in kline_terminal
+    assert 'downColor: "#16a34a"' in kline_terminal
+    assert 'chart.createIndicator({ name, paneId: "candle_pane" }, true)' in kline_terminal
     assert "factor-workflow-strip" not in workbench
     assert '`/data/market/bars?' in workbench
     assert '`/data/fundamentals?' in workbench
@@ -396,6 +408,8 @@ def test_factor_mode_exposes_real_factor_lab_panels_separately_from_project():
         assert text in data_workbench
     for component in ("Card", "Badge", "Button", "Input", "Checkbox"):
         assert component in data_workbench
+    assert "MarketResearchTerminal" in data_workbench
+    assert "useMarketWatchlist" in data_workbench
     assert "symbols: scopeMode === 'custom' ? researchScope.symbols : []" in data_workbench
     assert "window.dispatchEvent(new CustomEvent('alphalab:projectUpdated'" in data_workbench
     assert "多因子权重在“信号模型”中设置" not in panels
