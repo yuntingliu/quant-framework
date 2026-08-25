@@ -24,12 +24,14 @@ validation view rather than the primary construction surface. It
 can attach only the currently validated factor definition to the selected
 project, but it is not embedded in the project-management layout.
 
-The Research Project Workbench owns project lifecycle, data profile, optional
-data cutoff, stock-pool settings, research thresholds, and navigation to the
-three pinned strategy components. Factor definitions are persisted with project
+The Research Project Workbench owns project lifecycle, data profile, and
+navigation to the three pinned strategy components. The Data Workbench owns the
+user-facing research scope and automatic eligibility filters. Those values remain
+structured project settings so factor research, signals, and backtests consume the
+same point-in-time candidate definition. Factor definitions are persisted with project
 revisions but are edited only in the Factor Research Workbench. Stage
 workbenches show the current project read-only and never duplicate project
-settings. A revision, profile, or cutoff change makes cached stage output stale
+settings. A revision or profile change makes cached stage output stale
 until the stage is run again.
 It is the first navigation destination. Data, Factor Research, Signal Model,
 Backtest, and Report remain disabled until an editable research project has been
@@ -40,7 +42,7 @@ The strategy and research dependency is:
 
 ```text
 DataSnapshot
-  -> project stock pool + factor definitions and single-factor research
+  -> data-workbench research scope + factor definitions and single-factor research
   -> core eligibility gates
   -> signal model: normalize + weight + rank + holding buffer
   -> select_assets(context)
@@ -51,8 +53,12 @@ DataSnapshot
   -> ResearchReport
 ```
 
-The stock pool is structured project input rather than programmable strategy
-logic. The signal model owns the daily/weekly/monthly decision calendar,
+The research scope is structured project input authored in the Data Workbench,
+not a separate strategy stage or a weighted factor. It defines the initial symbols
+and hard data/tradability eligibility filters; factor scores own preferences and
+ranking inside the eligible cross-section. The signal model owns the
+daily/weekly/monthly decision calendar,
+the current cross-section as-of date,
 cross-sectional normalization, project-specific effective factor weights,
 minimum coverage, target count, and entry/exit rank buffer. It is recomputed at
 every decision date from eligible data and factors available at that date. The
@@ -100,7 +106,7 @@ Python is trusted local code with timeout and crash containment, not an OS
 security sandbox. The framework owns non-bypassable controls:
 
 - point-in-time instruments and fundamental availability;
-- project stock-pool, selection, and final-weight membership;
+- project research-scope, selection, and final-weight membership;
 - finite scores and weights, concentration, gross exposure, and cash;
 - next-session alignment, valid price, and positive volume;
 - amount participation, costs, slippage, and market impact.
@@ -191,6 +197,11 @@ and runtime profiles are explicit and never silently combined. Historical
 fundamentals require `available_date <= decision_date`; dated instruments are
 selected at or before the signal date. Missing amount blocks a trade rather
 than implying unlimited liquidity.
+
+An RQ sync request without explicit symbols resolves all A-shares from a live
+dated instrument snapshot at job start. It never substitutes the bundled demo
+manifest. Read-only plans may use the latest local RQ instrument snapshot to
+show an exact symbol and batch count; otherwise those values remain pending.
 
 Canonical local data remains:
 

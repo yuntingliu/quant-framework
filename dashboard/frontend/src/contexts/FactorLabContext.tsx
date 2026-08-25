@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
+import { createContext, useCallback, useContext, useMemo, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { useWorkspace } from "@/contexts/WorkspaceContext"
@@ -67,14 +67,14 @@ function isoDate(value: Date): string {
   return value.toISOString().slice(0, 10)
 }
 
-function defaultDates(endDate?: string | null) {
-  const end = endDate ? new Date(`${endDate}T00:00:00`) : new Date()
+function defaultDates() {
+  const end = new Date()
   const start = new Date(end)
   start.setFullYear(start.getFullYear() - 3)
   return { startDate: isoDate(start), endDate: isoDate(end) }
 }
 
-function defaultDraft(endDate?: string | null): FactorDraft {
+function defaultDraft(): FactorDraft {
   return {
     name: "momentum_20d",
     source: "technical",
@@ -85,7 +85,7 @@ function defaultDraft(endDate?: string | null): FactorDraft {
     neutralize: [],
     frequency: "monthly",
     quantiles: 5,
-    ...defaultDates(endDate),
+    ...defaultDates(),
   }
 }
 
@@ -143,12 +143,11 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
   const [profile] = useDataProfile()
   const {
     activeMode,
-    selectedDate,
     selectedStrategy,
     selectedStrategyRevision,
     setSelectedStrategyRevision,
   } = useWorkspace()
-  const [draft, setDraft] = useState<FactorDraft>(() => defaultDraft(selectedDate))
+  const [draft, setDraft] = useState<FactorDraft>(defaultDraft)
   const [expressionInsertRequest, setExpressionInsertRequest] = useState<ExpressionInsertRequest | null>(null)
   const [editingOriginalName, setEditingOriginalName] = useState<string | null>(null)
   const [result, setResult] = useState<FactorResearchResult | null>(null)
@@ -182,11 +181,6 @@ export function FactorLabProvider({ children }: { children: React.ReactNode }) {
     [project?.settings.universe],
   )
   const signature = factorSignature(draft, profile, selectedStrategy)
-
-  useEffect(() => {
-    if (!selectedDate) return
-    setDraft((current) => ({ ...current, endDate: selectedDate }))
-  }, [selectedDate])
 
   const selectLibraryFactor = useCallback((factor: FactorResearchLibrary["factors"][number]) => {
     const direction: FactorDraft["direction"] = factor.name.includes("volatility") || factor.name.includes("leverage") ? "short" : "long"

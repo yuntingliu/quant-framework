@@ -21,6 +21,9 @@ class DatasetSpec:
     key_columns: tuple[str, ...]
     date_column: str | None
     source: str
+    provider_api: tuple[str, ...]
+    research_role: str
+    field_policy: str
     configured: bool = True
 
 
@@ -32,6 +35,9 @@ DATASET_SPECS: tuple[DatasetSpec, ...] = (
         ("snapshot_date", "symbol"),
         "snapshot_date",
         "rq",
+        ("all_instruments",),
+        "research_scope",
+        "provider_snapshot_schema",
     ),
     DatasetSpec(
         "rq.bars",
@@ -40,6 +46,9 @@ DATASET_SPECS: tuple[DatasetSpec, ...] = (
         ("date", "symbol"),
         "date",
         "rq",
+        ("get_price",),
+        "factor_input",
+        "provider_daily_schema_plus_raw_close",
     ),
     DatasetSpec(
         "rq.financials.income",
@@ -48,6 +57,9 @@ DATASET_SPECS: tuple[DatasetSpec, ...] = (
         ("symbol", "quarter", "info_date", "if_adjusted"),
         "info_date",
         "rq",
+        ("get_pit_financials_ex",),
+        "point_in_time_staging",
+        "configured_statement_fields",
     ),
     DatasetSpec(
         "rq.financials.balance",
@@ -56,6 +68,9 @@ DATASET_SPECS: tuple[DatasetSpec, ...] = (
         ("symbol", "quarter", "info_date", "if_adjusted"),
         "info_date",
         "rq",
+        ("get_pit_financials_ex",),
+        "point_in_time_staging",
+        "configured_statement_fields",
     ),
     DatasetSpec(
         "canonical.fundamentals",
@@ -64,6 +79,9 @@ DATASET_SPECS: tuple[DatasetSpec, ...] = (
         ("symbol", "quarter"),
         "available_date",
         "derived",
+        ("get_pit_financials_ex", "get_price"),
+        "factor_input",
+        "schema_discovered_canonical_fields",
     ),
     DatasetSpec(
         "runtime.factor_returns",
@@ -72,6 +90,9 @@ DATASET_SPECS: tuple[DatasetSpec, ...] = (
         ("date",),
         "date",
         "derived",
+        ("get_yield_curve", "get_price", "get_pit_financials_ex"),
+        "attribution_input",
+        "derived_factor_return_schema",
     ),
 )
 DATASETS = {spec.id: spec for spec in DATASET_SPECS}

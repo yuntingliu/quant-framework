@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_preview_pipeline",
-  "description": "Execute one frozen Python pipeline stage plus only its upstream dependencies at one data cutoff date. Requires explicit Python execution confirmation.",
+  "description": "Execute one frozen Python pipeline stage plus only its upstream dependencies at one signal as-of date. Requires explicit Python execution confirmation.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {

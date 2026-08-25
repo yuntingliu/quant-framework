@@ -26,6 +26,11 @@ partition writes, catalog status, and point-in-time filtering belong in
 `alphalab/dataio`. Empty responses must never replace existing runtime data.
 Demo and runtime profiles remain explicit.
 
+For RQ sync, omitted symbols mean all A-shares resolved from RQ instrument data
+at job start. Do not fall back to bundled demo symbols. Keep provider API, local
+dataset contract, partition policy, schema discovery, and factor-expression
+compatibility as separate boundaries when adding another RQ data family.
+
 ```powershell
 alphalab data plan rq
 alphalab data sync rq --datasets instruments,bars,fundamentals,factors
@@ -34,8 +39,9 @@ alphalab data validate
 
 ## Adding a Pipeline Component
 
-Every current project pins exactly these stages and entrypoints. The stock pool
-is project configuration consumed by the core before selection:
+Every current project pins exactly these stages and entrypoints. The research scope
+is configured in the Data Workbench, persisted with the project, and consumed by the
+core before selection:
 
 | Stage | Entrypoint | Required result |
 | --- | --- | --- |
@@ -73,7 +79,7 @@ gross, liquidity, cash, cost, and next-session gates.
 
 Stage preview executes the composed module through `run_stage`:
 
-- selection executes the signal model over eligible candidates from the project stock pool;
+- selection executes the signal model over eligible candidates from the saved research scope;
 - portfolio executes selection then portfolio;
 - execution preview and backtest execute all three stages.
 
@@ -149,10 +155,11 @@ mutate a strategy. Saving is disabled for an unevaluated or stale definition;
 an accepted factor updates the selected project's structured
 `settings.factors` and therefore creates a project revision.
 
-Research Project owns project selection/lifecycle, data profile, cutoff, stock
-pool, and research thresholds. Its UI must not expose factor authoring or raw
-factor settings; those belong to the Factor workspace. The toolbar remains
-navigation/layout chrome.
+Research Project owns project selection/lifecycle and data profile. Data owns the
+user-facing research scope and structured eligibility filters, while persisting them
+inside the selected project's settings for runtime reproducibility. Neither workspace
+exposes raw project JSON. Factor definitions belong to the Factor workspace. The
+toolbar remains navigation/layout chrome.
 The sidebar is one ungrouped list with Research Project first. All later modes
 are disabled until the selected project has been validated and is editable;
 built-in projects may be inspected or cloned but do not unlock the workflow.
@@ -170,8 +177,10 @@ Signal Model and Backtest are user-facing workbenches. Portfolio remains an
 internal version-pinned Python stage whose allocation controls and results are
 embedded in Signal Model. Execution also remains an internal version-pinned
 Python stage, while its fill, liquidity, capital, and cost controls are embedded
-in Backtest run setup. Stage previews share one query keyed by project revision,
-target stage, data profile, and cutoff; a portfolio-prefix preview is also cached
+in Backtest run setup. Signal Model owns its current cross-section as-of date;
+Factor Research owns its own sample range. Stage previews share one query keyed
+by project revision, target stage, data profile, and signal as-of date; a
+portfolio-prefix preview is also cached
 for its executed selection output.
 
 Stage result panels visualize real prefix output:
@@ -215,7 +224,7 @@ explicit current-user confirmation. Attribution uses
 
 ## Review Checklist
 
-- Does the change fit one of three stages, project stock-pool settings, the core gate layer, or saved-run analytics?
+- Does the change fit one of three stages, data-workbench research-scope settings, the core gate layer, or saved-run analytics?
 - Are all three component versions pinned and inspectable?
 - Does preview/backtest execute the displayed composed source?
 - Are Python and JSON the only new persistence formats?

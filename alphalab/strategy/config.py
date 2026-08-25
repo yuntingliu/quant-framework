@@ -73,19 +73,14 @@ class FactorSpec:
         technical = set(TechnicalFactors().available_factors)
         fundamental = set(FundamentalFactors.available_factors)
         if self.source == "expression":
-            from alphalab.factors.expression import (
-                FUNDAMENTAL_DATA_FIELDS,
-                MARKET_DATA_FIELDS,
-                factor_dependencies,
-            )
+            from alphalab.factors.expression import factor_dependencies
 
             if not self.expression:
                 raise ValueError("expression factors require factor.expression")
-            dependencies = factor_dependencies(self.expression)
-            available = technical | fundamental | set(MARKET_DATA_FIELDS) | set(FUNDAMENTAL_DATA_FIELDS)
-            unknown = sorted(set(dependencies) - available)
-            if unknown:
-                raise ValueError(f"unknown factor expression inputs: {unknown}")
+            # Physical market and PIT-fundamental columns are schema-driven.  At
+            # configuration time validate only the safe expression grammar; the
+            # research/runtime data frames validate that referenced fields exist.
+            factor_dependencies(self.expression)
         elif self.expression is not None:
             raise ValueError("factor.expression is only valid when source is expression")
         elif self.source == "technical" and self.name not in technical:

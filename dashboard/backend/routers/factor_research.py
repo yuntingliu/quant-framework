@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from alphalab.analytics import evaluate_factor
 from alphalab.dataio import MissingDataError
 from alphalab.factors import list_factors
-from alphalab.factors.expression import FUNDAMENTAL_DATA_FIELDS, MARKET_DATA_FIELDS
 from alphalab.strategy import FactorSpec, UniverseSpec
 from dashboard.backend.services.data_service import _engine, research_dataset_schema
 
@@ -90,10 +89,6 @@ _RESEARCH_SOURCE_SPECS = [
 
 
 def _research_data_sources(profile: str) -> list[dict]:
-    compatible = {
-        "market_bars": set(MARKET_DATA_FIELDS),
-        "fundamentals": set(FUNDAMENTAL_DATA_FIELDS),
-    }
     sources: list[dict] = []
     for spec in _RESEARCH_SOURCE_SPECS:
         fields = research_dataset_schema(profile, spec["id"])
@@ -111,10 +106,7 @@ def _research_data_sources(profile: str) -> list[dict]:
                         ),
                         "data_type": field.data_type,
                         "nullable": field.nullable,
-                        "expression_compatible": (
-                            field.data_type == "number"
-                            and field.name in compatible[spec["id"]]
-                        ),
+                        "expression_compatible": field.data_type == "number",
                     }
                     for field in fields
                 ],

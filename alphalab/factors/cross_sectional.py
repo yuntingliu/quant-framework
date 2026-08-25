@@ -21,11 +21,20 @@ def factor_input_names(factor: FactorSpec) -> tuple[str, ...]:
     return (factor.name,)
 
 
-def required_fundamental_fields(factors: list[FactorSpec] | tuple[FactorSpec, ...]) -> list[str]:
-    available = set(FUNDAMENTAL_DATA_FIELDS)
+def required_fundamental_fields(
+    factors: list[FactorSpec] | tuple[FactorSpec, ...],
+    *,
+    market_fields: set[str] | None = None,
+) -> list[str]:
+    technical = set(TechnicalFactors().available_factors)
+    known_market = set(MARKET_DATA_FIELDS) | set(market_fields or ())
     fields: set[str] = set()
     for factor in factors:
-        fields.update(name for name in factor_input_names(factor) if name in available)
+        fields.update(
+            name
+            for name in factor_input_names(factor)
+            if name not in technical and name not in known_market
+        )
         fields.update(factor.neutralize)
     return sorted(fields)
 
@@ -45,9 +54,11 @@ def compute_cross_sectional_factor(
             inputs[name] = technical.compute(name, data_by_symbol)
         elif name in FundamentalFactors.available_factors:
             inputs[name] = fundamental.compute(name, fundamentals)
-        elif name in MARKET_DATA_FIELDS:
+        elif name in MARKET_DATA_FIELDS or any(
+            name in frame.columns for frame in data_by_symbol.values()
+        ):
             inputs[name] = _latest_market_field(name, data_by_symbol)
-        elif name in FUNDAMENTAL_DATA_FIELDS:
+        elif name in FUNDAMENTAL_DATA_FIELDS or name in fundamentals.columns:
             inputs[name] = _latest_fundamental_field(name, fundamentals)
         else:
             raise KeyError(f"Unknown base factor: {name}")

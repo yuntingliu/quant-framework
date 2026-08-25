@@ -409,6 +409,9 @@ export interface RuntimeDataset {
   date_end: string | null
   symbol_count: number
   error?: string | null
+  provider_api?: string[]
+  research_role?: string
+  field_policy?: string
 }
 
 export interface RuntimeCatalog {
@@ -433,10 +436,13 @@ export interface SyncJob {
 
 export interface SyncPlan {
   source: string
-  symbol_count: number
+  scope: "all_a_shares" | "custom"
+  symbol_source: string
+  symbols_resolved: boolean
+  symbol_count: number | null
   requested_start: string
   requested_end: string
-  estimated_batches: number
+  estimated_batches: number | null
   writes_are_local: boolean
   steps: Array<Record<string, string | number | null>>
 }
@@ -446,7 +452,9 @@ export interface DataSyncHealth {
   runtime: RuntimeCatalog
   rq: {
     status: string
+    installed: boolean
     configured: boolean
+    ready: boolean
     missing: string[]
     connected: boolean
     last_error?: string | null

@@ -100,7 +100,7 @@ def test_stage_workbench_supports_versions_code_and_real_preview():
     assert "/preview" in run_hook
     assert "/analysis" not in run_hook
     assert "Promise.all" not in run_hook
-    assert "projectId, selectedStrategyRevision, stage, profile, selectedDate" in run_hook
+    assert "projectId, selectedStrategyRevision, stage, profile, signalAsOfDate" in run_hook
     assert "isStale" in run_hook
     assert "{ stage, profile," in run_hook
     for signal_model_term in (
@@ -117,7 +117,7 @@ def test_stage_workbench_supports_versions_code_and_real_preview():
         assert signal_model_term in source
     assert 'aria-label="截面日期"' in source
     assert 'type="date"' in source
-    assert "setSelectedDate(null)" in source
+    assert "setSignalAsOfDate(null)" in source
     assert "stageRun.preview.signal_date" in source
     assert "选股工作台" not in source
     assert "运行至" not in source
@@ -304,7 +304,7 @@ def test_alphalab_logo_replaces_the_placeholder_brand_mark():
     assert not (ROOT / "dashboard/frontend/public/vite.svg").exists()
 
 
-def test_project_workbench_owns_project_profile_and_cutoff_date():
+def test_project_workbench_owns_project_profile_but_not_run_dates():
     toolbar = (ROOT / "dashboard/frontend/src/workspace/Toolbar.tsx").read_text(encoding="utf-8")
     stage = (ROOT / "dashboard/frontend/src/widgets/pipeline/StageWorkbench.tsx").read_text(
         encoding="utf-8"
@@ -312,8 +312,11 @@ def test_project_workbench_owns_project_profile_and_cutoff_date():
     project = (ROOT / "dashboard/frontend/src/widgets/project/ProjectWorkbench.tsx").read_text(
         encoding="utf-8"
     )
-    for label in ("项目与数据", "数据环境", "数据截至日", "三阶段组件"):
+    for label in ("项目与数据", "数据环境", "三阶段组件"):
         assert label in project
+    assert "数据截至日" not in project
+    assert "signalAsOfDate" not in project
+    assert "signalAsOfDate" in stage
     assert '"/pipeline/projects"' in project
     assert 'aria-label="研究项目"' not in toolbar
     assert 'aria-label="数据环境"' not in toolbar
@@ -380,10 +383,18 @@ def test_factor_mode_exposes_real_factor_lab_panels_separately_from_project():
     project = (ROOT / "dashboard/frontend/src/widgets/project/ProjectWorkbench.tsx").read_text(
         encoding="utf-8"
     )
-    assert "delete editable.factors" in project
-    assert "delete stageParameters.portfolio" in project
-    assert "portfolio: persistedStageParameters.portfolio" in project
-    assert "因子定义与信号模型参数分别在对应工作区维护" in project
+    data_workbench = (
+        ROOT / "dashboard/frontend/src/widgets/data/DataWorkbench.tsx"
+    ).read_text(encoding="utf-8")
+    assert "股票池与高级项目设置" not in project
+    assert "code-editor" not in project
+    assert "settings: project.settings" in project
+    for text in ("研究范围", "全部可用证券", "自定义范围", "自动准入筛选"):
+        assert text in data_workbench
+    for component in ("Card", "Badge", "Button", "Input", "Checkbox"):
+        assert component in data_workbench
+    assert "symbols: scopeMode === 'custom' ? researchScope.symbols : []" in data_workbench
+    assert "window.dispatchEvent(new CustomEvent('alphalab:projectUpdated'" in data_workbench
     assert "多因子权重在“信号模型”中设置" in panels
     assert "组合权重" not in panels
 

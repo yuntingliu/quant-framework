@@ -31,33 +31,11 @@ function internalId() {
   return `project-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-function jsonText(value: unknown) {
-  return JSON.stringify(value, null, 2)
-}
-
-function editableProjectSettings(settings: Record<string, unknown>) {
-  const editable = { ...settings }
-  delete editable.factors
-  const stageParameters = editable.stage_parameters && typeof editable.stage_parameters === "object" && !Array.isArray(editable.stage_parameters)
-    ? { ...editable.stage_parameters as Record<string, unknown> }
-    : null
-  if (stageParameters) {
-    delete stageParameters.selection
-    delete stageParameters.portfolio
-    delete stageParameters.execution
-    if (Object.keys(stageParameters).length) editable.stage_parameters = stageParameters
-    else delete editable.stage_parameters
-  }
-  return jsonText(editable)
-}
-
 export function ProjectWorkbenchWidget() {
   const queryClient = useQueryClient()
   const {
     selectedStrategy,
-    selectedDate,
     setActiveMode,
-    setSelectedDate,
     setSelectedStrategy,
     setSelectedStrategyEditable,
     setSelectedStrategyRevision,
@@ -68,7 +46,6 @@ export function ProjectWorkbenchWidget() {
   const [project, setProject] = useState<PipelineProjectDetail | null>(null)
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
-  const [settings, setSettings] = useState("{}")
   const [dialogMode, setDialogMode] = useState<"new" | "copy" | null>(null)
   const [newName, setNewName] = useState("我的研究项目")
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -85,7 +62,6 @@ export function ProjectWorkbenchWidget() {
     setProject(detail)
     setName(detail.name)
     setDescription(detail.description)
-    setSettings(editableProjectSettings(detail.settings))
     setSelectedStrategy(detail.id)
     setSelectedStrategyEditable(detail.editable)
     setSelectedStrategyRevision(detail.revision)
@@ -116,7 +92,6 @@ export function ProjectWorkbenchWidget() {
       setProject(next)
       setName(next.name)
       setDescription(next.description)
-      setSettings(editableProjectSettings(next.settings))
       setSelectedStrategyRevision(next.revision)
     }
     window.addEventListener("alphalab:projectUpdated", handleProjectUpdated)
@@ -150,32 +125,13 @@ export function ProjectWorkbenchWidget() {
     setBusy(true)
     setError("")
     try {
-      const nextSettings = JSON.parse(settings) as Record<string, unknown>
-      if (project.settings.factors !== undefined) {
-        nextSettings.factors = project.settings.factors
-      }
-      const persistedStageParameters = project.settings.stage_parameters && typeof project.settings.stage_parameters === "object" && !Array.isArray(project.settings.stage_parameters)
-        ? project.settings.stage_parameters as Record<string, unknown>
-        : {}
-      if (persistedStageParameters.selection !== undefined || persistedStageParameters.portfolio !== undefined || persistedStageParameters.execution !== undefined) {
-        const editedStageParameters = nextSettings.stage_parameters && typeof nextSettings.stage_parameters === "object" && !Array.isArray(nextSettings.stage_parameters)
-          ? nextSettings.stage_parameters as Record<string, unknown>
-          : {}
-        nextSettings.stage_parameters = {
-          ...editedStageParameters,
-          ...(persistedStageParameters.selection !== undefined ? { selection: persistedStageParameters.selection } : {}),
-          ...(persistedStageParameters.portfolio !== undefined ? { portfolio: persistedStageParameters.portfolio } : {}),
-          ...(persistedStageParameters.execution !== undefined ? { execution: persistedStageParameters.execution } : {}),
-        }
-      }
       const saved = await api.put<PipelineProjectDetail>(`/pipeline/projects/${project.id}`, {
         name: name.trim(),
         description: description.trim(),
         components: project.components,
-        settings: nextSettings,
+        settings: project.settings,
       })
       setProject(saved)
-      setSettings(editableProjectSettings(saved.settings))
       setSelectedStrategyRevision(saved.revision)
       await refresh(saved.id)
     } catch (reason) {
@@ -239,7 +195,7 @@ export function ProjectWorkbenchWidget() {
             <div className="mx-auto flex max-w-5xl flex-col gap-5">
               <section className="rounded border border-border bg-background p-4">
                 <div className="flex items-start justify-between gap-4">
-                  <div><h2 className="text-base font-semibold text-foreground">项目与数据</h2><p className="mt-1 text-xs text-muted-foreground">这些设置决定阶段预览使用哪个项目和哪一份数据截面。</p></div>
+                  <div><h2 className="text-base font-semibold text-foreground">项目与数据</h2><p className="mt-1 text-xs text-muted-foreground">管理项目身份和数据环境；研究范围在数据工作台中维护，运行日期由各研究工作台独立设置。</p></div>
                   <div className="flex gap-2">
                     {project.editable ? <button className="secondary-command" type="button" onClick={() => setDeleteOpen(true)} disabled={busy}><Trash2 size={14} />删除</button> : null}
                     <button className="primary-command" type="button" onClick={() => void saveProject()} disabled={busy || !project.editable || !name.trim()}><Save size={14} />保存项目</button>
@@ -249,8 +205,6 @@ export function ProjectWorkbenchWidget() {
                   <label className="grid gap-1.5 text-xs text-muted-foreground"><span>项目名称</span><input className="h-9 rounded border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary" value={name} onChange={(event) => setName(event.target.value)} readOnly={!project.editable} /></label>
                   <label className="grid gap-1.5 text-xs text-muted-foreground"><span>数据环境</span><select className="h-9 rounded border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary" value={profile} onChange={(event) => setProfile(event.target.value as DataProfile)}><option value="demo">示例数据</option><option value="runtime">本地数据</option></select></label>
                   <label className="grid gap-1.5 text-xs text-muted-foreground md:col-span-2"><span>项目说明</span><textarea className="min-h-20 rounded border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary" value={description} onChange={(event) => setDescription(event.target.value)} readOnly={!project.editable} /></label>
-                  <label className="grid gap-1.5 text-xs text-muted-foreground"><span>数据截至日</span><div className="flex gap-2"><input className="h-9 min-w-0 flex-1 rounded border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary" type="date" value={selectedDate ?? ""} onChange={(event) => setSelectedDate(event.target.value || null)} /><button className="secondary-command" type="button" onClick={() => setSelectedDate(null)}>最新数据</button></div></label>
-                  <div className="rounded border border-border bg-muted/20 p-3 text-xs text-muted-foreground"><strong className="block text-foreground">数据截至日只用于阶段预览</strong><span className="mt-1 block leading-5">留空时使用最新数据；历史区间由回测工作台单独设置。</span></div>
                 </div>
               </section>
 
@@ -270,11 +224,6 @@ export function ProjectWorkbenchWidget() {
                 </div>
               </section>
 
-              <details className="rounded border border-border bg-background p-4">
-                <summary className="cursor-pointer text-sm font-semibold text-foreground">股票池与高级项目设置</summary>
-                <p className="mt-2 text-xs leading-5 text-muted-foreground">这里管理基础股票池、点时资格约束和回看窗口；因子定义与信号模型参数分别在对应工作区维护。</p>
-                <textarea className="code-view code-editor mt-3 min-h-72 w-full" spellCheck={false} value={settings} onChange={(event) => setSettings(event.target.value)} readOnly={!project.editable} />
-              </details>
               {!project.editable ? <div className="workbench-message">当前项目只读；请点击“新建”或“复制”创建可编辑项目。</div> : null}
             </div>
           )}

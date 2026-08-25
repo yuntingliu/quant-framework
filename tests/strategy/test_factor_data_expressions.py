@@ -19,6 +19,7 @@ def _market_frames() -> dict[str, pd.DataFrame]:
                     "close": close_price,
                     "volume": volume,
                     "amount": close_price * volume,
+                    "num_trades": volume / 10.0,
                 }
             ]
         )
@@ -45,6 +46,21 @@ def test_expression_accepts_public_market_api_fields():
     assert np.isfinite(values.to_numpy()).all()
 
 
+def test_expression_accepts_schema_discovered_market_fields():
+    factor = FactorSpec(
+        name="trade_activity",
+        weight=1.0,
+        source="expression",
+        expression="zscore(log(num_trades))",
+        winsorize=0.0,
+    )
+
+    values = compute_cross_sectional_factor(factor, _market_frames(), pd.DataFrame())
+
+    assert list(values.index) == ["AAA", "BBB", "CCC"]
+    assert np.isfinite(values.to_numpy()).all()
+
+
 def test_expression_accepts_point_in_time_fundamental_api_fields():
     factor = FactorSpec(
         name="capital_scale",
@@ -58,6 +74,28 @@ def test_expression_accepts_point_in_time_fundamental_api_fields():
             {"symbol": "AAA", "quarter": "2024q4", "available_date": "2025-03-01", "shares": 10.0, "market_cap": 100.0},
             {"symbol": "BBB", "quarter": "2024q4", "available_date": "2025-03-01", "shares": 20.0, "market_cap": 300.0},
             {"symbol": "CCC", "quarter": "2024q4", "available_date": "2025-03-01", "shares": 40.0, "market_cap": 500.0},
+        ]
+    )
+
+    values = compute_cross_sectional_factor(factor, _market_frames(), fundamentals)
+
+    assert set(values.index) == {"AAA", "BBB", "CCC"}
+    assert np.isfinite(values.to_numpy()).all()
+
+
+def test_expression_accepts_schema_discovered_fundamental_fields():
+    factor = FactorSpec(
+        name="cash_quality",
+        weight=1.0,
+        source="expression",
+        expression="zscore(vendor_cash_metric)",
+        winsorize=0.0,
+    )
+    fundamentals = pd.DataFrame(
+        [
+            {"symbol": "AAA", "vendor_cash_metric": 1.0},
+            {"symbol": "BBB", "vendor_cash_metric": 2.0},
+            {"symbol": "CCC", "vendor_cash_metric": 4.0},
         ]
     )
 

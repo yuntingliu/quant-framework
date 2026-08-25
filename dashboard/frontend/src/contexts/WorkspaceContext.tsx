@@ -55,8 +55,8 @@ interface WorkspaceContextValue {
   setSelectedOrderSide: (side: "buy" | "sell" | null) => void
   selectedBacktest: string | null
   setSelectedBacktest: (id: string | null) => void
-  selectedDate: string | null
-  setSelectedDate: (date: string | null) => void
+  signalAsOfDate: string | null
+  setSignalAsOfDate: (date: string | null) => void
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
@@ -97,7 +97,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [selectedOrderPrice, setSelectedOrderPrice] = useState<number | null>(null)
   const [selectedOrderSide, setSelectedOrderSide] = useState<"buy" | "sell" | null>(null)
   const [selectedBacktest, setSelectedBacktest] = useState<string | null>(null)
-  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [signalAsOfDate, setSignalAsOfDate] = useState<string | null>(null)
 
   const setActiveMode = useCallback((mode: WorkspaceMode) => {
     _setActiveMode(mode)
@@ -135,7 +135,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         selectedOrderPrice,
         selectedOrderSide,
         selectedBacktest,
-        selectedDate,
+        signalAsOfDate,
         setSelectedStrategy: selectStrategy,
         setSelectedStrategyRevision: useCallback((v) => setSelectedStrategyRevision(v), []),
         setSelectedStrategyEditable: useCallback((v) => setSelectedStrategyEditable(v), []),
@@ -147,7 +147,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         setSelectedOrderPrice: useCallback((v) => setSelectedOrderPrice(v), []),
         setSelectedOrderSide: useCallback((v) => setSelectedOrderSide(v), []),
         setSelectedBacktest: useCallback((v) => setSelectedBacktest(v), []),
-        setSelectedDate: useCallback((v) => setSelectedDate(v), []),
+        setSignalAsOfDate: useCallback((v) => setSignalAsOfDate(v), []),
       }}
     >
       {children}
@@ -172,7 +172,7 @@ export function useWorkspace(): WorkspaceContextValue {
       selectedOrderPrice: null,
       selectedOrderSide: null,
       selectedBacktest: null,
-      selectedDate: null,
+      signalAsOfDate: null,
       setSelectedStrategy: () => {},
       setSelectedStrategyRevision: () => {},
       setSelectedStrategyEditable: () => {},
@@ -182,7 +182,7 @@ export function useWorkspace(): WorkspaceContextValue {
       setSelectedOrderPrice: () => {},
       setSelectedOrderSide: () => {},
       setSelectedBacktest: () => {},
-      setSelectedDate: () => {},
+      setSignalAsOfDate: () => {},
     }
   }
   return ctx

@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_get_pipeline_project",
-  "description": "Read a version-pinned three-stage Python strategy project, its project-level stock-pool settings, component references, parameters, source hashes, and optionally the complete composed source actually used by preview and backtest.",
+  "description": "Read a version-pinned three-stage Python strategy project, its saved research-scope settings, component references, parameters, source hashes, and optionally the complete composed source actually used by preview and backtest.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {

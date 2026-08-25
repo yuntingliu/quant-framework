@@ -46,8 +46,8 @@ function createWorkbenchPreset(
 }
 
 export const layoutPresets: Record<WorkspaceMode, LayoutPreset> = {
-  project: createWorkbenchPreset("project", "研究项目", "项目生命周期、数据环境与股票池", "project.workbench", "研究项目"),
-  data: createWorkbenchPreset("data", "数据", "数据获取、预览与质量校验", "data.workbench", "数据工作台"),
+  project: createWorkbenchPreset("project", "研究项目", "项目生命周期与数据环境", "project.workbench", "研究项目"),
+  data: createWorkbenchPreset("data", "数据", "研究范围、数据预览与质量校验", "data.workbench", "数据工作台"),
   factor: createWorkbenchPreset("factor", "因子", "因子定义、验证截面与历史证据", "factor.workbench", "因子研究"),
   selection: createWorkbenchPreset("selection", "信号模型", "组合多因子生成横截面排名，并转换成目标仓位", "selection.workbench", "信号模型"),
   backtest: createWorkbenchPreset("backtest", "回测", "运行、归因、稳健性与对比", "backtest.workbench", "回测工作台"),

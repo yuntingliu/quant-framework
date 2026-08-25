@@ -4,7 +4,6 @@ import {
   ChartCandlestick,
   Database,
   FlaskConical,
-  FolderKanban,
   Loader2,
   Plus,
   Play,
@@ -62,11 +61,11 @@ function displayValue(value: unknown): string {
 function FactorResearchDataBrowser() {
   const lab = useFactorLab()
   const [profile] = useDataProfile()
-  const { activeMode, selectedDate, selectedSymbol, setSelectedSymbol } = useWorkspace()
+  const { activeMode, selectedSymbol, setSelectedSymbol } = useWorkspace()
   const [dataset, setDataset] = useState<ResearchDataset>("market_bars")
   const [range, setRange] = useState<MarketRange>("6m")
   const [fundamentalField, setFundamentalField] = useState("roe")
-  const endDate = selectedDate ?? new Date().toISOString().slice(0, 10)
+  const endDate = lab.draft.endDate
   const sources = lab.library?.data_sources ?? []
   const activeSource = sources.find((source) => source.id === dataset)
   const fieldCount = sources.reduce((count, source) => count + source.fields.length, 0)
@@ -208,8 +207,6 @@ function FactorResearchDataBrowser() {
 
 export function FactorWorkbenchWidget() {
   const lab = useFactorLab()
-  const { setActiveMode } = useWorkspace()
-  const [profile] = useDataProfile()
   const validated = Boolean(lab.result && !lab.resultStale)
   const canSave = Boolean(lab.project?.editable && validated)
   const runDisabled = !lab.draft.name.trim() || (lab.draft.source === "expression" && !lab.draft.expression.trim())
@@ -217,20 +214,6 @@ export function FactorWorkbenchWidget() {
   return (
     <Widget headerless>
       <div className="factor-workbench-shell">
-        <header className="factor-workbench-header">
-          <div className="factor-workbench-title">
-            <span className="factor-workbench-mark"><FlaskConical size={18} /></span>
-            <div>
-              <div><h1>因子研究</h1><Badge variant="outline">{profile === "demo" ? "示例数据" : "本地数据"}</Badge></div>
-              <p>先观察可获得的数据并编写表达式，完成定义后再进入最终验证</p>
-            </div>
-          </div>
-          <div className="factor-workbench-context">
-            <div><span>当前研究项目</span><strong>{lab.project?.name ?? "尚未选择"}</strong></div>
-            <Button variant="outline" size="sm" onClick={() => setActiveMode("project")}><FolderKanban />{lab.project ? "项目设置" : "选择项目"}</Button>
-          </div>
-        </header>
-
         <FactorResearchDataBrowser />
 
         <Tabs className="factor-workbench-tabs" value={lab.workspaceView} onValueChange={(value) => lab.setWorkspaceView(value as "build" | "results")}>

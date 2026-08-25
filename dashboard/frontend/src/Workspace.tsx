@@ -518,7 +518,7 @@ function WorkspaceInner() {
           changed.push(`回测 ${command.backtestId ?? "已清除"}`)
         }
         if (Object.prototype.hasOwnProperty.call(command, "date")) {
-          workspace.setSelectedDate(command.date ?? null)
+          workspace.setSignalAsOfDate(command.date ?? null)
           changed.push(`日期 ${command.date ?? "已清除"}`)
         }
         return { type: command.type, success: true, message: `已更新焦点：${changed.join("，")}` }

@@ -75,6 +75,10 @@ def _financial_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
 def test_runtime_store_deduplicates_and_rejects_empty_overwrite(tmp_path) -> None:
     store = RuntimeStore(tmp_path)
+    bars_contract = store.catalog.status("rq.bars")
+    assert bars_contract["provider_api"] == ("get_price",)
+    assert bars_contract["research_role"] == "factor_input"
+    assert bars_contract["field_policy"] == "provider_daily_schema_plus_raw_close"
     _, _, bars = _financial_frames()
     store.write("rq.bars", bars.iloc[:2])
     revised = bars.iloc[[1]].copy()
@@ -113,6 +117,7 @@ def test_first_disclosure_and_canonical_fundamentals_are_point_in_time() -> None
 class _FakeAcquirer:
     def __init__(self) -> None:
         self.income, self.balance, self.bars = _financial_frames()
+        self.bar_symbols: list[str] = []
 
     def instruments(self, snapshot_date: str) -> pd.DataFrame:
         return pd.DataFrame(
@@ -128,7 +133,8 @@ class _FakeAcquirer:
             }
         )
 
-    def daily_bars(self, *args, **kwargs) -> pd.DataFrame:
+    def daily_bars(self, symbols, *args, **kwargs) -> pd.DataFrame:
+        self.bar_symbols = list(symbols)
         return self.bars.copy()
 
     def financials(self, symbols, fields, *args, **kwargs) -> pd.DataFrame:
@@ -162,6 +168,58 @@ def test_sync_service_builds_runtime_engine_and_records_job(tmp_path) -> None:
         use_cache=False,
     )
     assert not fundamentals.empty
+
+
+def test_default_sync_scope_resolves_all_a_shares_from_rq_instruments(tmp_path) -> None:
+    request = SyncRequest(
+        datasets=["instruments", "bars"],
+        start="2025-01-01",
+        end="2025-03-31",
+        force=True,
+    )
+    preview = build_sync_plan(request, root=tmp_path)
+    assert preview["scope"] == "all_a_shares"
+    assert preview["symbol_source"] == "rq_all_a_shares"
+    assert preview["symbols_resolved"] is False
+    assert preview["symbol_count"] is None
+    assert preview["estimated_batches"] is None
+
+    class AllAShareAcquirer(_FakeAcquirer):
+        def instruments(self, snapshot_date: str) -> pd.DataFrame:
+            first = super().instruments(snapshot_date)
+            second = first.copy()
+            second["symbol"] = "600000.SH"
+            second["name"] = "Second"
+            return pd.concat([first, second], ignore_index=True)
+
+    acquirer = AllAShareAcquirer()
+    operations = OperationsStore(tmp_path)
+    job_id = operations.create_job(request.model_dump(mode="json"))
+    result = RQSyncService(tmp_path, acquirer=acquirer).run(job_id)
+
+    assert result["status"] == "succeeded"
+    assert acquirer.bar_symbols == ["000001.SZ", "600000.SH"]
+    assert set(RuntimeStore(tmp_path).read("rq.instruments")["symbol"]) == {
+        "000001.SZ",
+        "600000.SH",
+    }
+
+
+def test_sync_plan_reuses_cached_rq_instrument_scope(tmp_path) -> None:
+    store = RuntimeStore(tmp_path)
+    frame = _FakeAcquirer().instruments("2025-03-31")
+    store.write("rq.instruments", frame)
+
+    plan = build_sync_plan(
+        SyncRequest(datasets=["bars"], start="2025-01-01", end="2025-03-31"),
+        root=tmp_path,
+    )
+
+    assert plan["symbol_source"] == "cached_rq_instruments"
+    assert plan["symbols_resolved"] is True
+    assert plan["symbol_count"] == 1
+    assert plan["symbols"] == ["000001.SZ"]
+    assert plan["estimated_batches"] == 2
 
 
 def test_sync_plan_uses_incremental_bar_and_financial_lookbacks(tmp_path) -> None:
@@ -210,6 +268,8 @@ class _FakeRQModule:
             "close": [10.2] * len(index),
             "volume": [1000.0] * len(index),
             "total_turnover": [10200.0] * len(index),
+            "prev_close": [10.0] * len(index),
+            "num_trades": [12] * len(index),
         }
         return pd.DataFrame(columns, index=index)
 
@@ -255,6 +315,8 @@ def test_rq_acquirer_enforces_stock_and_quarter_batch_limits() -> None:
     assert len(module.financial_calls) == 4
     assert all(call["statements"] == "all" for call in module.financial_calls)
     assert "raw_close" in bars
+    assert "prev_close" in bars
+    assert "num_trades" in bars
     assert not financials.empty
 
 

@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_manage_pipeline",
-  "description": "Create, clone, revise, or delete three-stage pipeline projects and Python component versions. The stock pool is project configuration, not a component. Built-ins are immutable. Every mutation requires the matching explicit confirmation flag.",
+  "description": "Create, clone, revise, or delete three-stage pipeline projects and Python component versions. The research scope is saved project configuration authored in the Data Workbench, not a component. Built-ins are immutable. Every mutation requires the matching explicit confirmation flag.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {

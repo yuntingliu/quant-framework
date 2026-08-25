@@ -10,7 +10,7 @@ The Agent can inspect and operate:
 ```text
 data
 factor research
-project stock pool -> signal model (selection -> portfolio)
+data-workbench research scope -> signal model (selection -> portfolio)
 backtest (execution assumptions and audit) -> report
 ```
 
@@ -55,7 +55,7 @@ next-period alignment.
 Valid modes are:
 
 ```text
-data factor project selection backtest report
+project data factor selection backtest report
 ```
 
 All six modes use a core widget with a matching `.workbench` id. The internal

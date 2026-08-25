@@ -5,7 +5,6 @@ import {
   Code2,
   Database,
   Eye,
-  FolderKanban,
   Layers3,
   Play,
   Plus,
@@ -33,7 +32,6 @@ import {
   type PythonPipelineStage,
 } from "@/lib/api"
 import { usePipelineStageRun } from "@/hooks/use-pipeline-stage-run"
-import { useDataProfile } from "@/lib/data-profile"
 import { Widget } from "@/widgets/Widget"
 import {
   SelectionChartWidget,
@@ -351,7 +349,7 @@ export function StageWorkbench({
             </div>
           )}
           {stageRun.isStale && !stageRun.isRunning && (
-            <div className="workbench-message warning">项目、数据环境或数据截至日已变化，当前阶段结果已过期，请重新运行。</div>
+            <div className="workbench-message warning">项目、数据环境或当前截面日期已变化，当前阶段结果已过期，请重新运行。</div>
           )}
 
           <div className="pipeline-workbench-layout">
@@ -551,14 +549,13 @@ function asFiniteNumber(value: unknown, fallback: number): number {
 
 function SignalModelEditor({ onAdvanced }: { onAdvanced: (stage?: "selection" | "portfolio") => void }) {
   const {
-    selectedDate,
+    signalAsOfDate,
     selectedStrategy,
     selectedStrategyRevision,
     setActiveMode,
-    setSelectedDate,
+    setSignalAsOfDate,
     setSelectedStrategyRevision,
   } = useWorkspace()
-  const [profile] = useDataProfile()
   const [project, setProject] = useState<PipelineProjectDetail | null>(null)
   const [frequency, setFrequency] = useState("monthly")
   const [normalization, setNormalization] = useState("percentile_rank")
@@ -731,32 +728,18 @@ function SignalModelEditor({ onAdvanced }: { onAdvanced: (stage?: "selection" | 
   return (
     <Widget headerless>
       <div className="signal-model-shell">
-        <header className="signal-model-header">
-          <div className="signal-model-title">
-            <span className="signal-model-mark"><Layers3 size={18} /></span>
-            <div>
-              <div><h1>信号模型</h1><Badge variant="outline">{profile === "demo" ? "示例数据" : "本地数据"}</Badge></div>
-              <p>把项目因子变成每个决策日的横截面排名与目标仓位</p>
-            </div>
-          </div>
-          <div className="signal-model-header-actions">
-            <Button variant="outline" size="sm" onClick={() => setActiveMode("project")}><FolderKanban />{project?.name ?? "选择项目"}</Button>
-            <Button variant="ghost" size="sm" onClick={() => onAdvanced("selection")}><Code2 />高级组件</Button>
-          </div>
-        </header>
-
         <section className="signal-model-asof" aria-label="当前截面">
           <div className="signal-model-asof-heading">
             <span><CalendarDays size={15} /></span>
             <div><strong>当前截面</strong><small>选择这次预览使用的数据截止日；留空表示最新可用数据</small></div>
           </div>
           <div className="signal-model-date-control">
-            <input aria-label="截面日期" type="date" value={selectedDate ?? ""} onChange={(event) => setSelectedDate(event.target.value || null)} />
-            <Button variant={selectedDate ? "outline" : "secondary"} size="sm" onClick={() => setSelectedDate(null)}>最新数据</Button>
+            <input aria-label="截面日期" type="date" value={signalAsOfDate ?? ""} onChange={(event) => setSignalAsOfDate(event.target.value || null)} />
+            <Button variant={signalAsOfDate ? "outline" : "secondary"} size="sm" onClick={() => setSignalAsOfDate(null)}>最新数据</Button>
           </div>
           <div className="signal-model-asof-status">
             <Database size={13} />
-            <span>{stageRun.preview ? `实际截面 ${stageRun.preview.signal_date}` : selectedDate ? `计划截面 ${selectedDate}` : "将在数据最新日期生成"}</span>
+            <span>{stageRun.preview ? `实际截面 ${stageRun.preview.signal_date}` : signalAsOfDate ? `计划截面 ${signalAsOfDate}` : "将在数据最新日期生成"}</span>
           </div>
           <Button size="sm" onClick={() => void previewModel()} disabled={busy || stageRun.isRunning || !project || dirty} isLoading={stageRun.isRunning} title={dirty ? "模型配置有改动，请先保存" : "生成当前日期的横截面排名"}><Play />{dirty ? "请先保存" : "生成截面"}</Button>
         </section>
@@ -773,13 +756,16 @@ function SignalModelEditor({ onAdvanced }: { onAdvanced: (stage?: "selection" | 
                 <TabsTrigger value="build">模型构建</TabsTrigger>
                 <TabsTrigger value="results">当前截面{stageRun.isStale ? <span className="signal-model-tab-warning">需要更新</span> : null}</TabsTrigger>
               </TabsList>
-              {workspaceView === "build" ? (
-                <span className="signal-model-toolbar-hint">选择因子 → 合成排名 → 生成信号集合 → 分配目标仓位</span>
-              ) : (
-                <span className={stageRun.preview && !stageRun.isStale ? "signal-model-result-ready" : "signal-model-toolbar-hint"}>
-                  {stageRun.preview ? `${stageRun.isStale ? "已有结果已过期" : "已生成"} · ${stageRun.preview.signal_date}` : "尚未生成当前截面"}
-                </span>
-              )}
+              <div className="signal-model-toolbar-actions">
+                {workspaceView === "build" ? (
+                  <span className="signal-model-toolbar-hint">选择因子 → 合成排名 → 生成信号集合 → 分配目标仓位</span>
+                ) : (
+                  <span className={stageRun.preview && !stageRun.isStale ? "signal-model-result-ready" : "signal-model-toolbar-hint"}>
+                    {stageRun.preview ? `${stageRun.isStale ? "已有结果已过期" : "已生成"} · ${stageRun.preview.signal_date}` : "尚未生成当前截面"}
+                  </span>
+                )}
+                <Button variant="ghost" size="sm" onClick={() => onAdvanced("selection")}><Code2 />高级组件</Button>
+              </div>
             </div>
 
             <TabsContent className="signal-model-content" value="build">

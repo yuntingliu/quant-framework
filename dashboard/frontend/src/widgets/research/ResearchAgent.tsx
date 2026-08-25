@@ -46,7 +46,7 @@ function customNodePayload(value: unknown, expectedType: string): unknown {
 }
 
 const WORKSPACE_CAPABILITIES = {
-  modes: ["data", "factor", "project", "selection", "backtest", "report"],
+  modes: ["project", "data", "factor", "selection", "backtest", "report"],
   widgets: agentWorkspaceWidgetIds,
   commandTypes: [
     "switch_mode",
@@ -320,7 +320,7 @@ export function ResearchAgentPanel() {
       linkSymbols: workspace.linkSymbols,
       selectedStrategy: workspace.selectedStrategy,
       selectedBacktest: workspace.selectedBacktest,
-      selectedDate: workspace.selectedDate,
+      signalAsOfDate: workspace.signalAsOfDate,
       workspaceCapabilities: WORKSPACE_CAPABILITIES,
       lastWorkspaceCommandReceipts: workspaceReceipts,
     }

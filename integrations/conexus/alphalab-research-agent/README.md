@@ -16,7 +16,7 @@ Current pipeline tools:
 - `alphalab_preview_pipeline`
 - `alphalab_run_backtest`
 
-The stock pool is structured project configuration. Complete strategy source is
+The research scope is structured project configuration authored in the Data Workbench. Complete strategy source is
 composed from exactly three pinned versions: selection, portfolio, and execution. Performance, drawdown, alpha,
 beta, and factor correlations are derived from the frozen BacktestRun. YAML is
 neither an Agent input nor a runtime representation.

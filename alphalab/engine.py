@@ -254,7 +254,7 @@ class SignalEngine:
         unknown_selected = sorted(set(selected_symbols) - allowed)
         if unknown_selected:
             raise ValueError(
-                "Selection stage returned symbols outside the eligible project stock pool: "
+                "Selection stage returned symbols outside the eligible research scope: "
                 f"{unknown_selected}"
             )
         scores = self._coerce_scores(
@@ -558,7 +558,15 @@ class SignalEngine:
         active_factors = tuple(
             factor for factor in config.factors if config.effective_factor_weight(factor) > 0
         )
-        fundamental_names = required_fundamental_fields(active_factors)
+        market_fields = {
+            str(column)
+            for frame in data_by_symbol.values()
+            for column in frame.columns
+        }
+        fundamental_names = required_fundamental_fields(
+            active_factors,
+            market_fields=market_fields,
+        )
         fundamentals = pd.DataFrame()
         if fundamental_names:
             fundamentals = self._load_latest_fundamentals(symbols, fundamental_names, as_of_date)
@@ -679,7 +687,6 @@ def run_backtest_detailed(
         warmup_start,
         end.strftime("%Y-%m-%d"),
         strict=False,
-        fields=["open", "high", "low", "close", "volume", "amount"],
         use_cache=False,
     )
     if bars.empty:

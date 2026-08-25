@@ -35,13 +35,21 @@ class FakeRQData:
                 "close": [10.2, 20.2],
                 "volume": [1000.0, 2000.0],
                 "total_turnover": [10200.0, 40400.0],
+                "prev_close": [10.0, 20.0],
+                "num_trades": [12, 24],
             },
             index=index,
         )
 
     def all_instruments(self, **kwargs):
         assert kwargs == {"type": "CS", "market": "cn"}
-        return pd.DataFrame({"order_book_id": ["600000.XSHG", "000001.XSHE"]})
+        return pd.DataFrame(
+            {
+                "order_book_id": ["600000.XSHG", "000001.XSHE"],
+                "exchange": ["XSHG", "XSHE"],
+                "round_lot": [100, 100],
+            }
+        )
 
     def get_pit_financials_ex(self, **kwargs):
         self.fundamental_calls.append(kwargs)
@@ -100,6 +108,23 @@ def test_rq_market_provider_is_lazy_and_normalizes_bars() -> None:
     instruments = provider.get_instruments("2025-01-02")
     assert instruments["symbol"].tolist() == ["600000.SH", "000001.SZ"]
     assert instruments["snapshot_date"].notna().all()
+    assert instruments["exchange"].tolist() == ["XSHG", "XSHE"]
+    assert instruments["round_lot"].tolist() == [100, 100]
+
+
+def test_rq_market_discovery_preserves_all_daily_fields() -> None:
+    provider, module = _provider()
+
+    bars = provider.get_daily_bars_all_fields(
+        ["000001.SZ", "600000.SH"],
+        "2025-01-01",
+        "2025-01-03",
+    )
+
+    assert module.price_kwargs["fields"] is None
+    assert bars["prev_close"].tolist() == [10.0, 20.0]
+    assert bars["num_trades"].tolist() == [12, 24]
+    assert bars["amount"].tolist() == [10200.0, 40400.0]
 
 
 def test_rq_fundamentals_are_point_in_time_and_batched() -> None:

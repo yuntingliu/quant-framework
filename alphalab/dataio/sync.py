@@ -1,7 +1,6 @@
 """RQ runtime synchronization plans, jobs, and execution."""
 from __future__ import annotations
 
-import json
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import date
@@ -22,7 +21,7 @@ from alphalab.dataio.quality import validate_dataset
 from alphalab.dataio.rq_sync import RQAcquirer
 from alphalab.dataio.runtime import OperationsStore, RuntimeStore
 from alphalab.dataio.symbols import canonical_a_share_symbol
-from alphalab.utils.paths import DATA_DIR, RUNTIME_DIR
+from alphalab.utils.paths import RUNTIME_DIR
 
 SyncDataset = Literal["instruments", "bars", "fundamentals", "factors"]
 _ALLOWED_DATASETS = {"instruments", "bars", "fundamentals", "factors"}
@@ -68,6 +67,8 @@ def build_sync_plan(
     request: SyncRequest,
     *,
     root: str | Path | None = None,
+    resolved_symbols: list[str] | None = None,
+    symbol_source: str | None = None,
 ) -> dict:
     runtime_root = Path(root) if root is not None else RUNTIME_DIR
     store = RuntimeStore(runtime_root)
@@ -75,9 +76,23 @@ def build_sync_plan(
     start = pd.Timestamp(request.start or (end - pd.DateOffset(years=5))).normalize()
     if start > end:
         raise ValueError("start must be on or before end")
-    symbols = request.symbols or _sample_symbols()
-    if not symbols:
-        raise MissingDataError("No symbols supplied and bundled manifest has no universe")
+    cached_symbols = (
+        _symbols_from_instruments(
+            _read_cached_instruments(store),
+            start=start,
+            end=end,
+        )
+        if request.symbols is None and resolved_symbols is None
+        else []
+    )
+    symbols = list(request.symbols or resolved_symbols or cached_symbols)
+    symbols_resolved = bool(symbols)
+    resolved_source = (
+        "explicit_symbols"
+        if request.symbols is not None
+        else symbol_source
+        or ("cached_rq_instruments" if cached_symbols else "rq_all_a_shares")
+    )
 
     bars_start = start
     bars_watermark = store.operations.watermark("rq.bars")
@@ -149,13 +164,18 @@ def build_sync_plan(
     return {
         "source": "rq",
         "runtime_root": str(runtime_root),
+        "scope": "custom" if request.symbols is not None else "all_a_shares",
+        "symbol_source": resolved_source,
+        "symbols_resolved": symbols_resolved,
         "symbols": symbols,
-        "symbol_count": len(symbols),
+        "symbol_count": len(symbols) if symbols_resolved else None,
         "requested_start": start.strftime("%Y-%m-%d"),
         "requested_end": end.strftime("%Y-%m-%d"),
         "force": request.force,
         "steps": steps,
-        "estimated_batches": _estimate_batches(steps, len(symbols)),
+        "estimated_batches": (
+            _estimate_batches(steps, len(symbols)) if symbols_resolved else None
+        ),
         "writes_are_local": True,
     }
 
@@ -177,21 +197,66 @@ class RQSyncService:
         if job is None:
             raise KeyError(job_id)
         request = SyncRequest.model_validate(job["request"])
-        plan = build_sync_plan(request, root=self.root)
-        acquirer = self.acquirer or RQAcquirer.from_env()
-        total = len(plan["steps"])
         progress = 0
+        total = 0
         self.operations.update_job(
             job_id,
             status="running",
-            total=total,
-            message="Connecting to RQData",
+            total=0,
+            message=(
+                "Resolving all A-share instruments from RQData"
+                if request.symbols is None
+                else "Preparing explicit RQData symbols"
+            ),
         )
+        instrument_frame: pd.DataFrame | None = None
+        try:
+            acquirer = self.acquirer or RQAcquirer.from_env()
+            if request.symbols is None:
+                unresolved = build_sync_plan(request, root=self.root)
+                instrument_frame = acquirer.instruments(unresolved["requested_end"])
+                symbols = _symbols_from_instruments(
+                    instrument_frame,
+                    start=pd.Timestamp(unresolved["requested_start"]),
+                    end=pd.Timestamp(unresolved["requested_end"]),
+                )
+                if not symbols:
+                    raise MissingDataError(
+                        "RQData returned no A-share instruments active in the requested range"
+                    )
+                plan = build_sync_plan(
+                    request,
+                    root=self.root,
+                    resolved_symbols=symbols,
+                    symbol_source="live_rq_instruments",
+                )
+            else:
+                plan = build_sync_plan(request, root=self.root)
+            total = len(plan["steps"])
+            self.operations.update_job(
+                job_id,
+                total=total,
+                message=f"RQData scope resolved: {plan['symbol_count']} symbols",
+            )
+        except Exception as exc:
+            self.operations.update_job(
+                job_id,
+                status="failed",
+                progress=progress,
+                total=total,
+                message="RQ sync failed while resolving the research scope",
+                error=_public_error(exc),
+            )
+            result = self.operations.get_job(job_id)
+            assert result is not None
+            return result
         try:
             datasets = set(request.datasets)
             if "instruments" in datasets:
                 self._check_cancel(job_id)
-                frame = acquirer.instruments(plan["requested_end"])
+                frame = instrument_frame
+                if frame is None:
+                    frame = acquirer.instruments(plan["requested_end"])
                 self.store.write("rq.instruments", frame)
                 progress = self._complete_step(job_id, "rq.instruments", progress, total)
 
@@ -407,12 +472,48 @@ class SyncJobManager:
         return self.operations.get_job(job_id)
 
 
-def _sample_symbols() -> list[str]:
-    path = DATA_DIR / "manifest.json"
-    if not path.exists():
+def _read_cached_instruments(store: RuntimeStore) -> pd.DataFrame:
+    try:
+        return store.read("rq.instruments")
+    except MissingDataError:
+        return pd.DataFrame()
+
+
+def _symbols_from_instruments(
+    frame: pd.DataFrame,
+    *,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> list[str]:
+    if frame.empty or "symbol" not in frame:
         return []
-    values = json.loads(path.read_text(encoding="utf-8")).get("symbols", [])
-    return list(dict.fromkeys(canonical_a_share_symbol(value) for value in values))
+    candidates = frame.copy()
+    if "snapshot_date" in candidates:
+        candidates["snapshot_date"] = pd.to_datetime(
+            candidates["snapshot_date"], errors="coerce"
+        )
+        snapshots = candidates["snapshot_date"].dropna()
+        if not snapshots.empty:
+            on_or_before = snapshots.loc[snapshots.le(end)]
+            chosen = on_or_before.max() if not on_or_before.empty else snapshots.min()
+            candidates = candidates.loc[candidates["snapshot_date"].eq(chosen)]
+    listed = pd.to_datetime(
+        candidates.get("listed_date", pd.Series(pd.NaT, index=candidates.index)),
+        errors="coerce",
+    )
+    delisted = pd.to_datetime(
+        candidates.get("de_listed_date", pd.Series(pd.NaT, index=candidates.index)),
+        errors="coerce",
+    )
+    candidates = candidates.loc[
+        (listed.isna() | listed.le(end)) & (delisted.isna() | delisted.ge(start))
+    ]
+    return sorted(
+        dict.fromkeys(
+            canonical_a_share_symbol(value)
+            for value in candidates["symbol"].dropna().astype(str)
+        )
+    )
 
 
 def _date_quarter(value: pd.Timestamp) -> str:

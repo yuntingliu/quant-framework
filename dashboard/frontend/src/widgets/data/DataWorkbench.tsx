@@ -1,15 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BarChart3, CalendarDays, ChevronDown, Database, Play, RefreshCw, Search, ShieldCheck, Star, X } from 'lucide-react'
+import { BarChart3, CalendarDays, ChevronDown, Database, ListFilter, Play, Plus, RefreshCw, Save, Search, ShieldCheck, Star, X } from 'lucide-react'
 import { CandlestickChart } from '../../components/charts'
 import { CSVExportButton } from '../../components/shared/CSVExportButton'
 import { IndicatorMenu } from '../../components/shared/IndicatorMenu'
 import { SymbolCombobox } from '../../components/shared/SymbolCombobox'
+import { Badge } from '../../components/ui/badge'
+import { Button } from '../../components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card'
+import { Checkbox } from '../../components/ui/checkbox'
+import { Input } from '../../components/ui/input'
+import { Label } from '../../components/ui/label'
 import {
+  api,
   apiGet,
   apiPost,
   type DataSyncHealth,
   type MarketBar,
   type MarketInstrument,
+  type PipelineProjectDetail,
   type ProviderStatus,
   type RuntimeCatalog,
   type SyncJob,
@@ -24,7 +32,26 @@ import { RiskDataWorkspace } from './RiskDataWorkspace'
 
 type DataWorkbenchTab = 'catalog' | 'risk' | 'preview' | 'jobs'
 type MarketRange = '3m' | '6m' | '1y' | 'all'
+type ResearchScopeMode = 'all' | 'custom'
 const WATCHLIST_STORAGE_KEY = 'alphalab.data-watchlist.v1'
+
+interface ResearchScope {
+  symbols: string[]
+  minPrice: number
+  minHistoryDays: number
+  minAverageAmount: number
+  maxStaleDays: number
+  requirePositiveVolume: boolean
+}
+
+const DEFAULT_RESEARCH_SCOPE: ResearchScope = {
+  symbols: [],
+  minPrice: 0,
+  minHistoryDays: 60,
+  minAverageAmount: 0,
+  maxStaleDays: 7,
+  requirePositiveVolume: true,
+}
 
 interface DataPreview {
   dataset: string
@@ -48,6 +75,31 @@ interface QualityReport {
     message: string
     severity: string
   }>
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+function researchScopeFrom(settings: Record<string, unknown>): ResearchScope {
+  const universe = asRecord(settings.universe)
+  return {
+    symbols: Array.isArray(universe.symbols)
+      ? [...new Set(universe.symbols.map((value) => String(value).trim().toUpperCase()).filter(Boolean))]
+      : [],
+    minPrice: Math.max(0, finiteNumber(universe.min_price, DEFAULT_RESEARCH_SCOPE.minPrice)),
+    minHistoryDays: Math.max(2, Math.round(finiteNumber(universe.min_history_days, DEFAULT_RESEARCH_SCOPE.minHistoryDays))),
+    minAverageAmount: Math.max(0, finiteNumber(universe.min_average_amount, DEFAULT_RESEARCH_SCOPE.minAverageAmount)),
+    maxStaleDays: Math.max(0, Math.round(finiteNumber(universe.max_stale_days, DEFAULT_RESEARCH_SCOPE.maxStaleDays))),
+    requirePositiveVolume: universe.require_positive_volume !== false,
+  }
 }
 
 function previewCell(value: unknown): string {
@@ -88,13 +140,30 @@ function loadWatchlist(): string[] {
 export function DataWorkbenchWidget() {
   const { language } = useLanguage()
   const copy = language === 'zh' ? {
-    title: '数据工作台',
-    description: '选择证券，直接查看行情、成交量和技术指标。',
-    demoProfile: '演示数据',
-    runtimeProfile: '本地 RQ 数据',
-    source: '数据源',
-    updatedThrough: '数据更新至',
-    availableSymbols: '可选证券',
+    researchScope: '研究范围',
+    researchScopeDescription: '这里定义进入因子研究和信号排名的初始候选；偏好与排序仍由因子模型决定。',
+    project: '项目',
+    allSecurities: '全部可用证券',
+    allSecuritiesHint: '使用当前数据源中的全部证券',
+    customSecurities: '自定义范围',
+    customSecuritiesHint: '只研究明确加入的证券',
+    initialCandidates: '初始候选',
+    candidatesUnit: '只',
+    addCurrent: '加入当前证券',
+    addFromWatchlist: '导入自选股',
+    removeFromScope: '移出研究范围',
+    customScopeEmpty: '请从当前证券或自选股中加入至少一只证券。',
+    eligibilityRules: '自动准入筛选',
+    eligibilityRulesHint: '在每个研究截面先排除数据不足或不可交易标的，不参与因子加权。',
+    minHistoryDays: '最少历史天数',
+    minPrice: '最低价格',
+    minAverageAmount: '最低平均成交额',
+    maxStaleDays: '行情最长停滞天数',
+    positiveVolume: '要求当日成交量大于 0',
+    saveScope: '保存研究范围',
+    scopeSaved: '研究范围已保存，后续因子研究、信号与回测将共同使用。',
+    scopeReadOnly: '当前项目只读，复制为可编辑项目后才能修改研究范围。',
+    noProject: '请先选择一个可编辑研究项目。',
     ready: '可用',
     coverage: '覆盖范围',
     symbols: '只证券',
@@ -111,6 +180,8 @@ export function DataWorkbenchWidget() {
     validate: '数据质量检查',
     validateTitle: '检查所有本地研究数据集',
     configuredRequired: '请先配置',
+    rqClientMissing: '未安装 RQData 客户端，请运行 pip install -e ".[rq]"。',
+    rqCredentialsMissing: '请先配置本地 RQ 凭据',
     rqEnvironment: '本地 RQ 环境',
     beforeSync: '后再更新本地研究数据。',
     demoFallback: '这不影响演示数据，也不影响查看已经保存在本地的行情。',
@@ -118,6 +189,9 @@ export function DataWorkbenchWidget() {
     batches: '个批次',
     updatePlan: '更新计划',
     updateScope: '将更新',
+    allAShares: '全部 A 股',
+    resolveOnStart: '证券数量将在任务启动时从 RQ 证券主数据解析',
+    batchesPending: '批次数待解析',
     tabsLabel: '高级数据管理视图',
     catalogTab: '数据目录',
     riskTab: '风险数据',
@@ -169,13 +243,30 @@ export function DataWorkbenchWidget() {
     noQualityIssues: '未发现问题',
     rowsUnit: '行',
   } : {
-    title: 'Data Workbench',
-    description: 'Choose a symbol and inspect its market data, volume, and indicators.',
-    demoProfile: 'Demo profile',
-    runtimeProfile: 'Local RQ profile',
-    source: 'Data source',
-    updatedThrough: 'Updated through',
-    availableSymbols: 'Available symbols',
+    researchScope: 'Research scope',
+    researchScopeDescription: 'Define the initial candidates for factor research and signal ranking; factors still own preferences and ordering.',
+    project: 'Project',
+    allSecurities: 'All available securities',
+    allSecuritiesHint: 'Use every security in the current data source',
+    customSecurities: 'Custom scope',
+    customSecuritiesHint: 'Research only explicitly included securities',
+    initialCandidates: 'Initial candidates',
+    candidatesUnit: '',
+    addCurrent: 'Add current symbol',
+    addFromWatchlist: 'Import watchlist',
+    removeFromScope: 'Remove from research scope',
+    customScopeEmpty: 'Add at least one symbol from the current security or watchlist.',
+    eligibilityRules: 'Automatic eligibility filters',
+    eligibilityRulesHint: 'Exclude insufficient or untradable data before each cross-section; these rules are not factor weights.',
+    minHistoryDays: 'Minimum history days',
+    minPrice: 'Minimum price',
+    minAverageAmount: 'Minimum average amount',
+    maxStaleDays: 'Maximum stale days',
+    positiveVolume: 'Require positive daily volume',
+    saveScope: 'Save research scope',
+    scopeSaved: 'Research scope saved for factor research, signals, and backtests.',
+    scopeReadOnly: 'This project is read-only. Clone it before changing the research scope.',
+    noProject: 'Select an editable research project first.',
     ready: 'Ready',
     coverage: 'Coverage',
     symbols: 'symbols',
@@ -192,6 +283,8 @@ export function DataWorkbenchWidget() {
     validate: 'Check data quality',
     validateTitle: 'Check all local research datasets',
     configuredRequired: 'Configure',
+    rqClientMissing: 'The RQData client is not installed. Run pip install -e ".[rq]".',
+    rqCredentialsMissing: 'Configure local RQ credentials',
     rqEnvironment: 'the local RQ environment',
     beforeSync: 'before updating local research data.',
     demoFallback: 'This does not affect demo data or market data already saved locally.',
@@ -199,6 +292,9 @@ export function DataWorkbenchWidget() {
     batches: 'batches',
     updatePlan: 'Update plan',
     updateScope: 'Will update',
+    allAShares: 'all A-shares',
+    resolveOnStart: 'The symbol count will be resolved from RQ instruments when the job starts',
+    batchesPending: 'batch count pending',
     tabsLabel: 'Advanced data management view',
     catalogTab: 'Catalog',
     riskTab: 'Risk data',
@@ -251,9 +347,23 @@ export function DataWorkbenchWidget() {
     rowsUnit: 'rows',
   }
   const refreshRevision = useWorkspaceRefresh()
-  const { selectedDataset, setSelectedDataset, selectedSymbol, setSelectedSymbol } = useWorkspace()
+  const {
+    selectedDataset,
+    selectedStrategy,
+    selectedSymbol,
+    setSelectedDataset,
+    setSelectedStrategyRevision,
+    setSelectedSymbol,
+  } = useWorkspace()
   const [status, setStatus] = useState<ProviderStatus | null>(null)
   const [error, setError] = useState('')
+  const [scopeError, setScopeError] = useState('')
+  const [scopeMessage, setScopeMessage] = useState('')
+  const [scopeBusy, setScopeBusy] = useState(false)
+  const [scopeDirty, setScopeDirty] = useState(false)
+  const [project, setProject] = useState<PipelineProjectDetail | null>(null)
+  const [scopeMode, setScopeMode] = useState<ResearchScopeMode>('all')
+  const [researchScope, setResearchScope] = useState<ResearchScope>(DEFAULT_RESEARCH_SCOPE)
   const [health, setHealth] = useState<DataSyncHealth | null>(null)
   const [catalog, setCatalog] = useState<RuntimeCatalog | null>(null)
   const [jobs, setJobs] = useState<SyncJob[]>([])
@@ -295,6 +405,48 @@ export function DataWorkbenchWidget() {
       setError(err instanceof Error ? err.message : String(err))
     }
   }, [])
+
+  useEffect(() => {
+    let active = true
+    setScopeError('')
+    setScopeMessage('')
+    if (!selectedStrategy) {
+      setProject(null)
+      setResearchScope(DEFAULT_RESEARCH_SCOPE)
+      setScopeMode('all')
+      setScopeDirty(false)
+      return () => { active = false }
+    }
+    api.get<PipelineProjectDetail>(`/pipeline/projects/${selectedStrategy}`)
+      .then((next) => {
+        if (!active) return
+        const nextScope = researchScopeFrom(next.settings)
+        setProject(next)
+        setResearchScope(nextScope)
+        setScopeMode(nextScope.symbols.length ? 'custom' : 'all')
+        setScopeDirty(false)
+        setSelectedStrategyRevision(next.revision)
+      })
+      .catch((reason: Error) => {
+        if (active) setScopeError(reason.message)
+      })
+    return () => { active = false }
+  }, [selectedStrategy, setSelectedStrategyRevision])
+
+  useEffect(() => {
+    const handleProjectUpdated = (event: Event) => {
+      const next = (event as CustomEvent<PipelineProjectDetail>).detail
+      if (!next || next.id !== selectedStrategy) return
+      setProject(next)
+      setSelectedStrategyRevision(next.revision)
+      if (scopeDirty) return
+      const nextScope = researchScopeFrom(next.settings)
+      setResearchScope(nextScope)
+      setScopeMode(nextScope.symbols.length ? 'custom' : 'all')
+    }
+    window.addEventListener('alphalab:projectUpdated', handleProjectUpdated)
+    return () => window.removeEventListener('alphalab:projectUpdated', handleProjectUpdated)
+  }, [scopeDirty, selectedStrategy, setSelectedStrategyRevision])
 
   useEffect(() => {
     const datasets = catalog?.datasets ?? []
@@ -495,29 +647,189 @@ export function DataWorkbenchWidget() {
       : [...current, symbol])
   }
 
-  if (error) return <div className="panel"><h2>{copy.title}</h2><p className="error">{error}</p></div>
+  function changeScopeMode(mode: ResearchScopeMode) {
+    if (mode === scopeMode) return
+    setScopeMode(mode)
+    setScopeDirty(true)
+    setScopeMessage('')
+    setScopeError('')
+  }
+
+  function updateResearchScope(patch: Partial<ResearchScope>) {
+    setResearchScope((current) => ({ ...current, ...patch }))
+    setScopeDirty(true)
+    setScopeMessage('')
+    setScopeError('')
+  }
+
+  function addScopeSymbols(symbols: string[]) {
+    const available = new Set(marketSymbols)
+    const additions = symbols
+      .map((symbol) => symbol.trim().toUpperCase())
+      .filter((symbol) => symbol && available.has(symbol))
+    if (!additions.length) return
+    setScopeMode('custom')
+    updateResearchScope({ symbols: [...new Set([...researchScope.symbols, ...additions])] })
+  }
+
+  function removeScopeSymbol(symbol: string) {
+    updateResearchScope({ symbols: researchScope.symbols.filter((item) => item !== symbol) })
+  }
+
+  async function saveResearchScope() {
+    if (!project?.editable || (scopeMode === 'custom' && !researchScope.symbols.length)) return
+    setScopeBusy(true)
+    setScopeError('')
+    setScopeMessage('')
+    try {
+      // Reload before saving so changes made in the factor, signal, or backtest
+      // workbench are not overwritten by a stale project snapshot.
+      const latest = await api.get<PipelineProjectDetail>(`/pipeline/projects/${project.id}`)
+      const saved = await api.put<PipelineProjectDetail>(`/pipeline/projects/${project.id}`, {
+        name: latest.name,
+        description: latest.description,
+        components: latest.components,
+        settings: {
+          ...latest.settings,
+          universe: {
+            ...asRecord(latest.settings.universe),
+            pool: 'all',
+            symbols: scopeMode === 'custom' ? researchScope.symbols : [],
+            min_price: researchScope.minPrice,
+            min_history_days: researchScope.minHistoryDays,
+            min_average_amount: researchScope.minAverageAmount,
+            max_stale_days: researchScope.maxStaleDays,
+            require_positive_volume: researchScope.requirePositiveVolume,
+          },
+        },
+      })
+      const savedScope = researchScopeFrom(saved.settings)
+      setProject(saved)
+      setResearchScope(savedScope)
+      setScopeMode(savedScope.symbols.length ? 'custom' : 'all')
+      setScopeDirty(false)
+      setScopeMessage(copy.scopeSaved)
+      setSelectedStrategyRevision(saved.revision)
+      window.dispatchEvent(new CustomEvent('alphalab:projectUpdated', { detail: saved }))
+    } catch (reason) {
+      setScopeError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setScopeBusy(false)
+    }
+  }
+
+  const initialCandidateCount = scopeMode === 'custom'
+    ? researchScope.symbols.length
+    : marketSymbols.length || profileStatus?.symbol_count || 0
+  const customScopeInvalid = scopeMode === 'custom' && researchScope.symbols.length === 0
+
+  if (error) return <div className="panel"><p className="error">{error}</p></div>
   return (
     <div className="panel">
-      <div className="panel-heading data-workbench-heading">
-        <div>
-          <h2>{copy.title}</h2>
-          <p>{copy.description}</p>
-        </div>
-        <div className="data-source-summary">
-          <span className="status-pill neutral">
-            {copy.source}: {profile === 'demo' ? copy.demoProfile : copy.runtimeProfile}
-          </span>
-          <span className={`status-pill ${profileStatus?.status === 'ready' ? 'ready' : 'neutral'}`}>
-            {profileStatus?.status ?? copy.loading}
-          </span>
-          <span className="status-pill neutral">
-            <CalendarDays size={13} /> {copy.updatedThrough}: {profileStatus?.latest_date ?? '—'}
-          </span>
-          <span className="status-pill">
-            {copy.availableSymbols}: {(profileStatus?.symbol_count ?? 0).toLocaleString()}
-          </span>
-        </div>
-      </div>
+      <Card className="mx-2 mt-2 rounded-lg shadow-none">
+        <CardHeader className="flex-row items-start justify-between gap-4 space-y-0 p-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-sm"><ListFilter size={15} /> {copy.researchScope}</CardTitle>
+              {project ? <Badge variant="outline" className="max-w-64 truncate font-normal">{copy.project}: {project.name}</Badge> : null}
+              <Badge variant="secondary" className="font-normal">{copy.initialCandidates}: {initialCandidateCount.toLocaleString()} {copy.candidatesUnit}</Badge>
+            </div>
+            <CardDescription className="mt-1 text-xs">{copy.researchScopeDescription}</CardDescription>
+          </div>
+          <Button
+            size="sm"
+            type="button"
+            onClick={() => void saveResearchScope()}
+            disabled={!project?.editable || !scopeDirty || customScopeInvalid}
+            isLoading={scopeBusy}
+          >
+            <Save /> {copy.saveScope}
+          </Button>
+        </CardHeader>
+        <CardContent className="grid gap-3 p-3 pt-0">
+          {!project ? <div className={`workbench-message${scopeError ? ' error' : ''}`}>{scopeError || copy.noProject}</div> : (
+            <>
+              <div className="grid gap-2 md:grid-cols-2">
+                <Button
+                  className="h-auto justify-start whitespace-normal px-3 py-2 text-left"
+                  variant={scopeMode === 'all' ? 'default' : 'outline'}
+                  type="button"
+                  onClick={() => changeScopeMode('all')}
+                  disabled={!project.editable}
+                >
+                  <span><strong className="block text-xs">{copy.allSecurities}</strong><small className="block opacity-75">{copy.allSecuritiesHint}</small></span>
+                </Button>
+                <Button
+                  className="h-auto justify-start whitespace-normal px-3 py-2 text-left"
+                  variant={scopeMode === 'custom' ? 'default' : 'outline'}
+                  type="button"
+                  onClick={() => changeScopeMode('custom')}
+                  disabled={!project.editable}
+                >
+                  <span><strong className="block text-xs">{copy.customSecurities}</strong><small className="block opacity-75">{copy.customSecuritiesHint}</small></span>
+                </Button>
+              </div>
+
+              {scopeMode === 'custom' ? (
+                <div className="grid gap-2 rounded-md border border-border bg-muted/20 p-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button size="sm" variant="outline" type="button" onClick={() => addScopeSymbols([marketSymbol])} disabled={!project.editable || !marketSymbol || researchScope.symbols.includes(marketSymbol)}>
+                      <Plus /> {copy.addCurrent}{marketSymbol ? ` · ${marketSymbol}` : ''}
+                    </Button>
+                    <Button size="sm" variant="outline" type="button" onClick={() => addScopeSymbols(watchlist)} disabled={!project.editable || !watchlist.some((symbol) => !researchScope.symbols.includes(symbol))}>
+                      <Star /> {copy.addFromWatchlist}
+                    </Button>
+                  </div>
+                  {researchScope.symbols.length ? (
+                    <div className="flex max-h-24 flex-wrap gap-1.5 overflow-auto">
+                      {researchScope.symbols.map((symbol) => (
+                        <Badge key={symbol} variant="outline" className="gap-1 pr-1 font-mono font-normal">
+                          {symbol}
+                          <button className="rounded p-0.5 hover:bg-destructive/10 hover:text-destructive" type="button" onClick={() => removeScopeSymbol(symbol)} disabled={!project.editable} aria-label={`${copy.removeFromScope}: ${symbol}`} title={copy.removeFromScope}>
+                            <X size={11} />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : <p className="m-0 text-xs text-destructive">{copy.customScopeEmpty}</p>}
+                </div>
+              ) : null}
+
+              <details className="rounded-md border border-border bg-background">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2">
+                  <span className="min-w-0"><strong className="block text-xs text-foreground">{copy.eligibilityRules}</strong><small className="block text-[10px] text-muted-foreground">{copy.eligibilityRulesHint}</small></span>
+                  <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
+                </summary>
+                <div className="grid gap-3 border-t border-border p-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <Label className="grid gap-1 normal-case tracking-normal">
+                    <span>{copy.minHistoryDays}</span>
+                    <Input type="number" min={2} step={1} value={researchScope.minHistoryDays} disabled={!project.editable} onChange={(event) => updateResearchScope({ minHistoryDays: Math.max(2, Math.round(Number(event.target.value) || 2)) })} />
+                  </Label>
+                  <Label className="grid gap-1 normal-case tracking-normal">
+                    <span>{copy.minPrice}</span>
+                    <Input type="number" min={0} step="0.01" value={researchScope.minPrice} disabled={!project.editable} onChange={(event) => updateResearchScope({ minPrice: Math.max(0, Number(event.target.value) || 0) })} />
+                  </Label>
+                  <Label className="grid gap-1 normal-case tracking-normal">
+                    <span>{copy.minAverageAmount}</span>
+                    <Input type="number" min={0} step={10000} value={researchScope.minAverageAmount} disabled={!project.editable} onChange={(event) => updateResearchScope({ minAverageAmount: Math.max(0, Number(event.target.value) || 0) })} />
+                  </Label>
+                  <Label className="grid gap-1 normal-case tracking-normal">
+                    <span>{copy.maxStaleDays}</span>
+                    <Input type="number" min={0} step={1} value={researchScope.maxStaleDays} disabled={!project.editable} onChange={(event) => updateResearchScope({ maxStaleDays: Math.max(0, Math.round(Number(event.target.value) || 0)) })} />
+                  </Label>
+                  <Label className="flex items-center gap-2 normal-case tracking-normal sm:col-span-2 lg:col-span-4">
+                    <Checkbox checked={researchScope.requirePositiveVolume} disabled={!project.editable} onCheckedChange={(checked) => updateResearchScope({ requirePositiveVolume: checked === true })} />
+                    <span>{copy.positiveVolume}</span>
+                  </Label>
+                </div>
+              </details>
+              {!project.editable ? <div className="workbench-message">{copy.scopeReadOnly}</div> : null}
+              {scopeError ? <div className="workbench-message error">{scopeError}</div> : null}
+              {scopeMessage ? <div className="workbench-message research-message">{scopeMessage}</div> : null}
+            </>
+          )}
+        </CardContent>
+      </Card>
       <div className="workbench-body market-kline-workbench">
         <div className="market-kline-toolbar">
           <SymbolCombobox
@@ -628,7 +940,7 @@ export function DataWorkbenchWidget() {
 
         <div className="data-management-body">
           <div className="sync-toolbar">
-            <span className={`status-pill ${health?.rq.configured ? 'ready' : 'neutral'}`}>
+            <span className={`status-pill ${health?.rq.ready ? 'ready' : 'neutral'}`}>
               <Database size={13} /> RQ {health?.rq.status ?? copy.loading}
             </span>
             <button type="button" onClick={checkUpdates} disabled={busy} title={copy.checkUpdatesTitle}>
@@ -643,19 +955,27 @@ export function DataWorkbenchWidget() {
               </span>
             )}
           </div>
-          {!health?.rq.configured && (
+          {health && !health.rq.ready && (
             <p className="data-guidance">
-              {copy.configuredRequired} {health?.rq.missing.join(', ') || copy.rqEnvironment} {copy.beforeSync} {copy.demoFallback}
+              {!health.rq.installed
+                ? copy.rqClientMissing
+                : `${copy.rqCredentialsMissing}: ${health.rq.missing.join(', ') || copy.rqEnvironment} ${copy.beforeSync}`}{' '}
+              {copy.demoFallback}
             </p>
           )}
           {plan && (
             <div className="sync-plan-card">
               <div>
                 <strong>{copy.updatePlan}</strong>
-                <span>{copy.updateScope} {plan.symbol_count} {copy.symbols} · {plan.steps.length} {copy.datasets} · {plan.estimated_batches} {copy.batches}</span>
+                <span>
+                  {copy.updateScope} {plan.scope === 'all_a_shares' ? copy.allAShares : `${plan.symbol_count ?? 0} ${copy.symbols}`}
+                  {' · '}{plan.steps.length} {copy.datasets}
+                  {' · '}{plan.estimated_batches === null ? copy.batchesPending : `${plan.estimated_batches} ${copy.batches}`}
+                </span>
+                {!plan.symbols_resolved ? <small>{copy.resolveOnStart}</small> : null}
                 <small>{plan.requested_start} → {plan.requested_end}</small>
               </div>
-              <button className="primary-command" type="button" onClick={startUpdate} disabled={busy || !health?.rq.configured} title={copy.startUpdateTitle}>
+              <button className="primary-command" type="button" onClick={startUpdate} disabled={busy || !health?.rq.ready} title={copy.startUpdateTitle}>
                 <Play size={14} /> {copy.startUpdate}
               </button>
             </div>
@@ -691,7 +1011,7 @@ export function DataWorkbenchWidget() {
               <div className="table-row table-head"><span>{copy.runtimeDataset}</span><span>{copy.status}</span><span>{copy.rows}</span><span>{copy.coverage}</span></div>
               {(catalog?.datasets ?? []).map((dataset) => (
                 <button className={`table-row ${dataset.id === datasetId ? 'active' : ''}`} type="button" key={dataset.id} onClick={() => chooseDataset(dataset.id)}>
-                  <span>{dataset.label}<small>{dataset.id}</small></span>
+                  <span>{dataset.label}<small>{dataset.id}{dataset.provider_api?.length ? ` · ${dataset.provider_api.join(' + ')}` : ''}</small></span>
                   <span>{dataset.status}</span>
                   <span>{dataset.rows.toLocaleString()}</span>
                   <span>{dataset.date_start ?? '-'} → {dataset.date_end ?? '-'}</span>

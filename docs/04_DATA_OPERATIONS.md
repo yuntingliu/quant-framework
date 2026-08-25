@@ -22,10 +22,20 @@ unadjusted `raw_close` for market capitalization. Runtime factor returns use
 the same MKT/SMB/HML/MOM/RMW definitions as the bundled sample. RQ's China 1M
 yield curve is converted from an annual yield to the monthly `rf` return.
 
+Daily synchronization requests `get_price(fields=None)` and preserves every
+field returned by the installed RQ SDK in addition to the canonical OHLCV names
+and `raw_close`. Instrument snapshots likewise retain provider metadata columns.
+Numeric market and canonical PIT fields are discovered from Parquet metadata and
+become safe factor-expression inputs without a frontend whitelist update.
+
 ## Synchronization
 
-The default universe is the 300 symbols recorded in the tracked manifest. A
-request may supply another explicit list. Initial sync covers five years;
+Omitting `symbols` means all China A-share instruments returned by RQData, not
+the 300-symbol bundled demo manifest. A read-only plan reuses the latest local
+RQ instrument snapshot when available; otherwise it marks the count and batch
+estimate as pending. The job resolves the exact symbols from a live dated
+`all_instruments(type="CS", market="cn")` snapshot before downloading data. An
+explicit `symbols` list remains the bounded custom-scope path. Initial sync covers five years;
 incremental bars overlap seven calendar days (at least five trading days) and
 financials overlap eight quarters.
 
@@ -44,6 +54,11 @@ historical request from reading a later publication.
 Writes use a temporary sibling file and atomic replacement. Existing and new
 rows are merged by dataset primary key. Empty provider responses are errors and
 never overwrite a partition.
+
+Each runtime catalog entry also reports its provider API, research role, and
+field policy. Adding another RQ data family starts by registering a dataset
+contract and partition policy; factor-facing fields are still discovered from
+the physical Parquet schema rather than duplicated in a frontend list.
 
 ## Interfaces
 

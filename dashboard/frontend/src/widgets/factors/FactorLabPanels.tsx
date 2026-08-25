@@ -270,7 +270,7 @@ export function FactorSnapshotWidget({ embedded = false }: FactorWidgetProps) {
       </div>
       <div className="factor-panel-scroll">
         {!lab.result ? <div className="factor-empty large">在“因子定义”中运行评估后，这里显示最后一个有下一期收益的历史截面。</div> : null}
-        {lab.result && !snapshot ? <div className="factor-empty large">当前范围没有形成有效截面，请检查数据、日期和股票池。</div> : null}
+        {lab.result && !snapshot ? <div className="factor-empty large">当前范围没有形成有效截面，请检查数据、日期和研究范围。</div> : null}
         {snapshot ? (
           <>
             <div className="factor-kpi-grid">
@@ -297,7 +297,7 @@ function warningText(value: string): string {
   if (value.includes("Fewer than 24")) return "有效评估期少于 24 期，统计推断不稳定"
   if (value.includes("coverage is below")) return "平均因子覆盖率低于 60%"
   if (value.includes("bootstrap interval")) return "平均 IC 的 95% Bootstrap 区间未严格大于零"
-  if (value.includes("PIT instrument snapshots")) return "缺少证券主数据历史快照，股票池来自行情历史"
+  if (value.includes("PIT instrument snapshots")) return "缺少证券主数据历史快照，研究范围来自行情历史"
   if (value.includes("post-dates")) return "至少一个证券主数据快照晚于因子观测日期"
   return value
 }

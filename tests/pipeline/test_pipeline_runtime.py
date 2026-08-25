@@ -232,7 +232,7 @@ def test_core_rejects_a_component_that_escapes_the_project_stock_pool(tmp_path):
             components=project["components"],
             settings=project["settings"],
         )
-        with pytest.raises(ValueError, match="outside the eligible project stock pool"):
+        with pytest.raises(ValueError, match="outside the eligible research scope"):
             preview_pipeline_project(
                 repository,
                 "invalid-project",

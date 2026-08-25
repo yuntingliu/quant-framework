@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_run_backtest",
-  "description": "Submit, monitor, and persist one version-pinned three-stage Python project as a background backtest job. Project stock-pool settings, exact composed source, component manifest, factor attribution, and execution audit are frozen into the BacktestRun. Requires explicit Python execution confirmation.",
+  "description": "Submit, monitor, and persist one version-pinned three-stage Python project as a background backtest job. Saved research-scope settings, exact composed source, component manifest, factor attribution, and execution audit are frozen into the BacktestRun. Requires explicit Python execution confirmation.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {

@@ -145,7 +145,7 @@ function StagePanel({
 function EmptyRunState({ stale = false }: { stale?: boolean }) {
   return (
     <div className="analytics-empty">
-      {stale ? "项目、数据环境或数据截至日已变化，请在模型/组件配置中重新运行当前阶段" : "当前上下文没有有效结果，请先在模型/组件配置中运行当前阶段"}
+      {stale ? "项目、数据环境或当前截面日期已变化，请在模型/组件配置中重新运行当前阶段" : "当前上下文没有有效结果，请先在模型/组件配置中运行当前阶段"}
     </div>
   )
 }
@@ -223,7 +223,7 @@ export function SelectionFunnelWidget({ embedded = false }: { embedded?: boolean
   const snapshotFuture = diagnostics.instrument_snapshot_future === true
   const instrumentSnapshot = String(diagnostics.instrument_snapshot || "未提供")
   const steps = [
-    { label: "项目股票池", value: universe },
+    { label: "研究范围", value: universe },
     { label: "数据可用", value: eligible },
     { label: "完成评分", value: scored },
     { label: "最终入选", value: selected },

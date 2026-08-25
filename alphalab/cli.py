@@ -39,7 +39,10 @@ def _add_sync_arguments(parser: argparse.ArgumentParser) -> None:
         default="instruments,bars,fundamentals,factors",
         help="Comma-separated: instruments,bars,fundamentals,factors",
     )
-    parser.add_argument("--symbols", help="Comma-separated framework symbols")
+    parser.add_argument(
+        "--symbols",
+        help="Comma-separated framework symbols; omit to resolve all A-shares from RQData",
+    )
     parser.add_argument("--start")
     parser.add_argument("--end")
     parser.add_argument("--force", action="store_true")

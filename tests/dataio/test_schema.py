@@ -53,5 +53,5 @@ def test_factor_research_sources_are_generated_from_discovered_schema(monkeypatc
 
     assert set(fields) == {"date", "symbol", "close", "vendor_new_field"}
     assert fields["close"]["expression_compatible"] is True
-    assert fields["vendor_new_field"]["expression_compatible"] is False
+    assert fields["vendor_new_field"]["expression_compatible"] is True
     assert fields["vendor_new_field"]["label"] == "vendor new field"

@@ -124,7 +124,7 @@ def test_agent_and_harness_use_only_the_six_user_facing_workbenches():
         assert removed not in agent["toolNames"]
     prompt = agent["systemPrompt"]
     for text in (
-        "DataSnapshot/项目股票池与核心资格闸门 → select_assets → construct_portfolio → configure_execution",
+        "DataSnapshot/数据研究范围与核心资格闸门 → select_assets → construct_portfolio → configure_execution",
         "不得使用或生成 YAML",
         "唯一策略模型是版本固定的三阶段 Python 管线",
         "不存在 universe、timing 或独立 risk 策略阶段",
@@ -146,9 +146,9 @@ def test_agent_and_harness_use_only_the_six_user_facing_workbenches():
     commands = exposure["outputSchema"]["properties"]["workspaceCommands"]
     mode_enum = commands["properties"]["commands"]["items"]["properties"]["mode"]["enum"]
     assert mode_enum == [
+        "project",
         "data",
         "factor",
-        "project",
         "selection",
         "backtest",
         "report",

@@ -112,7 +112,7 @@ EXECUTION_FIXED = '''def configure_execution(context):
 
 BUILTIN_COMPONENTS: tuple[dict[str, Any], ...] = (
     {"id": "selection-factor-top", "stage": "selection", "name": "多因子综合排名", "description": "按决策频率归一化并组合多因子，使用进出排名缓冲生成信号集合", "source": SELECTION_FACTOR_TOP, "parameters": {"count": 20, "exit_rank": 30, "min_factor_coverage": 0.5, "signal_frequency": "monthly", "normalization": "percentile_rank", "factor_weights": {}}},
-    {"id": "selection-pass-through", "stage": "selection", "name": "基础标的直通", "description": "保留股票池中的第一个合格标的", "source": SELECTION_PASS_THROUGH, "parameters": {}},
+    {"id": "selection-pass-through", "stage": "selection", "name": "基础标的直通", "description": "保留研究范围中的第一个合格标的", "source": SELECTION_PASS_THROUGH, "parameters": {}},
     {"id": "portfolio-equal-weight", "stage": "portfolio", "name": "信号仓位分配", "description": "按等权、综合得分或排名衰减生成目标权重，并限制单票权重与总敞口", "source": PORTFOLIO_EQUAL_WEIGHT, "parameters": {"optimizer": "equal_weight", "rank_decay": 1.0, "max_weight": 0.1, "max_gross_exposure": 1.0}},
     {"id": "execution-monthly", "stage": "execution", "name": "下一交易日成交", "description": "信号形成后按下一交易日价格、流动性与成本假设成交", "source": EXECUTION_FIXED, "parameters": {"execution_price": "next_open", "cost_bps": 20.0, "slippage_bps": 0.0, "impact_bps": 0.0, "max_participation_rate": 0.1, "portfolio_value": 1000000.0}},
     {"id": "execution-daily", "stage": "execution", "name": "下一交易日成交（兼容）", "description": "保留旧项目组件标识；信号频率现在由信号模型设置", "source": EXECUTION_FIXED, "parameters": {"execution_price": "next_open", "cost_bps": 20.0, "slippage_bps": 0.0, "impact_bps": 0.0, "max_participation_rate": 0.1, "portfolio_value": 1000000.0}},
@@ -121,7 +121,7 @@ BUILTIN_COMPONENTS: tuple[dict[str, Any], ...] = (
 DEFAULT_PROJECT = {
     "id": "three-stage-default",
     "name": "三阶段默认策略",
-    "description": "项目股票池 → 月频多因子信号 → 约束等权 → 下一交易日执行",
+    "description": "数据研究范围 → 月频多因子信号 → 约束等权 → 下一交易日执行",
     "components": {
         "selection": {"component_id": "selection-factor-top", "version": 1},
         "portfolio": {"component_id": "portfolio-equal-weight", "version": 1},

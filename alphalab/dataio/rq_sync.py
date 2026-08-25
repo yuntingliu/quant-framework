@@ -89,10 +89,21 @@ class RQAcquirer:
                     errors="coerce",
                 ),
                 "status": _series(frame, columns, "status"),
-                "is_st": pd.Series(pd.NA, index=frame.index, dtype="boolean"),
-                "industry": pd.Series(pd.NA, index=frame.index, dtype="string"),
+                "is_st": _series(frame, columns, "is_st"),
+                "industry": _series(
+                    frame,
+                    columns,
+                    "industry",
+                    "industry_name",
+                    "sector_code",
+                ),
             }
         )
+        for source_column in frame.columns:
+            target = str(source_column).strip().lower()
+            if source_column == symbol_column or not target or target in output.columns:
+                continue
+            output[target] = frame[source_column].to_numpy()
         return output.dropna(subset=["symbol"]).drop_duplicates(["snapshot_date", "symbol"])
 
     def daily_bars(
@@ -111,7 +122,9 @@ class RQAcquirer:
             adjusted_provider = RQDataProvider(self.client, adjust_type="pre")
             raw_provider = RQDataProvider(self.client, adjust_type="none")
             adjusted = self._retry(
-                lambda batch=list(batch): adjusted_provider.get_bars(batch, start, end)
+                lambda batch=list(batch): adjusted_provider.get_daily_bars_all_fields(
+                    batch, start, end
+                )
             )
             raw = self._retry(
                 lambda batch=list(batch): raw_provider.get_bars(

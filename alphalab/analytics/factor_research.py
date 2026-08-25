@@ -51,7 +51,6 @@ def evaluate_factor(
         symbols,
         warmup,
         end.strftime("%Y-%m-%d"),
-        fields=["open", "high", "low", "close", "volume", "amount"],
         strict=False,
         use_cache=False,
     )
@@ -69,7 +68,10 @@ def evaluate_factor(
         for horizon in (1, 3, 6)
     }
 
-    fundamental_fields = required_fundamental_fields((factor,))
+    fundamental_fields = required_fundamental_fields(
+        (factor,),
+        market_fields=set(bars.columns),
+    )
     fundamentals = pd.DataFrame()
     if fundamental_fields:
         first_quarter = f"{max(1900, start.year - 3)}q1"

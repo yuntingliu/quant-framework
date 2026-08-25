@@ -16,7 +16,7 @@ export function usePipelineStageRun(projectId: string | null, stage: PythonPipel
   const queryClient = useQueryClient()
   const [profile] = useDataProfile()
   const {
-    selectedDate,
+    signalAsOfDate,
     selectedStrategyRevision,
     stageRunContexts,
     setStageRunContext,
@@ -25,7 +25,7 @@ export function usePipelineStageRun(projectId: string | null, stage: PythonPipel
     projectId: projectId ?? "",
     revision: selectedStrategyRevision ?? 0,
     profile,
-    asOfDate: selectedDate,
+    asOfDate: signalAsOfDate,
   }
   const priorContext = stageRunContexts[stage]
   const isStale = Boolean(priorContext && (
@@ -35,10 +35,10 @@ export function usePipelineStageRun(projectId: string | null, stage: PythonPipel
     || priorContext.asOfDate !== currentContext.asOfDate
   ))
   const preview = useQuery({
-    queryKey: previewKey(projectId, selectedStrategyRevision, stage, profile, selectedDate),
+    queryKey: previewKey(projectId, selectedStrategyRevision, stage, profile, signalAsOfDate),
     queryFn: () => api.post<PipelinePreview>(
       `/pipeline/projects/${projectId}/preview`,
-      { stage, profile, ...(selectedDate ? { as_of_date: selectedDate } : {}) },
+      { stage, profile, ...(signalAsOfDate ? { as_of_date: signalAsOfDate } : {}) },
     ),
     enabled: false,
     staleTime: Infinity,
@@ -50,7 +50,7 @@ export function usePipelineStageRun(projectId: string | null, stage: PythonPipel
     if (result.data) {
       for (const executedStage of result.data.executed_stages) {
         queryClient.setQueryData(
-          previewKey(projectId, result.data.revision, executedStage, profile, selectedDate),
+          previewKey(projectId, result.data.revision, executedStage, profile, signalAsOfDate),
           result.data,
         )
         setStageRunContext(executedStage, {
@@ -70,7 +70,7 @@ export function usePipelineStageRun(projectId: string | null, stage: PythonPipel
   return {
     preview: preview.data ?? null,
     profile,
-    asOfDate: selectedDate,
+    asOfDate: signalAsOfDate,
     isRunning: preview.isFetching,
     error: preview.error,
     isStale,
