@@ -19,6 +19,11 @@ from alphalab.dataio.fundamentals import (
     build_canonical_fundamentals,
 )
 from alphalab.dataio.quality import validate_dataset
+from alphalab.dataio.recipes import (
+    DataRecipeError,
+    execute_data_recipe,
+    inspect_data_recipe_source,
+)
 from alphalab.dataio.rq_sync import RQAcquirer
 from alphalab.dataio.rq_templates import get_rq_sync_template
 from alphalab.dataio.runtime import OperationsStore, RuntimeStore
@@ -465,13 +470,7 @@ class SyncJobManager:
         self._lock = threading.Lock()
 
     def submit(self, request: SyncRequest) -> dict:
-        active = [
-            item
-            for item in self.operations.list_jobs(limit=100)
-            if item["status"] in {"queued", "running"}
-        ]
-        if active:
-            raise DataLoadError(f"An RQ sync job is already active: {active[0]['id']}")
+        self._ensure_idle()
         job_id = self.operations.create_job(request.model_dump(mode="json"))
         with self._lock:
             self._futures[job_id] = self._executor.submit(
@@ -482,9 +481,44 @@ class SyncJobManager:
         assert result is not None
         return result
 
+    def submit_recipe(self, source: str, *, project_id: str) -> dict:
+        self._ensure_idle()
+        inspection = inspect_data_recipe_source(source)
+        job_id = self.operations.create_job(
+            {
+                "source": "rq",
+                "kind": "python_recipe",
+                "project_id": project_id,
+                "recipe_source": source,
+                "recipe_source_sha256": inspection.source_sha256,
+            }
+        )
+        with self._lock:
+            self._futures[job_id] = self._executor.submit(
+                _run_recipe_job,
+                self.root,
+                job_id,
+            )
+        result = self.operations.get_job(job_id)
+        assert result is not None
+        return result
+
     def run_now(self, request: SyncRequest) -> dict:
         job_id = self.operations.create_job(request.model_dump(mode="json"))
         return RQSyncService(self.root).run(job_id)
+
+    def run_recipe_now(self, source: str, *, project_id: str = "test") -> dict:
+        inspection = inspect_data_recipe_source(source)
+        job_id = self.operations.create_job(
+            {
+                "source": "rq",
+                "kind": "python_recipe",
+                "project_id": project_id,
+                "recipe_source": source,
+                "recipe_source_sha256": inspection.source_sha256,
+            }
+        )
+        return _run_recipe_job(self.root, job_id)
 
     def cancel(self, job_id: str) -> dict | None:
         if not self.operations.request_cancel(job_id):
@@ -498,6 +532,86 @@ class SyncJobManager:
                     message="Cancelled before start",
                 )
         return self.operations.get_job(job_id)
+
+    def _ensure_idle(self) -> None:
+        active = [
+            item
+            for item in self.operations.list_jobs(limit=100)
+            if item["status"] in {"queued", "running"}
+        ]
+        if active:
+            raise DataLoadError(f"An RQ sync job is already active: {active[0]['id']}")
+
+
+def _run_recipe_job(root: Path, job_id: str) -> dict:
+    operations = OperationsStore(root)
+    job = operations.get_job(job_id)
+    if job is None:
+        raise KeyError(job_id)
+    request = dict(job["request"])
+    source = str(request.get("recipe_source") or "")
+    operations.update_job(
+        job_id,
+        status="running",
+        total=1,
+        message="Executing the saved Python data recipe",
+    )
+    try:
+        execution = execute_data_recipe(
+            source,
+            mode="run",
+            root=root,
+            cancelled=lambda: operations.is_cancel_requested(job_id),
+        )
+        audit = {
+            "recipe_source_sha256": execution["source_sha256"],
+            "recipe_stdout": execution["stdout"],
+            "recipe_stderr": execution["stderr"],
+            "recipe_planned": execution["planned"],
+            "recipe_published": execution["published"],
+            "recipe_outputs": execution["outputs"],
+        }
+        sync_request = execution.get("sync_request")
+        if sync_request is not None:
+            resolved = SyncRequest.model_validate(sync_request).model_dump(mode="json")
+            operations.replace_job_request(job_id, {**request, **resolved, **audit})
+            if operations.is_cancel_requested(job_id):
+                operations.update_job(
+                    job_id,
+                    status="cancelled",
+                    message="Python data recipe cancelled before synchronization",
+                )
+                result = operations.get_job(job_id)
+                assert result is not None
+                return result
+            return RQSyncService(root).run(job_id)
+        operations.replace_job_request(job_id, {**request, **audit})
+        completed = max(1, len(execution["published"]) + len(execution["outputs"]))
+        operations.update_job(
+            job_id,
+            status="succeeded",
+            progress=completed,
+            total=completed,
+            message="Python data recipe completed",
+        )
+    except Exception as exc:
+        details = exc.traceback_text if isinstance(exc, DataRecipeError) else None
+        if operations.is_cancel_requested(job_id):
+            operations.update_job(
+                job_id,
+                status="cancelled",
+                message="Python data recipe cancelled",
+            )
+        else:
+            operations.update_job(
+                job_id,
+                status="failed",
+                message="Python data recipe failed",
+                error=(details or _public_error(exc))[:20_000],
+            )
+    result = operations.get_job(job_id)
+    assert result is not None
+    return result
 
 
 def _read_cached_instruments(store: RuntimeStore) -> pd.DataFrame:

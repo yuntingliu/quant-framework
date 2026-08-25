@@ -38,6 +38,9 @@ second Lab execution path.
   `alphalab/strategy/engine.py`.
 - Provider logic stays in `alphalab/dataio/`; strategy Python never receives a
   provider or database handle.
+- Public data-recipe types and the lazy RQ proxy belong in
+  `alphalab/data_sdk/v1/recipe.py`; source rendering, AST/CST projection, and
+  execution belong in `alphalab/dataio/recipes.py`.
 - API and workbench changes must preserve one revision/hash across frontend,
   backend, Agent tools, Runs, and reports.
 
@@ -126,6 +129,11 @@ Backtests use `/api/backtests/jobs` and require an explicit revision. A job pins
 that revision before queueing. Historical result endpoints never read the
 current draft.
 
+Data recipe routes are under `/api/data-sync/recipes`. Source and no-code
+parameter writes require `confirm_write`; invoking recipe source requires
+`confirm_python_execution`. A sync job stores the exact recipe source and hash.
+Do not implement a second arbitrary-Python runner for data acquisition.
+
 ## Frontend conventions
 
 All six workbenches use `StrategySdkContext`. A full-source edit saves the same
@@ -135,6 +143,16 @@ tests and backtests are disabled for dirty drafts until a revision is frozen.
 The factor template catalog may add only to a clean editable draft and must then
 refresh the shared project context so Factor and Strategy views see the same
 registered factors immediately.
+
+The Data Workbench is the acquisition exception: it edits the project's one
+data-recipe module, not the strategy module. Built-in and user-saved template
+cards replace that exact source; date/symbol controls edit literal function
+defaults; preview and sync execute the current editor source after saving it.
+Keep the official RQData Python documentation link next to the editor.
+
+The request-only data-template migration is intentionally narrow: only source
+that exactly matches a former built-in renderer is replaced with the equivalent
+visible RQ command recipe. Any manually changed or custom source is preserved.
 
 Inactive legacy widgets may not be registered in `widgetComponents`, a layout
 preset, Agent workspace commands, or navigation.

@@ -10,9 +10,11 @@ The normative API is [02_STRATEGY_SDK_V1_CONTRACT.md](02_STRATEGY_SDK_V1_CONTRAC
 ## System shape
 
 ```text
-Project/Data ─┐
-Factor        ├── one mutable Python draft ── validate/probe ── StrategySourcePackage
-Strategy     ─┘                                          │
+Data recipe ── execute/sync ── canonical research store
+                                      │
+Project ─────┐                        │
+Factor      ├── one mutable Python strategy draft ── validate/probe ── StrategySourcePackage
+Strategy ───┘                                                        │
                                                          ├── factor snapshot/history
                                                          ├── signal/portfolio/execution preview
                                                          └── daily event backtest ── frozen Run ── report
@@ -90,11 +92,23 @@ an internal test fixture and for reproducing historical sample runs. Context
 construction filters all dated rows at `as_of`; instrument listing/delisting
 and current-session tradability are core-owned.
 
-RQ synchronization templates are declarative acquisition scopes over that same
-runtime store; they do not create provider-specific strategy APIs. Trusted local
-Python can connect any other source through the versioned
-`alphalab.data_sdk.v1` provider facade and receives the same `DataEngine`
-validation and cache behavior. The contract is documented in
+The Data Workbench owns one Python acquisition recipe per research project.
+Built-in RQ templates are complete `@data_recipe` source modules, and the date
+and symbol form controls edit their keyword-only defaults with LibCST. Planning
+and synchronization execute the exact saved source and retain its SHA-256 in
+the job audit. Built-in recipes visibly call `rq.all_instruments()`,
+`rq.get_price()`, `rq.get_pit_financials_ex()`, and related vendor operations;
+`template=` is display metadata and never dispatches hidden acquisition logic.
+Raw results pass through stable frame adapters and `context.publish()` before
+entering the shared store. `RQSyncRequest` remains available only as an
+explicit lower-level handoff for custom code and CLI compatibility.
+
+`alphalab.data_sdk.v1.rq` is a lazy transparent proxy to the installed
+`rqdatac` package, so the framework does not duplicate or lag the vendor API.
+Recipes still publish only through known runtime dataset contracts. Advanced
+custom sources can use the versioned provider facade and receive the same
+`DataEngine` validation and cache behavior. Neither route creates a
+provider-specific strategy API or a second backtest path. The contract is documented in
 [05_DATA_SDK_V1_CONTRACT.md](05_DATA_SDK_V1_CONTRACT.md).
 
 The bundled demo derives an explicit instrument snapshot from its market file
@@ -120,7 +134,9 @@ and cannot create a second authoritative result.
 | Path | Responsibility |
 | --- | --- |
 | `alphalab/sdk/v1/` | Stable public strategy types and decorators |
-| `alphalab/data_sdk/v1/` | Stable public custom-data provider facade |
+| `alphalab/data_sdk/v1/` | Stable public data-recipe and custom-provider facade |
+| `alphalab/dataio/recipes.py` | Built-in recipe source, AST inspection, LibCST edits, local execution |
+| `alphalab/dataio/rq_frames.py` | Stable adapters from raw rqdatac frames to runtime contracts |
 | `alphalab/dataio/rq_templates.py` | Declarative RQ acquisition templates |
 | `alphalab/strategy/factor_templates.py` | Built-in SDK Python factor templates and CST-aware installation |
 | `alphalab/strategy/source.py` | AST inspection, dependency checks, and LibCST edits |

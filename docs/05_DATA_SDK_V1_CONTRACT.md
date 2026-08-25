@@ -1,8 +1,67 @@
 # Data SDK v1 Contract
 
-`alphalab.data_sdk.v1` is the stable Python boundary for data sources that are
-not built into AlphaLab. A custom source supplies ordinary provider objects; the
-SDK registers them into the same `DataEngine` used by built-in sources.
+`alphalab.data_sdk.v1` is the stable Python boundary for data acquisition and
+custom sources. The primary Data Workbench contract is a code-backed recipe:
+
+```python
+from alphalab.data_sdk.v1 import (
+    data_recipe, normalize_rq_bars, normalize_rq_instruments, rq,
+    rq_order_book_ids,
+)
+
+@data_recipe(id="research_data", label="ETF 日线", template="rq.etf_daily")
+def research_data(
+    context,
+    *,
+    start: str = "2021-08-25",
+    end: str = "2026-08-25",
+    symbols: tuple[str, ...] | None = None,
+):
+    raw_instruments = rq.all_instruments(type="ETF", market="cn")
+    instruments = normalize_rq_instruments(
+        raw_instruments, snapshot_date=end, asset_type="ETF",
+    )
+    context.publish("rq.instruments", instruments)
+
+    order_book_ids = rq_order_book_ids(symbols or tuple(instruments["symbol"]))
+    adjusted = rq.get_price(
+        order_book_ids, start_date=start, end_date=end,
+        frequency="1d", fields=None, adjust_type="pre", expect_df=True,
+    )
+    raw_close = rq.get_price(
+        order_book_ids, start_date=start, end_date=end,
+        frequency="1d", fields=["close"], adjust_type="none", expect_df=True,
+    )
+    context.publish("rq.bars", normalize_rq_bars(adjusted, raw_close))
+```
+
+`rq` connects lazily through the configured `RQDataClient` and transparently
+exposes the installed `rqdatac` module. AlphaLab deliberately does not mirror
+all vendor functions; new RQData operations become available when the local
+package is upgraded. Refer to the
+[official RQData Python API](https://www.ricequant.com/doc/rqdata/python/index-rqdatac)
+for operation signatures.
+
+A built-in recipe executes these visible RQ calls and returns `None` after
+calling `context.publish(dataset, frame)`. The decorator's `template` value is
+UI metadata, not an execution switch. `RQSyncRequest` remains an optional
+explicit handoff for custom/CLI integrations, but built-ins do not use it.
+`publish` accepts only catalogued runtime
+datasets, validates their key columns, and materializes only in run mode.
+Keyword-only literal defaults are the no-code projection boundary; form edits
+rewrite those exact Python nodes, while arbitrary function logic remains
+untouched and is shown as custom.
+
+The recipe runs in a spawned process using the same local Python environment.
+It is trusted local execution, not a security sandbox. Preview and run require
+explicit execution confirmation, impose a timeout and bounded logs, and retain
+the exact source hash in the synchronization job.
+
+## Custom provider facade
+
+For a long-lived source adapter, a custom source supplies ordinary provider
+objects; the SDK registers them into the same `DataEngine` used by built-in
+sources.
 
 ```python
 from alphalab.data_sdk.v1 import data_source

@@ -1,4 +1,5 @@
 """Partitioned parquet storage and local data-operation state."""
+
 from __future__ import annotations
 
 import hashlib
@@ -65,6 +66,22 @@ CREATE TABLE IF NOT EXISTS quality_runs (
     status TEXT NOT NULL,
     report_json TEXT NOT NULL,
     created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS data_recipe_drafts (
+    project_id TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS data_recipe_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 """
 
@@ -158,6 +175,13 @@ class OperationsStore:
             connection.execute(
                 f"UPDATE sync_jobs SET {assignments} WHERE id=?",
                 (*values.values(), job_id),
+            )
+
+    def replace_job_request(self, job_id: str, request: dict[str, Any]) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE sync_jobs SET request_json=? WHERE id=?",
+                (json.dumps(request, sort_keys=True), job_id),
             )
 
     def get_job(self, job_id: str) -> dict | None:
@@ -265,6 +289,97 @@ class OperationsStore:
             )
         return run_id
 
+    def get_recipe_draft(self, project_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM data_recipe_drafts WHERE project_id=?",
+                (str(project_id),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def save_recipe_draft(
+        self,
+        project_id: str,
+        source: str,
+        *,
+        expected_source_sha256: str | None = None,
+    ) -> dict[str, Any]:
+        project = str(project_id).strip()
+        digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+        now = _now()
+        with self._connect() as connection:
+            current = connection.execute(
+                "SELECT source_sha256 FROM data_recipe_drafts WHERE project_id=?",
+                (project,),
+            ).fetchone()
+            if (
+                current is not None
+                and expected_source_sha256 is not None
+                and current["source_sha256"] != expected_source_sha256
+            ):
+                raise RuntimeError("data recipe draft changed since it was loaded")
+            connection.execute(
+                """INSERT INTO data_recipe_drafts
+                   (project_id, source, source_sha256, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(project_id) DO UPDATE SET
+                   source=excluded.source,
+                   source_sha256=excluded.source_sha256,
+                   updated_at=excluded.updated_at""",
+                (project, source, digest, now, now),
+            )
+        result = self.get_recipe_draft(project)
+        assert result is not None
+        return result
+
+    def list_recipe_templates(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM data_recipe_templates ORDER BY updated_at DESC, name"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def save_recipe_template(
+        self,
+        template_id: str,
+        *,
+        name: str,
+        description: str,
+        source: str,
+    ) -> dict[str, Any]:
+        digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+        now = _now()
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO data_recipe_templates
+                   (id, name, description, source, source_sha256, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (template_id, name, description, source, digest, now, now),
+            )
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM data_recipe_templates WHERE id=?",
+                (template_id,),
+            ).fetchone()
+        assert row is not None
+        return dict(row)
+
+    def get_recipe_template(self, template_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM data_recipe_templates WHERE id=?",
+                (str(template_id),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def delete_recipe_template(self, template_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM data_recipe_templates WHERE id=?",
+                (str(template_id),),
+            )
+            return cursor.rowcount > 0
+
 
 class RuntimeStore:
     def __init__(self, root: str | Path | None = None):
@@ -302,7 +417,9 @@ class RuntimeStore:
         try:
             return pd.concat((pd.read_parquet(path) for path in files), ignore_index=True)
         except Exception as exc:
-            raise DataLoadError(f"Could not read runtime dataset {dataset}: {_safe_error(exc)}") from exc
+            raise DataLoadError(
+                f"Could not read runtime dataset {dataset}: {_safe_error(exc)}"
+            ) from exc
 
     def write(self, dataset: str, frame: pd.DataFrame) -> dict:
         if frame is None or frame.empty:

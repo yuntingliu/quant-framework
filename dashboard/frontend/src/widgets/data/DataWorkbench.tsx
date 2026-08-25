@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from "react"
-import { Braces, CheckCircle2, Loader2, PlugZap, Save } from "lucide-react"
+import {
+  Braces,
+  CheckCircle2,
+  ExternalLink,
+  Loader2,
+  PlugZap,
+  Save,
+  Trash2,
+} from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -10,40 +18,53 @@ import { useConfirm } from "@/hooks/useConfirm"
 import { api } from "@/lib/api"
 import { Widget } from "@/widgets/Widget"
 
-interface FieldCatalog {
-  profile: "runtime"
-  start_date: string
-  end_date: string
-  datasets: Record<string, Array<{ name: string; data_type: string; nullable: boolean }>>
+interface RecipeParameter {
+  name: string
+  default: unknown
+  editable: boolean
+  custom_source: string | null
 }
 
-interface RqTemplate {
+interface RecipeInspection {
+  valid: boolean
+  recipe_id: string
+  function: string
+  label: string | null
+  source_sha256: string
+  parameters: RecipeParameter[]
+  template_id: string | null
+  matched_template_id: string | null
+  warnings: Array<{ line: number; code: string; message: string }>
+}
+
+interface RecipeDraft {
+  project_id: string
+  source: string
+  source_sha256: string
+  updated_at: string
+  inspection: RecipeInspection
+}
+
+interface RecipeTemplate {
   id: string
   label: string
   description: string
-  market: string
-  instrument_types: string[]
-  datasets: string[]
-  scope: string
+  kind: "built_in" | "custom"
+  instrument_types?: string[]
+  datasets?: string[]
+  source_sha256?: string
 }
 
-interface TemplateCatalog {
-  templates: RqTemplate[]
-  python_sdk: { version: number; import: string; execution: string; uses_data_engine_contracts: boolean }
+interface RecipeWorkspace {
+  draft: RecipeDraft
+  templates: RecipeTemplate[]
+  bounds: { start: string; end: string }
+  docs_url: string
+  execution: "trusted_local_python"
 }
 
 interface DataSyncHealth {
   rq: { status: string; installed: boolean; configured: boolean; ready: boolean; last_error?: string | null }
-}
-
-interface SyncPlan {
-  template_id: string
-  scope: string
-  symbol_count: number | null
-  requested_start: string
-  requested_end: string
-  estimated_batches: number | null
-  steps: Array<{ dataset: string; mode: string }>
 }
 
 interface SyncJob {
@@ -53,248 +74,313 @@ interface SyncJob {
   total: number
   message?: string | null
   error?: string | null
-  request: { template_id?: string }
+  request: { project_id?: string; template_id?: string; kind?: string }
 }
 
 export function DataWorkbenchWidget() {
   const sdk = useStrategySdk()
   const confirm = useConfirm()
   const project = sdk.project
+  const [workspace, setWorkspace] = useState<RecipeWorkspace | null>(null)
   const [source, setSource] = useState("")
-  const [fields, setFields] = useState<FieldCatalog | null>(null)
-  const [fieldError, setFieldError] = useState("")
-  const [lookback, setLookback] = useState("260")
-  const [maxWeight, setMaxWeight] = useState("1")
-  const [maxGross, setMaxGross] = useState("1")
-  const [portfolioValue, setPortfolioValue] = useState("1000000")
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState("")
-  const [templates, setTemplates] = useState<TemplateCatalog | null>(null)
-  const [health, setHealth] = useState<DataSyncHealth | null>(null)
-  const [selectedTemplate, setSelectedTemplate] = useState("rq.a_share_daily")
   const [syncStart, setSyncStart] = useState("")
   const [syncEnd, setSyncEnd] = useState("")
   const [syncSymbols, setSyncSymbols] = useState("")
-  const [syncBusy, setSyncBusy] = useState(false)
-  const [connection, setConnection] = useState("")
-  const [plan, setPlan] = useState<SyncPlan | null>(null)
+  const [health, setHealth] = useState<DataSyncHealth | null>(null)
   const [jobs, setJobs] = useState<SyncJob[]>([])
-  const universe = useMemo(
-    () => project?.inspection.entrypoints.find((item) => item.kind === "universe"),
-    [project?.inspection.entrypoints],
-  )
+  const [connection, setConnection] = useState("")
+  const [customName, setCustomName] = useState("")
+  const [customDescription, setCustomDescription] = useState("")
+  const [showCustomSave, setShowCustomSave] = useState(false)
+  const [switchingTemplateId, setSwitchingTemplateId] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
 
   useEffect(() => {
     if (!project) return
-    setSource(project.draft_source)
-    setLookback(String(project.settings.lookback_days ?? 260))
-    setMaxWeight(String(project.settings.max_weight ?? 1))
-    setMaxGross(String(project.settings.max_gross_exposure ?? 1))
-    setPortfolioValue(String(project.settings.portfolio_value ?? 1_000_000))
-    setFields(null)
-    setFieldError("")
-    void api.get<FieldCatalog>("/strategy/fields?profile=runtime")
-      .then(setFields)
-      .catch((reason: Error) => setFieldError(reason.message))
-  }, [project?.id, project?.draft_source_sha256])
-
-  useEffect(() => {
     let current = true
+    setWorkspace(null)
+    setError("")
     void Promise.all([
-      api.get<TemplateCatalog>("/data-sync/templates"),
+      api.get<RecipeWorkspace>(`/data-sync/recipes/${project.id}`),
       api.get<DataSyncHealth>("/data-sync/health"),
-      api.get<SyncJob[]>("/data-sync/jobs?limit=5"),
-    ]).then(([templateResult, healthResult, jobResult]) => {
+      api.get<SyncJob[]>("/data-sync/jobs?limit=20"),
+    ]).then(([recipeResult, healthResult, jobResult]) => {
       if (!current) return
-      setTemplates(templateResult)
+      setWorkspace(recipeResult)
+      adoptRecipeDraft(recipeResult.draft, recipeResult)
       setHealth(healthResult)
       setJobs(jobResult)
-      const latestTemplate = jobResult.find((item) => item.request.template_id)?.request.template_id
-      if (latestTemplate && templateResult.templates.some((item) => item.id === latestTemplate)) {
-        setSelectedTemplate(latestTemplate)
-      }
     }).catch((reason: Error) => { if (current) setError(reason.message) })
     return () => { current = false }
-  }, [])
+  }, [project?.id])
 
   useEffect(() => {
     if (!jobs.some((item) => item.status === "queued" || item.status === "running")) return
     const timer = window.setInterval(() => {
-      void api.get<SyncJob[]>("/data-sync/jobs?limit=5").then(setJobs).catch(() => undefined)
+      void api.get<SyncJob[]>("/data-sync/jobs?limit=20").then(setJobs).catch(() => undefined)
     }, 2000)
     return () => window.clearInterval(timer)
   }, [jobs])
 
-  useEffect(() => {
-    if (!fields) return
-    setSyncStart(fields.start_date)
-    setSyncEnd(fields.end_date)
-  }, [fields?.start_date, fields?.end_date])
+  const selectedTemplate = useMemo(() => {
+    if (!workspace) return null
+    const matched = workspace.draft.inspection.matched_template_id
+    if (matched) return matched
+    return workspace.templates.find((item) => (
+      item.kind === "custom" && item.source_sha256 === workspace.draft.source_sha256
+    ))?.id ?? null
+  }, [workspace])
+  const dirty = Boolean(workspace && source !== workspace.draft.source)
+  const editableParameters = new Set(
+    workspace?.draft.inspection.parameters.filter((item) => item.editable).map((item) => item.name),
+  )
+  const supportsFormParameters = ["start", "end", "symbols"].some((name) => editableParameters.has(name))
+  const activeJob = jobs.some((item) => item.status === "queued" || item.status === "running")
+  const latestJob = jobs.find((item) => item.request.project_id === project?.id)
 
-  const activeTemplate = templates?.templates.find((item) => item.id === selectedTemplate)
-  const latestJob = jobs[0]
-
-  useEffect(() => {
-    if (latestJob?.status !== "succeeded") return
-    void Promise.all([
-      api.get<FieldCatalog>("/strategy/fields?profile=runtime"),
-      api.get<DataSyncHealth>("/data-sync/health"),
-    ]).then(([fieldResult, healthResult]) => {
-      setFields(fieldResult)
-      setFieldError("")
-      setHealth(healthResult)
-    }).catch((reason: Error) => setFieldError(reason.message))
-  }, [latestJob?.id, latestJob?.status])
-
-  function syncRequest() {
-    const symbols = syncSymbols.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean)
-    return {
-      source: "rq",
-      template_id: selectedTemplate,
-      start: syncStart || undefined,
-      end: syncEnd || undefined,
-      symbols: symbols.length ? symbols : undefined,
-      force: false,
-    }
+  function adoptRecipeDraft(draft: RecipeDraft, parent = workspace) {
+    if (parent) setWorkspace({ ...parent, draft })
+    setSource(draft.source)
+    const parameters = new Map(draft.inspection.parameters.map((item) => [item.name, item.default]))
+    setSyncStart(String(parameters.get("start") ?? parent?.bounds.start ?? ""))
+    setSyncEnd(String(parameters.get("end") ?? parent?.bounds.end ?? ""))
+    const symbols = parameters.get("symbols")
+    setSyncSymbols(Array.isArray(symbols) ? symbols.join(", ") : "")
   }
 
-  async function testRqConnection() {
-    setSyncBusy(true); setError(""); setConnection("")
-    try {
-      const result = await api.post<{ latest_trading_date: string; rqdatac_version: string }>("/data-sync/connection-test", { template_id: selectedTemplate })
-      setConnection(`已连接 · rqdatac ${result.rqdatac_version} · 最新交易日 ${result.latest_trading_date}`)
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
-    finally { setSyncBusy(false) }
+  async function persistSource(): Promise<RecipeDraft> {
+    if (!project || !workspace) throw new Error("数据配方尚未加载")
+    if (!dirty) return workspace.draft
+    const draft = await api.put<RecipeDraft>(`/data-sync/recipes/${project.id}`, {
+      source,
+      expected_source_sha256: workspace.draft.source_sha256,
+      confirm_write: true,
+    })
+    adoptRecipeDraft(draft)
+    return draft
   }
 
-  async function previewSync() {
-    setSyncBusy(true); setError("")
-    try { setPlan(await api.post<SyncPlan>("/data-sync/plan", syncRequest())) }
+  async function saveSource() {
+    setBusy(true); setError("")
+    try { await persistSource() }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
-    finally { setSyncBusy(false) }
+    finally { setBusy(false) }
   }
 
-  async function runSync() {
-    if (!activeTemplate) return
-    if (!await confirm({
-      title: `同步 ${activeTemplate.label}`,
-      description: `将通过 RQData 下载 ${activeTemplate.datasets.join("、")} 并写入研究数据仓库。`,
-      confirmText: "开始同步",
+  async function selectTemplate(item: RecipeTemplate) {
+    if (!project || !workspace || item.id === selectedTemplate) return
+    if (dirty && !await confirm({
+      title: `切换到${item.label}`,
+      description: "当前未保存的 Python 修改会被模板源码替换。",
+      confirmText: "替换源码",
+      tone: "danger",
     })) return
-    setSyncBusy(true); setError("")
+    setSwitchingTemplateId(item.id); setBusy(true); setError(""); setConnection("")
     try {
-      const job = await api.post<SyncJob>("/data-sync/jobs", syncRequest())
-      setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)])
+      const draft = await api.post<RecipeDraft>(
+        `/data-sync/recipes/${project.id}/templates/${encodeURIComponent(item.id)}`,
+        { expected_source_sha256: workspace.draft.source_sha256, confirm_write: true },
+      )
+      adoptRecipeDraft(draft)
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
-    finally { setSyncBusy(false) }
+    finally { setSwitchingTemplateId(null); setBusy(false) }
   }
 
-  async function saveDataContract() {
-    if (!project?.editable) return
+  function changeSyncStart(value: string) {
+    if (!workspace) return
+    const next = clampDate(value, workspace.bounds.start, syncEnd || workspace.bounds.end)
+    setSyncStart(next)
+    if (syncEnd && next > syncEnd) setSyncEnd(next)
+  }
+
+  function changeSyncEnd(value: string) {
+    if (!workspace) return
+    const next = clampDate(value, syncStart || workspace.bounds.start, workspace.bounds.end)
+    setSyncEnd(next)
+    if (syncStart && next < syncStart) setSyncStart(next)
+  }
+
+  async function writeParameters() {
+    if (!project || !workspace) return
     setBusy(true); setError("")
     try {
-      if (source !== project.draft_source) await sdk.updateDraft(source)
-      await sdk.updateMetadata({
-        name: project.name,
-        description: project.description,
-        profile: project.profile,
-        settings: {
-          ...project.settings,
-          lookback_days: Number(lookback),
-          max_weight: Number(maxWeight),
-          max_gross_exposure: Number(maxGross),
-          portfolio_value: Number(portfolioValue),
-        },
+      const symbols = syncSymbols.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean)
+      const draft = await api.patch<RecipeDraft>(`/data-sync/recipes/${project.id}/parameters`, {
+        start: syncStart,
+        end: syncEnd,
+        symbols: symbols.length ? symbols : null,
+        expected_source_sha256: workspace.draft.source_sha256,
+        confirm_write: true,
+      })
+      adoptRecipeDraft(draft)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setBusy(false) }
+  }
+
+  async function saveCustomTemplate() {
+    if (!project || !customName.trim()) return
+    setBusy(true); setError("")
+    try {
+      await persistSource()
+      await api.post(`/data-sync/recipes/${project.id}/templates`, {
+        name: customName.trim(),
+        description: customDescription.trim(),
+        confirm_save: true,
+      })
+      const refreshed = await api.get<RecipeWorkspace>(`/data-sync/recipes/${project.id}`)
+      setWorkspace(refreshed)
+      adoptRecipeDraft(refreshed.draft, refreshed)
+      setCustomName(""); setCustomDescription(""); setShowCustomSave(false)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setBusy(false) }
+  }
+
+  async function deleteCustomTemplate(item: RecipeTemplate) {
+    if (!await confirm({
+      title: `删除模板「${item.label}」`,
+      description: "只删除模板副本，当前 Python 配方不会改变。",
+      confirmText: "删除模板",
+      tone: "danger",
+    })) return
+    setBusy(true); setError("")
+    try {
+      await api.delete(`/data-sync/recipe-templates/${encodeURIComponent(item.id)}?confirm_delete=true`)
+      if (workspace) setWorkspace({
+        ...workspace,
+        templates: workspace.templates.filter((candidate) => candidate.id !== item.id),
       })
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setBusy(false) }
   }
 
-  function selectRqTemplate(templateId: string) {
-    setSelectedTemplate(templateId)
-    setPlan(null)
-    setConnection("")
+  async function testRqConnection() {
+    if (!workspace) return
+    setBusy(true); setError(""); setConnection("")
+    try {
+      const templateId = workspace.draft.inspection.template_id ?? "rq.a_share_daily"
+      const result = await api.post<{ latest_trading_date: string; rqdatac_version: string }>(
+        "/data-sync/connection-test",
+        { template_id: templateId },
+      )
+      setConnection(`已连接 · rqdatac ${result.rqdatac_version} · 最新交易日 ${result.latest_trading_date}`)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setBusy(false) }
   }
 
-  function clampSyncDate(value: string, fallback: string) {
-    if (!fields) return value
-    if (!value) return fallback
-    if (value < fields.start_date) return fields.start_date
-    if (value > fields.end_date) return fields.end_date
-    return value
+  async function runRecipe() {
+    if (!project || !workspace) return
+    if (!await confirm({
+      title: "运行当前 Python 数据配方",
+      description: "将在本机 Python 中执行编辑器里的源码，并把结果写入统一研究数据仓库。",
+      confirmText: "运行并同步",
+    })) return
+    setBusy(true); setError("")
+    try {
+      await persistSource()
+      const job = await api.post<SyncJob>(`/data-sync/recipes/${project.id}/jobs`, {
+        confirm_python_execution: true,
+      })
+      setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)])
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setBusy(false) }
   }
 
-  function changeSyncStart(value: string) {
-    const next = clampSyncDate(value, fields?.start_date ?? "")
-    setSyncStart(next)
-    if (syncEnd && next > syncEnd) setSyncEnd(next)
-    setPlan(null)
+  if (!project || !workspace) {
+    return <Widget headerless loading={sdk.loading || Boolean(project && !error)} error={error || sdk.error}><span /></Widget>
   }
 
-  function changeSyncEnd(value: string) {
-    const next = clampSyncDate(value, fields?.end_date ?? "")
-    setSyncEnd(next)
-    if (syncStart && next < syncStart) setSyncStart(next)
-    setPlan(null)
-  }
-
-  if (!project) return <Widget headerless loading={sdk.loading} error={sdk.error}><span /></Widget>
   return (
     <Widget headerless error={error} bodyClassName="overflow-auto">
       <div className="space-y-4">
         <section className="rounded border border-border p-3">
-          {fieldError ? <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">RQData 尚未就绪，请选择下方模板并完成同步。</div> : null}
-          <div className="mb-2"><strong className="text-sm">数据模板</strong></div>
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <strong className="text-sm">数据模板</strong>
+            </div>
+            <a className="inline-flex items-center gap-1 text-xs text-primary hover:underline" href={workspace.docs_url} target="_blank" rel="noreferrer">
+              RQData Python API 文档 <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </div>
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-            {templates?.templates.map((item) => (
-              <button key={item.id} type="button" className={`rounded border p-3 text-left transition-colors ${selectedTemplate === item.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`} onClick={() => selectRqTemplate(item.id)}>
-                <span className="flex items-center justify-between gap-2 text-sm font-medium">{item.label}{selectedTemplate === item.id && <CheckCircle2 className="h-4 w-4 text-primary" />}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">{item.description}</span>
-                <span className="mt-2 flex flex-wrap gap-1">{item.instrument_types.map((value) => <Badge key={value} variant="outline">{value}</Badge>)}</span>
-              </button>
-            ))}
-          </div>
-          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-[160px_160px_minmax(220px,1fr)_auto]">
-            <label className="text-xs">开始日期<Input type="date" min={fields?.start_date} max={syncEnd || fields?.end_date} value={syncStart} onChange={(event) => changeSyncStart(event.target.value)} /></label>
-            <label className="text-xs">结束日期<Input type="date" min={syncStart || fields?.start_date} max={fields?.end_date} value={syncEnd} onChange={(event) => changeSyncEnd(event.target.value)} /></label>
-            <label className="text-xs">标的（可空，逗号或换行分隔）<Input placeholder="空 = 模板全部标的" value={syncSymbols} onChange={(event) => setSyncSymbols(event.target.value)} /></label>
-            <div className="flex items-end gap-2">
-              <Button size="sm" variant="outline" disabled={syncBusy || !health?.rq.ready} onClick={() => void testRqConnection()}><PlugZap />连接测试</Button>
-              <Button size="sm" variant="outline" disabled={syncBusy} onClick={() => void previewSync()}>预览</Button>
-              <Button size="sm" disabled={syncBusy || !health?.rq.ready} onClick={() => void runSync()}>{syncBusy && <Loader2 className="animate-spin" />}同步</Button>
-            </div>
-          </div>
-          {connection && <p className="mt-2 text-xs text-emerald-600">{connection}</p>}
-          {plan && <div className="mt-2 rounded bg-muted p-2 text-xs"><strong>{plan.requested_start} → {plan.requested_end}</strong> · {plan.symbol_count ?? "运行时解析"} 个标的 · {plan.estimated_batches ?? "待解析"} 批 · {plan.steps.map((item) => `${item.dataset}(${item.mode})`).join(" → ")}</div>}
-          {latestJob && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><Badge variant="outline">{latestJob.status}</Badge><span>{latestJob.message ?? latestJob.error ?? latestJob.id}</span>{latestJob.total > 0 && <span className="text-muted-foreground">{latestJob.progress}/{latestJob.total}</span>}</div>}
-        </section>
-        <section className="flex flex-wrap items-center justify-between gap-3 rounded border border-border p-3">
-          <div className="flex items-start gap-2"><Braces className="mt-0.5 h-4 w-4" /><div><strong className="text-sm">自定义 Python 数据源</strong><p className="text-xs text-muted-foreground">需要 RQData 之外的数据时，可实现 bars 与 instruments provider；接入后与 RQ 数据使用相同研究接口。</p></div></div>
-          <code className="rounded bg-muted px-2 py-1 text-xs">from {templates?.python_sdk.import ?? "alphalab.data_sdk.v1"} import data_source</code>
-        </section>
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <section className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2"><div><strong className="text-sm">@universe Python</strong><code className="ml-2 text-xs text-muted-foreground">{universe?.function ?? "missing"}</code></div><Button size="sm" disabled={!project.editable || busy} onClick={() => void saveDataContract()}><Save />保存数据设置</Button></div>
-            <Textarea className="min-h-[560px] resize-y font-mono text-xs leading-5" value={source} disabled={!project.editable} onChange={(event) => setSource(event.target.value)} />
-            <p className="text-xs text-muted-foreground">这里编辑的是同一完整模块。Project/Data 关注 @universe 与 DATA_REQUIREMENTS；其他自定义代码会原样保留。</p>
-          </section>
-          <aside className="space-y-3">
-            <div className="space-y-2 rounded border border-border p-3">
-              <strong className="text-sm">核心不可绕过限制</strong>
-              <label className="block text-xs">历史窗口<Input type="number" min={20} max={2000} value={lookback} onChange={(event) => setLookback(event.target.value)} /></label>
-              <label className="block text-xs">单标的最大权重<Input type="number" min={0.01} max={1} step={0.01} value={maxWeight} onChange={(event) => setMaxWeight(event.target.value)} /></label>
-              <label className="block text-xs">最大总敞口<Input type="number" min={0.01} max={1} step={0.01} value={maxGross} onChange={(event) => setMaxGross(event.target.value)} /></label>
-              <label className="block text-xs">组合资金<Input type="number" min={1} value={portfolioValue} onChange={(event) => setPortfolioValue(event.target.value)} /></label>
-            </div>
-            {Object.entries(fields?.datasets ?? {}).map(([dataset, rows]) => (
-              <div key={dataset} className="rounded border border-border p-3">
-                <div className="mb-2 flex items-center justify-between text-sm"><strong>{dataset}</strong><Badge variant="outline">{rows.length} fields</Badge></div>
-                <div className="flex flex-wrap gap-1">{rows.map((field) => <code key={field.name} className="rounded bg-muted px-1.5 py-1 text-[11px]">{field.name}: {field.data_type}</code>)}</div>
+            {workspace.templates.map((item) => (
+              <div key={item.id} className={`relative rounded border transition-colors ${selectedTemplate === item.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`}>
+                <button type="button" className="h-full w-full p-3 text-left" disabled={busy} onClick={() => void selectTemplate(item)}>
+                  <span className="flex items-center justify-between gap-2 pr-5 text-sm font-medium">
+                    {item.label}
+                    {switchingTemplateId === item.id
+                      ? <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      : selectedTemplate === item.id && <CheckCircle2 className="h-4 w-4 text-primary" />}
+                  </span>
+                  <span className="mt-1 block text-xs text-muted-foreground">{item.description || "保存的自定义 Python 数据配方"}</span>
+                  <span className="mt-2 flex flex-wrap gap-1">
+                    {item.kind === "custom" ? <Badge variant="outline">自定义</Badge> : item.instrument_types?.map((value) => <Badge key={value} variant="outline">{value}</Badge>)}
+                  </span>
+                </button>
+                {item.kind === "custom" && (
+                  <Button className="absolute right-1 top-1 h-7 w-7" size="icon" variant="ghost" disabled={busy} onClick={() => void deleteCustomTemplate(item)} aria-label={`删除 ${item.label}`}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </div>
             ))}
-          </aside>
-        </div>
+          </div>
+        </section>
+
+        <section className="rounded border border-border p-3">
+          <div className="mb-3">
+            <strong className="text-sm">常用参数</strong>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[170px_170px_minmax(240px,1fr)_auto]">
+            <label className="text-xs">开始日期<Input type="date" min={workspace.bounds.start} max={syncEnd || workspace.bounds.end} value={syncStart} disabled={!editableParameters.has("start")} onChange={(event) => changeSyncStart(event.target.value)} /></label>
+            <label className="text-xs">结束日期<Input type="date" min={syncStart || workspace.bounds.start} max={workspace.bounds.end} value={syncEnd} disabled={!editableParameters.has("end")} onChange={(event) => changeSyncEnd(event.target.value)} /></label>
+            <label className="text-xs">标的（可空，逗号或换行分隔）<Input placeholder="空 = 模板全部标的" value={syncSymbols} disabled={!editableParameters.has("symbols")} onChange={(event) => setSyncSymbols(event.target.value)} /></label>
+            <div className="flex items-end"><Button size="sm" variant="outline" disabled={busy || dirty || !supportsFormParameters} onClick={() => void writeParameters()}><Braces />写入 Python</Button></div>
+          </div>
+        </section>
+
+        <section className="space-y-2">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2"><Braces className="h-4 w-4" /><strong className="text-sm">Python 数据配方</strong>{dirty ? <Badge variant="outline">未保存</Badge> : <Badge variant="outline">已保存</Badge>}</div>
+            </div>
+            <Button size="sm" variant="outline" disabled={busy || !dirty} onClick={() => void saveSource()}><Save />保存代码</Button>
+          </div>
+          <Textarea className="min-h-[560px] resize-y font-mono text-xs leading-5" value={source} onChange={(event) => setSource(event.target.value)} spellCheck={false} />
+          {workspace.draft.inspection.warnings.map((warning) => <p key={`${warning.line}-${warning.code}`} className="text-xs text-amber-600">第 {warning.line} 行：{warning.message}</p>)}
+        </section>
+
+        <section className="rounded border border-border p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" disabled={busy || !health?.rq.ready} onClick={() => void testRqConnection()}><PlugZap />连接测试</Button>
+            <Button size="sm" disabled={busy || activeJob} onClick={() => void runRecipe()}>{busy && <Loader2 className="animate-spin" />}运行并同步</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setShowCustomSave((value) => !value)}>另存为模板</Button>
+          </div>
+          {!health?.rq.ready && <p className="mt-2 text-xs text-amber-600">RQData 尚未就绪；仍可编辑和预览不访问 RQData 的自定义代码。</p>}
+          {connection && <p className="mt-2 text-xs text-emerald-600">{connection}</p>}
+          {showCustomSave && (
+            <div className="mt-3 grid gap-2 md:grid-cols-[220px_minmax(260px,1fr)_auto]">
+              <Input placeholder="模板名称" value={customName} onChange={(event) => setCustomName(event.target.value)} />
+              <Input placeholder="模板说明（可选）" value={customDescription} onChange={(event) => setCustomDescription(event.target.value)} />
+              <Button size="sm" disabled={busy || !customName.trim()} onClick={() => void saveCustomTemplate()}>保存模板</Button>
+            </div>
+          )}
+          {latestJob && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              <Badge variant="outline">{latestJob.status}</Badge>
+              <span>{latestJob.error ?? latestJob.message ?? latestJob.id}</span>
+              {latestJob.total > 0 && <span className="text-muted-foreground">{latestJob.progress}/{latestJob.total}</span>}
+            </div>
+          )}
+        </section>
       </div>
     </Widget>
   )
+}
+
+function clampDate(value: string, minimum: string, maximum: string): string {
+  if (!value) return minimum
+  if (value < minimum) return minimum
+  if (value > maximum) return maximum
+  return value
 }

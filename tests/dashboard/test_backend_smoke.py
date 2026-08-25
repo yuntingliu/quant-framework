@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from alphalab import ResultStore
+from alphalab.dataio.runtime import OperationsStore
 from alphalab.strategy.repository import StrategyRepository
 from dashboard.backend.main import app
 from dashboard.backend.services import (
@@ -87,6 +90,63 @@ def test_data_sync_connection_probe_uses_selected_template(monkeypatch) -> None:
         "latest_trading_date": "2026-08-24",
         "rqdatac_version": "3.6.3",
     }
+
+
+def test_data_recipe_workspace_uses_python_as_the_template_and_parameter_source(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    manager = SimpleNamespace(operations=OperationsStore(tmp_path))
+    monkeypatch.setattr(data_sync_service, "get_job_manager", lambda: manager)
+    monkeypatch.setattr(
+        data_sync_service,
+        "_recipe_bounds",
+        lambda: {"start": "2021-08-25", "end": "2026-08-25"},
+    )
+    client = TestClient(app)
+
+    workspace = client.get("/api/data-sync/recipes/sdk-v1-default")
+    assert workspace.status_code == 200, workspace.text
+    payload = workspace.json()
+    assert payload["docs_url"] == ("https://www.ricequant.com/doc/rqdata/python/index-rqdatac")
+    assert payload["draft"]["inspection"]["matched_template_id"] == "rq.a_share_daily"
+    assert "@data_recipe" in payload["draft"]["source"]
+    assert "@universe" not in payload["draft"]["source"]
+
+    applied = client.post(
+        "/api/data-sync/recipes/sdk-v1-default/templates/rq.etf_daily",
+        json={
+            "expected_source_sha256": payload["draft"]["source_sha256"],
+            "confirm_write": True,
+        },
+    )
+    assert applied.status_code == 200, applied.text
+    assert "template='rq.etf_daily'" in applied.json()["source"]
+    assert "rq.all_instruments(" in applied.json()["source"]
+    assert "rq.get_price(" in applied.json()["source"]
+    assert "RQSyncRequest" not in applied.json()["source"]
+
+    projected = client.patch(
+        "/api/data-sync/recipes/sdk-v1-default/parameters",
+        json={
+            "start": "2022-01-01",
+            "end": "2026-08-25",
+            "symbols": ["510300.XSHG"],
+            "expected_source_sha256": applied.json()["source_sha256"],
+            "confirm_write": True,
+        },
+    )
+    assert projected.status_code == 200, projected.text
+    source = projected.json()["source"]
+    assert "start: str = '2022-01-01'" in source
+    assert "symbols: tuple[str, ...] | None = ('510300.XSHG',)" in source
+
+    custom = client.post(
+        "/api/data-sync/recipes/sdk-v1-default/templates",
+        json={"name": "ETF custom", "description": "Saved Python", "confirm_save": True},
+    )
+    assert custom.status_code == 200, custom.text
+    assert custom.json()["kind"] == "custom"
 
 
 def test_strategy_clone_cst_edit_and_revision_confirmation(tmp_path, monkeypatch):
