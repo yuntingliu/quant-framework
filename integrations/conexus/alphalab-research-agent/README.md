@@ -6,14 +6,16 @@ Python strategy pipeline.
 It can inspect data and risk factors, evaluate cross-sectional signal evidence,
 manage immutable Python component versions and revisioned projects, preview the
 complete composed strategy, run and analyze frozen backtests, read reports, and
-control the eight current workbench modes, including the independent factor
-research workspace.
+control the seven current workbench modes, including the independent factor
+research workspace and guarded Python Lab.
 
 Current pipeline tools:
 
 - `alphalab_get_pipeline_project`
 - `alphalab_manage_pipeline`
 - `alphalab_preview_pipeline`
+- `alphalab_run_python_lab`
+- `alphalab_promote_python_lab`
 - `alphalab_run_backtest`
 
 The research scope is structured project configuration authored in the Data Workbench. Complete strategy source is
@@ -24,5 +26,11 @@ neither an Agent input nor a runtime representation.
 Project/component writes and deletes require explicit confirmation. Preview and
 backtest require explicit trusted-local Python execution confirmation. The
 bundle has no shell, source-tree mutation, deployment, or real-broker tool.
+
+Python Lab is a non-authoritative escape hatch. Its runtime is disabled by
+default; Docker mode is isolated and trusted-local mode is explicitly unsafe.
+Lab results can only enter the normal pipeline through a separately confirmed
+factor/component promotion, after which the existing backtest path remains the
+only authoritative execution path.
 
 See `docs/04_CONEXUS_AGENT.md` for the contract and publication boundary.

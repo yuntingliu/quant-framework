@@ -272,6 +272,44 @@ CREATE TABLE IF NOT EXISTS research_artifacts (
 CREATE INDEX IF NOT EXISTS idx_research_artifacts_updated
     ON research_artifacts(updated_at DESC);
 
+-- Python Lab is a non-authoritative research escape hatch.  A successful run
+-- may propose a factor or pipeline component, but only an explicit promotion
+-- creates a normal versioned object consumed by the guarded backtest path.
+CREATE TABLE IF NOT EXISTS python_lab_runs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES pipeline_projects(id),
+    profile TEXT NOT NULL CHECK(profile IN ('demo', 'runtime')),
+    status TEXT NOT NULL CHECK(status IN ('running', 'succeeded', 'failed')),
+    runtime_kind TEXT NOT NULL CHECK(runtime_kind IN ('docker', 'trusted_local')),
+    source TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    context_json TEXT NOT NULL,
+    context_sha256 TEXT NOT NULL,
+    output_json TEXT,
+    stdout TEXT NOT NULL DEFAULT '',
+    stderr TEXT NOT NULL DEFAULT '',
+    error TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_python_lab_runs_created
+    ON python_lab_runs(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS python_lab_promotions (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES python_lab_runs(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK(kind IN ('component', 'factor')),
+    target_id TEXT NOT NULL,
+    applied_to_project INTEGER NOT NULL DEFAULT 0,
+    project_revision INTEGER,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_python_lab_promotions_run
+    ON python_lab_promotions(run_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS research_run_steps (
     run_id TEXT NOT NULL REFERENCES research_runs(id) ON DELETE CASCADE,
     name TEXT NOT NULL,

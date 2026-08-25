@@ -1,6 +1,6 @@
 # AlphaLab Conexus Research Agent
 
-The optional published Agent uses the same current API as the six user-facing workbenches.
+The optional published Agent uses the same current API as the seven user-facing workbenches.
 Its invocation input is exactly `{"request": "non-empty string"}`.
 
 ## Supported Research Surface
@@ -12,6 +12,7 @@ data
 factor research
 data-workbench research scope -> signal model (selection -> portfolio)
 backtest (execution assumptions and audit) -> report
+python lab (bounded experiment -> explicit candidate promotion)
 ```
 
 It discovers data, factor inputs, pipeline projects, component versions, saved
@@ -24,6 +25,8 @@ Current strategy tools are:
 - `alphalab_manage_pipeline`
 - `alphalab_preview_pipeline`
 - `alphalab_run_backtest`
+- `alphalab_run_python_lab`
+- `alphalab_promote_python_lab`
 - `alphalab_get_backtest`
 - `alphalab_analyze_backtest`
 
@@ -50,15 +53,23 @@ security sandbox. AlphaLab core gates still own point-in-time data, eligible
 symbols, finite outputs, exposure, concentration, liquidity, cash, costs, and
 next-period alignment.
 
+Python Lab is different from the strategy-component runtime. It is disabled by
+default. The Agent must inspect `/api/python-lab/capabilities` and may describe
+isolation only when Docker mode reports it. Docker is no-network, read-only,
+no-host-mount, and resource limited; trusted-local is explicitly unsafe and
+requires a second confirmation. A Lab result is not strategy evidence and cannot
+reach a backtest until the user separately confirms promotion into a validated
+factor or component and, optionally, a new project revision.
+
 ## Workspace Commands
 
 Valid modes are:
 
 ```text
-project data factor selection backtest report
+project data factor selection backtest python report
 ```
 
-All six modes use a core widget with a matching `.workbench` id. The internal
+All seven modes use a core widget with a matching `.workbench` id. The internal
 portfolio stage is configured and previewed inside `selection.workbench`; the
 internal execution stage is configured and audited inside `backtest.workbench`. Factor's
 `factor.library`, `factor.editor`, `factor.snapshot`, and `factor.evidence` ids

@@ -42,6 +42,7 @@ const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
   { id: "execution.costs", title: "成本模型", titleEn: "Cost Model", category: "执行", categoryEn: "Execution", description: "拆解佣金、滑点、冲击参数和情景成本", descriptionEn: "Decompose commission, slippage, impact, and scenario costs" },
   { id: "execution.guardrails", title: "成交门禁", titleEn: "Execution Guardrails", category: "执行", categoryEn: "Execution", description: "区分预览已验证的合同与必须逐期回测的成交约束", descriptionEn: "Separate preview-validated contracts from constraints requiring historical simulation" },
   { id: "backtest.workbench", title: "回测工作台", titleEn: "Backtest Workbench", category: "研究流程", categoryEn: "Research Flow", description: "运行、历史结果、稳健性、持仓和策略对比", descriptionEn: "Run, inspect history, robustness, holdings, and comparisons" },
+  { id: "python.workbench", title: "Python Lab", titleEn: "Python Lab", category: "研究流程", categoryEn: "Research Flow", description: "在受控运行时执行自定义 Python，并把候选提升到正式流水线", descriptionEn: "Run custom Python in a guarded runtime and promote candidates into the authoritative pipeline" },
   { id: "report.workbench", title: "报告工作台", titleEn: "Report Workbench", category: "研究流程", categoryEn: "Research Flow", description: "查看 Agent 生成的文档、表格、图表和来源", descriptionEn: "Inspect Agent documents, tables, charts, and sources" },
 
   // Optional extension slots retained outside the core workflow.
@@ -96,6 +97,7 @@ export const coreWorkflowWidgetIds = [
   "project.workbench",
   "selection.workbench",
   "backtest.workbench",
+  "python.workbench",
   "report.workbench",
 ] as const
 

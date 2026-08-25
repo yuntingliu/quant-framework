@@ -19,7 +19,7 @@ def _load(path: Path) -> dict:
 
 def test_conexus_bundle_is_complete_and_contains_no_private_state():
     json_files = sorted(BUNDLE.rglob("*.json"))
-    assert len(json_files) == 31
+    assert len(json_files) == 33
     forbidden = re.compile(
         r"(?:[A-Za-z]:\\Users\\|/Users/|PRIVATE KEY|RQ_PASSWORD=|"
         r"IBKR|ib_async|Interactive Brokers|RQ_SSH_|tunnel)",
@@ -58,6 +58,8 @@ def test_conexus_tools_match_the_python_pipeline_contract():
         "alphalab_manage_pipeline",
         "alphalab_preview_paper_rebalance",
         "alphalab_preview_pipeline",
+        "alphalab_promote_python_lab",
+        "alphalab_run_python_lab",
         "alphalab_run_backtest",
         "alphalab_submit_paper_order",
     }
@@ -66,6 +68,8 @@ def test_conexus_tools_match_the_python_pipeline_contract():
         "alphalab_manage_data_sync_job",
         "alphalab_manage_pipeline",
         "alphalab_preview_pipeline",
+        "alphalab_promote_python_lab",
+        "alphalab_run_python_lab",
         "alphalab_run_backtest",
         "alphalab_save_report",
         "alphalab_execute_paper_rebalance",
@@ -103,13 +107,23 @@ def test_conexus_tools_match_the_python_pipeline_contract():
     assert "component_manifest.length!==3" in tools["alphalab_run_backtest"]["code"]
     assert "'/api/backtests/jobs'" in tools["alphalab_run_backtest"]["code"]
     assert "job.status==='queued'||job.status==='running'" in tools["alphalab_run_backtest"]["code"]
+    run_lab = tools["alphalab_run_python_lab"]
+    assert "confirm_python_execution" in run_lab["inputSchema"]["required"]
+    assert "confirm_trusted_local" in run_lab["inputSchema"]["properties"]
+    assert "'/api/python-lab/capabilities'" in run_lab["code"]
+    assert "capabilities.trusted_local" in run_lab["code"]
+    assert "'/api/python-lab/runs'" in run_lab["code"]
+    promote_lab = tools["alphalab_promote_python_lab"]
+    assert "confirm_write" in promote_lab["inputSchema"]["required"]
+    assert "confirm_write!==true" in promote_lab["code"]
+    assert "'/promote'" in promote_lab["code"]
     save_report = tools["alphalab_save_report"]
     assert save_report["inputSchema"]["required"] == ["profile", "workspace_result", "markdown"]
     assert "'/api/reports'" in save_report["code"]
     assert "markdown:input.markdown" in save_report["code"]
 
 
-def test_agent_and_harness_use_only_the_six_user_facing_workbenches():
+def test_agent_and_harness_use_only_the_seven_user_facing_workbenches():
     agent = _load(BUNDLE / "agents" / "AlphaLab-Research-Agent.agent.json")
     assert agent["model"] == "openai/gpt-5.6-sol"
     tools = {_load(path)["toolName"] for path in TOOLS.glob("*.json")}
@@ -134,6 +148,8 @@ def test_agent_and_harness_use_only_the_six_user_facing_workbenches():
         "attribution",
         "factor.workbench",
         "执行假设请求切换 backtest",
+        "只有用户明确要求运行自定义 Python 实验时才可调用",
+        "自定义 Python 实验请求切换 python 并打开 python.workbench",
         "只能调用一次 update_nodes",
         "必须在 update_nodes 前调用且只调用一次 alphalab_save_report",
     ):
@@ -151,6 +167,7 @@ def test_agent_and_harness_use_only_the_six_user_facing_workbenches():
         "factor",
         "selection",
         "backtest",
+        "python",
         "report",
     ]
 
@@ -163,6 +180,8 @@ def test_registration_script_installs_current_tools_and_removes_old_nodes():
         "Get-Pipeline-Project.tool.json",
         "Manage-Pipeline.tool.json",
         "Preview-Pipeline.tool.json",
+        "Run-Python-Lab.tool.json",
+        "Promote-Python-Lab.tool.json",
         "Save-Report.tool.json",
     ):
         assert filename in register

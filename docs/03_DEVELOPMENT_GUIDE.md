@@ -4,6 +4,12 @@ Start with `docs/01_ARCHITECTURE.md` when deciding where code belongs. Keep the
 public facade small and use it from tests and scripts. Local data, generated
 artifacts, caches, scratch folders, and deployment credentials stay out of git.
 
+The accepted target for the next strategy-contract cutover is
+`docs/02_STRATEGY_SDK_V1_CONTRACT.md`. It is a design contract, not a claim about
+the current runtime. Do not partially expose SDK v1 names through public APIs
+until the runner, source editor, workbenches, evaluations, backtest path, Agent,
+and contract tests are ready for one coordinated cutover.
+
 ## Local Gates
 
 ```powershell
@@ -133,10 +139,32 @@ New backtest writes populate `strategy_source`, `component_manifest_json`,
 
 ## Frontend Rules
 
-The six user-facing modes are:
+The seven user-facing modes are:
 
 ```text
-project, data, factor, selection, backtest, report
+project, data, factor, selection, backtest, python, report
+```
+
+Python Lab is the bounded escape hatch for experiments that do not fit the
+structured factor and component workbenches. Do not convert the other
+workbenches into code generators and do not add a second backtest path. Lab
+output is non-authoritative until an explicit promotion validates and creates a
+normal factor/component; optional project adoption must create a revision.
+
+The runtime defaults to `disabled`. Production use requires the Docker mode's
+no-network, read-only, no-mount, resource-limited contract. `trusted_local` is
+only for controlled development and must retain its extra confirmation and
+unsafe labeling. Never inject filesystem paths, credentials, environment
+variables, stores, or provider objects into Lab context. New context fields must
+be bounded JSON and covered by contract tests.
+
+Build the supplied local scientific-Python image explicitly, then configure its
+tag. Run-time image pulls are deliberately disabled:
+
+```powershell
+docker build -t alphalab-python-lab:local deploy/python-lab
+$env:ALPHALAB_PYTHON_LAB_RUNTIME = "docker"
+$env:ALPHALAB_PYTHON_LAB_IMAGE = "alphalab-python-lab:local"
 ```
 
 Factor is an independent Dockview workspace. Its default preset opens one
@@ -221,6 +249,8 @@ Conexus uses current names only:
 - `alphalab_get_pipeline_project`
 - `alphalab_manage_pipeline`
 - `alphalab_preview_pipeline`
+- `alphalab_run_python_lab`
+- `alphalab_promote_python_lab`
 - `alphalab_run_backtest`
 - `alphalab_analyze_backtest`
 - `alphalab_save_report`
@@ -232,13 +262,14 @@ explicit current-user confirmation. Attribution uses
 
 ## Review Checklist
 
-- Does the change fit one of three stages, data-workbench research-scope settings, the core gate layer, or saved-run analytics?
+- Does the change fit one of three stages, structured settings, the core gate layer, saved-run analytics, or the non-authoritative Lab escape hatch?
 - Are all three component versions pinned and inspectable?
 - Does preview/backtest execute the displayed composed source?
 - Are Python and JSON the only new persistence formats?
 - Are PIT data, fixed schedule, and execution gates enforced?
 - Is attribution frozen and independent of later project/data changes?
 - Do API, frontend, Agent, docs, and tests use the same names?
+- If Lab is involved, are capabilities, isolation claims, explicit execution, and separate promotion all enforced?
 - Did focused Python tests and the frontend build pass?
 
 Do not push unless the user explicitly asks.

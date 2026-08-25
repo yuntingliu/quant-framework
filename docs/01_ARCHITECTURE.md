@@ -1,5 +1,9 @@
 # AlphaLab Barebone Architecture
 
+> Target redesign: [`02_STRATEGY_SDK_V1_CONTRACT.md`](02_STRATEGY_SDK_V1_CONTRACT.md)
+> defines the accepted code-first SDK contract. It is not implemented yet; this
+> document continues to describe the active three-stage system until cutover.
+
 AlphaLab is a provider-first research core plus a React/Electron workstation.
 The current strategy interface is Python-native and has one execution path.
 
@@ -8,7 +12,7 @@ The current strategy interface is Python-native and has one execution path.
 The top-level workbenches are parallel navigation destinations:
 
 ```text
-Research Project | Data | Factor Research | Signal Model | Backtest | Report
+Research Project | Data | Factor Research | Signal Model | Backtest | Python Lab | Report
 ```
 
 The Factor Research Workbench owns the factor library, project factor basket,
@@ -37,7 +41,7 @@ workbenches show the current project read-only and never duplicate project
 settings. A revision or profile change makes cached stage output stale
 until the stage is run again.
 It is the first navigation destination. Data, Factor Research, Signal Model,
-Backtest, and Report remain disabled until an editable research project has been
+Backtest, Python Lab, and Report remain disabled until an editable research project has been
 created or selected; the built-in default project is a creation template rather
 than an active research context.
 
@@ -55,6 +59,23 @@ DataSnapshot
   -> Performance / Risk / Alpha-Beta Attribution
   -> ResearchReport
 ```
+
+Python Lab is a side branch, not another strategy path:
+
+```text
+bounded project + OHLCV snapshot -> isolated Lab experiment
+                                  -> factor/component candidate
+                                  -> explicit promotion + validation
+                                  -> normal project revision -> the same BacktestRun path
+```
+
+It covers research needs that do not fit the structured factor and three-stage
+workbenches without making every workbench an arbitrary-code surface. Lab source
+and output are non-authoritative. Only a separately confirmed promotion creates
+a reusable factor definition or immutable component; applying it creates a
+normal project revision.
+Runs persist source/context hashes, bounded logs, JSON output, and every later
+promotion target/project revision as an audit trail.
 
 The research scope is structured project input authored in the Data Workbench,
 not a separate strategy stage or a weighted factor. It defines the initial symbols
@@ -105,14 +126,20 @@ four-stage runs remain readable as historical snapshots, but their removed
 universe/timing/risk components cannot be selected or executed by current
 authoring APIs.
 
-Python is trusted local code with timeout and crash containment, not an OS
-security sandbox. The framework owns non-bypassable controls:
+Three-stage strategy Python is trusted local code with timeout and crash
+containment, not an OS security sandbox. The framework owns non-bypassable controls:
 
 - point-in-time instruments and fundamental availability;
 - project research-scope, selection, and final-weight membership;
 - finite scores and weights, concentration, gross exposure, and cash;
 - next-session alignment, valid price, and positive volume;
 - amount participation, costs, slippage, and market impact.
+
+Arbitrary Python Lab execution has a separate runtime boundary. It is disabled
+by default. Docker mode has no network, no host mounts, a read-only root, no
+capabilities, and explicit CPU/memory/PID/time limits. `trusted_local` is a
+development-only escape hatch that is not a sandbox and requires a second
+confirmation. The Lab receives bounded JSON, never host data paths or secrets.
 
 ## Backtest and Attribution
 
@@ -143,10 +170,12 @@ selection-factor correlation, and configured research-threshold checks.
 | `alphalab/factors/` | Cross-sectional technical/fundamental inputs, safe expressions, and reusable custom-factor definitions. |
 | `alphalab/pipeline/` | Three-stage models, built-ins, composition, repository, runtime adapter, and narrow migrations. |
 | `alphalab/strategy/python_runtime.py` | Source validation and timeout-bounded child execution. |
+| `alphalab/python_lab/` | Guarded arbitrary-Python runtime capabilities, validation, and execution. |
 | `alphalab/engine.py` | Point-in-time features, fixed schedules, core gates, execution simulation, and parity. |
 | `alphalab/analytics/` | Signal evidence, performance, robustness, regression, and factor correlations. |
 | `alphalab/store.py` | Backtests, frozen source/manifest/attribution, paper state, reports, and artifacts. |
 | `dashboard/backend/routers/pipeline.py` | Current component/project API. |
+| `dashboard/backend/routers/python_lab.py` | Non-authoritative Lab runs and explicit candidate promotion. |
 | `dashboard/` | FastAPI plus Dockview workstations. |
 | `integrations/conexus/` | Optional published Agent using current typed tools only. |
 
@@ -227,5 +256,9 @@ background jobs under `/api/backtests/jobs`, and saved-run endpoints including:
 - `GET /api/backtests/{id}/attribution`
 - `GET /api/backtests/{id}/robustness`
 - `POST /api/backtests/compare`
+
+Python Lab uses `/api/python-lab/capabilities`, `/api/python-lab/runs`, and the
+separately confirmed `/api/python-lab/runs/{id}/promote` boundary. It does not
+expose another backtest endpoint.
 
 There are no universe/timing/risk stage aliases and no independent stage-history API.

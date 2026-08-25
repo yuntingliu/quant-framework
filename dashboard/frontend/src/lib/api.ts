@@ -57,6 +57,50 @@ export interface PipelineProjectDetail extends PipelineProjectSummary {
   composed_source: string
 }
 
+export interface PythonLabCapabilities {
+  enabled: boolean
+  available: boolean
+  runtime_kind: "disabled" | "docker" | "trusted_local"
+  isolated: boolean
+  trusted_local: boolean
+  authoritative: false
+  network_access: boolean | null
+  host_mounts: boolean | null
+  read_only_root: boolean | null
+  limits: Record<string, number | null>
+  reason: string | null
+}
+
+export interface PythonLabRunSummary {
+  id: string
+  project_id: string
+  profile: "demo" | "runtime"
+  status: "running" | "succeeded" | "failed"
+  runtime_kind: "docker" | "trusted_local"
+  source_sha256: string
+  context_sha256: string
+  error: string | null
+  created_at: string
+  started_at: string
+  finished_at: string | null
+}
+
+export interface PythonLabRunDetail extends PythonLabRunSummary {
+  source: string
+  context: Record<string, unknown>
+  output: Record<string, unknown> | unknown[] | string | number | boolean | null
+  stdout: string
+  stderr: string
+  promotions: Array<{
+    id: string
+    kind: "component" | "factor"
+    target_id: string
+    applied_to_project: 0 | 1
+    project_revision: number | null
+    created_at: string
+  }>
+}
+
 export interface PipelinePreview {
   project_id: string
   revision: number

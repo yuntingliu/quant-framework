@@ -7,6 +7,10 @@ The repository is protocol-first and includes a compact real-data example so a
 fresh checkout can inspect data, run strategies, generate signals, and simulate
 orders without configuring a vendor connection.
 
+The accepted code-first redesign is specified in
+[`docs/02_STRATEGY_SDK_V1_CONTRACT.md`](docs/02_STRATEGY_SDK_V1_CONTRACT.md).
+It is a target contract and is not implemented by the current runtime yet.
+
 ## What Is Included
 
 - `DataEngine` with pluggable market, instrument, fundamental and factor providers.
@@ -197,7 +201,7 @@ all deterministic Demo/DataIO/backtest/paper workflows remain available. See
 The sanitized, reviewable Harness source is included under
 [`integrations/conexus/alphalab-research-agent`](integrations/conexus/alphalab-research-agent);
 generated Canvas, publication, conversation, and run state remain ignored.
-The published Harness uses 14 typed AlphaLab tools, including all six canonical
+The published Harness uses 28 typed AlphaLab tools, including all six canonical
 data operations, and can produce Markdown reports, bounded data tables, line,
 bar, area, scatter, and pie charts, plus request-bound commands for active
 Dockview widgets. The Agent may autonomously synchronize required RQ runtime
@@ -214,18 +218,40 @@ disabled extension points. Data Center exposes explicit Demo and Local RQ
 profiles, sync planning, background jobs, coverage, and validation. It never
 starts a heavy sync during application startup.
 
-Built-in strategy YAML is immutable. Clone a template in Strategy Editor to
-create a local version below ignored runtime data. Backtest Workbench can run a
-single backtest or the deterministic six-step research workflow:
+Built-in three-stage Python components and the default project are immutable.
+Clone them before editing; custom component saves create immutable versions and
+projects pin all three versions. Backtest Workbench runs only the composed,
+version-pinned project through the guarded engine:
 
 ```text
-data status -> strategy validation -> backtest -> robustness gate
-            -> signal -> paper risk preview
+data/project settings -> signal model -> portfolio -> execution -> backtest
+                      -> robustness/attribution -> report
 ```
 
 The workflow never confirms paper fills and never submits a broker order.
 `research_candidate` means only that the configured research thresholds passed;
 it is not an approval for live trading.
+
+### Optional Python Lab
+
+Python Lab is the seventh research workbench and the escape hatch for custom
+experiments that do not fit the structured factor or three-stage component
+editors. It is disabled by default and never forms a second backtest path.
+Experiments receive bounded project/OHLCV JSON and may propose a factor or
+component; only an explicit promotion creates a normal object and optional
+project revision.
+
+For isolated execution, build the supplied image and enable Docker mode:
+
+```powershell
+docker build -t alphalab-python-lab:local deploy/python-lab
+$env:ALPHALAB_PYTHON_LAB_RUNTIME = "docker"
+$env:ALPHALAB_PYTHON_LAB_IMAGE = "alphalab-python-lab:local"
+```
+
+The runtime uses no network, no host mounts, a read-only root filesystem and
+resource limits. `trusted_local` is available only as an explicitly configured,
+twice-confirmed development mode and is not a security sandbox.
 
 ## Validation
 

@@ -12,6 +12,7 @@ MODES = [
     "factor",
     "selection",
     "backtest",
+    "python",
     "report",
 ]
 STAGES = ["selection", "portfolio", "execution"]
@@ -46,7 +47,7 @@ def test_public_facade_is_small_and_pipeline_native():
     assert not hasattr(alphalab, "TimingStrategyRepository")
 
 
-def test_frontend_exposes_six_user_facing_workbench_modes():
+def test_frontend_exposes_seven_user_facing_workbench_modes():
     presets = (ROOT / "dashboard/frontend/src/layouts/presets.ts").read_text(encoding="utf-8")
     mode_config = (ROOT / "dashboard/frontend/src/workspace/modes.ts").read_text(encoding="utf-8")
     expected_union = " | ".join(f'"{mode}"' for mode in MODES)
@@ -277,7 +278,7 @@ def test_sidebar_has_fixed_modes_without_search_or_tab_management():
     ):
         assert removed not in sidebar
     modes = (ROOT / "dashboard/frontend/src/workspace/modes.ts").read_text(encoding="utf-8")
-    assert '"project", "data", "factor", "selection", "backtest", "report"' in modes
+    assert '"project", "data", "factor", "selection", "backtest", "python", "report"' in modes
     assert "MODE_GROUPS" not in modes
     assert "MODE_GROUPS" not in sidebar
     assert 'disabled={disabled}' in sidebar

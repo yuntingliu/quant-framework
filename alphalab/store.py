@@ -554,6 +554,143 @@ class ResultStore:
         ).fetchone()
         return dict(row) if row is not None else None
 
+    def create_python_lab_run(
+        self,
+        *,
+        project_id: str,
+        profile: str,
+        runtime_kind: str,
+        source: str,
+        source_sha256: str,
+        context: dict,
+        context_sha256: str,
+    ) -> str:
+        run_id = _uuid()
+        started_at = datetime.now().isoformat(timespec="seconds")
+
+        def work() -> None:
+            self._conn.execute(
+                """INSERT INTO python_lab_runs
+                   (id, project_id, profile, status, runtime_kind, source,
+                    source_sha256, context_json, context_sha256, started_at)
+                   VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?)""",
+                (
+                    run_id,
+                    project_id,
+                    profile,
+                    runtime_kind,
+                    source,
+                    source_sha256,
+                    json.dumps(context, ensure_ascii=False, sort_keys=True),
+                    context_sha256,
+                    started_at,
+                ),
+            )
+
+        self._write(work)
+        return run_id
+
+    def finish_python_lab_run(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        output: object | None = None,
+        stdout: str = "",
+        stderr: str = "",
+        error: str | None = None,
+    ) -> None:
+        if status not in {"succeeded", "failed"}:
+            raise ValueError("python lab terminal status must be succeeded or failed")
+
+        def work() -> None:
+            self._conn.execute(
+                """UPDATE python_lab_runs
+                   SET status=?, output_json=?, stdout=?, stderr=?, error=?,
+                       finished_at=?
+                   WHERE id=?""",
+                (
+                    status,
+                    (
+                        json.dumps(output, ensure_ascii=False, sort_keys=True)
+                        if output is not None
+                        else None
+                    ),
+                    str(stdout)[:20_000],
+                    str(stderr)[:20_000],
+                    str(error)[:2_000] if error else None,
+                    datetime.now().isoformat(timespec="seconds"),
+                    run_id,
+                ),
+            )
+
+        self._write(work)
+
+    def list_python_lab_runs(self, limit: int = 50) -> list[dict]:
+        rows = self._conn.execute(
+            """SELECT id, project_id, profile, status, runtime_kind,
+                      source_sha256, context_sha256, error, created_at,
+                      started_at, finished_at
+               FROM python_lab_runs
+               ORDER BY created_at DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_python_lab_run(self, run_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM python_lab_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        value = dict(row)
+        value["context"] = json.loads(value.pop("context_json"))
+        raw_output = value.pop("output_json")
+        value["output"] = json.loads(raw_output) if raw_output else None
+        value["promotions"] = [
+            dict(item)
+            for item in self._conn.execute(
+                """SELECT id, kind, target_id, applied_to_project,
+                          project_revision, created_at
+                   FROM python_lab_promotions
+                   WHERE run_id = ? ORDER BY created_at DESC""",
+                (run_id,),
+            ).fetchall()
+        ]
+        return value
+
+    def record_python_lab_promotion(
+        self,
+        run_id: str,
+        *,
+        kind: str,
+        target_id: str,
+        applied_to_project: bool,
+        project_revision: int | None,
+    ) -> str:
+        if kind not in {"component", "factor"}:
+            raise ValueError("python lab promotion kind must be component or factor")
+        promotion_id = _uuid()
+
+        def work() -> None:
+            self._conn.execute(
+                """INSERT INTO python_lab_promotions
+                   (id, run_id, kind, target_id, applied_to_project, project_revision)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    promotion_id,
+                    run_id,
+                    kind,
+                    target_id,
+                    int(applied_to_project),
+                    project_revision,
+                ),
+            )
+
+        self._write(work)
+        return promotion_id
+
     def get_latest_signal(
         self,
         strategy_id: str,
@@ -1177,6 +1314,8 @@ class ResultStore:
             "paper_fills",
             "research_runs",
             "research_artifacts",
+            "python_lab_runs",
+            "python_lab_promotions",
             "journal",
         ):
             counts[table] = int(self._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])

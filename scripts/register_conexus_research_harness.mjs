@@ -20,6 +20,8 @@ const toolNodes = [
   ["alphalab-tool-pipeline-project-v1", "AlphaLab Pipeline Project", "Get-Pipeline-Project.tool.json"],
   ["alphalab-tool-manage-pipeline-v1", "Manage AlphaLab Pipeline", "Manage-Pipeline.tool.json"],
   ["alphalab-tool-preview-pipeline-v1", "Preview AlphaLab Pipeline", "Preview-Pipeline.tool.json"],
+  ["alphalab-tool-run-python-lab-v1", "Run AlphaLab Python Lab", "Run-Python-Lab.tool.json"],
+  ["alphalab-tool-promote-python-lab-v1", "Promote AlphaLab Python Lab Candidate", "Promote-Python-Lab.tool.json"],
   ["alphalab-tool-market-bars-v1", "AlphaLab Market Bars", "Get-Market-Bars.tool.json"],
   ["alphalab-tool-fundamentals-v1", "AlphaLab Fundamentals", "Get-Fundamentals.tool.json"],
   ["alphalab-tool-factor-returns-v1", "AlphaLab Factor Returns", "Get-Factor-Returns.tool.json"],

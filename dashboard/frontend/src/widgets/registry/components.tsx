@@ -17,6 +17,7 @@ import { RiskConsoleWidget } from "../execution/RiskConsole"
 import { ResearchAgentPanel } from "../research/ResearchAgent"
 import { ReportWorkbenchWidget } from "../research/ReportWorkbench"
 import { ProjectWorkbenchWidget } from "../project/ProjectWorkbench"
+import { PythonLabWorkbenchWidget } from "../python/PythonLabWorkbench"
 import {
   ExecutionWorkbenchWidget,
   PortfolioWorkbenchWidget,
@@ -87,6 +88,7 @@ export const widgetComponents: Record<string, ComponentType> = {
   "execution.costs": ExecutionCostsWidget,
   "execution.guardrails": ExecutionGuardrailsWidget,
   "backtest.workbench": BacktestWorkbenchWidget,
+  "python.workbench": PythonLabWorkbenchWidget,
   "report.workbench": ReportWorkbenchWidget,
 
   // The Agent is hosted in the shell rail, not in the Dockview catalog.

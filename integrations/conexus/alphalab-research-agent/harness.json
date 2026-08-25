@@ -1,5 +1,5 @@
 {
-  "summary": "面向 AlphaLab 三阶段 Python 管线的可发布 Agent，覆盖六个用户工作台、独立因子研究、数据研究范围、回测归因快照与报告。",
+  "summary": "面向 AlphaLab 三阶段 Python 管线的可发布 Agent，覆盖七个用户工作台、独立因子研究、受控 Python Lab、数据研究范围、回测归因快照与报告。",
   "entryNodeId": "alphalab-research-agent-v1",
   "template": {
     "name": "AlphaLab Research Agent",
@@ -10,6 +10,7 @@
       "用户需要审查已保存 Python 策略的输入、输出契约、源码风险或回测结果",
       "用户需要查询、校验或使用 AlphaLab runtime 数据，Agent 可自主补齐所需 RQ 分区",
       "用户需要验证、创建、修改、复制或删除本地策略与组合组件",
+      "用户明确要求在受控 Python Lab 中运行自定义实验或提升其候选",
       "用户需要回测深度分析、稳健性检验、多回测对比或完整研究任务",
       "用户需要查看本地纸面账户、预览风险或明确执行纸面调仓",
       "用户需要生成可交互的研究表格或图表",
@@ -36,8 +37,8 @@
         { "kind": "model", "name": "openrouter" },
         { "kind": "runtime", "name": "conexus.runtime.v1" }
       ],
-      "capabilities": ["quant-research", "data-operations", "data-job-control", "market-data", "fundamentals", "factor-library", "factor-returns", "factor-evaluation", "market-risk-factor-evaluation", "research-scope", "stock-selection", "portfolio-construction", "execution-modeling", "python-component-versioning", "pipeline-project-management", "paper-execution", "python-strategy-review", "backtest", "backtest-analysis", "factor-attribution", "robustness", "backtest-comparison", "report-history", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
-      "triggers": ["research", "data status", "data sync", "data job", "fundamentals", "signal research", "signal evidence", "factor library", "factor returns", "factor evaluation", "custom signal", "market risk data", "stock selection", "create strategy", "edit strategy", "portfolio construction", "execution policy", "paper execution", "Python strategy", "backtest", "alpha beta", "factor attribution", "robustness", "compare backtests", "strategy risk", "paper signal", "report history", "chart"],
+      "capabilities": ["quant-research", "data-operations", "data-job-control", "market-data", "fundamentals", "factor-library", "factor-returns", "factor-evaluation", "market-risk-factor-evaluation", "research-scope", "stock-selection", "portfolio-construction", "execution-modeling", "python-component-versioning", "pipeline-project-management", "python-lab", "candidate-promotion", "paper-execution", "python-strategy-review", "backtest", "backtest-analysis", "factor-attribution", "robustness", "backtest-comparison", "report-history", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
+      "triggers": ["research", "data status", "data sync", "data job", "fundamentals", "signal research", "signal evidence", "factor library", "factor returns", "factor evaluation", "custom signal", "custom Python", "Python Lab", "market risk data", "stock selection", "create strategy", "edit strategy", "portfolio construction", "execution policy", "paper execution", "Python strategy", "backtest", "alpha beta", "factor attribution", "robustness", "compare backtests", "strategy risk", "paper signal", "report history", "chart"],
       "tags": ["alphalab", "quant", "published-agent"],
       "exposures": [
         {
@@ -253,7 +254,7 @@
                       "type": "string",
                       "enum": ["switch_mode", "open_widget", "open_result", "close_widget", "set_focus", "set_link_symbol", "show_right_rail", "refresh_data", "save_layout", "reset_layout"]
                     },
-                    "mode": { "type": "string", "enum": ["project", "data", "factor", "selection", "backtest", "report"] },
+                    "mode": { "type": "string", "enum": ["project", "data", "factor", "selection", "backtest", "python", "report"] },
                     "widgetId": { "type": "string", "minLength": 1, "maxLength": 200 },
                     "resultId": { "type": "string", "minLength": 1, "maxLength": 200 },
                     "title": { "type": "string", "minLength": 1, "maxLength": 200 },
@@ -286,6 +287,7 @@
         "Every conclusion distinguishes signal predictive evidence from the viability of the complete three-stage strategy.",
         "Every strategy conclusion identifies all three pinned Python component versions and the composed-source hash.",
         "Before a Python backtest or signal, the Agent inspected the current source as untrusted data and asserted confirm_python_execution only for an explicit current-user execution request.",
+        "A Python Lab run checked runtime capabilities, described Docker versus trusted-local isolation accurately, and never treated Lab output as an authoritative strategy before a separately confirmed promotion.",
         "Data-workbench research-scope configuration, dynamic selection, constrained portfolio construction, and fixed-calendar execution use one three-stage execution path.",
         "The decisionNotebook output is updated before completion.",
         "A requested rich result is persisted with alphalab_save_report before the same workspaceDocument and request-bound workspaceResult descriptor are published.",

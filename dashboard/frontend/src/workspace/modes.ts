@@ -5,6 +5,7 @@ import {
   FlaskConical,
   ListFilter,
   FolderKanban,
+  SquareTerminal,
   type LucideIcon,
 } from "lucide-react"
 
@@ -17,11 +18,12 @@ export const MODE_CONFIG: Record<WorkspaceMode, { icon: LucideIcon; labelKey: Tr
   project: { icon: FolderKanban, labelKey: "mode.project", detailKey: "mode.project.long" },
   selection: { icon: ListFilter, labelKey: "mode.selection", detailKey: "mode.selection.long" },
   backtest: { icon: BarChart3, labelKey: "mode.backtest", detailKey: "mode.backtest.long" },
+  python: { icon: SquareTerminal, labelKey: "mode.python", detailKey: "mode.python.long" },
   report: { icon: FileText, labelKey: "mode.report", detailKey: "mode.report.long" },
 }
 
 export const WORKSPACE_MODES: WorkspaceMode[] = [
-  "project", "data", "factor", "selection", "backtest", "report",
+  "project", "data", "factor", "selection", "backtest", "python", "report",
 ]
 
 export const MODE_SHORTCUTS: Record<WorkspaceMode, string[]> = {
@@ -30,5 +32,6 @@ export const MODE_SHORTCUTS: Record<WorkspaceMode, string[]> = {
   project: ["project.workbench"],
   selection: ["selection.workbench"],
   backtest: ["backtest.workbench"],
+  python: ["python.workbench"],
   report: ["report.workbench"],
 }
