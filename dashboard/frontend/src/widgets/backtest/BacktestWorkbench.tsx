@@ -177,7 +177,7 @@ export function ValidationWorkbenchWidget() {
       <section className="backtest-run-setup">
         <div className="backtest-section-heading">
           <div><strong>完整策略回测</strong><span>选择不可变 revision 和样本区间；调度、持仓与成交参数来自同一份 Python。</span></div>
-          <small>{project.profile === "runtime" ? "本地 RQ" : "Demo"} · Strategy SDK v1</small>
+          <small>RQData · Strategy SDK v1</small>
         </div>
         <div className="backtest-setup-grid">
           <div className="backtest-setup-card">

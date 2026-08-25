@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Braces, CheckCircle2, Database, Loader2, PlugZap, Save, ShieldCheck } from "lucide-react"
+import { Braces, CheckCircle2, Loader2, PlugZap, Save } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -11,7 +11,7 @@ import { api } from "@/lib/api"
 import { Widget } from "@/widgets/Widget"
 
 interface FieldCatalog {
-  profile: "demo" | "runtime"
+  profile: "runtime"
   start_date: string
   end_date: string
   datasets: Record<string, Array<{ name: string; data_type: string; nullable: boolean }>>
@@ -33,7 +33,6 @@ interface TemplateCatalog {
 }
 
 interface DataSyncHealth {
-  runtime: { status: string; ready: number; total: number }
   rq: { status: string; installed: boolean; configured: boolean; ready: boolean; last_error?: string | null }
 }
 
@@ -63,6 +62,7 @@ export function DataWorkbenchWidget() {
   const project = sdk.project
   const [source, setSource] = useState("")
   const [fields, setFields] = useState<FieldCatalog | null>(null)
+  const [fieldError, setFieldError] = useState("")
   const [lookback, setLookback] = useState("260")
   const [maxWeight, setMaxWeight] = useState("1")
   const [maxGross, setMaxGross] = useState("1")
@@ -91,8 +91,12 @@ export function DataWorkbenchWidget() {
     setMaxWeight(String(project.settings.max_weight ?? 1))
     setMaxGross(String(project.settings.max_gross_exposure ?? 1))
     setPortfolioValue(String(project.settings.portfolio_value ?? 1_000_000))
-    void api.get<FieldCatalog>(`/strategy/fields?profile=${project.profile}`).then(setFields).catch((reason: Error) => setError(reason.message))
-  }, [project?.id, project?.draft_source_sha256, project?.profile])
+    setFields(null)
+    setFieldError("")
+    void api.get<FieldCatalog>("/strategy/fields?profile=runtime")
+      .then(setFields)
+      .catch((reason: Error) => setFieldError(reason.message))
+  }, [project?.id, project?.draft_source_sha256])
 
   useEffect(() => {
     let current = true
@@ -105,6 +109,10 @@ export function DataWorkbenchWidget() {
       setTemplates(templateResult)
       setHealth(healthResult)
       setJobs(jobResult)
+      const latestTemplate = jobResult.find((item) => item.request.template_id)?.request.template_id
+      if (latestTemplate && templateResult.templates.some((item) => item.id === latestTemplate)) {
+        setSelectedTemplate(latestTemplate)
+      }
     }).catch((reason: Error) => { if (current) setError(reason.message) })
     return () => { current = false }
   }, [])
@@ -117,8 +125,26 @@ export function DataWorkbenchWidget() {
     return () => window.clearInterval(timer)
   }, [jobs])
 
+  useEffect(() => {
+    if (!fields) return
+    setSyncStart(fields.start_date)
+    setSyncEnd(fields.end_date)
+  }, [fields?.start_date, fields?.end_date])
+
   const activeTemplate = templates?.templates.find((item) => item.id === selectedTemplate)
   const latestJob = jobs[0]
+
+  useEffect(() => {
+    if (latestJob?.status !== "succeeded") return
+    void Promise.all([
+      api.get<FieldCatalog>("/strategy/fields?profile=runtime"),
+      api.get<DataSyncHealth>("/data-sync/health"),
+    ]).then(([fieldResult, healthResult]) => {
+      setFields(fieldResult)
+      setFieldError("")
+      setHealth(healthResult)
+    }).catch((reason: Error) => setFieldError(reason.message))
+  }, [latestJob?.id, latestJob?.status])
 
   function syncRequest() {
     const symbols = syncSymbols.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean)
@@ -152,7 +178,7 @@ export function DataWorkbenchWidget() {
     if (!activeTemplate) return
     if (!await confirm({
       title: `同步 ${activeTemplate.label}`,
-      description: `将通过 RQData 下载 ${activeTemplate.datasets.join("、")} 并写入本机 runtime 数据目录。`,
+      description: `将通过 RQData 下载 ${activeTemplate.datasets.join("、")} 并写入研究数据仓库。`,
       confirmText: "开始同步",
     })) return
     setSyncBusy(true); setError("")
@@ -184,27 +210,44 @@ export function DataWorkbenchWidget() {
     finally { setBusy(false) }
   }
 
-  if (!project) return <Widget title="数据工作台" loading={sdk.loading} error={sdk.error}><span /></Widget>
+  function selectRqTemplate(templateId: string) {
+    setSelectedTemplate(templateId)
+    setPlan(null)
+    setConnection("")
+  }
+
+  function clampSyncDate(value: string, fallback: string) {
+    if (!fields) return value
+    if (!value) return fallback
+    if (value < fields.start_date) return fields.start_date
+    if (value > fields.end_date) return fields.end_date
+    return value
+  }
+
+  function changeSyncStart(value: string) {
+    const next = clampSyncDate(value, fields?.start_date ?? "")
+    setSyncStart(next)
+    if (syncEnd && next > syncEnd) setSyncEnd(next)
+    setPlan(null)
+  }
+
+  function changeSyncEnd(value: string) {
+    const next = clampSyncDate(value, fields?.end_date ?? "")
+    setSyncEnd(next)
+    if (syncStart && next < syncStart) setSyncStart(next)
+    setPlan(null)
+  }
+
+  if (!project) return <Widget headerless loading={sdk.loading} error={sdk.error}><span /></Widget>
   return (
-    <Widget title="数据工作台" error={error} bodyClassName="overflow-auto" actions={<Button size="sm" disabled={!project.editable || busy} onClick={() => void saveDataContract()}><Save />保存数据契约</Button>}>
+    <Widget headerless error={error} bodyClassName="overflow-auto">
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Badge><Database />{project.profile}</Badge>
-          <Badge variant="outline">{fields?.start_date ?? "—"} → {fields?.end_date ?? "—"}</Badge>
-          <Badge variant="secondary"><ShieldCheck />Point-in-time</Badge>
-          <span className="text-muted-foreground">运行时不会自动切换数据环境，也不会向 Context 暴露 provider 或文件路径。</span>
-        </div>
         <section className="rounded border border-border p-3">
-          <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-            <div><strong className="text-sm">RQData 数据模板</strong><p className="text-xs text-muted-foreground">模板只定义采集范围；数据仍进入统一 DataEngine 契约。</p></div>
-            <div className="flex items-center gap-2 text-xs">
-              <Badge variant={health?.rq.ready ? "secondary" : "outline"}>RQ {health?.rq.status ?? "检测中"}</Badge>
-              <Badge variant="outline">runtime {health?.runtime.ready ?? 0}/{health?.runtime.total ?? 0}</Badge>
-            </div>
-          </div>
+          {fieldError ? <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">RQData 尚未就绪，请选择下方模板并完成同步。</div> : null}
+          <div className="mb-2"><strong className="text-sm">数据模板</strong></div>
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
             {templates?.templates.map((item) => (
-              <button key={item.id} type="button" className={`rounded border p-3 text-left transition-colors ${selectedTemplate === item.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`} onClick={() => { setSelectedTemplate(item.id); setPlan(null); setConnection("") }}>
+              <button key={item.id} type="button" className={`rounded border p-3 text-left transition-colors ${selectedTemplate === item.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`} onClick={() => selectRqTemplate(item.id)}>
                 <span className="flex items-center justify-between gap-2 text-sm font-medium">{item.label}{selectedTemplate === item.id && <CheckCircle2 className="h-4 w-4 text-primary" />}</span>
                 <span className="mt-1 block text-xs text-muted-foreground">{item.description}</span>
                 <span className="mt-2 flex flex-wrap gap-1">{item.instrument_types.map((value) => <Badge key={value} variant="outline">{value}</Badge>)}</span>
@@ -212,8 +255,8 @@ export function DataWorkbenchWidget() {
             ))}
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-[160px_160px_minmax(220px,1fr)_auto]">
-            <label className="text-xs">开始日期（可空）<Input type="date" value={syncStart} onChange={(event) => setSyncStart(event.target.value)} /></label>
-            <label className="text-xs">结束日期（可空）<Input type="date" value={syncEnd} onChange={(event) => setSyncEnd(event.target.value)} /></label>
+            <label className="text-xs">开始日期<Input type="date" min={fields?.start_date} max={syncEnd || fields?.end_date} value={syncStart} onChange={(event) => changeSyncStart(event.target.value)} /></label>
+            <label className="text-xs">结束日期<Input type="date" min={syncStart || fields?.start_date} max={fields?.end_date} value={syncEnd} onChange={(event) => changeSyncEnd(event.target.value)} /></label>
             <label className="text-xs">标的（可空，逗号或换行分隔）<Input placeholder="空 = 模板全部标的" value={syncSymbols} onChange={(event) => setSyncSymbols(event.target.value)} /></label>
             <div className="flex items-end gap-2">
               <Button size="sm" variant="outline" disabled={syncBusy || !health?.rq.ready} onClick={() => void testRqConnection()}><PlugZap />连接测试</Button>
@@ -226,12 +269,12 @@ export function DataWorkbenchWidget() {
           {latestJob && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><Badge variant="outline">{latestJob.status}</Badge><span>{latestJob.message ?? latestJob.error ?? latestJob.id}</span>{latestJob.total > 0 && <span className="text-muted-foreground">{latestJob.progress}/{latestJob.total}</span>}</div>}
         </section>
         <section className="flex flex-wrap items-center justify-between gap-3 rounded border border-border p-3">
-          <div className="flex items-start gap-2"><Braces className="mt-0.5 h-4 w-4" /><div><strong className="text-sm">自定义 Python 数据源</strong><p className="text-xs text-muted-foreground">保留任意 Python 接入：实现 bars 与 instruments provider，再通过版本化 Data SDK 注册；与 RQ 模板使用同一 DataEngine。</p></div></div>
+          <div className="flex items-start gap-2"><Braces className="mt-0.5 h-4 w-4" /><div><strong className="text-sm">自定义 Python 数据源</strong><p className="text-xs text-muted-foreground">需要 RQData 之外的数据时，可实现 bars 与 instruments provider；接入后与 RQ 数据使用相同研究接口。</p></div></div>
           <code className="rounded bg-muted px-2 py-1 text-xs">from {templates?.python_sdk.import ?? "alphalab.data_sdk.v1"} import data_source</code>
         </section>
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px]">
           <section className="space-y-2">
-            <div className="flex items-center justify-between"><strong className="text-sm">@universe Python</strong><code className="text-xs text-muted-foreground">{universe?.function ?? "missing"}</code></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><strong className="text-sm">@universe Python</strong><code className="ml-2 text-xs text-muted-foreground">{universe?.function ?? "missing"}</code></div><Button size="sm" disabled={!project.editable || busy} onClick={() => void saveDataContract()}><Save />保存数据设置</Button></div>
             <Textarea className="min-h-[560px] resize-y font-mono text-xs leading-5" value={source} disabled={!project.editable} onChange={(event) => setSource(event.target.value)} />
             <p className="text-xs text-muted-foreground">这里编辑的是同一完整模块。Project/Data 关注 @universe 与 DATA_REQUIREMENTS；其他自定义代码会原样保留。</p>
           </section>

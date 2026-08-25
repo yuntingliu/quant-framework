@@ -83,10 +83,12 @@ leave the unfilled portion in the actual portfolio.
 
 ## Data boundary
 
-`DataEngine` remains provider-first. `demo` is the bundled deterministic sample;
-`runtime` is the local RQ-backed profile. No operation silently switches
-profiles. Context construction filters all dated rows at `as_of`; instrument
-listing/delisting and current-session tradability are core-owned.
+`DataEngine` remains provider-first. Current Strategy SDK projects use the
+RQ-backed research store as their single data profile; the workbenches do not
+offer a Demo/Runtime switch. The bundled deterministic sample remains only as
+an internal test fixture and for reproducing historical sample runs. Context
+construction filters all dated rows at `as_of`; instrument listing/delisting
+and current-session tradability are core-owned.
 
 RQ synchronization templates are declarative acquisition scopes over that same
 runtime store; they do not create provider-specific strategy APIs. Trusted local

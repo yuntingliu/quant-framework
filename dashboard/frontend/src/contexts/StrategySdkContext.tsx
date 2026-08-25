@@ -64,7 +64,7 @@ export interface StrategyProject {
   id: string
   name: string
   description: string
-  profile: "demo" | "runtime"
+  profile: "runtime"
   current_revision: number
   draft_parent_revision: number | null
   draft_source_sha256: string
@@ -88,7 +88,7 @@ interface StrategySdkValue {
   error: string
   refresh: (preferredId?: string) => Promise<void>
   openProject: (projectId: string) => Promise<void>
-  cloneProject: (targetId: string, name: string) => Promise<StrategyProject>
+  createProject: (targetId: string, name: string) => Promise<StrategyProject>
   updateDraft: (source: string) => Promise<StrategyProject>
   updateMetadata: (values: Pick<StrategyProject, "name" | "description" | "profile" | "settings">) => Promise<StrategyProject>
   saveRevision: () => Promise<SourcePackage>
@@ -161,9 +161,8 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
     error,
     refresh,
     openProject,
-    cloneProject: async (targetId, name) => {
-      if (!project) throw new Error("请先选择项目")
-      const created = await api.post<StrategyProject>(`/strategy/projects/${project.id}/clone`, {
+    createProject: async (targetId, name) => {
+      const created = await api.post<StrategyProject>("/strategy/projects/sdk-v1-default/clone", {
         target_id: targetId,
         name,
         confirm_save: true,

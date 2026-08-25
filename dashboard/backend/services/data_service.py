@@ -155,7 +155,7 @@ def _profile_range(profile: str) -> tuple[str, str]:
         return manifest["sample_start"], manifest["cutoff_date"]
     status = DataCatalog().status("rq.bars")
     if status["status"] != "ready" or not status["date_start"] or not status["date_end"]:
-        raise MissingDataError("Runtime bars are not ready. Run an RQ data sync first.")
+        raise MissingDataError("RQData 日线行情尚未就绪，请先完成数据同步。")
     return status["date_start"], status["date_end"]
 
 
@@ -163,7 +163,7 @@ def market_symbol_options(profile: str = "demo") -> list[dict[str, str | None]]:
     engine = _engine(profile)
     symbols = engine.get_symbols()
     if profile == "runtime" and not symbols:
-        raise MissingDataError("Runtime bars are not ready. Run an RQ data sync first.")
+        raise MissingDataError("RQData 日线行情尚未就绪，请先完成数据同步。")
     names: dict[str, str] = {}
     if profile == "demo":
         names.update(
@@ -276,7 +276,7 @@ def factor_returns(
     if unknown:
         raise KeyError(", ".join(unknown))
     if profile == "runtime" and DataCatalog().status("runtime.factor_returns")["status"] != "ready":
-        raise MissingDataError("Runtime factor returns are missing. Run an RQ factors sync first.")
+        raise MissingDataError("RQData 因子收益尚未就绪，请先同步完整研究数据。")
     profile_start, profile_end = _profile_range(profile)
     frame = _engine(profile).get_factors(
         requested,

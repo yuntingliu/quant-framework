@@ -19,7 +19,7 @@ export type WidgetStatus = "active" | "not_configured"
 const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
   // One parallel workstation per function boundary; data flows left to right.
   { id: "data.workbench", title: "数据工作台", titleEn: "Data Workbench", category: "研究流程", categoryEn: "Research Flow", description: "管理研究范围、数据预览、同步和质量校验", descriptionEn: "Manage research scope, data previews, sync, and validation" },
-  { id: "project.workbench", title: "研究项目", titleEn: "Research Project", category: "研究流程", categoryEn: "Research Flow", description: "管理项目生命周期和数据环境", descriptionEn: "Manage the project lifecycle and data profile" },
+  { id: "project.workbench", title: "研究项目", titleEn: "Research Project", category: "研究流程", categoryEn: "Research Flow", description: "创建、选择和管理研究项目", descriptionEn: "Create, select, and manage research projects" },
   { id: "factor.workbench", title: "因子研究", titleEn: "Factor Research", category: "研究流程", categoryEn: "Research Flow", description: "对照行情和财务 API 数据编辑因子，最后统一验证", descriptionEn: "Author factors against market and fundamental API data, then validate them" },
   { id: "strategy.workbench", title: "策略工作台", titleEn: "Strategy Workbench", category: "研究流程", categoryEn: "Research Flow", description: "在同一 Python 模块中编辑信号、组合、状态事件和执行", descriptionEn: "Edit signals, portfolio, stateful events, and execution in one Python module" },
   { id: "validation.workbench", title: "验证与回测", titleEn: "Validation & Backtest", category: "研究流程", categoryEn: "Research Flow", description: "选择冻结源码修订并运行预览、因子检验和事件回测", descriptionEn: "Select frozen source revisions and run previews, factor tests, and event backtests" },

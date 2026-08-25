@@ -15,7 +15,7 @@ import { api, type MarketBar, type MarketInstrument } from "@/lib/api"
 import { Widget } from "@/widgets/Widget"
 
 interface FieldCatalog {
-  profile: "demo" | "runtime"
+  profile: "runtime"
   start_date: string
   end_date: string
   datasets: Record<string, Array<{ name: string; data_type: string; nullable: boolean }>>
@@ -169,7 +169,7 @@ function FactorMarketBrowser({ fields, onInsertField }: {
   const barsQuery = useQuery({
     queryKey: ["sdk-factor", "bars", project?.profile, symbol, endDate, range, reloadRevision],
     queryFn: () => {
-      const params = new URLSearchParams({ profile: project?.profile ?? "demo", symbol, end: endDate })
+      const params = new URLSearchParams({ profile: project?.profile ?? "runtime", symbol, end: endDate })
       const start = dateBefore(endDate, range)
       if (start) params.set("start", start)
       return api.get<{ rows: MarketBar[] }>(`/data/market/bars?${params.toString()}`)
@@ -180,7 +180,7 @@ function FactorMarketBrowser({ fields, onInsertField }: {
   const fundamentalsQuery = useQuery({
     queryKey: ["sdk-factor", "fundamentals", project?.profile, symbol, endDate],
     queryFn: () => {
-      const params = new URLSearchParams({ profile: project?.profile ?? "demo", asof_date: endDate, limit: "40" })
+      const params = new URLSearchParams({ profile: project?.profile ?? "runtime", asof_date: endDate, limit: "40" })
       params.append("symbols", symbol)
       return api.get<FundamentalPayload>(`/data/fundamentals?${params.toString()}`)
     },
@@ -208,7 +208,7 @@ function FactorMarketBrowser({ fields, onInsertField }: {
         contextPanel={(
           <div className="factor-source-fields">
             <div className="factor-source-fields-heading">
-              <div><strong>当前数据全部字段</strong><small>{project?.profile === "runtime" ? "Local RQ" : "Demo"} Schema 自动生成；点击即插入 Python</small></div>
+              <div><strong>当前数据全部字段</strong><small>RQData Schema 自动生成；点击即插入 Python</small></div>
               <span>{fieldCount} 个字段</span>
             </div>
             <div className="factor-source-field-groups">

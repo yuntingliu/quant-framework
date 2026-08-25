@@ -450,6 +450,32 @@ def test_repository_keeps_immutable_revision_after_draft_change(tmp_path: Path):
         repository.close()
 
 
+def test_repository_uses_rq_profile_and_migrates_existing_projects(tmp_path: Path):
+    database = tmp_path / "rq-profile.db"
+    repository = StrategyRepository(database)
+    try:
+        assert repository.get_project("sdk-v1-default")["profile"] == "runtime"
+        cloned = repository.clone_project("sdk-v1-default", "rq-project")
+        assert cloned["profile"] == "runtime"
+    finally:
+        repository.close()
+
+    connection = sqlite3.connect(database)
+    connection.execute("UPDATE strategy_projects SET profile = 'demo'")
+    connection.execute(
+        "DELETE FROM strategy_contract_migrations WHERE name = ?",
+        ("strategy-sdk-v1-rq-profile",),
+    )
+    connection.commit()
+    connection.close()
+
+    repository = StrategyRepository(database)
+    try:
+        assert {item["profile"] for item in repository.list_projects()} == {"runtime"}
+    finally:
+        repository.close()
+
+
 def test_event_backtest_runs_the_frozen_source_package(tmp_path: Path):
     repository = StrategyRepository(tmp_path / "backtest.db")
     try:

@@ -24,7 +24,7 @@ class CreateProjectRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=500)
     source: str = Field(min_length=1, max_length=300_000)
-    profile: Literal["demo", "runtime"] = "demo"
+    profile: Literal["runtime"] = "runtime"
     settings: dict[str, Any] = Field(default_factory=dict)
     confirm_save: bool
     confirm_python_execution: bool
@@ -49,7 +49,7 @@ class MetadataRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=500)
-    profile: Literal["demo", "runtime"]
+    profile: Literal["runtime"]
     settings: dict[str, Any]
     confirm_write: bool
 

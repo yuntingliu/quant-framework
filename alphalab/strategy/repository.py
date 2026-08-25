@@ -28,6 +28,7 @@ _ID = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 _DEFAULT_PROJECT_ID = "sdk-v1-default"
 _MIGRATION_NAME = "strategy-sdk-v1-cutover"
 _FACTOR_REPAIR_MIGRATION = "strategy-sdk-v1-factor-repair"
+_RQ_PROFILE_MIGRATION = "strategy-sdk-v1-rq-profile"
 
 
 def normalize_project_id(value: str) -> str:
@@ -52,6 +53,7 @@ class StrategyRepository:
         self._seed_default()
         self._migrate_pipeline_projects()
         self._repair_legacy_factor_migrations()
+        self._migrate_projects_to_rq_profile()
 
     def close(self) -> None:
         self._conn.close()
@@ -68,7 +70,7 @@ class StrategyRepository:
                    (id, name, description, profile, current_revision,
                     draft_parent_revision, draft_source, draft_source_sha256,
                     settings_json, built_in)
-                   VALUES (?, ?, ?, 'demo', 1, 1, ?, ?, ?, 1)""",
+                   VALUES (?, ?, ?, 'runtime', 1, 1, ?, ?, ?, 1)""",
                 (
                     _DEFAULT_PROJECT_ID,
                     "SDK v1 默认策略",
@@ -107,14 +109,14 @@ class StrategyRepository:
         name: str,
         description: str = "",
         source: str = DEFAULT_STRATEGY_SOURCE,
-        profile: str = "demo",
+        profile: str = "runtime",
         settings: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         normalized = normalize_project_id(project_id)
         if not str(name).strip():
             raise ValueError("project name must not be empty")
-        if profile not in {"demo", "runtime"}:
-            raise ValueError("profile must be demo or runtime")
+        if profile != "runtime":
+            raise ValueError("strategy projects use the RQ runtime profile")
         if self.get_project(normalized, include_source=False) is not None:
             raise FileExistsError(normalized)
         inspection = inspect_strategy_source(source)
@@ -155,7 +157,7 @@ class StrategyRepository:
             name=name or f"{source['name']} 副本",
             description=source["description"],
             source=source["draft_source"],
-            profile=source["profile"],
+            profile="runtime",
             settings=source["settings"],
         )
 
@@ -192,8 +194,8 @@ class StrategyRepository:
         row = self._editable_row(project_id)
         if not str(name).strip():
             raise ValueError("project name must not be empty")
-        if profile not in {"demo", "runtime"}:
-            raise ValueError("profile must be demo or runtime")
+        if profile != "runtime":
+            raise ValueError("strategy projects use the RQ runtime profile")
         with self._lock:
             self._conn.execute(
                 """UPDATE strategy_projects
@@ -491,7 +493,7 @@ class StrategyRepository:
                        (id, name, description, profile, current_revision,
                         draft_parent_revision, draft_source, draft_source_sha256,
                         settings_json, built_in)
-                       VALUES (?, ?, ?, 'demo', 1, 1, ?, ?, ?, 0)""",
+                       VALUES (?, ?, ?, 'runtime', 1, 1, ?, ?, ?, 0)""",
                     (
                         project_id,
                         row["name"],
@@ -566,6 +568,28 @@ class StrategyRepository:
                 _FACTOR_REPAIR_MIGRATION,
                 _json({"repaired_projects": repaired, "skipped_dirty_projects": skipped_dirty}),
             ),
+        )
+        self._conn.commit()
+
+    def _migrate_projects_to_rq_profile(self) -> None:
+        if self._conn.execute(
+            "SELECT 1 FROM strategy_contract_migrations WHERE name = ?",
+            (_RQ_PROFILE_MIGRATION,),
+        ).fetchone():
+            return
+        project_ids = [
+            str(row["id"])
+            for row in self._conn.execute(
+                "SELECT id FROM strategy_projects WHERE profile != 'runtime' ORDER BY id"
+            ).fetchall()
+        ]
+        self._conn.execute(
+            "UPDATE strategy_projects SET profile = 'runtime', updated_at = datetime('now') "
+            "WHERE profile != 'runtime'"
+        )
+        self._conn.execute(
+            "INSERT INTO strategy_contract_migrations (name, detail_json) VALUES (?, ?)",
+            (_RQ_PROFILE_MIGRATION, _json({"updated_projects": project_ids})),
         )
         self._conn.commit()
 
