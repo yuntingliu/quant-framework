@@ -1,265 +1,137 @@
 # AlphaLab Barebone
 
-AlphaLab Barebone is a small quant framework for developing factor research,
-portfolio signals, backtests, and workstation extensions.
+AlphaLab is a local quantitative-research framework with provider-backed data,
+a unified Python strategy SDK, point-in-time factor evaluation, a stateful daily
+event backtester, immutable source revisions, a FastAPI/React workstation, and
+an optional Conexus research Agent.
 
-The repository is protocol-first and includes a compact real-data example so a
-fresh checkout can inspect data, run strategies, generate signals, and simulate
-orders without configuring a vendor connection.
+The core idea is simple: one strategy project has one complete Python module.
+The parameter forms, factor editor, signal model, event logic, execution policy,
+Codex edits, tests, previews, and backtests all modify or invoke that same source.
 
-The accepted code-first redesign is specified in
-[`docs/02_STRATEGY_SDK_V1_CONTRACT.md`](docs/02_STRATEGY_SDK_V1_CONTRACT.md).
-It is a target contract and is not implemented by the current runtime yet.
+## Quick start
 
-## What Is Included
-
-- `DataEngine` with pluggable market, instrument, fundamental and factor providers.
-- `StrategyConfig` YAML templates for generic momentum, value, quality, growth,
-  low-volatility and balanced styles.
-- `SignalEngine.generate_targets()` and `run_backtest_detailed()` as the shared
-  point-in-time parity point for research and workstation previews, with
-  next-session execution, explicit cash, costs, slippage, impact and liquidity.
-- Registered and safe expression factors with IC/ICIR, quantile, decay,
-  turnover, coverage and bootstrap diagnostics.
-- `ResultStore` for local SQLite state.
-- Broker-neutral execution dataclasses plus paper trading helpers.
-- FastAPI + React/Electron Dockview workstation shell using the original
-  AlphaLab multi-mode GUI structure.
-- A tracked 300-stock, five-year historical sample with point-in-time
-  fundamentals, monthly factor returns, and six seeded backtests.
-- An RQ-only runtime data control plane with partitioned parquet storage,
-  PIT fundamentals, factor returns, quality checks, job records, CLI commands,
-  APIs, and typed data tools.
-- An optional Conexus Research Agent Harness that can combine the full typed
-  data surface into reports, sortable tables, native charts, and active
-  workstation components while preserving explicit mutation guardrails.
-- Same-universe benchmarks, cost sensitivity, validation splits, bootstrap and
-  multiple-testing checks, and explicit
-  `research_candidate/watch/weak/invalid` research gates.
-- Reproducible backtests and durable Agent reports with data, strategy and Git
-  fingerprints plus per-period execution audits.
-- A deterministic data-to-paper research workflow with local cash, positions,
-  fills, NAV, and confirmed rebalance simulation. Realtime feeds and real
-  orders are not configured.
-
-## Quick Start
-
-```powershell
-cd C:\Users\LYT\Documents\GitHub\quant-framework
-pip install -e ".[dev,dashboard,rq]"
-python -m pytest tests -q
-python -c "import alphalab; print(alphalab.__version__)"
-```
-
-## Bundled Data
-
-The default engine reads a generic local layout under `data/`:
-
-```text
-data/
-  market/bars.parquet                 # date, symbol, open, high, low, close, volume, amount?
-  instruments/instruments.parquet     # optional dated listing snapshots
-  fundamentals/fundamentals.parquet   # quarter, available_date, symbol, factors
-  factors/factor_returns.parquet      # DatetimeIndex, one column per factor return
-  app/alphalab.db                     # local SQLite state
-  manifest.json                       # provenance, coverage, hashes, caveats
-```
-
-The sample is real historical data for development demonstration, not an
-unbiased investable universe. Prices end on the manifest cutoff date and must
-not be presented as realtime. Immutable parquet hashes are checked by the API.
-
-## Collaborator RQ Setup / 协作者本地 RQ 数据
-
-Each collaborator downloads RQ data to their own computer with their own RQData
-account. Credentials and downloaded vendor data must never be committed or
-shared. The commands below were verified against the `dev_liu` branch.
-
-每位协作者使用自己的 RQData 账号，把数据下载到自己的电脑。账号、密码和下载的
-数据都不会进入 Git；仓库里只共享框架代码。
-
-If the repository has not been downloaded yet:
-
-```powershell
-git clone --branch dev_liu --single-branch https://github.com/yuntingliu/quant-framework.git
-cd quant-framework
-```
-
-### Windows PowerShell
+Windows PowerShell:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[rq]"
-Copy-Item .env.example .env
+.\.venv\Scripts\python.exe -m pip install -e ".[dashboard,dev]"
+
+python -m uvicorn dashboard.backend.main:app --reload --port 8000
 ```
 
-### Linux or macOS
-
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e ".[rq]"
-cp .env.example .env
-```
-
-Open the new `.env` file and fill in the connection values supplied with the
-collaborator's RQData account:
-
-```dotenv
-RQ_USER=
-RQ_PASSWORD=
-RQ_HOST=
-```
-
-Do not copy credentials from the deployed server. Keep `.env` local; it is
-already ignored by Git.
-
-Preview the deterministic five-year, 300-symbol plan before making any provider
-request, then run the download and validation:
+In another terminal:
 
 ```powershell
-# Windows PowerShell
-.\.venv\Scripts\alphalab.exe data status
-.\.venv\Scripts\alphalab.exe data plan rq
-.\.venv\Scripts\alphalab.exe data sync rq
-.\.venv\Scripts\alphalab.exe data validate
-.\.venv\Scripts\alphalab.exe data jobs
+cd dashboard\frontend
+npm install
+npm run dev
 ```
 
-```bash
-# Linux or macOS
-.venv/bin/alphalab data status
-.venv/bin/alphalab data plan rq
-.venv/bin/alphalab data sync rq
-.venv/bin/alphalab data validate
-.venv/bin/alphalab data jobs
-```
+The bundled `demo` profile works offline. Configure `RQ_USER`, `RQ_PASSWORD`,
+and `RQ_HOST` in an untracked `.env` to use the `runtime` profile.
 
-`data sync rq` is the single download command. By default it synchronizes
-instruments, daily bars, point-in-time financial statements, canonical
-fundamentals, and factor returns. Re-running it performs an incremental update;
-use `data plan rq` first to inspect the dates and scope without contacting RQ.
+## Strategy SDK v1
 
-All downloaded files, checksums, checkpoints, and task state are written below
-`data/runtime/`, which is ignored by Git. The checked-in example bundle is
-never overwritten. `data status` may report `missing` before the first sync;
-after a successful sync, `data validate` should report `passed` for all six
-runtime datasets.
-
-After a successful sync, use the runtime engine explicitly:
+Strategy source imports `alphalab.sdk.v1` and registers one universe, any number
+of factors, one scheduled signal, one portfolio function, optional stateful
+event handlers, and one execution policy:
 
 ```python
-from alphalab import create_runtime_engine
-
-engine = create_runtime_engine()
-bars = engine.get_bars(["000001.SZ"], "2025-01-01", "2025-01-31")
-fundamentals = engine.get_fundamentals(
-    ["000001.SZ"],
-    ["revenue", "net_profit"],
-    "2024q1",
-    "2024q4",
-    asof_date="2025-03-31",
+from alphalab.sdk.v1 import (
+    ExecutionPolicy, Monthly, PortfolioDecision, SignalResult, UniverseResult,
+    execution, factor, portfolio, signal, universe,
 )
+
+SDK_VERSION = 1
+
+@universe(id="all_available")
+def all_available(context):
+    return UniverseResult(symbols=context.universe)
+
+@factor(id="momentum_20d", inputs=["close"])
+def momentum_20d(context, *, window: int = 20):
+    close = context.history("close", window=window + 1)
+    return close.iloc[-1] / close.iloc[0] - 1
+
+@signal(id="top1", schedule=Monthly.last_trading_day(at="close"))
+def top1(context, state, *, top_n: int = 1):
+    scores = context.factor("momentum_20d", window=20).dropna()
+    selected = list(scores.nlargest(top_n).index)
+    return SignalResult(selected=selected, scores=scores, state=state)
+
+@portfolio(id="full_weight")
+def full_weight(context, signal, state):
+    return PortfolioDecision(
+        target_weights={signal.selected[0]: 1.0} if signal.selected else {},
+        state=state,
+    )
+
+@execution(id="next_open")
+def next_open(context, decision):
+    return ExecutionPolicy(activation="next_session_open")
 ```
 
-`create_rq_engine_from_env()` remains available for one-off direct queries. The
-runtime synchronizer stores adjusted research OHLC with unadjusted `raw_close`,
-retains PIT statement revisions, and derives canonical fundamentals from first
-disclosures. Runtime factors use the prior-month characteristics and subsequent
-monthly returns; the `rf` column comes from the RQ China 1M yield curve,
-converted from annual yield to monthly return. It does not provide realtime
-quotes or order execution. Network forwarding, machine details, private keys,
-and downloaded vendor data are not part of this repository.
+Stateful rules such as MA gates, profit locks, month-level re-entry freezes, and
+volatility cuts use `@on_event(Event.SESSION_CLOSE, ...)` and the shared JSON
+`State`. Custom schedules use `@schedule`. Factors can call other registered
+factors through `context.factor(...)`; dependencies are tracked and cycles are
+rejected.
 
-Maintainers can rebuild the sample from the full local research workspace:
+## One source, several views
+
+- Project/Data: metadata, data profile, requirements, and `@universe`.
+- Factor: edit `@factor` functions, insert data fields/dependencies, run frozen
+  snapshot and history evaluations.
+- Strategy: edit schedule, signal, portfolio, event handlers, execution, or the
+  full module.
+- Validation: select an immutable revision, preview it, run the full event
+  backtest, and inspect frozen results.
+- Report: persist Agent documents and evidence tied to a Run.
+
+Recognized form fields edit exact Python syntax nodes with LibCST. Arbitrary
+Python remains editable as custom source. There is no expression-to-Python
+translation, generated three-stage script, candidate promotion step, or second
+Python Lab lifecycle.
+
+## Local Python runtime
+
+AlphaLab directly invokes the current local Python environment in a spawned
+child process. It provides timeouts, crash containment, bounded logs, static
+warnings, explicit execution confirmation, and strict input/output contracts.
+It is not a security sandbox; only run source you trust. Docker is not required
+or used by the strategy path.
+
+## Reproducibility and safety
+
+A saved `StrategySourcePackage` freezes the full source, SHA-256, SDK and
+validator versions, entrypoint manifest, literal parameters, requirements, and
+environment fingerprint. Every preview, factor evaluation, and backtest names
+the exact revision and hash it invokes.
+
+The core—not custom source—owns point-in-time filtering, calendar ordering,
+symbol/listing checks, suspension and explicit price-limit fields, positive
+volume/amount, participation, cash, fees, fills, rejection events, accounting,
+and output/state validation. A target is not a fill.
+
+## Useful commands
 
 ```powershell
-python scripts\build_example_data.py `
-  --source-root C:\Users\LYT\Documents\GitHub\quant-framework-factors
+python -m pytest tests -q --basetemp=data\pytest
+python scripts\check_facade_imports.py
+python scripts\build_example_data.py --source-root <local-source>
+
+node scripts\register_conexus_research_harness.mjs
 ```
 
-## Dashboard
+Architecture and contribution rules:
 
-```powershell
-python -m uvicorn dashboard.backend.main:app --reload --port 8000
-npm --prefix dashboard/frontend run dev:web
-```
+- [Architecture](docs/01_ARCHITECTURE.md)
+- [Strategy SDK v1 contract](docs/02_STRATEGY_SDK_V1_CONTRACT.md)
+- [Development guide](docs/03_DEVELOPMENT_GUIDE.md)
+- [Data operations](docs/04_DATA_OPERATIONS.md)
+- [Conexus Agent](docs/04_CONEXUS_AGENT.md)
 
-### Optional Research Agent
-
-The framework does not require or bundle an LLM planner. If a separately
-installed Conexus Web Host exposes a compatible published Research Harness,
-its local origin and publication slug can be supplied as process variables:
-
-```powershell
-$env:CONEXUS_WEB_ORIGIN = "http://127.0.0.1:3000"
-$env:CONEXUS_PUBLICATION_SLUG = "alphalab-research-agent"
-```
-
-Without that service, the Research Agent panel reports `not_configured` while
-all deterministic Demo/DataIO/backtest/paper workflows remain available. See
-[`docs/04_CONEXUS_AGENT.md`](docs/04_CONEXUS_AGENT.md) for the optional contract.
-The sanitized, reviewable Harness source is included under
-[`integrations/conexus/alphalab-research-agent`](integrations/conexus/alphalab-research-agent);
-generated Canvas, publication, conversation, and run state remain ignored.
-The published Harness uses 28 typed AlphaLab tools, including all six canonical
-data operations, and can produce Markdown reports, bounded data tables, line,
-bar, area, scatter, and pie charts, plus request-bound commands for active
-Dockview widgets. The Agent may autonomously synchronize required RQ runtime
-data; backtest execution and signal generation remain explicitly requested
-operations. It has no real-order or arbitrary-shell tool.
-
-Open [http://localhost:5173](http://localhost:5173). API docs are available at
-[http://localhost:8000/docs](http://localhost:8000/docs).
-
-The GUI preserves the AlphaLab workstation layout, command palette, right rail,
-mode sidebar, and widget catalog. Its default Home, Data, Research, and Paper
-layouts use real backend contracts. Optional vendor and live-trading panels are
-disabled extension points. Data Center exposes explicit Demo and Local RQ
-profiles, sync planning, background jobs, coverage, and validation. It never
-starts a heavy sync during application startup.
-
-Built-in three-stage Python components and the default project are immutable.
-Clone them before editing; custom component saves create immutable versions and
-projects pin all three versions. Backtest Workbench runs only the composed,
-version-pinned project through the guarded engine:
-
-```text
-data/project settings -> signal model -> portfolio -> execution -> backtest
-                      -> robustness/attribution -> report
-```
-
-The workflow never confirms paper fills and never submits a broker order.
-`research_candidate` means only that the configured research thresholds passed;
-it is not an approval for live trading.
-
-### Optional Python Lab
-
-Python Lab is the seventh research workbench and the escape hatch for custom
-experiments that do not fit the structured factor or three-stage component
-editors. It is disabled by default and never forms a second backtest path.
-Experiments receive bounded project/OHLCV JSON and may propose a factor or
-component; only an explicit promotion creates a normal object and optional
-project revision.
-
-For isolated execution, build the supplied image and enable Docker mode:
-
-```powershell
-docker build -t alphalab-python-lab:local deploy/python-lab
-$env:ALPHALAB_PYTHON_LAB_RUNTIME = "docker"
-$env:ALPHALAB_PYTHON_LAB_IMAGE = "alphalab-python-lab:local"
-```
-
-The runtime uses no network, no host mounts, a read-only root filesystem and
-resource limits. `trusted_local` is available only as an explicitly configured,
-twice-confirmed development mode and is not a security sandbox.
-
-## Validation
-
-```powershell
-python -m pytest tests -q
-python scripts/check_facade_imports.py
-npm --prefix dashboard/frontend run build
-```
-
-See `docs/04_DATA_OPERATIONS.md` for runtime schemas, failure behavior, and API
-contracts.
+Local data, SQLite databases, caches, test scratch, and generated frontend
+artifacts must stay out of Git. The repository does not push remotely unless
+explicitly requested.

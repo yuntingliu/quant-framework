@@ -1,11 +1,10 @@
 import {
-  BarChart3,
+  BadgeCheck,
   Database,
   FileText,
   FlaskConical,
-  ListFilter,
+  Code2,
   FolderKanban,
-  SquareTerminal,
   type LucideIcon,
 } from "lucide-react"
 
@@ -16,22 +15,20 @@ export const MODE_CONFIG: Record<WorkspaceMode, { icon: LucideIcon; labelKey: Tr
   data: { icon: Database, labelKey: "mode.data", detailKey: "mode.data.long" },
   factor: { icon: FlaskConical, labelKey: "mode.factor", detailKey: "mode.factor.long" },
   project: { icon: FolderKanban, labelKey: "mode.project", detailKey: "mode.project.long" },
-  selection: { icon: ListFilter, labelKey: "mode.selection", detailKey: "mode.selection.long" },
-  backtest: { icon: BarChart3, labelKey: "mode.backtest", detailKey: "mode.backtest.long" },
-  python: { icon: SquareTerminal, labelKey: "mode.python", detailKey: "mode.python.long" },
+  strategy: { icon: Code2, labelKey: "mode.strategy", detailKey: "mode.strategy.long" },
+  validation: { icon: BadgeCheck, labelKey: "mode.validation", detailKey: "mode.validation.long" },
   report: { icon: FileText, labelKey: "mode.report", detailKey: "mode.report.long" },
 }
 
 export const WORKSPACE_MODES: WorkspaceMode[] = [
-  "project", "data", "factor", "selection", "backtest", "python", "report",
+  "project", "data", "factor", "strategy", "validation", "report",
 ]
 
 export const MODE_SHORTCUTS: Record<WorkspaceMode, string[]> = {
   data: ["data.workbench"],
-  factor: ["factor.workbench", "factor.library", "factor.editor", "factor.snapshot", "factor.evidence"],
+  factor: ["factor.workbench"],
   project: ["project.workbench"],
-  selection: ["selection.workbench"],
-  backtest: ["backtest.workbench"],
-  python: ["python.workbench"],
+  strategy: ["strategy.workbench"],
+  validation: ["validation.workbench"],
   report: ["report.workbench"],
 }

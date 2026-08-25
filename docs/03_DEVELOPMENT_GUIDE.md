@@ -1,275 +1,134 @@
-# AlphaLab Barebone Development Guide
+# Development Guide
 
-Start with `docs/01_ARCHITECTURE.md` when deciding where code belongs. Keep the
-public facade small and use it from tests and scripts. Local data, generated
-artifacts, caches, scratch folders, and deployment credentials stay out of git.
+Read [01_ARCHITECTURE.md](01_ARCHITECTURE.md) before deciding where code belongs.
+The public contract is [02_STRATEGY_SDK_V1_CONTRACT.md](02_STRATEGY_SDK_V1_CONTRACT.md).
 
-The accepted target for the next strategy-contract cutover is
-`docs/02_STRATEGY_SDK_V1_CONTRACT.md`. It is a design contract, not a claim about
-the current runtime. Do not partially expose SDK v1 names through public APIs
-until the runner, source editor, workbenches, evaluations, backtest path, Agent,
-and contract tests are ready for one coordinated cutover.
-
-## Local Gates
+## Setup
 
 ```powershell
-python -m pytest tests/contracts tests/dataio tests/pipeline tests/strategy tests/dashboard -q
-python scripts/check_facade_imports.py
-npm --prefix dashboard/frontend run build
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dashboard,dev]"
+cd dashboard\frontend
+npm install
 ```
 
-Start the workstation with:
+Run the backend and frontend in separate terminals:
 
 ```powershell
 python -m uvicorn dashboard.backend.main:app --reload --port 8000
-npm --prefix dashboard/frontend run dev:web
+cd dashboard\frontend
+npm run dev
 ```
 
-## Data Changes
+The strategy runtime invokes the same local Python environment in a spawned
+child process. Do not describe it as sandboxed and do not add a Docker-only or
+second Lab execution path.
 
-Provider-specific acquisition belongs in the adapter. Generic schema, atomic
-partition writes, catalog status, and point-in-time filtering belong in
-`alphalab/dataio`. Empty responses must never replace existing runtime data.
-Demo and runtime profiles remain explicit.
+## Placement rules
 
-For RQ sync, omitted symbols mean all A-shares resolved from RQ instrument data
-at job start. Do not fall back to bundled demo symbols. Keep provider API, local
-dataset contract, partition policy, schema discovery, and factor-expression
-compatibility as separate boundaries when adding another RQ data family.
+- Public user strategy types belong in `alphalab/sdk/v1/`.
+- AST/CST source behavior belongs in `alphalab/strategy/source.py`.
+- Draft/package persistence belongs in `alphalab/strategy/repository.py`.
+- User-code invocation and boundary coercion belong in
+  `alphalab/strategy/sdk_runtime.py`.
+- Session ordering, tradability, fills, costs, and accounting belong in
+  `alphalab/strategy/engine.py`.
+- Provider logic stays in `alphalab/dataio/`; strategy Python never receives a
+  provider or database handle.
+- API and workbench changes must preserve one revision/hash across frontend,
+  backend, Agent tools, Runs, and reports.
+
+Do not add an expression evaluator, generated stage source, hidden fallback to
+demo/default logic, or a parallel backtest path. Pre-SDK database tables are
+read only: migration is implemented directly by `StrategyRepository`, while
+historical report reconstruction stays in the analytics service.
+
+## SDK source rules
+
+Tests and examples import the small `alphalab` facade. Strategy modules import
+only their public authoring API from `alphalab.sdk.v1`.
+
+```python
+from alphalab.sdk.v1 import (
+    ExecutionPolicy, Monthly, PortfolioDecision, SignalResult, UniverseResult,
+    execution, factor, portfolio, signal, universe,
+)
+
+SDK_VERSION = 1
+
+@universe(id="etfs")
+def etfs(context):
+    return UniverseResult(symbols=context.universe)
+
+@factor(id="momentum", inputs=["close"])
+def momentum(context, *, window: int = 20):
+    close = context.history("close", window=window + 1)
+    return close.iloc[-1] / close.iloc[0] - 1
+
+@signal(id="monthly", schedule=Monthly.last_trading_day(at="close"))
+def monthly(context, state, *, top_n: int = 1):
+    scores = context.factor("momentum", window=20).dropna()
+    selected = list(scores.nlargest(top_n).index)
+    return SignalResult(selected=selected, scores=scores, state=state)
+
+@portfolio(id="weights")
+def weights(context, signal, state):
+    return PortfolioDecision(
+        target_weights={symbol: 1 / len(signal.selected) for symbol in signal.selected},
+        state=state,
+    )
+
+@execution(id="next_open")
+def next_open(context, decision):
+    return ExecutionPolicy(activation="next_session_open")
+```
+
+Keyword-only literal defaults are form-editable. Anything else displays as
+custom. Structured edits must use LibCST and target the registered entrypoint
+ID; never replace an arbitrary number or text match.
+
+## Validation and errors
+
+Saving a revision performs parse, SDK version, registry uniqueness, signature,
+literal metadata, factor dependency/cycle, compile/import, runtime requirement,
+and synthetic output probes. Add new validation at the narrowest boundary and
+return a phase: `parse`, `register`, `input`, `execute`, `output`, or `state`.
+
+Output validation must remain core-owned: finite series/scores/weights,
+in-universe symbols, concentration and gross limits, JSON state size, execution
+policy, valid prices, liquidity, and cash.
+
+## API conventions
+
+Current authoring routes are under `/api/strategy`. Mutations require
+`confirm_write`, saves require `confirm_save`, deletion requires
+`confirm_delete`, and anything importing or invoking strategy source requires
+`confirm_python_execution`.
+
+Backtests use `/api/backtests/jobs` and require an explicit revision. A job pins
+that revision before queueing. Historical result endpoints never read the
+current draft.
+
+## Frontend conventions
+
+All six workbenches use `StrategySdkContext`. A full-source edit saves the same
+draft; parameter and schedule forms call the CST edit endpoint. Factor field and
+dependency buttons insert valid Python into the active factor function. Factor
+tests and backtests are disabled for dirty drafts until a revision is frozen.
+
+Inactive legacy widgets may not be registered in `widgetComponents`, a layout
+preset, Agent workspace commands, or navigation.
+
+## Verification
 
 ```powershell
-alphalab data plan rq
-alphalab data sync rq --datasets instruments,bars,fundamentals,factors
-alphalab data validate
+python -m pytest tests -q --basetemp=data\pytest
+python scripts\check_facade_imports.py
+python -m compileall -q alphalab dashboard\backend
+cd dashboard\frontend
+npm run build
 ```
 
-## Adding a Pipeline Component
-
-Every current project pins exactly these stages and entrypoints. The research scope
-is configured in the Data Workbench, persisted with the project, and consumed by the
-core before selection:
-
-| Stage | Entrypoint | Required result |
-| --- | --- | --- |
-| `selection` (Signal Model) | `select_assets(context)` | `{"selected": [...], "scores": {...}}` |
-| `portfolio` | `construct_portfolio(context)` | `{"weights": {...}}` |
-| `execution` | `configure_execution(context)` | `{"execution": {...}}` |
-
-Do not add optional stages, alternate entrypoints, a universe/timing stage, an
-independent risk stage, or a second backtest engine. The signal model owns the
-decision calendar, cross-sectional normalization, effective factor weights,
-coverage, target count, rank buffer, and user-facing allocation controls. The
-internal portfolio component applies the chosen allocation method and static
-single-name/gross constraints, then emits final target weights. Core validation
-checks those weights again. Execution emits fill, liquidity, and cost assumptions
-only; order creation remains inside guarded backtest or confirmed paper flow.
-
-Built-ins belong in `alphalab/pipeline/builtins.py` and must be deterministic,
-JSON-compatible, and free of hidden external state. Seeded built-ins are
-immutable. Users clone then save immutable versions. Projects pin all three
-versions; changing a ref or settings creates a new project revision and composed
-source snapshot.
-
-`signal_frequency` has one truth source: selection/signal-model parameters.
-Supported values are `daily`, `weekly`, and `monthly`. Historical
-`execution.rebalance_freq` values are migrated on read/persistence and ignored
-if an old execution component still emits them.
-
-## Python Runtime Rules
-
-Validate each component with its exact entrypoint, then validate the composed
-module with `run_strategy`. The child process supplies `-I`, timeout, bounded
-logs, and crash containment. It is not a security sandbox. The core revalidates
-every reached boundary and retains point-in-time, eligibility, concentration,
-gross, liquidity, cash, cost, and next-session gates.
-
-Stage preview executes the composed module through `run_stage`:
-
-- selection executes the signal model over eligible candidates from the saved research scope;
-- portfolio executes selection then portfolio;
-- execution preview and backtest execute all three stages.
-
-Preview must not call a mock implementation. Backtest must use the project
-source hash returned by inspection and persist it with all component versions.
-
-Candidate history is a performance-sensitive boundary. Convert frames to
-records with vectorized operations; never construct one pandas Series per field
-per row. Daily schedules require a focused performance check.
-
-## Portfolio, Execution, and Research Risk
-
-Keep these concepts separate:
-
-- portfolio constraints: selected membership, finite/non-negative weights,
-  `max_weight`, `max_gross_exposure`, cash;
-- execution controls: next-session price, positive volume, amount participation,
-  cash, commission, slippage, and market impact;
-- research risk: volatility, drawdown, turnover, robustness, and factor
-  exposure derived from a saved BacktestRun.
-
-Maximum drawdown is not an execution setting. A drawdown-triggered exposure
-overlay would be timing and requires a future explicit contract change.
-
-## Attribution Rules
-
-`alphalab/analytics/attribution.py` consumes saved strategy returns and canonical
-factor returns. It must never rerun current project source for a historical run.
-Daily/weekly returns are compounded to month periods before alignment.
-
-CAPM and multi-factor regression use portfolio excess return on `MKT-rf`, SMB,
-HML, MOM, and RMW. Persist the factor input snapshot, alpha/beta, HAC uncertainty,
-R-squared, correlations, threshold checks, and warnings with the BacktestRun.
-Missing historical attribution returns an explicit unavailable result; it does
-not silently read newer factor data.
-
-## Persistence Rules
-
-Python source is the only strategy logic format. Store source, hashes, refs,
-parameters, settings, attribution, and thresholds in SQLite/JSON. Do not add
-YAML authoring, sidecars, or runtime fallbacks.
-
-`legacy_migration.py` is a narrow one-time persisted-user-data import.
-`contract_migration.py` may preserve old project data by creating one current
-component revision, but removed stage names must never re-enter authoring/API
-enums. Historical BacktestRuns may retain old manifest values as read-only data.
-
-New backtest writes populate `strategy_source`, `component_manifest_json`,
-`settings_json`, `execution_json`, `attribution_json`, and
-`pipeline_project_id`.
-
-## Frontend Rules
-
-The seven user-facing modes are:
-
-```text
-project, data, factor, selection, backtest, python, report
-```
-
-Python Lab is the bounded escape hatch for experiments that do not fit the
-structured factor and component workbenches. Do not convert the other
-workbenches into code generators and do not add a second backtest path. Lab
-output is non-authoritative until an explicit promotion validates and creates a
-normal factor/component; optional project adoption must create a revision.
-
-The runtime defaults to `disabled`. Production use requires the Docker mode's
-no-network, read-only, no-mount, resource-limited contract. `trusted_local` is
-only for controlled development and must retain its extra confirmation and
-unsafe labeling. Never inject filesystem paths, credentials, environment
-variables, stores, or provider objects into Lab context. New context fields must
-be bounded JSON and covered by contract tests.
-
-Build the supplied local scientific-Python image explicitly, then configure its
-tag. Run-time image pulls are deliberately disabled:
-
-```powershell
-docker build -t alphalab-python-lab:local deploy/python-lab
-$env:ALPHALAB_PYTHON_LAB_RUNTIME = "docker"
-$env:ALPHALAB_PYTHON_LAB_IMAGE = "alphalab-python-lab:local"
-```
-
-Factor is an independent Dockview workspace. Its default preset opens one
-Factor Research workbench with a persistent public-data surface above the
-builder. It reads the same `/api/data/market/bars` and `/api/data/fundamentals`
-contracts used elsewhere, visualizes K lines and current point-in-time field values, and
-shows every field discovered from the selected profile's Parquet metadata.
-Changing a profile must change the factor-library query key; never duplicate a
-vendor field list in the router or frontend. Raw data fields and base
-factors can be inserted at the expression cursor. Historical IC, grouping,
-decay, and snapshot evidence belongs in the final-validation view, not in the
-construction toolbar. The
-catalog and the project's adopted-factor basket are separate tabs, not one
-mixed list. Factor evaluation uses `/api/factor-research` and does not run or
-mutate a strategy. Catalog factors can be adopted directly, and complete custom
-expressions can be saved to the reusable factor library before final validation.
-Adopting a built-in or custom library factor copies its complete executable
-definition into the selected project's structured `settings.factors` and therefore
-creates a project revision. Later library edits do not mutate adopted project
-definitions; changing the active draft still marks earlier validation evidence stale.
-
-Data and Factor Research must reuse `components/market/MarketResearchTerminal`.
-Keep vendor chart calls inside `KLineTerminalChart`; workbenches provide rows,
-selection state, and an optional context panel. Do not create another local
-watchlist, symbol picker, or OHLCV/indicator implementation for either workflow.
-
-Research Project owns project selection/lifecycle and data profile. Data owns the
-user-facing research scope and structured eligibility filters, while persisting them
-inside the selected project's settings for runtime reproducibility. Neither workspace
-exposes raw project JSON. Factor definitions belong to the Factor workspace. The
-toolbar remains navigation/layout chrome.
-The sidebar is one ungrouped list with Research Project first. All later modes
-are disabled until the selected project has been validated and is editable;
-built-in projects may be inspected or cloned but do not unlock the workflow.
-
-Built-in technical/fundamental factors and safe vector expressions are the
-current executable factor contracts. Expressions may reference PIT public-data
-fields (`open/high/low/close/volume/amount` and canonical fundamental fields)
-as cross-sectional inputs. External feature packs such as Qlib
-Alpha158/Alpha360 must remain explicitly marked adapter-required until their
-data fields and point-in-time behavior are implemented. Do not expose an
-arbitrary Python factor editor without a versioned source, dependency, timeout,
-and output contract.
-
-Signal Model and Backtest are user-facing workbenches. Portfolio remains an
-internal version-pinned Python stage whose allocation controls and results are
-embedded in Signal Model. Execution also remains an internal version-pinned
-Python stage, while its fill, liquidity, capital, and cost controls are embedded
-in Backtest run setup. Signal Model owns its current cross-section as-of date;
-Factor Research owns its own sample range. Stage previews share one query keyed
-by project revision, target stage, data profile, and signal as-of date; a
-portfolio-prefix preview is also cached
-for its executed selection output.
-
-Stage result panels visualize real prefix output:
-
-- selection/signal model: universe/eligibility/scoring funnel, scores and ranks,
-  score distribution, current factor-structure diagnostics, selected names,
-  constrained target weights, cash/gross exposure, and linked history;
-- backtest: read-only Signal Model frequency, editable fill/cost assumptions,
-  saved execution audit, and a clear distinction between target weights and
-  historical fills.
-
-The default stage presets should foreground these research panels. Component
-source and parameters remain available in a Dockview tab in the same workspace,
-rather than occupying the largest panel by default. New panels must consume the
-shared stage-preview cache; they must not trigger an independent strategy run.
-
-Backtest has one run action. Each decision date uses the frequency and allocation
-policy saved by Signal Model, then applies Backtest's next-session execution
-assumptions. Its tabs derive from the saved run: performance, selection evidence,
-alpha/beta and factor correlations, robustness, execution audit, and holdings.
-Do not add stage history or an independent execution workspace.
-
-Immutable versions, ids, and hashes remain internal authoring details. Historical
-provenance belongs in backtest inspection.
-
-## Agent Rules
-
-Conexus uses current names only:
-
-- `alphalab_get_pipeline_project`
-- `alphalab_manage_pipeline`
-- `alphalab_preview_pipeline`
-- `alphalab_run_python_lab`
-- `alphalab_promote_python_lab`
-- `alphalab_run_backtest`
-- `alphalab_analyze_backtest`
-- `alphalab_save_report`
-
-Update Agent prompt, harness mode schema, frontend capabilities, docs, and
-contract tests together. Project/component mutation and Python execution require
-explicit current-user confirmation. Attribution uses
-`alphalab_analyze_backtest` with `operation=attribution`.
-
-## Review Checklist
-
-- Does the change fit one of three stages, structured settings, the core gate layer, saved-run analytics, or the non-authoritative Lab escape hatch?
-- Are all three component versions pinned and inspectable?
-- Does preview/backtest execute the displayed composed source?
-- Are Python and JSON the only new persistence formats?
-- Are PIT data, fixed schedule, and execution gates enforced?
-- Is attribution frozen and independent of later project/data changes?
-- Do API, frontend, Agent, docs, and tests use the same names?
-- If Lab is involved, are capabilities, isolation claims, explicit execution, and separate promotion all enforced?
-- Did focused Python tests and the frontend build pass?
-
-Do not push unless the user explicitly asks.
+Also run `git diff --check` and validate every Conexus JSON document. Generated
+databases, caches, frontend builds, pytest scratch, and local environment files
+must not be committed. Do not push unless explicitly requested.

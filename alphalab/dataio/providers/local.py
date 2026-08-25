@@ -7,6 +7,7 @@ that an adapter, notebook, or test fixture can create:
 - fundamentals/fundamentals.parquet: quarter, available_date, symbol, field columns
 - factors/factor_returns.parquet: DatetimeIndex, one column per factor
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -113,18 +114,21 @@ class LocalParquetInstrumentProvider:
         self,
         instrument_dir: str | Path,
         file_name: str = "instruments.parquet",
+        *,
+        bundled_market_path: str | Path | None = None,
     ):
         self.instrument_dir = Path(instrument_dir)
         self.path = self.instrument_dir / file_name
+        self.bundled_market_path = (
+            Path(bundled_market_path) if bundled_market_path is not None else None
+        )
         self._cache: pd.DataFrame | None = None
 
     def _load(self) -> pd.DataFrame:
         if self._cache is not None:
             return self._cache
         if not self.path.exists():
-            self._cache = pd.DataFrame(
-                columns=["snapshot_date", "symbol", "listed_date", "de_listed_date"]
-            )
+            self._cache = self._bundled_instrument_snapshot()
             return self._cache
         frame = pd.read_parquet(self.path).copy()
         if "symbol" not in frame:
@@ -136,6 +140,39 @@ class LocalParquetInstrumentProvider:
         self._cache = frame.dropna(subset=["symbol"]).reset_index(drop=True)
         return self._cache
 
+    def _bundled_instrument_snapshot(self) -> pd.DataFrame:
+        """Derive the explicit demo instrument contract from bundled bars.
+
+        This capability is enabled only by ``create_default_engine``. Runtime
+        profiles never receive a path here and therefore still require their
+        provider-owned dated instrument snapshots.
+        """
+
+        columns = [
+            "snapshot_date",
+            "symbol",
+            "listed_date",
+            "de_listed_date",
+            "asset_type",
+        ]
+        path = self.bundled_market_path
+        if path is None or not path.exists():
+            return pd.DataFrame(columns=columns)
+        bars = pd.read_parquet(path, columns=["date", "symbol"])
+        if bars.empty:
+            return pd.DataFrame(columns=columns)
+        bars["date"] = pd.to_datetime(bars["date"], errors="coerce")
+        bars["symbol"] = bars["symbol"].astype(str).str.upper()
+        bounds = (
+            bars.dropna(subset=["date", "symbol"])
+            .groupby("symbol", as_index=False)["date"]
+            .agg(listed_date="min")
+        )
+        bounds["snapshot_date"] = bars["date"].min()
+        bounds["de_listed_date"] = pd.NaT
+        bounds["asset_type"] = "CS"
+        return bounds[columns].reset_index(drop=True)
+
     def get_instruments(self, asof_date: Optional[str] = None) -> pd.DataFrame:
         frame = self._load()
         if frame.empty:
@@ -144,7 +181,9 @@ class LocalParquetInstrumentProvider:
         selected = frame
         if "snapshot_date" in frame and frame["snapshot_date"].notna().any():
             snapshots = frame["snapshot_date"].dropna()
-            eligible_snapshots = snapshots.loc[snapshots.le(cutoff)] if cutoff is not None else snapshots
+            eligible_snapshots = (
+                snapshots.loc[snapshots.le(cutoff)] if cutoff is not None else snapshots
+            )
             snapshot = eligible_snapshots.max() if not eligible_snapshots.empty else snapshots.min()
             selected = frame.loc[frame["snapshot_date"].eq(snapshot)].copy()
         if cutoff is not None:
@@ -224,7 +263,9 @@ class LocalParquetFundamentalProvider:
 class LocalParquetFactorProvider:
     """Factor-return provider backed by one parquet file."""
 
-    def __init__(self, factor_dir: str | Path | None = None, file_name: str = "factor_returns.parquet"):
+    def __init__(
+        self, factor_dir: str | Path | None = None, file_name: str = "factor_returns.parquet"
+    ):
         self.factor_dir = Path(factor_dir) if factor_dir else FACTOR_DIR
         self.path = self.factor_dir / file_name
         self._cache: pd.DataFrame | None = None
@@ -255,7 +296,9 @@ class LocalParquetFactorProvider:
             raise MissingDataError(f"Missing factor returns: {missing}")
         if df.empty:
             return pd.DataFrame(columns=available)
-        return df.loc[(df.index >= pd.Timestamp(start)) & (df.index <= pd.Timestamp(end)), available]
+        return df.loc[
+            (df.index >= pd.Timestamp(start)) & (df.index <= pd.Timestamp(end)), available
+        ]
 
     def get_risk_free_rate(self, start: str, end: str, freq: str = "1M") -> pd.Series:
         df = self._load()

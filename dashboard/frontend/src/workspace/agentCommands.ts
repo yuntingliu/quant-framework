@@ -45,7 +45,7 @@ export interface AgentWorkspaceCommandEventDetail {
 }
 
 const MODES = new Set<WorkspaceMode>([
-  "project", "data", "factor", "selection", "backtest", "python", "report",
+  "project", "data", "factor", "strategy", "validation", "report",
 ])
 const LINK_GROUPS = new Set<LinkGroup>(["a", "b", "c", "d"])
 

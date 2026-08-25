@@ -1,4 +1,5 @@
 """FastAPI app for the barebone workstation."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,12 +16,10 @@ from dashboard.backend.routers import (
     conexus,
     data,
     data_sync,
-    factor_research,
     market,
     paper,
-    pipeline,
-    python_lab,
     reports,
+    strategy,
     system,
 )
 
@@ -47,10 +46,8 @@ app.add_middleware(
 app.include_router(data.router)
 app.include_router(agent_tools.router)
 app.include_router(data_sync.router)
-app.include_router(factor_research.router)
 app.include_router(market.router)
-app.include_router(pipeline.router)
-app.include_router(python_lab.router)
+app.include_router(strategy.router)
 app.include_router(backtests.router)
 app.include_router(paper.router)
 app.include_router(reports.router)

@@ -1,0 +1,36 @@
+{
+  "toolName": "alphalab_edit_strategy_source",
+  "description": "Edit the one canonical Strategy SDK v1 draft with an exact full-source replacement or CST-aware parameter, schedule, or function edit; clone/delete projects; or freeze an immutable revision. Always inspects current source/hash first.",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["operation", "project_id"],
+    "properties": {
+      "operation": { "type": "string", "enum": ["update_draft", "update_parameter", "update_schedule", "replace_function", "save_revision", "clone_project", "delete_project", "update_metadata"] },
+      "project_id": { "type": "string", "minLength": 2, "maxLength": 64 },
+      "source": { "type": "string", "minLength": 1, "maxLength": 300000 },
+      "entrypoint_id": { "type": "string", "minLength": 1, "maxLength": 100 },
+      "parameter": { "type": "string", "minLength": 1, "maxLength": 100 },
+      "value": {},
+      "frequency": { "type": "string", "enum": ["daily", "weekly", "monthly"] },
+      "selector": { "type": "string", "enum": ["every", "first_trading_day", "last_trading_day"] },
+      "at": { "type": "string", "enum": ["open", "close"] },
+      "function_source": { "type": "string", "minLength": 1, "maxLength": 100000 },
+      "target_id": { "type": "string", "minLength": 2, "maxLength": 64 },
+      "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+      "description": { "type": "string", "maxLength": 500 },
+      "profile": { "type": "string", "enum": ["demo", "runtime"] },
+      "settings": { "type": "object" },
+      "confirm_write": { "type": "boolean", "default": false },
+      "confirm_delete": { "type": "boolean", "default": false },
+      "confirm_python_execution": { "type": "boolean", "default": false }
+    }
+  },
+  "outputSchema": { "type": "object" },
+  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function call(path,options={}){const response=await fetch(origin()+path,{headers:{Accept:'application/json','Content-Type':'application/json'},...options});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());return response.status===204?{}:response.json()}\nasync function run(input){const op=String(input.operation||''),id=String(input.project_id||'').trim();if(!id)throw new Error('project_id is required');const project=await call('/api/strategy/projects/'+encodeURIComponent(id));if(op==='delete_project'){if(input.confirm_delete!==true)throw new Error('Deletion requires explicit confirmation');await call('/api/strategy/projects/'+encodeURIComponent(id)+'?confirm_delete=true',{method:'DELETE'});return{deleted:true,project_id:id,previous_revision:project.current_revision,previous_source_sha256:project.draft_source_sha256}}if(input.confirm_write!==true)throw new Error('Strategy mutation requires confirm_write=true');if(op==='update_draft'){if(!input.source)throw new Error('source is required');return call('/api/strategy/projects/'+encodeURIComponent(id)+'/draft',{method:'PUT',body:JSON.stringify({source:input.source,expected_source_sha256:project.draft_source_sha256,confirm_write:true})})}if(op==='save_revision'){if(input.confirm_python_execution!==true)throw new Error('Revision probes require confirm_python_execution=true');return call('/api/strategy/projects/'+encodeURIComponent(id)+'/revisions',{method:'POST',body:JSON.stringify({expected_source_sha256:project.draft_source_sha256,confirm_save:true,confirm_python_execution:true})})}if(op==='clone_project'){if(input.confirm_python_execution!==true)throw new Error('Clone validation requires confirm_python_execution=true');if(!input.target_id)throw new Error('target_id is required');return call('/api/strategy/projects/'+encodeURIComponent(id)+'/clone',{method:'POST',body:JSON.stringify({target_id:input.target_id,name:input.name||project.name+' copy',confirm_save:true,confirm_python_execution:true})})}if(op==='update_metadata'){return call('/api/strategy/projects/'+encodeURIComponent(id)+'/metadata',{method:'PUT',body:JSON.stringify({name:input.name||project.name,description:input.description===undefined?project.description:String(input.description),profile:input.profile||project.profile,settings:input.settings||project.settings,confirm_write:true})})}const map={update_parameter:'parameter',update_schedule:'schedule',replace_function:'replace_function'};if(!map[op])throw new Error('unsupported operation');return call('/api/strategy/projects/'+encodeURIComponent(id)+'/edits',{method:'POST',body:JSON.stringify({operation:map[op],entrypoint_id:input.entrypoint_id,parameter:input.parameter,value:input.value,frequency:input.frequency,selector:input.selector,at:input.at,function_source:input.function_source,expected_source_sha256:project.draft_source_sha256,confirm_write:true})})}",
+  "timeoutMs": 180000,
+  "permissions": { "network": "alphalab-api" },
+  "sideEffects": "write"
+}

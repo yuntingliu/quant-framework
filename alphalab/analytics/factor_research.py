@@ -1,4 +1,5 @@
 """Point-in-time cross-sectional factor diagnostics."""
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -12,12 +13,11 @@ from alphalab.analytics.inference import (
 )
 from alphalab.analytics.metrics import PerformanceMetrics
 from alphalab.dataio import DataEngine, to_wide
-from alphalab.engine import SignalEngine
 from alphalab.factors.cross_sectional import (
     compute_cross_sectional_factor,
     required_fundamental_fields,
 )
-from alphalab.strategy import FactorSpec, StrategyConfig, UniverseSpec
+from alphalab.strategy.config import FactorSpec, StrategyConfig, UniverseSpec
 
 
 def evaluate_factor(
@@ -72,8 +72,7 @@ def evaluate_factor(
     close = to_wide(bars[["date", "symbol", "close"]], "close").sort_index()
     sampled_close = close.reindex(signal_dates)
     horizons = {
-        horizon: sampled_close.shift(-horizon).div(sampled_close).sub(1.0)
-        for horizon in (1, 3, 6)
+        horizon: sampled_close.shift(-horizon).div(sampled_close).sub(1.0) for horizon in (1, 3, 6)
     }
 
     fundamental_fields = required_fundamental_fields(
@@ -134,7 +133,7 @@ def evaluate_factor(
                 for symbol, frame in data_by_symbol.items()
                 if symbol in instrument_symbols
             }
-        data_by_symbol, exclusions = SignalEngine._eligible_data(
+        data_by_symbol, exclusions = _eligible_data(
             config,
             data_by_symbol,
             signal_date,
@@ -147,11 +146,19 @@ def evaluate_factor(
         values = compute_cross_sectional_factor(factor, data_by_symbol, pit)
         if factor.direction == "short":
             values = -values
-        one_period = horizons[1].loc[signal_date] if signal_date in horizons[1].index else pd.Series(dtype=float)
-        aligned = pd.concat(
-            [values.rename("factor"), one_period.rename("forward_return")],
-            axis=1,
-        ).replace([np.inf, -np.inf], np.nan).dropna()
+        one_period = (
+            horizons[1].loc[signal_date]
+            if signal_date in horizons[1].index
+            else pd.Series(dtype=float)
+        )
+        aligned = (
+            pd.concat(
+                [values.rename("factor"), one_period.rename("forward_return")],
+                axis=1,
+            )
+            .replace([np.inf, -np.inf], np.nan)
+            .dropna()
+        )
         if len(aligned) < max(quantiles * 2, 10):
             continue
         ic = float(aligned["factor"].corr(aligned["forward_return"], method="spearman"))
@@ -162,9 +169,7 @@ def evaluate_factor(
         quantile_returns = aligned.groupby(buckets)["forward_return"].mean()
         top_members = set(aligned.index[buckets.eq(quantiles)])
         turnover = (
-            1.0
-            - len(previous_top & top_members)
-            / max(len(previous_top), len(top_members))
+            1.0 - len(previous_top & top_members) / max(len(previous_top), len(top_members))
             if previous_top and top_members
             else None
         )
@@ -201,10 +206,14 @@ def evaluate_factor(
         for horizon, forward in horizons.items():
             if signal_date not in forward.index:
                 continue
-            horizon_frame = pd.concat(
-                [values.rename("factor"), forward.loc[signal_date].rename("forward_return")],
-                axis=1,
-            ).replace([np.inf, -np.inf], np.nan).dropna()
+            horizon_frame = (
+                pd.concat(
+                    [values.rename("factor"), forward.loc[signal_date].rename("forward_return")],
+                    axis=1,
+                )
+                .replace([np.inf, -np.inf], np.nan)
+                .dropna()
+            )
             if len(horizon_frame) >= 10:
                 horizon_ic = horizon_frame["factor"].corr(
                     horizon_frame["forward_return"],
@@ -254,7 +263,9 @@ def evaluate_factor(
         "summary": {
             "ic_mean": float(ic_values.mean()),
             "ic_std": ic_std,
-            "icir": float(ic_values.mean() / ic_std * np.sqrt(periods_per_year)) if ic_std > 0 else 0.0,
+            "icir": (
+                float(ic_values.mean() / ic_std * np.sqrt(periods_per_year)) if ic_std > 0 else 0.0
+            ),
             "ic_t_stat": newey_west_mean_t_stat(ic_values),
             "ic_positive_ratio": float(ic_values.gt(0).mean()),
             "coverage_mean": float(np.mean([row["coverage"] for row in rows])),
@@ -281,6 +292,50 @@ def evaluate_factor(
             future_instrument_snapshot,
         ),
     }
+
+
+def _eligible_data(
+    config: StrategyConfig,
+    data_by_symbol: dict[str, pd.DataFrame],
+    as_of: pd.Timestamp,
+) -> tuple[dict[str, pd.DataFrame], dict[str, int]]:
+    """Retain the historical factor-study eligibility contract without an old engine."""
+
+    eligible: dict[str, pd.DataFrame] = {}
+    exclusions: dict[str, int] = {}
+
+    def exclude(reason: str) -> None:
+        exclusions[reason] = exclusions.get(reason, 0) + 1
+
+    for symbol, frame in data_by_symbol.items():
+        history = frame.loc[pd.to_datetime(frame["date"]).le(as_of)].copy()
+        if len(history) < config.universe.min_history_days:
+            exclude("insufficient_history")
+            continue
+        latest = history.iloc[-1]
+        latest_date = pd.Timestamp(latest["date"])
+        if (as_of - latest_date).days > config.universe.max_stale_days:
+            exclude("stale_price")
+            continue
+        close = pd.to_numeric(pd.Series([latest.get("close")]), errors="coerce").iloc[0]
+        if pd.isna(close) or float(close) < config.universe.min_price:
+            exclude("minimum_price")
+            continue
+        if config.universe.require_positive_volume:
+            volume = pd.to_numeric(pd.Series([latest.get("volume")]), errors="coerce").iloc[0]
+            if pd.isna(volume) or float(volume) <= 0:
+                exclude("not_trading")
+                continue
+        if config.universe.min_average_amount > 0:
+            if "amount" not in history:
+                exclude("missing_amount")
+                continue
+            amount = pd.to_numeric(history["amount"], errors="coerce").tail(20).mean()
+            if pd.isna(amount) or float(amount) < config.universe.min_average_amount:
+                exclude("minimum_liquidity")
+                continue
+        eligible[symbol] = history
+    return eligible, exclusions
 
 
 def _signal_dates(
@@ -321,9 +376,7 @@ def _warnings(
             "PIT instrument snapshots were unavailable; the universe came from bar history"
         )
     elif future_instrument_snapshot:
-        warnings.append(
-            "At least one instrument snapshot post-dates its factor observation"
-        )
+        warnings.append("At least one instrument snapshot post-dates its factor observation")
     return warnings
 
 

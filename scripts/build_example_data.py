@@ -3,6 +3,7 @@
 The source repository is read-only. This script normalizes selected QMT and RQ
 parquets into the vendor-neutral contracts consumed by the barebone framework.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -15,11 +16,11 @@ import numpy as np
 import pandas as pd
 
 from alphalab import (
-    PipelineRepository,
     ResultStore,
+    StrategyRepository,
     create_default_engine,
-    preview_pipeline_project,
-    run_pipeline_project_backtest,
+    preview_strategy,
+    run_strategy_backtest,
 )
 from alphalab.analytics import PerformanceMetrics
 
@@ -76,11 +77,14 @@ def _select_universe(
     rq_dir = source_data / "rq"
     stock_info = pd.read_parquet(qmt_dir / "stock_info.parquet")
     stock_info["stock"] = stock_info["stock"].map(_qmt_symbol)
-    stock_info["listing_date"] = pd.to_datetime(stock_info["listing_date"], format="%Y%m%d", errors="coerce")
+    stock_info["listing_date"] = pd.to_datetime(
+        stock_info["listing_date"], format="%Y%m%d", errors="coerce"
+    )
 
     rq_symbols = set(
-        pd.read_parquet(rq_dir / "income_statement.parquet", columns=["order_book_id"])
-        ["order_book_id"]
+        pd.read_parquet(rq_dir / "income_statement.parquet", columns=["order_book_id"])[
+            "order_book_id"
+        ]
         .dropna()
         .map(_qmt_symbol)
     )
@@ -124,22 +128,26 @@ def _select_universe(
             for symbol, name in name_rows.dropna(subset=[name_column]).itertuples(index=False)
             if str(name).strip()
         }
-    return symbols, {
-        "method": "top median daily amount before sample start",
-        "training_start": training_start.strftime("%Y-%m-%d"),
-        "training_end": training_end.strftime("%Y-%m-%d"),
-        "minimum_training_coverage": 0.90,
-        "excluded": ["ST", "financial", "listed less than one year before sample"],
-    }, symbol_names
+    return (
+        symbols,
+        {
+            "method": "top median daily amount before sample start",
+            "training_start": training_start.strftime("%Y-%m-%d"),
+            "training_end": training_end.strftime("%Y-%m-%d"),
+            "minimum_training_coverage": 0.90,
+            "excluded": ["ST", "financial", "listed less than one year before sample"],
+        },
+        symbol_names,
+    )
 
 
-def _load_adjustment_factor(qmt_dir: Path, index: pd.DatetimeIndex, symbols: list[str]) -> pd.DataFrame:
+def _load_adjustment_factor(
+    qmt_dir: Path, index: pd.DatetimeIndex, symbols: list[str]
+) -> pd.DataFrame:
     dividends = pd.read_parquet(qmt_dir / "divid_factors.parquet", columns=["date", "stock", "dr"])
     dividends["date"] = pd.to_datetime(dividends["date"], errors="coerce")
     dividends["stock"] = dividends["stock"].map(_qmt_symbol)
-    dividends = dividends.loc[
-        dividends["stock"].isin(symbols) & dividends["dr"].gt(0)
-    ]
+    dividends = dividends.loc[dividends["stock"].isin(symbols) & dividends["dr"].gt(0)]
     event_factor = dividends.pivot_table(index="date", columns="stock", values="dr", aggfunc="prod")
     return event_factor.reindex(index=index, columns=symbols).fillna(1.0).cumprod()
 
@@ -228,12 +236,25 @@ def _build_fundamentals(
     rq_dir = source_data / "rq"
     rq_symbols = {_rq_symbol(symbol) for symbol in symbols}
     income_columns = [
-        "order_book_id", "quarter", "info_date", "if_adjusted", "revenue",
-        "operating_revenue", "cost_of_goods_sold", "gross_profit", "net_profit_parent_company",
+        "order_book_id",
+        "quarter",
+        "info_date",
+        "if_adjusted",
+        "revenue",
+        "operating_revenue",
+        "cost_of_goods_sold",
+        "gross_profit",
+        "net_profit_parent_company",
     ]
     balance_columns = [
-        "order_book_id", "quarter", "info_date", "if_adjusted", "total_assets",
-        "total_liabilities", "equity_parent_company", "paid_in_capital",
+        "order_book_id",
+        "quarter",
+        "info_date",
+        "if_adjusted",
+        "total_assets",
+        "total_liabilities",
+        "equity_parent_company",
+        "paid_in_capital",
     ]
     income = pd.read_parquet(rq_dir / "income_statement.parquet", columns=income_columns)
     balance = pd.read_parquet(rq_dir / "balance_sheet.parquet", columns=balance_columns)
@@ -261,9 +282,9 @@ def _build_fundamentals(
         ("net_profit_parent_company", "profit_single"),
     ]:
         merged[target] = _single_quarter(merged, source)
-        merged[target.replace("single", "ttm")] = merged.groupby("symbol", sort=False)[target].transform(
-            lambda values: values.rolling(4, min_periods=4).sum()
-        )
+        merged[target.replace("single", "ttm")] = merged.groupby("symbol", sort=False)[
+            target
+        ].transform(lambda values: values.rolling(4, min_periods=4).sum())
 
     grouped = merged.groupby("symbol", sort=False)
     merged["shares"] = merged["paid_in_capital"]
@@ -271,7 +292,9 @@ def _build_fundamentals(
     merged["market_cap"] = merged["price_at_available"] * merged["shares"]
     merged["ep"] = merged["profit_ttm"] / merged["market_cap"]
     merged["bp"] = merged["equity_parent_company"] / merged["market_cap"]
-    average_equity = (merged["equity_parent_company"] + grouped["equity_parent_company"].shift(4)) / 2
+    average_equity = (
+        merged["equity_parent_company"] + grouped["equity_parent_company"].shift(4)
+    ) / 2
     merged["roe"] = merged["profit_ttm"] / average_equity
     merged["gross_margin"] = merged["gross_profit_ttm"] / merged["revenue_ttm"]
     merged["leverage"] = merged["total_liabilities"] / merged["total_assets"]
@@ -334,7 +357,9 @@ def _build_factor_returns(
         market_cap = raw_monthly.loc[signal_date] * shares
         momentum = pd.Series(dtype=float)
         if position >= 12:
-            momentum = adjusted_monthly.iloc[position - 1] / adjusted_monthly.iloc[position - 12] - 1
+            momentum = (
+                adjusted_monthly.iloc[position - 1] / adjusted_monthly.iloc[position - 12] - 1
+            )
         rows.append(
             {
                 "date": date,
@@ -359,7 +384,9 @@ def _build_factor_returns(
     return factors
 
 
-def _insert_demo_orders(db_path: Path, signal_id: str, targets: dict[str, float], prices: dict[str, float]) -> None:
+def _insert_demo_orders(
+    db_path: Path, signal_id: str, targets: dict[str, float], prices: dict[str, float]
+) -> None:
     with sqlite3.connect(db_path) as connection:
         rows = []
         capital = 1_000_000.0
@@ -370,8 +397,17 @@ def _insert_demo_orders(db_path: Path, signal_id: str, targets: dict[str, float]
                 continue
             rows.append(
                 (
-                    f"demo-order-{index + 1:02d}", signal_id, symbol, "buy", quantity,
-                    price, price, quantity, quantity * price * 0.0003, "filled", "paper",
+                    f"demo-order-{index + 1:02d}",
+                    signal_id,
+                    symbol,
+                    "buy",
+                    quantity,
+                    price,
+                    price,
+                    quantity,
+                    quantity * price * 0.0003,
+                    "filled",
+                    "paper",
                 )
             )
         connection.executemany(
@@ -394,48 +430,51 @@ def _seed_database(target_root: Path, cutoff: pd.Timestamp, sample_start: pd.Tim
     summaries: dict[str, dict] = {}
     latest_targets: dict[str, float] = {}
     latest_signal_id = ""
-    repository = PipelineRepository(db_path)
+    repository = StrategyRepository(db_path)
     try:
-        project = repository.get_project("six-stage-default")
+        project = repository.get_project("sdk-v1-default")
         if project is None:
-            raise RuntimeError("default six-stage project was not seeded")
-        run = run_pipeline_project_backtest(
+            raise RuntimeError("default Strategy SDK v1 project was not seeded")
+        run = run_strategy_backtest(
             repository,
             project["id"],
             sample_start.strftime("%Y-%m-%d"),
             cutoff.strftime("%Y-%m-%d"),
             engine,
         )
-        preview = preview_pipeline_project(
+        preview = preview_strategy(
             repository,
             project["id"],
             engine,
             cutoff.strftime("%Y-%m-%d"),
+            operation="portfolio",
         )
-        metrics = PerformanceMetrics.summarize(run.result.returns)
+        metrics = PerformanceMetrics.summarize(run.returns)
         store = ResultStore(db_path)
         try:
             store.ensure_backtest_subject(
                 project["id"],
-                f"sqlite:pipeline_projects/{project['id']}",
+                f"sqlite:strategy_projects/{project['id']}",
                 project["description"],
             )
             store.save_backtest(
-                run.result.returns,
+                run.returns,
                 metrics,
                 strategy_id=project["id"],
-                weights=run.result.weights,
+                weights=run.weights,
                 start_date=sample_start.strftime("%Y-%m-%d"),
                 end_date=cutoff.strftime("%Y-%m-%d"),
-                tags=["bundled-example", "real-data", "strategy:python-pipeline"],
-                notes="Bundled six-stage Python demonstration run.",
-                executions=run.result.executions,
-                pipeline_project_id=project["id"],
-                strategy_source=run.composed.source,
-                component_manifest=list(run.composed.manifest),
+                tags=["bundled-example", "real-data", "strategy:sdk-v1"],
+                notes="Bundled Strategy SDK v1 demonstration run.",
+                executions=run.executions,
+                strategy_project_id=project["id"],
+                strategy_revision=run.package["revision"],
+                strategy_source_sha256=run.package["source_sha256"],
+                strategy_source=run.package["source"],
+                strategy_manifest=run.package["manifest"],
                 settings=project["settings"],
             )
-            latest_targets = preview["targets"]
+            latest_targets = (preview["result"].get("decision") or {}).get("target_weights") or {}
             latest_signal_id = store.save_signal(
                 project["id"],
                 cutoff.strftime("%Y-%m-%d"),
@@ -447,7 +486,8 @@ def _seed_database(target_root: Path, cutoff: pd.Timestamp, sample_start: pd.Tim
         summaries[project["id"]] = {
             "metrics": metrics,
             "target_count": len(latest_targets),
-            "source_sha256": project["source_sha256"],
+            "source_sha256": run.package["source_sha256"],
+            "revision": run.package["revision"],
         }
     finally:
         repository.close()
@@ -466,7 +506,9 @@ def _seed_database(target_root: Path, cutoff: pd.Timestamp, sample_start: pd.Tim
     return summaries
 
 
-def _validate_data(bars: pd.DataFrame, fundamentals: pd.DataFrame, factors: pd.DataFrame, count: int) -> None:
+def _validate_data(
+    bars: pd.DataFrame, fundamentals: pd.DataFrame, factors: pd.DataFrame, count: int
+) -> None:
     if bars["symbol"].nunique() != count:
         raise RuntimeError("Market data symbol count does not match requested universe")
     if bars.duplicated(["date", "symbol"]).any():
@@ -500,9 +542,7 @@ def build(source_root: Path, target_root: Path, symbol_count: int = 300) -> dict
     bars, raw_close, adjusted_close = _build_market(
         source_data, target_data, symbols, sample_start, cutoff
     )
-    fundamentals = _build_fundamentals(
-        source_data, target_data, symbols, raw_close, cutoff
-    )
+    fundamentals = _build_fundamentals(source_data, target_data, symbols, raw_close, cutoff)
     factors = _build_factor_returns(
         source_data, target_data, adjusted_close, raw_close, fundamentals, sample_start, cutoff
     )
@@ -559,13 +599,19 @@ def main() -> None:
     parser.add_argument("--symbols", type=int, default=300)
     args = parser.parse_args()
     manifest = build(args.source_root.resolve(), args.target_root.resolve(), args.symbols)
-    print(json.dumps({
-        "sample_start": manifest["sample_start"],
-        "cutoff_date": manifest["cutoff_date"],
-        "symbol_count": manifest["symbol_count"],
-        "rows": manifest["rows"],
-        "files": manifest["files"],
-    }, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "sample_start": manifest["sample_start"],
+                "cutoff_date": manifest["cutoff_date"],
+                "symbol_count": manifest["symbol_count"],
+                "rows": manifest["rows"],
+                "files": manifest["files"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

@@ -46,7 +46,7 @@ function customNodePayload(value: unknown, expectedType: string): unknown {
 }
 
 const WORKSPACE_CAPABILITIES = {
-  modes: ["project", "data", "factor", "selection", "backtest", "report"],
+  modes: ["project", "data", "factor", "strategy", "validation", "report"],
   widgets: agentWorkspaceWidgetIds,
   commandTypes: [
     "switch_mode",
@@ -125,13 +125,13 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   commit_harness_outputs: { zh: "原子提交研究结果", en: "Commit research outputs atomically" },
   list_nodes: { zh: "检查工作台节点", en: "Inspect workspace nodes" },
   alphalab_get_workspace_context: { zh: "读取项目与数据目录", en: "Read project and data catalog" },
-  alphalab_get_pipeline_project: { zh: "读取三阶段项目", en: "Read three-stage project" },
-  alphalab_manage_pipeline: { zh: "管理组件与项目", en: "Manage components and projects" },
-  alphalab_preview_pipeline: { zh: "运行阶段预览", en: "Preview pipeline stage" },
+  alphalab_get_strategy_project: { zh: "读取策略源码项目", en: "Read strategy source project" },
+  alphalab_edit_strategy_source: { zh: "编辑策略源码", en: "Edit strategy source" },
+  alphalab_preview_strategy: { zh: "预览冻结策略", en: "Preview frozen strategy" },
+  alphalab_evaluate_strategy_factor: { zh: "检验源码因子", en: "Evaluate source factor" },
   alphalab_get_market_bars: { zh: "读取历史行情", en: "Read historical bars" },
   alphalab_get_fundamentals: { zh: "读取点时基本面", en: "Read point-in-time fundamentals" },
   alphalab_get_factor_returns: { zh: "读取因子收益", en: "Read factor returns" },
-  alphalab_evaluate_factor: { zh: "评估因子", en: "Evaluate factor" },
   alphalab_get_backtest: { zh: "读取回测结果", en: "Read backtest result" },
   alphalab_run_backtest: { zh: "运行回测", en: "Run backtest" },
   alphalab_get_reports: { zh: "读取报告库", en: "Read report library" },
@@ -363,7 +363,7 @@ export function ResearchAgentPanel() {
     conversation: "Agent conversation",
     stop: "Stop",
     send: "Send",
-    quickPrompts: ["What strategies are available?", "Compare current strategies in a workspace report", "Open Data Workbench and refresh data", "Open the momentum backtest workbench"],
+    quickPrompts: ["What SDK strategies are available?", "Compare frozen strategy runs in a workspace report", "Open Data Workbench and refresh data", "Open Validation and inspect the momentum strategy"],
   }
 
   if (!agent.loading && agent.status && !agent.status.available) {

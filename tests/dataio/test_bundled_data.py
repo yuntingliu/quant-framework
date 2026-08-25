@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import sqlite3
 from pathlib import Path
 
 import pandas as pd
+
+from alphalab.strategy.repository import StrategyRepository
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -45,7 +48,13 @@ def test_bundled_real_data_contract():
     assert fundamentals["symbol"].nunique() == 300
     assert fundamentals["available_date"].notna().all()
     assert {
-        "ep", "bp", "roe", "gross_margin", "leverage", "profit_growth", "revenue_growth"
+        "ep",
+        "bp",
+        "roe",
+        "gross_margin",
+        "leverage",
+        "profit_growth",
+        "revenue_growth",
     }.issubset(fundamentals.columns)
 
     factors = pd.read_parquet(immutable[2])
@@ -53,43 +62,39 @@ def test_bundled_real_data_contract():
     assert len(factors) == 60
 
 
-def test_seed_database_is_complete():
-    db_path = ROOT / "data" / "app" / "alphalab.db"
+def test_bundled_database_upgrades_to_the_sdk_contract(tmp_path):
+    # The tracked database is a frozen historical fixture. Current tables are
+    # created and old custom projects migrated only in a writable local copy.
+    db_path = tmp_path / "alphalab.db"
+    shutil.copy2(ROOT / "data" / "app" / "alphalab.db", db_path)
+    repository = StrategyRepository(db_path)
+    try:
+        project = repository.get_project("sdk-v1-default")
+        package = repository.get_package("sdk-v1-default", 1)
+    finally:
+        repository.close()
+    assert project is not None and project["built_in"] is True
+    assert package is not None and package["sdk_version"] == 1
+
     with sqlite3.connect(db_path) as connection:
         counts = {
             table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             for table in (
-                "pipeline_components",
-                "pipeline_component_versions",
-                "pipeline_projects",
-                "pipeline_project_versions",
+                "strategy_projects",
+                "strategy_source_packages",
                 "backtests",
                 "backtest_returns",
                 "backtest_weights",
                 "orders",
             )
         }
-        authorable_stages = {
-            row[0]
-            for row in connection.execute(
-                """SELECT DISTINCT pc.stage
-                   FROM pipeline_projects pp,
-                            json_each(pp.component_refs_json) ref
-                   JOIN pipeline_components pc ON pc.id = json_extract(ref.value, '$.component_id')
-                   WHERE pp.id = 'three-stage-default'"""
-            )
-        }
-        default_project = connection.execute(
-            "SELECT built_in, revision FROM pipeline_projects WHERE id = 'three-stage-default'"
+        migration = connection.execute(
+            "SELECT detail_json FROM strategy_contract_migrations "
+            "WHERE name = 'strategy-sdk-v1-cutover'"
         ).fetchone()
-    assert counts["pipeline_components"] >= 9
-    assert counts["pipeline_component_versions"] >= counts["pipeline_components"]
-    assert counts["pipeline_projects"] >= 1
-    assert counts["pipeline_project_versions"] >= counts["pipeline_projects"]
-    assert authorable_stages == {"selection", "portfolio", "execution"}
-    assert default_project is not None
-    assert default_project[0] == 1
-    assert default_project[1] >= 1
+    assert counts["strategy_projects"] >= 1
+    assert counts["strategy_source_packages"] >= counts["strategy_projects"]
+    assert migration is not None
     assert counts["backtests"] >= 6
     assert counts["backtest_returns"] >= 360
     assert counts["backtest_weights"] > 0

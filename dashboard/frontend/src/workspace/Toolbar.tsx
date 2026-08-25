@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
 import {
   Plus,
   RotateCcw,
@@ -10,7 +9,6 @@ import { CommandPalette } from "@/components/CommandPalette"
 import { Button } from "@/components/ui/button"
 import { useLanguage } from "@/contexts/LanguageContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
-import { api, type PipelineProjectSummary } from "@/lib/api"
 import { widgetCategory, widgetCatalog, widgetDescription, widgetTitle } from "@/widgets/registry"
 
 import { MODE_CONFIG, MODE_SHORTCUTS } from "./modes"
@@ -28,19 +26,7 @@ export function WorkspaceToolbar({
   onSaveLayout: () => void
   onResetLayout: () => void
 }) {
-  const {
-    activeMode,
-    selectedStrategy,
-    setSelectedStrategy,
-    setSelectedStrategyEditable,
-    setSelectedStrategyRevision,
-  } = useWorkspace()
-  const projectQuery = useQuery({
-    queryKey: ["pipeline", "projects"],
-    queryFn: () => api.get<PipelineProjectSummary[]>("/pipeline/projects"),
-    staleTime: 2_000,
-    refetchInterval: 5_000,
-  })
+  const { activeMode } = useWorkspace()
   const { language, t } = useLanguage()
   const [catalogOpen, setCatalogOpen] = useState(false)
   const toolbarRef = useRef<HTMLDivElement>(null)
@@ -55,26 +41,6 @@ export function WorkspaceToolbar({
     document.addEventListener("mousedown", handler)
     return () => document.removeEventListener("mousedown", handler)
   }, [])
-
-  useEffect(() => {
-    const projects = projectQuery.data ?? []
-    if (!selectedStrategy) {
-      setSelectedStrategyEditable(null)
-      setSelectedStrategyRevision(null)
-      return
-    }
-    const selected = projects.find((item) => item.id === selectedStrategy)
-    if (!selected && projectQuery.isSuccess) {
-      setSelectedStrategy(null)
-      setSelectedStrategyEditable(null)
-      setSelectedStrategyRevision(null)
-      return
-    }
-    if (selected) {
-      setSelectedStrategyEditable(selected.editable)
-      setSelectedStrategyRevision(selected.revision)
-    }
-  }, [projectQuery.data, projectQuery.isSuccess, selectedStrategy, setSelectedStrategy, setSelectedStrategyEditable, setSelectedStrategyRevision])
 
   const addWidget = (widgetId: string, title: string) => {
     onAddWidget(widgetId, title)

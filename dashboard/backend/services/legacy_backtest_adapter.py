@@ -1,11 +1,12 @@
 """Read-only adapter for backtests saved before the Python pipeline contract."""
+
 from __future__ import annotations
 
 from typing import Any
 
 import yaml
 
-from alphalab.strategy import StrategyConfig
+from alphalab.strategy.config import StrategyConfig
 
 
 def legacy_config(yaml_text: str) -> StrategyConfig:

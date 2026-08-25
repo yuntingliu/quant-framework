@@ -1,11 +1,10 @@
 # AlphaLab Strategy SDK v1 Contract
 
-> Design status: accepted target contract.
+> Design status: accepted and versioned contract.
 >
-> Implementation status: not yet implemented. The current three-stage pipeline
-> remains the active runtime until an explicit SDK v1 cutover. This document
-> defines the target interface and acceptance criteria; it does not claim that
-> the current application already implements them.
+> Implementation status: implemented. Strategy SDK v1 is the only active
+> authoring and execution contract. Legacy pipeline tables are retained only
+> for one-time migration and frozen historical records.
 
 ## 1. Purpose
 

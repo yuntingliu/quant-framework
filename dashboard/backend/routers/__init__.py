@@ -1,15 +1,15 @@
 """API routers."""
+
 from dashboard.backend.routers import (
     backtests,
     compat,
     conexus,
     data,
     data_sync,
-    factor_research,
     market,
     paper,
-    pipeline,
     reports,
+    strategy,
     system,
 )
 
@@ -19,10 +19,9 @@ __all__ = [
     "conexus",
     "data",
     "data_sync",
-    "factor_research",
     "market",
     "paper",
-    "pipeline",
     "reports",
+    "strategy",
     "system",
 ]

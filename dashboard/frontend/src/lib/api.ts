@@ -4,117 +4,6 @@ interface ElectronApiBridge {
   getApiBase?: () => string
 }
 
-export type PythonPipelineStage = "selection" | "portfolio" | "execution"
-
-export interface PipelineComponentSummary {
-  id: string
-  stage: PythonPipelineStage
-  name: string
-  description: string
-  built_in: boolean
-  editable: boolean
-  latest_version: number
-  version_count: number
-}
-
-export interface PipelineComponentDetail extends PipelineComponentSummary {
-  version: number
-  versions: number[]
-  entrypoint: string
-  source: string
-  source_sha256: string
-  parameters: Record<string, unknown>
-  notes: string
-  created_at: string
-}
-
-export interface PipelineComponentRef {
-  component_id: string
-  version: number
-}
-
-export interface PipelineComponentManifest extends PipelineComponentRef {
-  stage: PythonPipelineStage
-  entrypoint: string
-  source_sha256: string
-  parameters: Record<string, unknown>
-}
-
-export interface PipelineProjectSummary {
-  id: string
-  name: string
-  description: string
-  revision: number
-  built_in: boolean
-  editable: boolean
-  components: Record<PythonPipelineStage, PipelineComponentRef>
-  settings: Record<string, unknown>
-}
-
-export interface PipelineProjectDetail extends PipelineProjectSummary {
-  source_sha256: string
-  component_manifest: PipelineComponentManifest[]
-  composed_source: string
-}
-
-export interface PythonLabCapabilities {
-  enabled: boolean
-  available: boolean
-  runtime_kind: "disabled" | "docker" | "trusted_local"
-  isolated: boolean
-  trusted_local: boolean
-  authoritative: false
-  network_access: boolean | null
-  host_mounts: boolean | null
-  read_only_root: boolean | null
-  limits: Record<string, number | null>
-  reason: string | null
-}
-
-export interface PythonLabRunSummary {
-  id: string
-  project_id: string
-  profile: "demo" | "runtime"
-  status: "running" | "succeeded" | "failed"
-  runtime_kind: "docker" | "trusted_local"
-  source_sha256: string
-  context_sha256: string
-  error: string | null
-  created_at: string
-  started_at: string
-  finished_at: string | null
-}
-
-export interface PythonLabRunDetail extends PythonLabRunSummary {
-  source: string
-  context: Record<string, unknown>
-  output: Record<string, unknown> | unknown[] | string | number | boolean | null
-  stdout: string
-  stderr: string
-  promotions: Array<{
-    id: string
-    kind: "component" | "factor"
-    target_id: string
-    applied_to_project: 0 | 1
-    project_revision: number | null
-    created_at: string
-  }>
-}
-
-export interface PipelinePreview {
-  project_id: string
-  revision: number
-  source_sha256: string
-  profile: "demo" | "runtime"
-  signal_date: string
-  requested_stage: PythonPipelineStage
-  executed_stages: PythonPipelineStage[]
-  targets: Record<string, number>
-  diagnostics: Record<string, unknown>
-  selection: Record<string, unknown>
-  stage_outputs: Partial<Record<PythonPipelineStage, unknown>>
-}
-
 export interface StrategyPipelineManifest {
   strategy_type: "python_pipeline"
   order: string[]
@@ -151,7 +40,7 @@ export interface BacktestRunResult {
   id: string
   project_id: string
   strategy_id: string
-  strategy_type: "python_pipeline"
+  strategy_type: "sdk_v1"
   revision: number
   source_sha256: string
   metrics: Record<string, number>
@@ -170,6 +59,7 @@ export interface BacktestJob {
     start_date: string
     end_date: string
     profile: "demo" | "runtime"
+    revision: number
   }
   result: BacktestRunResult | null
   result_id: string | null
@@ -211,7 +101,7 @@ export interface BacktestExecution {
   cash_weight: number
   constrained_symbols: string[]
   missing_amount_symbols: string[]
-  stage_outputs?: Partial<Record<PythonPipelineStage, Record<string, unknown>>>
+  stage_outputs?: Record<string, Record<string, unknown>>
   selection_forward_returns?: Record<string, number>
 }
 
@@ -248,7 +138,7 @@ export interface BacktestAnalysis {
   executions: BacktestExecution[]
   has_execution_audit: boolean
   strategy_snapshot: {
-    strategy_type: "python_pipeline" | "legacy_snapshot"
+    strategy_type: "sdk_v1" | "python_pipeline" | "legacy_snapshot"
     implementation?: "python"
     python_stages?: string[]
     pipeline?: Record<string, unknown>
@@ -553,128 +443,6 @@ export interface RobustnessPeriodMetrics {
   strategy?: Record<string, number | null>
   benchmark?: Record<string, number | null>
   excess?: Record<string, number | null>
-}
-
-export interface FactorResearchLibrary {
-  factors: Array<{
-    name: string
-    source: "technical" | "fundamental" | "expression"
-    description: string
-    input_fields: string[]
-    frequency: "daily" | "quarterly"
-    point_in_time: boolean
-    custom: boolean
-    expression?: string
-    direction?: "long" | "short"
-    winsorize?: number
-    neutralize?: string[]
-  }>
-  data_sources: Array<{
-    id: "market_bars" | "fundamentals"
-    name: string
-    endpoint: string
-    frequency: "daily" | "quarterly"
-    point_in_time: boolean
-    profile: "demo" | "runtime"
-    schema_source: "parquet_metadata"
-    fields: Array<{
-      name: string
-      label: string
-      data_type: "number" | "boolean" | "date" | "string" | "mixed"
-      nullable: boolean
-      expression_compatible: boolean
-    }>
-  }>
-  expression_functions: string[]
-  neutralizers: string[]
-  packs: Array<{
-    id: string
-    name: string
-    description: string
-    feature_count: number
-    license: string
-    source_url: string
-    status: "adapter_required" | "available"
-  }>
-}
-
-export interface FactorResearchResult {
-  factor: {
-    name: string
-    source: "technical" | "fundamental" | "expression"
-    expression?: string | null
-    direction: "long" | "short"
-    winsorize: number
-    neutralize: string[]
-  }
-  frequency: "monthly" | "weekly"
-  quantiles: number
-  universe_size: number
-  periods: number
-  summary: {
-    ic_mean?: number
-    ic_std?: number
-    icir?: number
-    ic_t_stat?: number
-    ic_positive_ratio?: number
-    coverage_mean?: number
-    top_turnover_mean?: number | null
-    bootstrap_ic_95?: { lower: number | null; upper: number | null }
-    long_short?: Record<string, number>
-  }
-  decay: Record<string, { mean_ic: number | null; observations: number }>
-  snapshot: {
-    date: string
-    observations: number
-    coverage: number
-    values: number[]
-    mean: number
-    std: number
-    minimum: number
-    median: number
-    maximum: number
-    top: Array<{ symbol: string; value: number; forward_return: number }>
-    bottom: Array<{ symbol: string; value: number; forward_return: number }>
-  } | null
-  rows: Array<{
-    date: string
-    observations: number
-    coverage: number
-    ic: number
-    long_short: number
-    top_turnover: number | null
-    quantile_returns: Record<string, number>
-  }>
-  warnings: string[]
-}
-
-export interface SignalResult {
-  id: string | null
-  strategy_id: string
-  profile: "demo" | "runtime"
-  signal_date: string
-  targets: Record<string, number>
-  diagnostics: Record<string, unknown>
-  selection: {
-    as_of_date: string
-    universe_size: number
-    eligible_count: number
-    scored_count: number
-    requested_count: number
-    selected_count: number
-    cash_weight: number
-    factor_names: string[]
-    exclusions: Record<string, number>
-    rows: Array<{
-      rank: number
-      symbol: string
-      selected: boolean
-      composite_score: number
-      factor_coverage: number
-      target_weight: number
-      factor_scores: Record<string, number | null>
-    }>
-  }
 }
 
 export interface PaperOrder {

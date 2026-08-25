@@ -3,7 +3,6 @@
  */
 import { createContext, useContext, useState, useCallback } from "react"
 import { DEFAULT_MODE, normalizeWorkspaceMode, type WorkspaceMode } from "@/layouts/presets"
-import type { PythonPipelineStage } from "@/lib/api"
 
 const MODE_KEY = "alphalab-active-mode"
 const PROJECT_KEY = "alphalab-selected-project"
@@ -25,13 +24,6 @@ export const LINK_GROUP_COLORS: Record<LinkGroup, string> = {
   d: "#f87171", // red
 }
 
-export interface StageRunContext {
-  projectId: string
-  revision: number
-  profile: "demo" | "runtime"
-  asOfDate: string | null
-}
-
 interface WorkspaceContextValue {
   activeMode: WorkspaceMode
   setActiveMode: (mode: WorkspaceMode) => void
@@ -41,8 +33,6 @@ interface WorkspaceContextValue {
   setSelectedStrategyRevision: (revision: number | null) => void
   selectedStrategyEditable: boolean | null
   setSelectedStrategyEditable: (editable: boolean | null) => void
-  stageRunContexts: Partial<Record<PythonPipelineStage, StageRunContext>>
-  setStageRunContext: (stage: PythonPipelineStage, value: StageRunContext) => void
   selectedDataset: string | null
   setSelectedDataset: (id: string | null) => void
   selectedSymbol: string | null
@@ -90,7 +80,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [selectedStrategy, setSelectedStrategy] = useState<string | null>(loadProject)
   const [selectedStrategyRevision, setSelectedStrategyRevision] = useState<number | null>(null)
   const [selectedStrategyEditable, setSelectedStrategyEditable] = useState<boolean | null>(null)
-  const [stageRunContexts, setStageRunContexts] = useState<Partial<Record<PythonPipelineStage, StageRunContext>>>({})
   const [selectedDataset, setSelectedDataset] = useState<string | null>(null)
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
   const [linkSymbols, setLinkSymbols] = useState<Partial<Record<LinkGroup, string | null>>>({})
@@ -121,7 +110,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         selectedStrategy,
         selectedStrategyRevision,
         selectedStrategyEditable,
-        stageRunContexts,
         selectedDataset,
         selectedSymbol,
         linkSymbols,
@@ -139,9 +127,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         setSelectedStrategy: selectStrategy,
         setSelectedStrategyRevision: useCallback((v) => setSelectedStrategyRevision(v), []),
         setSelectedStrategyEditable: useCallback((v) => setSelectedStrategyEditable(v), []),
-        setStageRunContext: useCallback((stage, value) => {
-          setStageRunContexts((current) => ({ ...current, [stage]: value }))
-        }, []),
         setSelectedDataset: useCallback((v) => setSelectedDataset(v), []),
         setSelectedSymbol: useCallback((v) => setSelectedSymbol(v), []),
         setSelectedOrderPrice: useCallback((v) => setSelectedOrderPrice(v), []),
@@ -164,7 +149,6 @@ export function useWorkspace(): WorkspaceContextValue {
       selectedStrategy: null,
       selectedStrategyRevision: null,
       selectedStrategyEditable: null,
-      stageRunContexts: {},
       selectedDataset: null,
       selectedSymbol: null,
       linkSymbols: {},
@@ -176,7 +160,6 @@ export function useWorkspace(): WorkspaceContextValue {
       setSelectedStrategy: () => {},
       setSelectedStrategyRevision: () => {},
       setSelectedStrategyEditable: () => {},
-      setStageRunContext: () => {},
       setSelectedDataset: () => {},
       setSelectedSymbol: () => {},
       setSelectedOrderPrice: () => {},

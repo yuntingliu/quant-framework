@@ -1,36 +1,23 @@
 # AlphaLab Research Agent Bundle
 
-This bundle publishes a conversational Agent for AlphaLab's current three-stage
-Python strategy pipeline.
+This bundle publishes a conversational Agent for AlphaLab Strategy SDK v1.
 
-It can inspect data and risk factors, evaluate cross-sectional signal evidence,
-manage immutable Python component versions and revisioned projects, preview the
-complete composed strategy, run and analyze frozen backtests, read reports, and
-control the seven current workbench modes, including the independent factor
-research workspace and guarded Python Lab.
+It reads provider and workspace context, inspects or edits the one canonical
+Python strategy source, evaluates registered factors, previews an immutable
+revision, runs and analyzes frozen event backtests, saves reports, and controls
+the six current workbench modes.
 
-Current pipeline tools:
+Current strategy tools:
 
-- `alphalab_get_pipeline_project`
-- `alphalab_manage_pipeline`
-- `alphalab_preview_pipeline`
-- `alphalab_run_python_lab`
-- `alphalab_promote_python_lab`
+- `alphalab_get_strategy_project`
+- `alphalab_edit_strategy_source`
+- `alphalab_preview_strategy`
+- `alphalab_evaluate_strategy_factor`
 - `alphalab_run_backtest`
 
-The research scope is structured project configuration authored in the Data Workbench. Complete strategy source is
-composed from exactly three pinned versions: selection, portfolio, and execution. Performance, drawdown, alpha,
-beta, and factor correlations are derived from the frozen BacktestRun. YAML is
-neither an Agent input nor a runtime representation.
+Source mutations, deletion, trusted-local Python execution, data mutation,
+report saving, and paper actions retain their explicit confirmation boundaries.
+The bundle exposes no shell, source-tree mutation, deployment, legacy pipeline,
+separate Python Lab, or real-broker tool.
 
-Project/component writes and deletes require explicit confirmation. Preview and
-backtest require explicit trusted-local Python execution confirmation. The
-bundle has no shell, source-tree mutation, deployment, or real-broker tool.
-
-Python Lab is a non-authoritative escape hatch. Its runtime is disabled by
-default; Docker mode is isolated and trusted-local mode is explicitly unsafe.
-Lab results can only enter the normal pipeline through a separately confirmed
-factor/component promotion, after which the existing backtest path remains the
-only authoritative execution path.
-
-See `docs/04_CONEXUS_AGENT.md` for the contract and publication boundary.
+See `docs/04_CONEXUS_AGENT.md` for the full contract.

@@ -1,4 +1,5 @@
 """Provider registry and cached access to framework data."""
+
 from __future__ import annotations
 
 import hashlib
@@ -78,7 +79,9 @@ class DataEngine:
         self._default_factor: str | None = None
         self._cache = cache or DataCache()
 
-    def register_market(self, name: str, provider: MarketDataProvider, default: bool = False) -> "DataEngine":
+    def register_market(
+        self, name: str, provider: MarketDataProvider, default: bool = False
+    ) -> "DataEngine":
         self._market[name] = provider
         if default or self._default_market is None:
             self._default_market = name
@@ -106,7 +109,9 @@ class DataEngine:
             self._default_instrument = name
         return self
 
-    def register_factor(self, name: str, provider: FactorProvider, default: bool = False) -> "DataEngine":
+    def register_factor(
+        self, name: str, provider: FactorProvider, default: bool = False
+    ) -> "DataEngine":
         self._factor[name] = provider
         if default or self._default_factor is None:
             self._default_factor = name
@@ -271,7 +276,9 @@ class DataEngine:
             self._cache.put(key, out)
         return out
 
-    def get_risk_free_rate(self, start: str, end: str, freq: str = "1M", source: Optional[str] = None) -> pd.Series:
+    def get_risk_free_rate(
+        self, start: str, end: str, freq: str = "1M", source: Optional[str] = None
+    ) -> pd.Series:
         source = source or self._default_factor
         if source is None or source not in self._factor:
             return pd.Series(dtype=float, name="rf")
@@ -297,10 +304,15 @@ def create_default_engine(data_dir: str | Path | None = None) -> DataEngine:
     engine.register_market("local", LocalParquetMarketDataProvider(root / "market"), default=True)
     engine.register_instrument(
         "local",
-        LocalParquetInstrumentProvider(root / "instruments"),
+        LocalParquetInstrumentProvider(
+            root / "instruments",
+            bundled_market_path=root / "market" / "bars.parquet",
+        ),
         default=True,
     )
-    engine.register_fundamental("local", LocalParquetFundamentalProvider(root / "fundamentals"), default=True)
+    engine.register_fundamental(
+        "local", LocalParquetFundamentalProvider(root / "fundamentals"), default=True
+    )
     engine.register_factor("local", LocalParquetFactorProvider(root / "factors"), default=True)
     return engine
 

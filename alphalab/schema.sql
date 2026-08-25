@@ -27,72 +27,57 @@ CREATE TABLE IF NOT EXISTS backtests (
     notes TEXT,
     provenance_json TEXT,
     execution_json TEXT,
-    attribution_json TEXT
+    attribution_json TEXT,
+    strategy_project_id TEXT,
+    strategy_revision INTEGER,
+    strategy_source_sha256 TEXT,
+    strategy_manifest_json TEXT
 );
 
--- Python is the canonical strategy representation.  The legacy ``strategies``
--- and ``config_yaml`` columns above are retained only so existing databases can
--- be upgraded in place; new pipeline writes use the tables and snapshot fields
--- below.
-CREATE TABLE IF NOT EXISTS pipeline_components (
-    id TEXT PRIMARY KEY,
-    stage TEXT NOT NULL CHECK(stage IN (
-        'selection', 'portfolio', 'execution'
-    )),
-    name TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    built_in INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_pipeline_components_stage
-    ON pipeline_components(stage, built_in DESC, name);
-
-CREATE TABLE IF NOT EXISTS pipeline_component_versions (
-    component_id TEXT NOT NULL REFERENCES pipeline_components(id) ON DELETE CASCADE,
-    version INTEGER NOT NULL,
-    entrypoint TEXT NOT NULL,
-    source TEXT NOT NULL,
-    source_sha256 TEXT NOT NULL,
-    parameters_json TEXT NOT NULL DEFAULT '{}',
-    notes TEXT NOT NULL DEFAULT '',
-    created_at TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (component_id, version)
-) WITHOUT ROWID;
-
-CREATE TABLE IF NOT EXISTS pipeline_projects (
+-- Strategy SDK v1 is the sole current authoring/runtime contract. Existing
+-- databases may still contain pre-SDK pipeline tables; StrategyRepository reads
+-- those tables once for explicit migration but new databases do not create them.
+CREATE TABLE IF NOT EXISTS strategy_projects (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
-    revision INTEGER NOT NULL DEFAULT 1,
-    component_refs_json TEXT NOT NULL,
+    profile TEXT NOT NULL DEFAULT 'demo' CHECK(profile IN ('demo', 'runtime')),
+    current_revision INTEGER NOT NULL DEFAULT 0,
+    draft_parent_revision INTEGER,
+    draft_source TEXT NOT NULL,
+    draft_source_sha256 TEXT NOT NULL,
     settings_json TEXT NOT NULL DEFAULT '{}',
     built_in INTEGER NOT NULL DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS pipeline_project_versions (
-    project_id TEXT NOT NULL REFERENCES pipeline_projects(id) ON DELETE CASCADE,
+CREATE INDEX IF NOT EXISTS idx_strategy_projects_name
+    ON strategy_projects(built_in DESC, name);
+
+CREATE TABLE IF NOT EXISTS strategy_source_packages (
+    project_id TEXT NOT NULL REFERENCES strategy_projects(id) ON DELETE CASCADE,
     revision INTEGER NOT NULL,
-    component_refs_json TEXT NOT NULL,
-    settings_json TEXT NOT NULL,
-    composed_source TEXT NOT NULL,
+    parent_revision INTEGER,
+    source TEXT NOT NULL,
     source_sha256 TEXT NOT NULL,
+    sdk_version INTEGER NOT NULL,
+    validator_version TEXT NOT NULL,
+    manifest_json TEXT NOT NULL,
+    parameters_json TEXT NOT NULL,
+    data_requirements_json TEXT NOT NULL DEFAULT '{}',
+    runtime_requirements_json TEXT NOT NULL DEFAULT '{}',
+    environment_json TEXT NOT NULL,
     created_at TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (project_id, revision)
+    PRIMARY KEY(project_id, revision)
 ) WITHOUT ROWID;
 
-CREATE TABLE IF NOT EXISTS legacy_strategy_migrations (
-    source_path TEXT PRIMARY KEY,
-    source_sha256 TEXT NOT NULL,
-    project_id TEXT NOT NULL,
-    migrated_at TEXT DEFAULT (datetime('now'))
-);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_strategy_source_package_hash
+    ON strategy_source_packages(project_id, source_sha256);
 
-CREATE TABLE IF NOT EXISTS pipeline_contract_migrations (
+CREATE TABLE IF NOT EXISTS strategy_contract_migrations (
     name TEXT PRIMARY KEY,
+    detail_json TEXT NOT NULL DEFAULT '{}',
     migrated_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -271,44 +256,6 @@ CREATE TABLE IF NOT EXISTS research_artifacts (
 
 CREATE INDEX IF NOT EXISTS idx_research_artifacts_updated
     ON research_artifacts(updated_at DESC);
-
--- Python Lab is a non-authoritative research escape hatch.  A successful run
--- may propose a factor or pipeline component, but only an explicit promotion
--- creates a normal versioned object consumed by the guarded backtest path.
-CREATE TABLE IF NOT EXISTS python_lab_runs (
-    id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL REFERENCES pipeline_projects(id),
-    profile TEXT NOT NULL CHECK(profile IN ('demo', 'runtime')),
-    status TEXT NOT NULL CHECK(status IN ('running', 'succeeded', 'failed')),
-    runtime_kind TEXT NOT NULL CHECK(runtime_kind IN ('docker', 'trusted_local')),
-    source TEXT NOT NULL,
-    source_sha256 TEXT NOT NULL,
-    context_json TEXT NOT NULL,
-    context_sha256 TEXT NOT NULL,
-    output_json TEXT,
-    stdout TEXT NOT NULL DEFAULT '',
-    stderr TEXT NOT NULL DEFAULT '',
-    error TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    started_at TEXT NOT NULL,
-    finished_at TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_python_lab_runs_created
-    ON python_lab_runs(created_at DESC);
-
-CREATE TABLE IF NOT EXISTS python_lab_promotions (
-    id TEXT PRIMARY KEY,
-    run_id TEXT NOT NULL REFERENCES python_lab_runs(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL CHECK(kind IN ('component', 'factor')),
-    target_id TEXT NOT NULL,
-    applied_to_project INTEGER NOT NULL DEFAULT 0,
-    project_revision INTEGER,
-    created_at TEXT DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_python_lab_promotions_run
-    ON python_lab_promotions(run_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS research_run_steps (
     run_id TEXT NOT NULL REFERENCES research_runs(id) ON DELETE CASCADE,

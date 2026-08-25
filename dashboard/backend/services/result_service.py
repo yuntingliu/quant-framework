@@ -1,4 +1,5 @@
 """Persisted backtest and paper-simulation services."""
+
 from __future__ import annotations
 
 import hashlib
@@ -7,7 +8,7 @@ import math
 
 import pandas as pd
 
-from alphalab import PipelineRepository, ResultStore
+from alphalab import ResultStore, StrategyRepository
 from alphalab.dataio import MissingDataError
 from dashboard.backend.services.data_service import _engine
 
@@ -71,9 +72,8 @@ def get_backtest(backtest_id: str) -> dict | None:
     record["provenance"] = _json_payload(record.pop("provenance_json", None), {})
     record["executions"] = _json_payload(record.pop("execution_json", None), [])
     record["attribution"] = _json_payload(record.pop("attribution_json", None), {})
-    record["component_manifest"] = _json_payload(
-        record.pop("component_manifest_json", None), []
-    )
+    record["component_manifest"] = _json_payload(record.pop("component_manifest_json", None), [])
+    record["strategy_manifest"] = _json_payload(record.pop("strategy_manifest_json", None), [])
     record["settings"] = _json_payload(record.pop("settings_json", None), {})
     return record
 
@@ -131,18 +131,14 @@ def list_paper_fills(account_id: str = "paper", limit: int = 100) -> list[dict]:
 
 
 def _project_max_weight(project_id: str) -> float:
-    repository = PipelineRepository()
+    repository = StrategyRepository()
     try:
         project = repository.get_project(project_id, include_source=False)
     finally:
         repository.close()
     if project is None:
         return 0.10
-    portfolio = next(
-        (item for item in project["component_manifest"] if item["stage"] == "portfolio"),
-        {},
-    )
-    return float(portfolio.get("parameters", {}).get("max_weight", 0.10))
+    return float(project.get("settings", {}).get("max_weight", 1.0))
 
 
 def preview_paper_rebalance(
@@ -214,11 +210,21 @@ def preview_paper_rebalance(
     maximum_target = max(targets.values(), default=0.0)
     checks = [
         _risk_check("signal_targets", bool(targets), f"{len(targets)} targets"),
-        _risk_check("price_coverage", not missing_prices, "complete" if not missing_prices else f"missing {', '.join(missing_prices)}"),
+        _risk_check(
+            "price_coverage",
+            not missing_prices,
+            "complete" if not missing_prices else f"missing {', '.join(missing_prices)}",
+        ),
         _risk_check("gross_target", gross_target <= 1.000001, f"{gross_target:.2%}"),
-        _risk_check("max_weight", maximum_target <= maximum_weight_limit + 1e-6, f"{maximum_target:.2%} / limit {maximum_weight_limit:.2%}"),
+        _risk_check(
+            "max_weight",
+            maximum_target <= maximum_weight_limit + 1e-6,
+            f"{maximum_target:.2%} / limit {maximum_weight_limit:.2%}",
+        ),
         _risk_check("cash", projected_cash >= -1e-6, f"projected {projected_cash:,.2f}"),
-        _risk_check("board_lot", all(item["quantity"] % 100 == 0 for item in orders), "100-share lots"),
+        _risk_check(
+            "board_lot", all(item["quantity"] % 100 == 0 for item in orders), "100-share lots"
+        ),
     ]
     allowed = all(item["passed"] for item in checks)
     turnover = sum(item["notional"] for item in orders) / equity if equity > 0 else 0.0

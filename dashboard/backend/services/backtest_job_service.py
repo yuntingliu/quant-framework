@@ -12,9 +12,9 @@ from typing import Callable, Iterator
 import pandas as pd
 
 from alphalab.store import ResultStore
-from dashboard.backend.services import pipeline_service
+from dashboard.backend.services import strategy_service
 
-BacktestRunner = Callable[[str, str, str, str], dict]
+BacktestRunner = Callable[[str, str, str, str, int | None], dict]
 
 
 class BacktestJobManager:
@@ -26,7 +26,7 @@ class BacktestJobManager:
         runner: BacktestRunner | None = None,
     ) -> None:
         self._db_path = db_path
-        self._runner = runner or pipeline_service.run_project_backtest
+        self._runner = runner or strategy_service.run_project_backtest
         self._executor = ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="alphalab-backtest",
@@ -86,6 +86,7 @@ class BacktestJobManager:
                 request["start_date"],
                 request["end_date"],
                 request["profile"],
+                request.get("revision"),
             )
         except Exception as exc:
             with self._store() as store:
@@ -123,13 +124,19 @@ def submit_backtest_job(request: dict) -> dict:
     if pd.isna(start) or pd.isna(end) or start >= end:
         raise ValueError("start_date must be before end_date")
     project_id = str(request.get("project_id") or "").strip()
-    if not project_id or pipeline_service.get_project(project_id) is None:
+    project = strategy_service.get_project(project_id) if project_id else None
+    if project is None:
         raise KeyError(project_id)
+    raw_revision = request.get("revision")
+    revision = int(raw_revision) if raw_revision is not None else int(project["current_revision"])
+    if strategy_service.get_revision(project_id, revision) is None:
+        raise KeyError(f"{project_id}@{revision}")
     normalized = {
         "project_id": project_id,
         "start_date": start.strftime("%Y-%m-%d"),
         "end_date": end.strftime("%Y-%m-%d"),
         "profile": profile,
+        "revision": revision,
     }
     return manager().submit(normalized)
 

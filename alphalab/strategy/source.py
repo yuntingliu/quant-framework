@@ -1,0 +1,877 @@
+"""Inspection and concrete-syntax edits for canonical SDK v1 strategy modules."""
+
+from __future__ import annotations
+
+import ast
+import hashlib
+import math
+from dataclasses import asdict, dataclass
+from typing import Any, Iterable
+
+import libcst as cst
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+
+
+MAX_STRATEGY_SOURCE_BYTES = 300_000
+VALIDATOR_VERSION = "sdk-v1-validator-1"
+_KINDS = {"universe", "factor", "schedule", "signal", "portfolio", "execution"}
+_REQUIRED = {"universe": 1, "signal": 1, "portfolio": 1, "execution": 1}
+_EXPECTED_POSITIONAL = {
+    "universe": 1,
+    "factor": 1,
+    "signal": 2,
+    "portfolio": 3,
+    "event": 2,
+    "execution": 2,
+    "schedule": 2,
+}
+
+
+class StrategySourceError(ValueError):
+    """A source-contract error with an explicit validation phase."""
+
+    def __init__(self, message: str, *, phase: str = "parse") -> None:
+        super().__init__(message)
+        self.phase = phase
+
+
+@dataclass(frozen=True)
+class ParameterSpec:
+    name: str
+    annotation: str | None
+    default: Any
+    editable: bool
+    custom_source: str | None = None
+    label: str | None = None
+    description: str | None = None
+    minimum: float | int | None = None
+    maximum: float | int | None = None
+    step: float | int | None = None
+
+
+@dataclass(frozen=True)
+class EntrypointSpec:
+    kind: str
+    id: str
+    function: str
+    label: str | None
+    event: str | None
+    metadata: dict[str, Any]
+    parameters: tuple[ParameterSpec, ...]
+    line: int
+
+
+@dataclass(frozen=True)
+class SourceInspection:
+    valid: bool
+    sdk_version: int
+    source_sha256: str
+    source_bytes: int
+    validator_version: str
+    entrypoints: tuple[EntrypointSpec, ...]
+    data_requirements: dict[str, Any]
+    runtime_requirements: dict[str, Any]
+    warnings: tuple[dict[str, Any], ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["entrypoints"] = [asdict(item) for item in self.entrypoints]
+        payload["warnings"] = [dict(item) for item in self.warnings]
+        return payload
+
+
+def inspect_strategy_source(source: str) -> SourceInspection:
+    encoded = source.encode("utf-8")
+    if not source.strip():
+        raise StrategySourceError("strategy source must not be empty")
+    if len(encoded) > MAX_STRATEGY_SOURCE_BYTES:
+        raise StrategySourceError(
+            f"strategy source must not exceed {MAX_STRATEGY_SOURCE_BYTES} bytes"
+        )
+    try:
+        tree = ast.parse(source, filename="<alphalab-strategy-sdk-v1>")
+    except SyntaxError as exc:
+        raise StrategySourceError(
+            f"Python syntax error at line {exc.lineno}: {exc.msg}", phase="parse"
+        ) from exc
+
+    sdk_version = _literal_assignment(tree, "SDK_VERSION")
+    if sdk_version != 1:
+        raise StrategySourceError("strategy must declare literal SDK_VERSION = 1", phase="register")
+    data_requirements = _data_requirements(tree)
+    runtime_requirements = _runtime_requirements(tree)
+    entrypoints: list[EntrypointSpec] = []
+    public_ids: dict[str, str] = {}
+    event_keys: set[str] = set()
+    counts: dict[str, int] = {}
+
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        registration = _registered_decorator(node)
+        if registration is None:
+            continue
+        if isinstance(node, ast.AsyncFunctionDef):
+            raise StrategySourceError(
+                f"registered function {node.name} must be synchronous", phase="register"
+            )
+        kind, decorator = registration
+        public_id = _decorator_literal(decorator, "id") or node.name
+        if not isinstance(public_id, str) or not public_id or public_id.startswith("_"):
+            raise StrategySourceError(f"invalid public id on {node.name}", phase="register")
+        if public_id in public_ids:
+            raise StrategySourceError(
+                f"duplicate registered id {public_id!r}: {public_ids[public_id]} and {node.name}",
+                phase="register",
+            )
+        public_ids[public_id] = node.name
+        label = _decorator_literal(decorator, "label")
+        event = _event_value(decorator.args[0]) if kind == "event" and decorator.args else None
+        if kind == "event":
+            if event is None:
+                raise StrategySourceError(
+                    f"@on_event on {node.name} requires a literal Event key", phase="register"
+                )
+            if event in event_keys:
+                raise StrategySourceError(
+                    f"duplicate @on_event handler for {event}", phase="register"
+                )
+            event_keys.add(event)
+        counts[kind] = counts.get(kind, 0) + 1
+        _validate_signature(node, kind)
+        metadata = _decorator_metadata(kind, decorator)
+        parameters = tuple(_parameters(node, source))
+        entrypoints.append(
+            EntrypointSpec(
+                kind=kind,
+                id=public_id,
+                function=node.name,
+                label=label if isinstance(label, str) else None,
+                event=event,
+                metadata=metadata,
+                parameters=parameters,
+                line=int(node.lineno),
+            )
+        )
+
+    for kind, required in _REQUIRED.items():
+        actual = counts.get(kind, 0)
+        if actual != required:
+            raise StrategySourceError(
+                f"strategy requires exactly {required} @{kind} function; found {actual}",
+                phase="register",
+            )
+
+    _validate_factor_dependencies(tree, entrypoints)
+
+    try:
+        compile(tree, "<alphalab-strategy-sdk-v1>", "exec")
+    except Exception as exc:
+        raise StrategySourceError(str(exc), phase="compile") from exc
+    return SourceInspection(
+        valid=True,
+        sdk_version=1,
+        source_sha256=hashlib.sha256(encoded).hexdigest(),
+        source_bytes=len(encoded),
+        validator_version=VALIDATOR_VERSION,
+        entrypoints=tuple(entrypoints),
+        data_requirements=data_requirements,
+        runtime_requirements=runtime_requirements,
+        warnings=tuple(_static_warnings(tree)),
+    )
+
+
+def update_parameter_default(
+    source: str,
+    *,
+    entrypoint_id: str,
+    parameter: str,
+    value: Any,
+) -> tuple[str, SourceInspection]:
+    inspect_strategy_source(source)
+    expression = _literal_cst(value)
+    transformer = _ParameterTransformer(entrypoint_id, parameter, expression)
+    updated = cst.parse_module(source).visit(transformer).code
+    if not transformer.changed:
+        raise StrategySourceError(
+            f"editable parameter {entrypoint_id}.{parameter} was not found", phase="edit"
+        )
+    return updated, inspect_strategy_source(updated)
+
+
+def update_signal_schedule(
+    source: str,
+    *,
+    signal_id: str,
+    frequency: str,
+    selector: str,
+    at: str,
+) -> tuple[str, SourceInspection]:
+    if frequency == "daily":
+        expression_source = f'Daily.at("{at}")'
+    else:
+        factory = {"weekly": "Weekly", "monthly": "Monthly"}.get(frequency)
+        if factory is None or selector not in {"first_trading_day", "last_trading_day"}:
+            raise StrategySourceError("unsupported structured schedule", phase="edit")
+        expression_source = f'{factory}.{selector}(at="{at}")'
+    if at not in {"open", "close"}:
+        raise StrategySourceError("schedule at must be open or close", phase="edit")
+    transformer = _DecoratorArgumentTransformer(
+        "signal", signal_id, "schedule", cst.parse_expression(expression_source)
+    )
+    updated = cst.parse_module(source).visit(transformer).code
+    if not transformer.changed:
+        raise StrategySourceError(f"signal {signal_id!r} was not found", phase="edit")
+    return updated, inspect_strategy_source(updated)
+
+
+def replace_registered_function(
+    source: str,
+    *,
+    entrypoint_id: str,
+    function_source: str,
+) -> tuple[str, SourceInspection]:
+    replacement_module = cst.parse_module(function_source)
+    replacements = [item for item in replacement_module.body if isinstance(item, cst.FunctionDef)]
+    if len(replacements) != 1:
+        raise StrategySourceError("replacement must contain exactly one function", phase="edit")
+    transformer = _FunctionTransformer(entrypoint_id, replacements[0])
+    updated = cst.parse_module(source).visit(transformer).code
+    if not transformer.changed:
+        raise StrategySourceError(f"entrypoint {entrypoint_id!r} was not found", phase="edit")
+    return updated, inspect_strategy_source(updated)
+
+
+def insert_source(source: str, *, cursor: int, snippet: str) -> tuple[str, SourceInspection | None]:
+    position = max(0, min(int(cursor), len(source)))
+    updated = source[:position] + snippet + source[position:]
+    try:
+        return updated, inspect_strategy_source(updated)
+    except StrategySourceError:
+        return updated, None
+
+
+def factor_field_snippet(field: str) -> str:
+    normalized = str(field).strip()
+    if not normalized.isidentifier() or normalized.startswith("_"):
+        raise StrategySourceError("field must be a public Python identifier", phase="edit")
+    if normalized in {"open", "high", "low", "close", "volume", "amount"}:
+        return f'{normalized} = context.history("{normalized}", window=window)'
+    return f'{normalized} = context.fundamental("{normalized}")'
+
+
+def factor_dependency_snippet(factor_id: str, **parameters: Any) -> str:
+    normalized = str(factor_id).strip()
+    if not normalized:
+        raise StrategySourceError("factor id must not be empty", phase="edit")
+    variable = normalized.replace("-", "_")
+    if not variable.isidentifier() or variable.startswith("_"):
+        variable = "factor_value"
+    arguments = ", ".join(f"{key}={value!r}" for key, value in parameters.items())
+    suffix = f", {arguments}" if arguments else ""
+    return f"{variable} = context.factor({normalized!r}{suffix})"
+
+
+def _literal_assignment(tree: ast.Module, name: str) -> Any:
+    for node in tree.body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(target, ast.Name) and target.id == name for target in targets):
+                value = node.value
+                try:
+                    return ast.literal_eval(value)
+                except (ValueError, TypeError):
+                    return None
+    return None
+
+
+def _mapping_assignment(tree: ast.Module, name: str) -> dict[str, Any]:
+    value = _literal_assignment(tree, name)
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        raise StrategySourceError(
+            f"{name} must be a literal string-keyed mapping", phase="register"
+        )
+    return value
+
+
+def _data_requirements(tree: ast.Module) -> dict[str, list[str]]:
+    value = _mapping_assignment(tree, "DATA_REQUIREMENTS")
+    unsupported = sorted(set(value) - {"bars", "fundamentals", "instruments"})
+    if unsupported:
+        raise StrategySourceError(
+            f"unsupported DATA_REQUIREMENTS datasets: {unsupported}", phase="register"
+        )
+    normalized: dict[str, list[str]] = {}
+    for dataset, raw_fields in value.items():
+        if not dataset.strip():
+            raise StrategySourceError(
+                "DATA_REQUIREMENTS dataset names must not be empty", phase="register"
+            )
+        if not isinstance(raw_fields, (list, tuple)):
+            raise StrategySourceError(
+                f"DATA_REQUIREMENTS[{dataset!r}] must be a literal list of fields",
+                phase="register",
+            )
+        fields = list(raw_fields)
+        if not all(isinstance(field, str) and field.strip() for field in fields):
+            raise StrategySourceError(
+                f"DATA_REQUIREMENTS[{dataset!r}] contains an invalid field",
+                phase="register",
+            )
+        if len(fields) != len(set(fields)):
+            raise StrategySourceError(
+                f"DATA_REQUIREMENTS[{dataset!r}] contains duplicate fields",
+                phase="register",
+            )
+        normalized[dataset] = fields
+    return normalized
+
+
+def _runtime_requirements(tree: ast.Module) -> dict[str, str]:
+    value = _mapping_assignment(tree, "RUNTIME_REQUIREMENTS")
+    normalized: dict[str, str] = {}
+    for package, raw_specifier in value.items():
+        if not package.strip() or not isinstance(raw_specifier, str):
+            raise StrategySourceError(
+                "RUNTIME_REQUIREMENTS must map package names to specifier strings",
+                phase="register",
+            )
+        try:
+            SpecifierSet(raw_specifier)
+        except InvalidSpecifier as exc:
+            raise StrategySourceError(
+                f"invalid runtime requirement for {package}: {raw_specifier}",
+                phase="register",
+            ) from exc
+        normalized[package] = raw_specifier
+    return normalized
+
+
+def _decorator_name(value: ast.expr) -> str | None:
+    target = value.func if isinstance(value, ast.Call) else value
+    if isinstance(target, ast.Name):
+        return target.id
+    if isinstance(target, ast.Attribute):
+        return target.attr
+    return None
+
+
+def _registered_decorator(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> tuple[str, ast.Call] | None:
+    found: list[tuple[str, ast.Call]] = []
+    for decorator in node.decorator_list:
+        name = _decorator_name(decorator)
+        if name == "on_event":
+            if not isinstance(decorator, ast.Call):
+                raise StrategySourceError("@on_event requires an Event argument", phase="register")
+            found.append(("event", decorator))
+        elif name in _KINDS:
+            found.append(
+                (
+                    name,
+                    (
+                        decorator
+                        if isinstance(decorator, ast.Call)
+                        else ast.Call(func=decorator, args=[], keywords=[])
+                    ),
+                )
+            )
+    if len(found) > 1:
+        raise StrategySourceError(
+            f"function {node.name} has multiple AlphaLab registrations", phase="register"
+        )
+    return found[0] if found else None
+
+
+def _decorator_literal(decorator: ast.Call, name: str) -> Any:
+    keyword = next((item for item in decorator.keywords if item.arg == name), None)
+    if keyword is None:
+        return None
+    try:
+        return ast.literal_eval(keyword.value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _event_value(value: ast.expr) -> str | None:
+    if (
+        isinstance(value, ast.Attribute)
+        and isinstance(value.value, ast.Name)
+        and value.value.id == "Event"
+    ):
+        return value.attr.lower()
+    try:
+        literal = ast.literal_eval(value)
+    except (ValueError, TypeError):
+        return None
+    return str(literal).lower() if literal is not None else None
+
+
+def _schedule_metadata(value: ast.expr) -> dict[str, Any]:
+    if not isinstance(value, ast.Call) or not isinstance(value.func, ast.Attribute):
+        return {"mode": "custom", "source": ast.unparse(value)}
+    owner = value.func.value
+    if not isinstance(owner, ast.Name) or owner.id not in {"Daily", "Weekly", "Monthly"}:
+        return {"mode": "custom", "source": ast.unparse(value)}
+    at_value = next((item.value for item in value.keywords if item.arg == "at"), None)
+    try:
+        at = ast.literal_eval(at_value) if at_value is not None else None
+    except (ValueError, TypeError):
+        at = None
+    selector = value.func.attr
+    if owner.id == "Daily" and selector == "at" and at in {"open", "close"}:
+        return {"mode": "structured", "frequency": "daily", "selector": "every", "at": at}
+    if selector in {"first_trading_day", "last_trading_day"} and at in {"open", "close"}:
+        return {"mode": "structured", "frequency": owner.id.lower(), "selector": selector, "at": at}
+    return {"mode": "custom", "source": ast.unparse(value)}
+
+
+def _decorator_metadata(kind: str, decorator: ast.Call) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    if kind == "factor":
+        inputs = _decorator_literal(decorator, "inputs")
+        metadata["inputs"] = list(inputs) if isinstance(inputs, (list, tuple)) else []
+    if kind == "signal":
+        schedule_value = next(
+            (item.value for item in decorator.keywords if item.arg == "schedule"), None
+        )
+        metadata["schedule"] = (
+            _schedule_metadata(schedule_value) if schedule_value is not None else {"mode": "custom"}
+        )
+    return metadata
+
+
+def _validate_signature(node: ast.FunctionDef, kind: str) -> None:
+    if node.args.vararg or node.args.kwarg or node.args.posonlyargs:
+        raise StrategySourceError(
+            f"registered function {node.name} cannot use positional-only, *args, or **kwargs",
+            phase="register",
+        )
+    positional = len(node.args.args)
+    expected = _EXPECTED_POSITIONAL[kind]
+    if positional != expected:
+        raise StrategySourceError(
+            f"@{kind} function {node.name} requires {expected} positional arguments; found {positional}",
+            phase="register",
+        )
+
+
+def _parameters(node: ast.FunctionDef, source: str) -> Iterable[ParameterSpec]:
+    for argument, default in zip(node.args.kwonlyargs, node.args.kw_defaults):
+        annotation = (
+            ast.get_source_segment(source, argument.annotation) if argument.annotation else None
+        )
+        metadata = _parameter_metadata(argument.annotation)
+        if default is None:
+            yield ParameterSpec(
+                argument.arg,
+                annotation,
+                None,
+                False,
+                None,
+                **metadata,
+            )
+            continue
+        default_source = ast.get_source_segment(source, default) or ast.unparse(default)
+        try:
+            value = ast.literal_eval(default)
+            editable = _supported_literal(value)
+        except (ValueError, TypeError):
+            value = None
+            editable = False
+        _validate_parameter_bounds(argument.arg, value, editable, metadata)
+        yield ParameterSpec(
+            name=argument.arg,
+            annotation=annotation,
+            default=value,
+            editable=editable,
+            custom_source=None if editable else default_source,
+            **metadata,
+        )
+
+
+def _parameter_metadata(annotation: ast.expr | None) -> dict[str, Any]:
+    empty = {
+        "label": None,
+        "description": None,
+        "minimum": None,
+        "maximum": None,
+        "step": None,
+    }
+    if not isinstance(annotation, ast.Subscript):
+        return empty
+    owner = annotation.value
+    owner_name = (
+        owner.id
+        if isinstance(owner, ast.Name)
+        else owner.attr if isinstance(owner, ast.Attribute) else None
+    )
+    if owner_name != "Annotated":
+        return empty
+    elements = annotation.slice.elts if isinstance(annotation.slice, ast.Tuple) else ()
+    parameter_call = next(
+        (
+            item
+            for item in elements[1:]
+            if isinstance(item, ast.Call) and _call_name(item) == "Parameter"
+        ),
+        None,
+    )
+    if parameter_call is None:
+        return empty
+    names = ("label", "description", "minimum", "maximum", "step")
+    if len(parameter_call.args) > len(names) or any(
+        item.arg is None for item in parameter_call.keywords
+    ):
+        raise StrategySourceError(
+            "Parameter metadata must use literal constructor arguments", phase="register"
+        )
+    values: dict[str, Any] = dict(empty)
+    for name, expression in zip(names, parameter_call.args):
+        values[name] = _metadata_literal(expression, name)
+    for keyword in parameter_call.keywords:
+        assert keyword.arg is not None
+        if keyword.arg not in values:
+            raise StrategySourceError(
+                f"unsupported Parameter metadata field {keyword.arg!r}", phase="register"
+            )
+        if keyword.arg in names[: len(parameter_call.args)]:
+            raise StrategySourceError(
+                f"duplicate Parameter metadata field {keyword.arg!r}", phase="register"
+            )
+        values[keyword.arg] = _metadata_literal(keyword.value, keyword.arg)
+    for name in ("label", "description"):
+        if values[name] is not None and not isinstance(values[name], str):
+            raise StrategySourceError(
+                f"Parameter {name} must be a string or None", phase="register"
+            )
+    for name in ("minimum", "maximum", "step"):
+        item = values[name]
+        if item is not None and (
+            isinstance(item, bool)
+            or not isinstance(item, (int, float))
+            or not math.isfinite(float(item))
+        ):
+            raise StrategySourceError(
+                f"Parameter {name} must be a finite number or None", phase="register"
+            )
+    if values["step"] is not None and values["step"] <= 0:
+        raise StrategySourceError("Parameter step must be positive", phase="register")
+    if (
+        values["minimum"] is not None
+        and values["maximum"] is not None
+        and values["minimum"] > values["maximum"]
+    ):
+        raise StrategySourceError("Parameter minimum must not exceed maximum", phase="register")
+    return values
+
+
+def _call_name(value: ast.Call) -> str | None:
+    if isinstance(value.func, ast.Name):
+        return value.func.id
+    if isinstance(value.func, ast.Attribute):
+        return value.func.attr
+    return None
+
+
+def _metadata_literal(expression: ast.expr, name: str) -> Any:
+    try:
+        return ast.literal_eval(expression)
+    except (ValueError, TypeError):
+        raise StrategySourceError(
+            f"Parameter {name} metadata must be literal", phase="register"
+        ) from None
+
+
+def _validate_parameter_bounds(
+    name: str,
+    value: Any,
+    editable: bool,
+    metadata: dict[str, Any],
+) -> None:
+    if not editable or isinstance(value, bool) or not isinstance(value, (int, float)):
+        return
+    minimum = metadata["minimum"]
+    maximum = metadata["maximum"]
+    if minimum is not None and value < minimum:
+        raise StrategySourceError(
+            f"parameter {name} default is below its minimum", phase="register"
+        )
+    if maximum is not None and value > maximum:
+        raise StrategySourceError(
+            f"parameter {name} default is above its maximum", phase="register"
+        )
+
+
+def _supported_literal(value: Any) -> bool:
+    return (
+        value is None
+        or isinstance(value, (bool, int, str))
+        or (isinstance(value, float) and math.isfinite(value))
+    )
+
+
+def _validate_factor_dependencies(
+    tree: ast.Module,
+    entrypoints: Iterable[EntrypointSpec],
+) -> None:
+    factor_ids = {item.id for item in entrypoints if item.kind == "factor"}
+    function_to_id = {item.function: item.id for item in entrypoints if item.kind == "factor"}
+    graph: dict[str, set[str]] = {factor_id: set() for factor_id in factor_ids}
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef) or node.name not in function_to_id:
+            continue
+        source_id = function_to_id[node.name]
+        for child in ast.walk(node):
+            if not (
+                isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Attribute)
+                and child.func.attr == "factor"
+                and isinstance(child.func.value, ast.Name)
+                and child.func.value.id == node.args.args[0].arg
+                and child.args
+            ):
+                continue
+            try:
+                dependency = ast.literal_eval(child.args[0])
+            except (TypeError, ValueError):
+                raise StrategySourceError(
+                    f"factor {source_id!r} must reference dependencies by literal id",
+                    phase="register",
+                ) from None
+            if not isinstance(dependency, str) or dependency not in factor_ids:
+                raise StrategySourceError(
+                    f"factor {source_id!r} references unknown factor {dependency!r}",
+                    phase="register",
+                )
+            graph[source_id].add(dependency)
+
+    visiting: list[str] = []
+    visited: set[str] = set()
+
+    def visit(factor_id: str) -> None:
+        if factor_id in visited:
+            return
+        if factor_id in visiting:
+            start = visiting.index(factor_id)
+            cycle = [*visiting[start:], factor_id]
+            raise StrategySourceError(
+                f"factor dependency cycle: {' -> '.join(cycle)}", phase="register"
+            )
+        visiting.append(factor_id)
+        for dependency in sorted(graph[factor_id]):
+            visit(dependency)
+        visiting.pop()
+        visited.add(factor_id)
+
+    for factor_id in sorted(graph):
+        visit(factor_id)
+
+
+def _static_warnings(tree: ast.Module) -> Iterable[dict[str, Any]]:
+    risky_imports = {
+        "datetime",
+        "httpx",
+        "os",
+        "pathlib",
+        "random",
+        "requests",
+        "secrets",
+        "socket",
+        "subprocess",
+        "time",
+        "urllib",
+    }
+    risky_calls = {"eval", "exec", "compile", "open", "__import__"}
+    seen: set[tuple[int, str]] = set()
+    for node in ast.walk(tree):
+        message = None
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            names = (
+                [item.name.split(".")[0] for item in node.names]
+                if isinstance(node, ast.Import)
+                else [str(node.module or "").split(".")[0]]
+            )
+            risky = sorted(set(names) & risky_imports)
+            if risky:
+                message = (
+                    f"trusted-local code imports capability-sensitive module(s): {', '.join(risky)}"
+                )
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in risky_calls
+        ):
+            message = f"trusted-local code calls {node.func.id}()"
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            message = "strategy mutates non-local state; prefer the bounded SDK State value"
+        if message is not None:
+            key = (int(getattr(node, "lineno", 0)), message)
+            if key not in seen:
+                seen.add(key)
+                yield {"line": key[0], "code": "trusted_local_capability", "message": message}
+    for node in tree.body:
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        names = {target.id for target in targets if isinstance(target, ast.Name)}
+        if names & {"DATA_REQUIREMENTS", "RUNTIME_REQUIREMENTS"}:
+            continue
+        value = node.value
+        if isinstance(value, (ast.Dict, ast.List, ast.Set)):
+            message = (
+                "module-level mutable state is shared for a run; prefer the bounded SDK State value"
+            )
+            key = (int(getattr(node, "lineno", 0)), message)
+            if key not in seen:
+                seen.add(key)
+                yield {
+                    "line": key[0],
+                    "code": "mutable_module_state",
+                    "message": message,
+                }
+
+
+def _literal_cst(value: Any) -> cst.BaseExpression:
+    if not _supported_literal(value):
+        raise StrategySourceError(
+            "structured parameters support only bool, int, finite float, str, or None",
+            phase="edit",
+        )
+    return cst.parse_expression(repr(value))
+
+
+def _cst_decorator_name(decorator: cst.Decorator) -> str | None:
+    value = decorator.decorator
+    target = value.func if isinstance(value, cst.Call) else value
+    if isinstance(target, cst.Name):
+        return target.value
+    if isinstance(target, cst.Attribute):
+        return target.attr.value
+    return None
+
+
+def _cst_public_id(node: cst.FunctionDef) -> tuple[str | None, str | None]:
+    for decorator in node.decorators:
+        name = _cst_decorator_name(decorator)
+        if name not in _KINDS | {"on_event"}:
+            continue
+        call = decorator.decorator
+        if isinstance(call, cst.Call):
+            for argument in call.args:
+                if (
+                    argument.keyword
+                    and argument.keyword.value == "id"
+                    and isinstance(argument.value, cst.SimpleString)
+                ):
+                    return ("event" if name == "on_event" else name), ast.literal_eval(
+                        argument.value.value
+                    )
+        return ("event" if name == "on_event" else name), node.name.value
+    return None, None
+
+
+class _ParameterTransformer(cst.CSTTransformer):
+    def __init__(self, entrypoint_id: str, parameter: str, value: cst.BaseExpression) -> None:
+        self.entrypoint_id = entrypoint_id
+        self.parameter = parameter
+        self.value = value
+        self.changed = False
+
+    def leave_FunctionDef(
+        self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef
+    ) -> cst.FunctionDef:
+        _, public_id = _cst_public_id(original_node)
+        if public_id != self.entrypoint_id:
+            return updated_node
+        parameters = []
+        for item in updated_node.params.kwonly_params:
+            if item.name.value == self.parameter:
+                if item.default is None:
+                    raise StrategySourceError(
+                        f"parameter {self.parameter} has no editable default", phase="edit"
+                    )
+                item = item.with_changes(default=self.value)
+                self.changed = True
+            parameters.append(item)
+        return updated_node.with_changes(
+            params=updated_node.params.with_changes(kwonly_params=tuple(parameters))
+        )
+
+
+class _DecoratorArgumentTransformer(cst.CSTTransformer):
+    def __init__(self, kind: str, public_id: str, argument: str, value: cst.BaseExpression) -> None:
+        self.kind = kind
+        self.public_id = public_id
+        self.argument = argument
+        self.value = value
+        self.changed = False
+
+    def leave_FunctionDef(
+        self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef
+    ) -> cst.FunctionDef:
+        kind, public_id = _cst_public_id(original_node)
+        if kind != self.kind or public_id != self.public_id:
+            return updated_node
+        decorators = []
+        for decorator in updated_node.decorators:
+            if _cst_decorator_name(decorator) != self.kind or not isinstance(
+                decorator.decorator, cst.Call
+            ):
+                decorators.append(decorator)
+                continue
+            arguments = list(decorator.decorator.args)
+            replaced = False
+            for index, item in enumerate(arguments):
+                if item.keyword and item.keyword.value == self.argument:
+                    arguments[index] = item.with_changes(value=self.value)
+                    replaced = True
+                    break
+            if not replaced:
+                arguments.append(cst.Arg(value=self.value, keyword=cst.Name(self.argument)))
+            decorators.append(
+                decorator.with_changes(
+                    decorator=decorator.decorator.with_changes(args=tuple(arguments))
+                )
+            )
+            self.changed = True
+        return updated_node.with_changes(decorators=tuple(decorators))
+
+
+class _FunctionTransformer(cst.CSTTransformer):
+    def __init__(self, public_id: str, replacement: cst.FunctionDef) -> None:
+        self.public_id = public_id
+        self.replacement = replacement
+        self.changed = False
+
+    def leave_FunctionDef(
+        self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef
+    ) -> cst.FunctionDef:
+        _, current_id = _cst_public_id(original_node)
+        if current_id != self.public_id:
+            return updated_node
+        self.changed = True
+        return self.replacement.with_changes(
+            leading_lines=updated_node.leading_lines,
+            lines_after_decorators=updated_node.lines_after_decorators,
+        )
+
+
+__all__ = [
+    "EntrypointSpec",
+    "MAX_STRATEGY_SOURCE_BYTES",
+    "ParameterSpec",
+    "SourceInspection",
+    "StrategySourceError",
+    "VALIDATOR_VERSION",
+    "factor_dependency_snippet",
+    "factor_field_snippet",
+    "insert_source",
+    "inspect_strategy_source",
+    "replace_registered_function",
+    "update_parameter_default",
+    "update_signal_schedule",
+]

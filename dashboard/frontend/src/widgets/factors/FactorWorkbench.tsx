@@ -1,227 +1,197 @@
-import { useEffect, useMemo, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
-import {
-  FlaskConical,
-  Plus,
-  Play,
-  Save,
-} from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { Braces, Database, FlaskConical, Play, Plus, Save } from "lucide-react"
 
-import { MarketResearchTerminal, type MarketRange, useMarketWatchlist } from "@/components/market"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useFactorLab } from "@/contexts/FactorLabContext"
-import { useWorkspace } from "@/contexts/WorkspaceContext"
-import { api, type MarketBar, type MarketInstrument } from "@/lib/api"
-import { useDataProfile } from "@/lib/data-profile"
-import { formatNumber } from "@/lib/utils"
+import { Textarea } from "@/components/ui/textarea"
+import { useStrategySdk, type SdkEntrypoint } from "@/contexts/StrategySdkContext"
+import { useConfirm } from "@/hooks/useConfirm"
+import { api } from "@/lib/api"
 import { Widget } from "@/widgets/Widget"
 
-import {
-  FactorEditorWidget,
-  FactorEvidenceWidget,
-  FactorLibraryWidget,
-  FactorSnapshotWidget,
-  FactorValidationSettings,
-} from "./FactorLabPanels"
-
-interface FundamentalPayload {
-  fields: string[]
-  asof_date: string
-  rows: Array<Record<string, string | number | null>>
+interface FieldCatalog {
+  profile: "demo" | "runtime"
+  start_date: string
+  end_date: string
+  datasets: Record<string, Array<{ name: string; data_type: string; nullable: boolean }>>
 }
 
-function dateBefore(endDate: string, range: MarketRange): string | null {
-  if (range === "all") return null
-  const start = new Date(`${endDate}T00:00:00`)
-  if (range === "3m") start.setMonth(start.getMonth() - 3)
-  if (range === "6m") start.setMonth(start.getMonth() - 6)
-  if (range === "1y") start.setFullYear(start.getFullYear() - 1)
-  return start.toISOString().slice(0, 10)
-}
-
-function displayValue(value: unknown): string {
-  if (typeof value === "string") return value || "—"
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—"
-  if (Math.abs(value) >= 1_000_000) {
-    return new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 2 }).format(value)
-  }
-  return formatNumber(value, Math.abs(value) < 1 ? 4 : 2)
-}
-
-function FactorResearchDataBrowser() {
-  const lab = useFactorLab()
-  const [profile] = useDataProfile()
-  const { activeMode, selectedSymbol, setSelectedSymbol } = useWorkspace()
-  const [range, setRange] = useState<MarketRange>("6m")
-  const [reloadRevision, setReloadRevision] = useState(0)
-  const { watchlist, toggleWatchlist } = useMarketWatchlist()
-  const endDate = lab.draft.endDate
-  const sources = lab.library?.data_sources ?? []
-  const fieldCount = sources.reduce((count, source) => count + source.fields.length, 0)
-
-  const symbolQuery = useQuery({
-    queryKey: ["factor-research", "data", "symbols", profile],
-    queryFn: () => api.get<{ instruments: MarketInstrument[] }>(`/data/market/symbols?profile=${profile}`),
-    enabled: activeMode === "factor",
-    staleTime: 60_000,
-  })
-  const instruments = symbolQuery.data?.instruments ?? []
-  const symbol = selectedSymbol && instruments.some((item) => item.symbol === selectedSymbol)
-    ? selectedSymbol
-    : instruments[0]?.symbol ?? ""
-
-  useEffect(() => {
-    if (symbol && symbol !== selectedSymbol) setSelectedSymbol(symbol)
-  }, [selectedSymbol, setSelectedSymbol, symbol])
-
-  const barsQuery = useQuery({
-    queryKey: ["factor-research", "data", "bars", profile, symbol, endDate, range, reloadRevision],
-    queryFn: () => {
-      const params = new URLSearchParams({
-        profile,
-        symbol,
-        end: endDate,
-      })
-      const start = dateBefore(endDate, range)
-      if (start) params.set("start", start)
-      return api.get<{ rows: MarketBar[] }>(`/data/market/bars?${params.toString()}`)
-    },
-    enabled: activeMode === "factor" && Boolean(symbol),
-    staleTime: 30_000,
-  })
-
-  const fundamentalsQuery = useQuery({
-    queryKey: ["factor-research", "data", "fundamentals", profile, symbol, endDate],
-    queryFn: () => {
-      const params = new URLSearchParams({ profile, asof_date: endDate, limit: "40" })
-      params.append("symbols", symbol)
-      return api.get<FundamentalPayload>(`/data/fundamentals?${params.toString()}`)
-    },
-    enabled: activeMode === "factor" && Boolean(symbol),
-    staleTime: 30_000,
-  })
-
-  const bars = barsQuery.data?.rows ?? []
-  const latestBar = bars.at(-1)
-  const fundamentalRows = useMemo(
-    () => [...(fundamentalsQuery.data?.rows ?? [])].sort((left, right) => String(left.quarter ?? "").localeCompare(String(right.quarter ?? ""))),
-    [fundamentalsQuery.data?.rows],
-  )
-  const latestFundamental = fundamentalRows.at(-1)
-
-  function insertField(name: string) {
-    lab.requestExpressionInsert(name)
-  }
-
-  return (
-    <section className="factor-source-browser" aria-label="因子研究数据">
-      <MarketResearchTerminal
-        instruments={instruments}
-        rows={bars}
-        symbol={symbol}
-        onSymbolChange={setSelectedSymbol}
-        range={range}
-        onRangeChange={setRange}
-        loading={symbolQuery.isLoading || barsQuery.isLoading}
-        error={barsQuery.error instanceof Error ? barsQuery.error.message : barsQuery.error ? String(barsQuery.error) : ""}
-        onReload={() => setReloadRevision((value) => value + 1)}
-        watchlist={watchlist}
-        onToggleWatchlist={toggleWatchlist}
-        dataLabel={`日线 · 截至 ${endDate}`}
-        emptyLabel="当前证券没有可用 K 线。"
-        density="compact"
-        contextPanelLabel="表达式数据字段"
-        contextPanel={(
-          <div className="factor-source-fields">
-          <div className="factor-source-fields-heading">
-            <div><strong>当前数据全部字段</strong><small>{profile === "runtime" ? "Local RQ" : "Demo"} Schema 自动生成；可计算字段点击后加入</small></div>
-            <span>{fieldCount} 个字段</span>
-          </div>
-          {fundamentalsQuery.isLoading ? <div className="factor-source-fields-status">正在读取财务截面…</div> : null}
-          {fundamentalsQuery.error ? <div className="factor-source-fields-status error">{fundamentalsQuery.error instanceof Error ? fundamentalsQuery.error.message : String(fundamentalsQuery.error)}</div> : null}
-          <div className="factor-source-field-groups">
-            {sources.map((source) => (
-              <section className="factor-source-field-group" key={source.id}>
-                <header><strong>{source.name}</strong><code>{source.endpoint}</code><span>{source.fields.length}</span></header>
-                <div className="factor-source-field-grid">
-                  {source.fields.map((field) => {
-                    const value = source.id === "market_bars"
-                      ? latestBar?.[field.name as keyof MarketBar]
-                      : latestFundamental?.[field.name]
-                    const content = (
-                      <>
-                        <span><code>{field.name}</code><small>{field.label}</small></span>
-                        <strong>{displayValue(value)}</strong>
-                        {field.expression_compatible ? <Plus size={11} /> : <em>{field.data_type === "number" ? "只读" : "索引"}</em>}
-                      </>
-                    )
-                    return field.expression_compatible ? (
-                      <button className="factor-source-field" type="button" key={`${source.id}-${field.name}`} title={`把 ${field.name} 插入表达式`} onClick={() => insertField(field.name)}>{content}</button>
-                    ) : (
-                      <div className="factor-source-field index" key={`${source.id}-${field.name}`} title={`${field.name}：当前字段只读`}>{content}</div>
-                    )
-                  })}
-                </div>
-              </section>
-            ))}
-          </div>
-          </div>
-        )}
-      />
-    </section>
-  )
+function factorSnippet(id = "new_factor") {
+  return `\n\n@factor(id="${id}", inputs=["close"])\ndef ${id}(context, *, window: int = 20):\n    close = context.history("close", window=window)\n    return close.iloc[-1] / close.iloc[0] - 1.0\n`
 }
 
 export function FactorWorkbenchWidget() {
-  const lab = useFactorLab()
-  const validated = Boolean(lab.result && !lab.resultStale)
-  const savesToLibrary = lab.draft.source === "expression" && !lab.editingOriginalName
-  const draftComplete = Boolean(lab.draft.name.trim() && (lab.draft.source !== "expression" || lab.draft.expression.trim()))
-  const canSave = Boolean(draftComplete && (savesToLibrary || lab.project?.editable))
-  const runDisabled = !lab.draft.name.trim() || (lab.draft.source === "expression" && !lab.draft.expression.trim())
+  const sdk = useStrategySdk()
+  const confirm = useConfirm()
+  const project = sdk.project
+  const editor = useRef<HTMLTextAreaElement | null>(null)
+  const [source, setSource] = useState("")
+  const [selectedFactor, setSelectedFactor] = useState("")
+  const [fields, setFields] = useState<FieldCatalog | null>(null)
+  const [startDate, setStartDate] = useState("")
+  const [endDate, setEndDate] = useState("")
+  const [result, setResult] = useState<Record<string, unknown> | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const factors = useMemo(
+    () => project?.inspection.entrypoints.filter((item) => item.kind === "factor") ?? [],
+    [project?.inspection.entrypoints],
+  )
+  const activeFactor = factors.find((item) => item.id === selectedFactor) ?? factors[0]
 
+  useEffect(() => {
+    setSource(project?.draft_source ?? "")
+    if (project && !factors.some((item) => item.id === selectedFactor)) setSelectedFactor(factors[0]?.id ?? "")
+  }, [project?.id, project?.draft_source_sha256, factors, selectedFactor])
+
+  useEffect(() => {
+    if (!project) return
+    void api.get<FieldCatalog>(`/strategy/fields?profile=${project.profile}`).then((value) => {
+      setFields(value); setStartDate(value.start_date); setEndDate(value.end_date)
+    }).catch((reason: Error) => setError(reason.message))
+  }, [project?.profile])
+
+  function insert(text: string) {
+    const node = editor.current
+    const cursor = node?.selectionStart ?? source.indexOf("@signal")
+    const position = cursor >= 0 ? cursor : source.length
+    const lineStart = source.lastIndexOf("\n", Math.max(0, position - 1)) + 1
+    const indent = source.slice(lineStart, position).match(/^\s*/)?.[0] ?? ""
+    const normalized = text.split("\n").map((line, index) => index === 0 ? line : `${indent}${line}`).join("\n")
+    const updated = source.slice(0, position) + normalized + source.slice(position)
+    setSource(updated)
+    requestAnimationFrame(() => {
+      node?.focus(); node?.setSelectionRange(position + normalized.length, position + normalized.length)
+    })
+  }
+
+  function insertFactorStatement(text: string) {
+    const node = editor.current
+    if (!activeFactor) return
+    const definition = source.indexOf(`def ${activeFactor.function}(`)
+    const blockEnd = source.indexOf("\n@", Math.max(0, definition))
+    const boundedEnd = blockEnd >= 0 ? blockEnd : source.length
+    const caret = node?.selectionStart ?? -1
+    if (node && document.activeElement === node && caret > definition && caret < boundedEnd) {
+      insert(text)
+      return
+    }
+    const returnLine = source.indexOf("\n    return", Math.max(0, definition))
+    const position = returnLine >= 0 && returnLine < boundedEnd ? returnLine + 5 : boundedEnd
+    const updated = `${source.slice(0, position)}${text}\n    ${source.slice(position)}`
+    setSource(updated)
+    requestAnimationFrame(() => {
+      node?.focus(); node?.setSelectionRange(position + text.length, position + text.length)
+    })
+  }
+
+  function insertField(field: string, dataset: string) {
+    const code = dataset === "market_bars"
+      ? `${field} = context.history("${field}", window=20)`
+      : `${field} = context.fundamental("${field}")`
+    insertFactorStatement(code)
+  }
+
+  function insertFactorDependency(factor: SdkEntrypoint) {
+    insertFactorStatement(`${factor.id.replace(/-/g, "_")}_value = context.factor("${factor.id}")`)
+  }
+
+  async function saveDraft() {
+    if (!project?.editable) return
+    setBusy(true); setError("")
+    try { await sdk.updateDraft(source) }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setBusy(false) }
+  }
+
+  async function evaluate(history: boolean) {
+    if (!project || !activeFactor || project.dirty) return
+    if (!await confirm({
+      title: history ? "运行单因子历史检验" : "运行因子截面",
+      description: `将直接调用 ${project.id}@${project.current_revision} 中保存的 @factor(${activeFactor.id})。本机 Python 不是安全沙箱。`,
+      confirmText: "运行",
+    })) return
+    setBusy(true); setError("")
+    try {
+      const endpoint = `/strategy/projects/${project.id}/factors/${activeFactor.id}/${history ? "history" : "snapshot"}`
+      const body = history
+        ? { profile: project.profile, start_date: startDate, end_date: endDate, revision: project.current_revision, frequency: "monthly", parameters: {}, confirm_python_execution: true }
+        : { profile: project.profile, as_of_date: endDate, revision: project.current_revision, parameters: {}, confirm_python_execution: true }
+      setResult(await api.post<Record<string, unknown>>(endpoint, body))
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setBusy(false) }
+  }
+
+  if (!project) return <Widget title="因子研究" loading={sdk.loading} error={sdk.error}><span /></Widget>
   return (
-    <Widget headerless>
-      <div className="factor-workbench-shell">
-        <FactorResearchDataBrowser />
-
-        <Tabs className="factor-workbench-tabs" value={lab.workspaceView} onValueChange={(value) => lab.setWorkspaceView(value as "build" | "results")}>
-          <div className="factor-workbench-toolbar">
-            <TabsList>
-              <TabsTrigger value="build">因子编辑</TabsTrigger>
-              <TabsTrigger value="results">最终验证{lab.resultStale ? <span className="factor-tab-warning">定义已变化</span> : null}</TabsTrigger>
-            </TabsList>
-            {lab.workspaceView === "results" ? (
-              <div className="factor-workbench-actions">
-                <span className={validated ? "factor-validation-ready" : "factor-build-hint"}>{validated ? `已验证 · ${lab.result?.periods ?? 0} 个截面` : "尚未运行最终验证"}</span>
-                <Button size="sm" onClick={() => void (savesToLibrary ? lab.saveCustomFactor() : lab.saveToProject())} disabled={!canSave} isLoading={lab.saving} title={canSave ? savesToLibrary ? "保存到可用因子库" : "保存到当前项目" : "请填写完整因子定义；项目因子还需要选择可编辑项目"}><Save />{lab.editingOriginalName ? "保存项目修改" : savesToLibrary ? "保存到因子库" : "加入项目"}</Button>
+    <Widget
+      title="因子研究"
+      error={error}
+      bodyClassName="overflow-auto"
+      actions={<Button size="sm" disabled={!project.editable || busy} onClick={() => void saveDraft()}><Save />保存同一草稿</Button>}
+    >
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <Badge>Python 因子函数</Badge><Badge variant="outline">r{project.current_revision}</Badge>
+        <code>{project.draft_source_sha256.slice(0, 18)}</code>
+        <span className="text-muted-foreground">字段、因子依赖、参数表单都直接修改这份源码。</span>
+      </div>
+      <div className="grid gap-3 xl:grid-cols-[240px_minmax(0,1fr)_300px]">
+        <aside className="space-y-3 rounded-md border border-border p-3">
+          <div className="flex items-center gap-2 text-sm font-medium"><FlaskConical />已注册因子</div>
+          {factors.map((factor) => (
+            <button key={factor.id} className={`w-full rounded border p-2 text-left text-xs ${activeFactor?.id === factor.id ? "border-primary bg-primary/10" : "border-border"}`} onClick={() => setSelectedFactor(factor.id)}>
+              <strong>{factor.label || factor.id}</strong><br /><code>{factor.function}</code>
+            </button>
+          ))}
+          <Button variant="outline" className="w-full" disabled={!project.editable} onClick={() => {
+            const marker = source.indexOf("\n@signal")
+            const position = marker >= 0 ? marker : source.length
+            setSource(`${source.slice(0, position)}${factorSnippet(`factor_${factors.length + 1}`)}${source.slice(position)}`)
+          }}><Plus />插入新 @factor</Button>
+          {activeFactor?.parameters.map((parameter) => (
+            <div key={parameter.name} className="rounded bg-muted p-2 text-xs">
+              <div className="font-medium">{parameter.label || parameter.name}{parameter.label ? <code className="ml-1 text-muted-foreground">{parameter.name}</code> : null}</div>
+              <div className="text-muted-foreground">
+                默认值 {String(parameter.default)} · {parameter.editable ? "表单可编辑" : "custom"}
+                {parameter.minimum !== null || parameter.maximum !== null ? ` · 范围 ${parameter.minimum ?? "−∞"}…${parameter.maximum ?? "+∞"}` : ""}
               </div>
-            ) : <span className="factor-build-hint">构建阶段不运行：先把数据字段和表达式定义清楚</span>}
-          </div>
-
-          {lab.error ? <div className="workbench-message error factor-workbench-error">{lab.error}</div> : null}
-
-          <TabsContent className="factor-workbench-content" value="build">
-            <div className="factor-build-grid">
-              <FactorLibraryWidget embedded />
-              <FactorEditorWidget embedded />
+              {parameter.description ? <div className="mt-1 text-muted-foreground">{parameter.description}</div> : null}
             </div>
-          </TabsContent>
-          <TabsContent className="factor-workbench-content" value="results">
-            <div className="factor-final-validation">
-              <div className="factor-final-validation-intro">
-                <div><FlaskConical size={16} /><span><strong>定义完成后再验证</strong><small>最后检查 IC、分组收益、衰减、覆盖率和最近截面；验证不会修改项目。</small></span></div>
-                <FactorValidationSettings />
-                <Button size="sm" onClick={() => void lab.evaluate()} disabled={runDisabled} isLoading={lab.running}><Play />{lab.result ? "重新验证" : "运行最终验证"}</Button>
-              </div>
-              <div className="factor-results-grid">
-                <FactorEvidenceWidget embedded />
-                <FactorSnapshotWidget embedded />
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
+          ))}
+        </aside>
+
+        <section className="min-w-0 space-y-2">
+          <div className="flex items-center justify-between text-sm"><span className="flex items-center gap-2"><Braces />完整 canonical module</span><Badge variant={project.dirty ? "destructive" : "secondary"}>{project.dirty ? "未冻结" : "已冻结"}</Badge></div>
+          <Textarea ref={editor} className="min-h-[650px] resize-y font-mono text-xs leading-5" spellCheck={false} value={source} disabled={!project.editable} onChange={(event) => setSource(event.target.value)} />
+        </section>
+
+        <aside className="min-w-0 space-y-3">
+          <Tabs defaultValue="fields">
+            <TabsList><TabsTrigger value="fields"><Database />字段</TabsTrigger><TabsTrigger value="factors">因子</TabsTrigger><TabsTrigger value="test">检验</TabsTrigger></TabsList>
+            <TabsContent value="fields" className="max-h-[620px] space-y-3 overflow-auto">
+              {Object.entries(fields?.datasets ?? {}).map(([dataset, rows]) => (
+                <div key={dataset} className="space-y-1">
+                  <div className="text-xs font-medium">{dataset}</div>
+                  <div className="flex flex-wrap gap-1">
+                    {rows.map((field) => <Button key={field.name} size="sm" variant="outline" onClick={() => insertField(field.name, dataset)}>{field.name}</Button>)}
+                  </div>
+                </div>
+              ))}
+            </TabsContent>
+            <TabsContent value="factors" className="space-y-1">
+              {factors.filter((item) => item.id !== activeFactor?.id).map((factor) => <Button key={factor.id} className="w-full justify-start" variant="outline" onClick={() => insertFactorDependency(factor)}>{factor.id}</Button>)}
+            </TabsContent>
+            <TabsContent value="test" className="space-y-3">
+              <label className="block text-xs">开始日期<Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
+              <label className="block text-xs">结束日期<Input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label>
+              <div className="flex gap-2"><Button variant="outline" disabled={busy || project.dirty || !activeFactor} onClick={() => void evaluate(false)}><Play />截面</Button><Button disabled={busy || project.dirty || !activeFactor} onClick={() => void evaluate(true)}><Play />历史</Button></div>
+              {project.dirty ? <p className="text-xs text-amber-600">先冻结 revision；检验不运行可变草稿。</p> : null}
+              {result ? <pre className="max-h-[420px] overflow-auto rounded bg-muted p-2 text-[11px]">{JSON.stringify(result, null, 2)}</pre> : null}
+            </TabsContent>
+          </Tabs>
+        </aside>
       </div>
     </Widget>
   )

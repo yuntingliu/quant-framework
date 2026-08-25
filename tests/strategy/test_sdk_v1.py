@@ -1,0 +1,376 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+
+from alphalab.sdk.v1 import Event, FactorContext
+from alphalab.dataio import create_default_engine
+from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
+from alphalab.strategy.engine import run_strategy_backtest
+from alphalab.strategy.repository import StrategyRepository
+from alphalab.strategy.sdk_runtime import SdkExecutionSession
+from alphalab.strategy.source import (
+    StrategySourceError,
+    factor_dependency_snippet,
+    factor_field_snippet,
+    inspect_strategy_source,
+    insert_source,
+    update_parameter_default,
+    update_signal_schedule,
+)
+
+
+def _payload() -> dict:
+    dates = pd.bdate_range("2024-01-01", periods=30)
+    bars = pd.DataFrame(
+        [
+            {
+                "date": date,
+                "symbol": symbol,
+                "open": 100 + index,
+                "high": 101 + index,
+                "low": 99 + index,
+                "close": 100 + index,
+                "volume": 1_000_000,
+                "amount": 100_000_000,
+            }
+            for index, date in enumerate(dates)
+            for symbol in ("A", "B")
+        ]
+    )
+    return {
+        "sessions": tuple(dates),
+        "bars": bars,
+        "instruments": pd.DataFrame(
+            {
+                "snapshot_date": [dates[0], dates[0]],
+                "symbol": ["A", "B"],
+                "asset_type": ["ETF", "ETF"],
+            }
+        ),
+        "fundamentals": pd.DataFrame(),
+    }
+
+
+def test_cst_parameter_and_schedule_edits_change_only_canonical_source():
+    source = DEFAULT_STRATEGY_SOURCE.replace(
+        '@factor(id="momentum_20d", label="20 日动量", inputs=["close"])',
+        '# preserve this comment\n@factor(id="momentum_20d", label="20 日动量", inputs=["close"])',
+    )
+    updated, inspection = update_parameter_default(
+        source,
+        entrypoint_id="momentum_20d",
+        parameter="window",
+        value=30,
+    )
+    assert "# preserve this comment" in updated
+    assert "] = 30" in updated
+    assert inspection.source_sha256 != inspect_strategy_source(source).source_sha256
+    scheduled, inspected = update_signal_schedule(
+        updated,
+        signal_id="monthly_momentum",
+        frequency="weekly",
+        selector="last_trading_day",
+        at="close",
+    )
+    assert "Weekly.last_trading_day" in scheduled
+    signal = next(item for item in inspected.entrypoints if item.kind == "signal")
+    assert signal.metadata["schedule"]["frequency"] == "weekly"
+
+
+def test_annotated_parameter_metadata_is_projected_and_enforced():
+    inspection = inspect_strategy_source(DEFAULT_STRATEGY_SOURCE)
+    factor_spec = next(item for item in inspection.entrypoints if item.id == "momentum_20d")
+    window = next(item for item in factor_spec.parameters if item.name == "window")
+    assert window.label == "窗口"
+    assert window.minimum == 2
+    assert window.maximum == 500
+    assert window.step == 1
+    try:
+        update_parameter_default(
+            DEFAULT_STRATEGY_SOURCE,
+            entrypoint_id="momentum_20d",
+            parameter="window",
+            value=1,
+        )
+    except StrategySourceError as exc:
+        assert "below its minimum" in str(exc)
+    else:
+        raise AssertionError("out-of-range structured parameter must be rejected")
+
+
+def test_requirement_manifests_reject_invalid_shapes_and_specifiers():
+    bad_data = DEFAULT_STRATEGY_SOURCE.replace(
+        '"bars": ["open", "high", "low", "close", "volume", "amount"]',
+        '"bars": "close"',
+    )
+    bad_runtime = DEFAULT_STRATEGY_SOURCE.replace(
+        "DATA_REQUIREMENTS = {",
+        'RUNTIME_REQUIREMENTS = {"pandas": "definitely-not-a-specifier"}\n\nDATA_REQUIREMENTS = {',
+    )
+    unsupported_dataset = DEFAULT_STRATEGY_SOURCE.replace(
+        "DATA_REQUIREMENTS = {",
+        'DATA_REQUIREMENTS = {"future_news": ["text"],',
+    )
+    for source in (bad_data, bad_runtime, unsupported_dataset):
+        try:
+            inspect_strategy_source(source)
+        except StrategySourceError as exc:
+            assert exc.phase == "register"
+        else:
+            raise AssertionError("invalid requirement manifest must be rejected")
+
+
+def test_context_hides_future_rows():
+    bars = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-01-01", "2024-01-02"]),
+            "symbol": ["A", "A"],
+            "close": [1.0, 99.0],
+        }
+    )
+    context = FactorContext(
+        event=Event.SESSION_CLOSE,
+        as_of="2024-01-01",
+        sessions=["2024-01-01", "2024-01-02"],
+        symbols=["A"],
+        bars=bars,
+    )
+    assert context.history("close", window=10).iloc[-1, 0] == 1.0
+
+
+def test_worker_uses_one_saved_factor_for_snapshot_and_event():
+    data = _payload()
+    with SdkExecutionSession(DEFAULT_STRATEGY_SOURCE) as session:
+        session.configure(data)
+        factor = session.execute(
+            "factor",
+            {
+                "event": "session_close",
+                "as_of": data["sessions"][-1],
+                "available_symbols": ["A", "B"],
+                "factor_id": "momentum_20d",
+                "parameters": {"window": 20},
+                "portfolio": {},
+                "state": {},
+            },
+        ).value
+        event = session.execute(
+            "event",
+            {
+                "event": "session_close",
+                "as_of": data["sessions"][-1],
+                "available_symbols": ["A", "B"],
+                "portfolio": {},
+                "state": {},
+                "force_signal": True,
+                "limits": {"max_weight": 1.0, "max_gross_exposure": 1.0},
+            },
+        ).value
+    assert factor["factor_id"] == "momentum_20d"
+    assert "momentum_20d" in factor["invoked"]
+    assert event["signal"]["scores"] == {item["symbol"]: item["value"] for item in factor["values"]}
+
+
+def test_repository_keeps_immutable_revision_after_draft_change(tmp_path: Path):
+    repository = StrategyRepository(tmp_path / "sdk.db")
+    try:
+        project = repository.clone_project("sdk-v1-default", "test-project")
+        package = repository.get_package("test-project", 1)
+        updated, _ = update_parameter_default(
+            project["draft_source"],
+            entrypoint_id="momentum_20d",
+            parameter="window",
+            value=40,
+        )
+        repository.update_draft("test-project", updated)
+        frozen = repository.get_package("test-project", 1)
+        assert frozen["source"] == package["source"]
+        assert frozen["source_sha256"] == package["source_sha256"]
+    finally:
+        repository.close()
+
+
+def test_event_backtest_runs_the_frozen_source_package(tmp_path: Path):
+    repository = StrategyRepository(tmp_path / "backtest.db")
+    try:
+        result = run_strategy_backtest(
+            repository,
+            "sdk-v1-default",
+            "2025-01-01",
+            "2025-03-31",
+            create_default_engine(),
+        )
+    finally:
+        repository.close()
+    assert not result.returns.empty
+    assert result.diagnostics["source_sha256"] == result.package["source_sha256"]
+    assert any(item["signal_due"] for item in result.diagnostics["events"])
+
+
+def test_field_and_factor_click_snippets_insert_as_valid_python():
+    source = DEFAULT_STRATEGY_SOURCE
+    marker = source.index("    return close.iloc[-1]") + 4
+    field = factor_field_snippet("volume")
+    updated, inspection = insert_source(
+        source,
+        cursor=marker,
+        snippet=f"{field}\n    ",
+    )
+    assert inspection is not None
+    dependency = factor_dependency_snippet("momentum_20d", window=10)
+    marker = updated.index("\n@signal")
+    updated, inspection = insert_source(
+        updated,
+        cursor=marker,
+        snippet=(
+            '\n\n@factor(id="momentum_copy")\n'
+            "def momentum_copy(context):\n"
+            f"    {dependency}\n"
+            "    return momentum_20d\n"
+        ),
+    )
+    assert inspection is not None
+    assert field in updated and dependency in updated
+
+
+def test_static_validation_rejects_factor_dependency_cycles():
+    source = DEFAULT_STRATEGY_SOURCE.replace(
+        "@signal(",
+        """@factor(id="cycle_a")
+def cycle_a(context):
+    return context.factor("cycle_b")
+
+
+@factor(id="cycle_b")
+def cycle_b(context):
+    return context.factor("cycle_a")
+
+
+@signal(""",
+    )
+    try:
+        inspect_strategy_source(source)
+    except StrategySourceError as exc:
+        assert exc.phase == "register"
+        assert "cycle_a -> cycle_b -> cycle_a" in str(exc)
+    else:
+        raise AssertionError("factor dependency cycle was accepted")
+
+
+def test_save_probe_executes_even_unused_registered_factors(tmp_path: Path):
+    source = DEFAULT_STRATEGY_SOURCE.replace(
+        "@signal(",
+        """@factor(id="unused_bad")
+def unused_bad(context):
+    return {"not": "a series"}
+
+
+@signal(""",
+    )
+    repository = StrategyRepository(tmp_path / "probe.db")
+    try:
+        try:
+            repository.create_project("bad-factor", name="Bad", source=source)
+        except Exception as exc:
+            assert "must return pandas.Series" in str(exc)
+        else:
+            raise AssertionError("unused invalid factor passed the save probe")
+    finally:
+        repository.close()
+
+
+class _SuspensionEngine:
+    def __init__(self):
+        self.dates = pd.bdate_range("2024-01-01", periods=4)
+        self.bars = pd.DataFrame(
+            [
+                {
+                    "date": date,
+                    "symbol": "A",
+                    "open": 10.0,
+                    "high": 10.0,
+                    "low": 10.0,
+                    "close": 10.0,
+                    "volume": 0.0 if index == 1 else 1_000_000.0,
+                    "amount": 0.0 if index == 1 else 10_000_000.0,
+                }
+                for index, date in enumerate(self.dates)
+            ]
+        )
+
+    def get_instruments(self, as_of_date):
+        return pd.DataFrame(
+            {"snapshot_date": [self.dates[0]], "symbol": ["A"], "asset_type": ["ETF"]}
+        )
+
+    def get_bars(self, symbols, start_date, end_date, **kwargs):
+        return self.bars.copy()
+
+
+def test_rejected_fill_does_not_change_actual_positions(tmp_path: Path):
+    source = (
+        DEFAULT_STRATEGY_SOURCE.replace(
+            "    ExecutionPolicy,\n",
+            "    Daily,\n    ExecutionPolicy,\n",
+        )
+        .replace(
+            'Monthly.last_trading_day(at="close")',
+            'Daily.at("close")',
+        )
+        .replace(
+            '    scores = context.factor("momentum_20d", window=20).dropna()\n',
+            "    scores = __import__('pandas').Series({symbol: 1.0 for symbol in context.universe}, dtype=float)\n",
+        )
+    )
+    repository = StrategyRepository(tmp_path / "reject.db")
+    try:
+        repository.create_project("reject-fill", name="Reject", source=source)
+        result = run_strategy_backtest(
+            repository,
+            "reject-fill",
+            "2024-01-01",
+            "2024-01-05",
+            _SuspensionEngine(),
+        )
+    finally:
+        repository.close()
+    rejected = next(item for item in result.executions if item["entry_date"] == "2024-01-02")
+    assert rejected["traded_weight"] == 0.0
+    assert rejected["executed_weights"] == {}
+    assert result.weights.loc[pd.Timestamp("2024-01-02")].sum() == 0.0
+
+
+def test_decision_event_gets_prior_state_and_actual_portfolio():
+    source = DEFAULT_STRATEGY_SOURCE.replace(
+        "    execution,\n",
+        "    Event,\n    on_event,\n    execution,\n",
+    ).replace(
+        '@execution(id="next_open"',
+        '''@on_event(Event.DECISION, id="decision_audit")
+def decision_audit(context, state):
+    state["decision_count"] = int(state.get("decision_count", 0)) + 1
+    state["actual_positions"] = len(context.portfolio.positions)
+    return None
+
+
+@execution(id="next_open"''',
+    )
+    data = _payload()
+    with SdkExecutionSession(source) as session:
+        session.configure(data)
+        first = session.execute(
+            "event",
+            {
+                "event": "session_close",
+                "as_of": data["sessions"][-1],
+                "available_symbols": ["A", "B"],
+                "portfolio": {"positions": [{"symbol": "A", "weight": 0.5}], "cash_weight": 0.5},
+                "state": {"prior": 7},
+                "force_signal": True,
+                "limits": {"max_weight": 1.0, "max_gross_exposure": 1.0},
+            },
+        ).value
+    assert first["state"] == {"prior": 7, "decision_count": 1, "actual_positions": 1}
+    assert "decision_audit" in first["invoked"]

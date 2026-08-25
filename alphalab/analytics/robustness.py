@@ -1,4 +1,5 @@
 """Benchmark construction and honest robustness gates for saved backtests."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,7 +14,7 @@ from alphalab.analytics.inference import (
 )
 from alphalab.analytics.metrics import PerformanceMetrics
 from alphalab.dataio import DataEngine
-from alphalab.strategy import StrategyConfig
+from alphalab.strategy.config import StrategyConfig
 
 
 @dataclass(frozen=True)
@@ -92,8 +93,16 @@ def equal_weight_benchmark(
                 continue
             entry_row = entry_rows.iloc[-1]
             exit_row = exit_rows.iloc[-1]
-            entry_value = entry_row.get(field) if pd.Timestamp(entry_row["date"]) == entry_date else entry_row.get("close")
-            exit_value = exit_row.get(field) if pd.Timestamp(exit_row["date"]) == exit_date else exit_row.get("close")
+            entry_value = (
+                entry_row.get(field)
+                if pd.Timestamp(entry_row["date"]) == entry_date
+                else entry_row.get("close")
+            )
+            exit_value = (
+                exit_row.get(field)
+                if pd.Timestamp(exit_row["date"]) == exit_date
+                else exit_row.get("close")
+            )
             entry_price = pd.to_numeric(pd.Series([entry_value]), errors="coerce").iloc[0]
             exit_price = pd.to_numeric(pd.Series([exit_value]), errors="coerce").iloc[0]
             if pd.notna(entry_price) and pd.notna(exit_price) and float(entry_price) > 0:
@@ -127,9 +136,7 @@ def robustness_report(
     excess = paired["strategy"] - paired["benchmark"]
 
     strategy_metrics = PerformanceMetrics.summarize(strategy, periods_per_year)
-    benchmark_metrics = PerformanceMetrics.summarize(
-        paired["benchmark"], periods_per_year
-    )
+    benchmark_metrics = PerformanceMetrics.summarize(paired["benchmark"], periods_per_year)
     excess_metrics = PerformanceMetrics.summarize(excess, periods_per_year)
     turnover = _turnover(weights)
     traded_weight = _traded_weight(weights)
@@ -140,8 +147,7 @@ def robustness_report(
     )
     costs = {
         str(int(cost)): PerformanceMetrics.summarize(
-            gross
-            - traded_weight.reindex(gross.index, fill_value=0.0) * (cost / 10000.0),
+            gross - traded_weight.reindex(gross.index, fill_value=0.0) * (cost / 10000.0),
             periods_per_year,
         )
         for cost in (10.0, 20.0, limits.stress_cost_bps)
@@ -150,9 +156,7 @@ def robustness_report(
     annual = _annual_rows(paired, periods_per_year)
     complete_years = [row for row in annual if row["complete"]]
     positive_year_ratio = (
-        float(np.mean([row["excess"] > 0 for row in complete_years]))
-        if complete_years
-        else 0.0
+        float(np.mean([row["excess"] > 0 for row in complete_years])) if complete_years else 0.0
     )
     rolling = _rolling_rows(
         paired,
@@ -160,9 +164,7 @@ def robustness_report(
     )
     rolling_primary = rolling[str(periods_per_year)]
     rolling_win_ratio = (
-        float(np.mean([row["excess"] > 0 for row in rolling_primary]))
-        if rolling_primary
-        else 0.0
+        float(np.mean([row["excess"] > 0 for row in rolling_primary])) if rolling_primary else 0.0
     )
     validation = _validation_split(
         paired,
@@ -208,10 +210,10 @@ def robustness_report(
         "stress_cost_excess": stressed_excess > limits.min_annual_excess,
         "validation_excess": float(
             validation.get("validation", {}).get("excess", {}).get("annual_return") or 0.0
-        ) > limits.min_annual_excess,
+        )
+        > limits.min_annual_excess,
         "bootstrap_excess": (
-            bootstrap_excess["lower"] is not None
-            and float(bootstrap_excess["lower"]) > 0
+            bootstrap_excess["lower"] is not None and float(bootstrap_excess["lower"]) > 0
         ),
         "multiple_testing": adjusted_p_value <= limits.max_adjusted_p_value,
     }
@@ -245,9 +247,7 @@ def robustness_report(
             "research_trials": trials,
             "adjusted_p_value": adjusted_p_value,
         },
-        "cost_sensitivity": {
-            key: _finite_dict(value) for key, value in costs.items()
-        },
+        "cost_sensitivity": {key: _finite_dict(value) for key, value in costs.items()},
         "turnover": {
             "average": _finite(turnover.mean()) if not turnover.empty else None,
             "maximum": _finite(turnover.max()) if not turnover.empty else None,
@@ -334,9 +334,7 @@ def _annual_rows(frame: pd.DataFrame, periods_per_year: int) -> list[dict]:
                 "benchmark": benchmark,
                 "excess": strategy - benchmark,
                 "periods": int(len(group)),
-                "complete": bool(
-                    len(group) >= (40 if periods_per_year == 52 else 10)
-                ),
+                "complete": bool(len(group) >= (40 if periods_per_year == 52 else 10)),
             }
         )
     return rows

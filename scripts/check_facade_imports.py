@@ -1,27 +1,26 @@
 """Small facade import sanity check for the barebone repo."""
+
 from __future__ import annotations
 
 import importlib
 import sys
 
 EXPECTED = [
-    "ComponentRef",
     "DataEngine",
-    "PipelineProject",
-    "PipelineRepository",
-    "STAGE_ENTRYPOINTS",
-    "STAGE_NAMES",
+    "StrategyRepository",
+    "StrategyBacktestResult",
+    "StrategySourceError",
     "create_default_engine",
     "create_runtime_engine",
     "create_rq_engine_from_env",
     "RQDataConfig",
     "RQDataProvider",
-    "preview_pipeline_project",
-    "run_pipeline_project_backtest",
+    "inspect_strategy_source",
+    "preview_strategy",
+    "run_strategy_backtest",
+    "evaluate_factor_snapshot",
+    "evaluate_factor_history",
     "ResultStore",
-    "list_factors",
-    "compute_factor",
-    "get_factor",
 ]
 
 

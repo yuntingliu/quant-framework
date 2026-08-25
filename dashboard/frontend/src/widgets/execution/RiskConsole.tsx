@@ -4,20 +4,19 @@ import { AlertTriangle, CheckCircle2, RefreshCw, ShieldCheck } from "lucide-reac
 import {
   api,
   type PaperRebalancePreview,
-  type PipelineProjectSummary,
 } from "../../lib/api"
 import { useDataProfile } from "../../lib/data-profile"
 
 export function RiskConsoleWidget() {
   const [profile] = useDataProfile()
-  const [strategies, setStrategies] = useState<PipelineProjectSummary[]>([])
-  const [strategyId, setStrategyId] = useState("three-stage-default")
+  const [strategies, setStrategies] = useState<Array<{ id: string; name: string }>>([])
+  const [strategyId, setStrategyId] = useState("sdk-v1-default")
   const [preview, setPreview] = useState<PaperRebalancePreview | null>(null)
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    api.get<PipelineProjectSummary[]>("/pipeline/projects")
+    api.get<Array<{ id: string; name: string }>>("/strategy/projects")
       .then((items) => {
         setStrategies(items)
         setStrategyId((current) => (

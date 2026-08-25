@@ -1,264 +1,121 @@
-# AlphaLab Barebone Architecture
+# AlphaLab Architecture
 
-> Target redesign: [`02_STRATEGY_SDK_V1_CONTRACT.md`](02_STRATEGY_SDK_V1_CONTRACT.md)
-> defines the accepted code-first SDK contract. It is not implemented yet; this
-> document continues to describe the active three-stage system until cutover.
+AlphaLab uses Strategy SDK v1 as its only active strategy-authoring and
+execution contract. A project owns one complete Python module. Forms, Codex,
+factor evaluation, previews, event backtests, and reports all refer to that
+module through an immutable source revision and SHA-256.
 
-AlphaLab is a provider-first research core plus a React/Electron workstation.
-The current strategy interface is Python-native and has one execution path.
+The normative API is [02_STRATEGY_SDK_V1_CONTRACT.md](02_STRATEGY_SDK_V1_CONTRACT.md).
 
-## Research and Workbench Model
-
-The top-level workbenches are parallel navigation destinations:
+## System shape
 
 ```text
-Research Project | Data | Factor Research | Signal Model | Backtest | Python Lab | Report
+Project/Data ─┐
+Factor        ├── one mutable Python draft ── validate/probe ── StrategySourcePackage
+Strategy     ─┘                                          │
+                                                         ├── factor snapshot/history
+                                                         ├── signal/portfolio/execution preview
+                                                         └── daily event backtest ── frozen Run ── report
 ```
 
-The Factor Research Workbench owns the factor library, project factor basket,
-safe-expression authoring, latest validated cross-section, and point-in-time
-single-factor evidence before those factors are consumed by the signal model. Its
-default surface is one data-first workbench: public market and fundamental API
-data remain visible in the shared market terminal while the researcher builds
-or edits a factor. K lines, native technical indicators, the security list, and
-crosshair quotes use the same component as the Data Workbench; Factor Research
-adds the expression-field inspector on the right. Its field catalog is generated
-from the selected profile's physical Parquet schemas; it is not a hand-maintained
-list of vendor columns.
-Raw market/fundamental fields and executable base factors
-can be inserted at the expression cursor. Single-factor evidence is a final
-validation view rather than the primary construction surface. It
-can attach only the currently validated factor definition to the selected
-project, but it is not embedded in the project-management layout.
+The six workbench modes are `project`, `data`, `factor`, `strategy`,
+`validation`, and `report`. They are views over shared `StrategySdkContext`
+state, not independent strategy pipelines.
 
-The Research Project Workbench owns project lifecycle, data profile, and
-navigation to the three pinned strategy components. The Data Workbench owns the
-user-facing research scope and automatic eligibility filters. Those values remain
-structured project settings so factor research, signals, and backtests consume the
-same point-in-time candidate definition. Factor definitions are persisted with project
-revisions but are edited only in the Factor Research Workbench. Stage
-workbenches show the current project read-only and never duplicate project
-settings. A revision or profile change makes cached stage output stale
-until the stage is run again.
-It is the first navigation destination. Data, Factor Research, Signal Model,
-Backtest, Python Lab, and Report remain disabled until an editable research project has been
-created or selected; the built-in default project is a creation template rather
-than an active research context.
+## Canonical source
 
-The strategy and research dependency is:
+A valid module declares `SDK_VERSION = 1` and registers:
 
-```text
-DataSnapshot
-  -> data-workbench research scope + factor definitions and single-factor research
-  -> core eligibility gates
-  -> signal model: normalize + weight + rank + holding buffer
-  -> select_assets(context)
-  -> construct_portfolio(context)
-  -> configure_execution(context)
-  -> BacktestRun
-  -> Performance / Risk / Alpha-Beta Attribution
-  -> ResearchReport
-```
+- exactly one `@universe`;
+- zero or more `@factor` and `@schedule` functions;
+- exactly one `@signal` and one `@portfolio`;
+- at most one `@on_event` handler per event;
+- exactly one `@execution`.
 
-Python Lab is a side branch, not another strategy path:
+`alphalab.sdk.v1` is the stable strategy-facing facade. Context objects expose
+bounded point-in-time bars, fundamentals, instruments, calendar, prior
+decision, actual portfolio, seeded randomness, factor dependencies, and shared
+JSON state. They do not expose providers, database connections, file paths, or
+brokers.
 
-```text
-bounded project + OHLCV snapshot -> isolated Lab experiment
-                                  -> factor/component candidate
-                                  -> explicit promotion + validation
-                                  -> normal project revision -> the same BacktestRun path
-```
+Recognized parameters and schedules are concrete-syntax-tree projections. A
+form edit changes the corresponding Python node. Unrecognized logic remains
+visible as custom Python and is never translated to an expression language.
 
-It covers research needs that do not fit the structured factor and three-stage
-workbenches without making every workbench an arbitrary-code surface. Lab source
-and output are non-authoritative. Only a separately confirmed promotion creates
-a reusable factor definition or immutable component; applying it creates a
-normal project revision.
-Runs persist source/context hashes, bounded logs, JSON output, and every later
-promotion target/project revision as an audit trail.
+## Source lifecycle
 
-The research scope is structured project input authored in the Data Workbench,
-not a separate strategy stage or a weighted factor. It defines the initial symbols
-and hard data/tradability eligibility filters; factor scores own preferences and
-ranking inside the eligible cross-section. The signal model owns the
-daily/weekly/monthly decision calendar,
-the current cross-section as-of date,
-cross-sectional normalization, project-specific effective factor weights,
-minimum coverage, target count, and entry/exit rank buffer. It is recomputed at
-every decision date from eligible data and factors available at that date. The
-internal stage ID remains `selection` for persisted API compatibility.
-The Signal Model workbench also owns the user-facing allocation method, target
-gross exposure, and single-name limit. The internal `portfolio` Python stage
-remains version-pinned and emits final target weights so runtime boundaries and
-historical provenance stay intact, but it is not a separate navigation
-destination. Backtest owns the user-facing next-session fill, liquidity,
-capital, and cost assumptions. The internal `execution` Python stage remains
-version-pinned for runtime provenance; order creation remains in the guarded
-engine.
+`StrategyRepository` persists two objects:
 
-There is no timing stage and no independent risk component. A drawdown-driven
-exposure change would be a stateful timing rule and is outside the current
-contract. Maximum drawdown, volatility, turnover, and similar limits are saved
-research metrics and thresholds. Core portfolio and execution gates remain
-non-bypassable.
+- `strategy_projects`: mutable metadata and one mutable draft;
+- `strategy_source_packages`: immutable revisions containing full source,
+  source hash, registry manifest, literal parameters, requirements, validator
+  version, and environment fingerprint.
 
-## Canonical Strategy Objects
+Draft edits perform static contract validation. Freezing a revision additionally
+imports the complete module and runs bounded probes for the full path, every
+registered factor, and every registered event handler. Runs always pin a
+specific package; changing a later draft cannot alter a historical result.
 
-`PipelineRepository` stores two public object families in SQLite:
+## Runtime and event engine
 
-- a component has an immutable identity, one of three stages, and immutable versions;
-- a project pins exactly one `component_id@version` for every stage and has
-  revisioned structured settings.
+`SdkExecutionSession` loads the package once in a spawned local Python child
+process. Static run data is transferred once; individual operations send only
+event-local state. The process boundary provides timeout, crash containment,
+bounded stdout/stderr, and structured errors.
 
-Built-in components and the default project are immutable. Users clone them to
-customize. A component version stores Python source, entrypoint, default JSON
-parameters, notes, and SHA-256. A project revision stores all three refs,
-settings, composed source, and SHA-256.
+This is trusted local execution, not a security sandbox. Source inspection
+surfaces capability-sensitive imports and calls, and every execution endpoint
+requires explicit `confirm_python_execution=true`. Docker is not used.
 
-`compose_strategy()` concatenates the three reviewed component sources and adds
-`run_stage(context)` plus `run_strategy(context)`. A preview calls `run_stage`
-and stops at the requested stage after running its upstream dependencies. A
-backtest calls `run_strategy` at every fixed-calendar decision date. Both use
-the exact composed module in the isolated child process.
+The backtest engine enumerates provider sessions and applies this sequence:
 
-Historical BacktestRuns freeze their source and manifest. Six-stage and
-four-stage runs remain readable as historical snapshots, but their removed
-universe/timing/risk components cannot be selected or executed by current
-authoring APIs.
+1. construct a point-in-time Context and working State copy;
+2. run due universe/factor/signal/portfolio logic;
+3. run the current event handler and any decision handler;
+4. validate and atomically commit desired target and JSON State;
+5. activate orders only at the policy's later open/close event;
+6. enforce valid price, suspension/price-limit fields, positive volume and
+   amount, participation, cash, costs, and accounting;
+7. deliver fill or rejection events with the resulting actual portfolio.
 
-Three-stage strategy Python is trusted local code with timeout and crash
-containment, not an OS security sandbox. The framework owns non-bypassable controls:
+Target decisions never imply completed fills. Rejected or constrained orders
+leave the unfilled portion in the actual portfolio.
 
-- point-in-time instruments and fundamental availability;
-- project research-scope, selection, and final-weight membership;
-- finite scores and weights, concentration, gross exposure, and cash;
-- next-session alignment, valid price, and positive volume;
-- amount participation, costs, slippage, and market impact.
+## Data boundary
 
-Arbitrary Python Lab execution has a separate runtime boundary. It is disabled
-by default. Docker mode has no network, no host mounts, a read-only root, no
-capabilities, and explicit CPU/memory/PID/time limits. `trusted_local` is a
-development-only escape hatch that is not a sandbox and requires a second
-confirmation. The Lab receives bounded JSON, never host data paths or secrets.
+`DataEngine` remains provider-first. `demo` is the bundled deterministic sample;
+`runtime` is the local RQ-backed profile. No operation silently switches
+profiles. Context construction filters all dated rows at `as_of`; instrument
+listing/delisting and current-session tradability are core-owned.
 
-## Backtest and Attribution
+The bundled demo derives an explicit instrument snapshot from its market file
+only because the shipped sample has no separate instrument parquet. Runtime
+providers must supply their own instrument snapshots.
 
-A BacktestRun is the durability boundary for historical strategy behavior. It
-persists returns, benchmark, weights, execution audit, stage outputs, factor
-score correlations, source/manifest provenance, and a frozen attribution
-snapshot.
+## Persistence and historical compatibility
 
-Attribution consumes saved returns rather than rerunning the strategy. Daily or
-weekly strategy returns are compounded to monthly before alignment with the
-canonical monthly `MKT/SMB/HML/MOM/RMW/rf` data. The current regression is:
+New backtests persist `strategy_project_id`, `strategy_revision`,
+`strategy_source_sha256`, the complete source, manifest, execution audit,
+weights, returns, attribution, settings, and provenance.
 
-```text
-Rp - rf = alpha + beta_MKT * (MKT - rf)
-                  + beta_SMB * SMB + beta_HML * HML
-                  + beta_MOM * MOM + beta_RMW * RMW
-```
+Old pipeline tables and old BacktestRuns remain only for one-time migration and
+read-only inspection. Legacy pipeline, factor-expression, and Python Lab routers
+are not mounted, are not Agent tools, and cannot create a second authoritative
+result.
 
-Saved outputs include CAPM and multi-factor alpha/beta, HAC standard errors,
-confidence intervals, R-squared, factor-return correlation, cross-sectional
-selection-factor correlation, and configured research-threshold checks.
-
-## Module Ownership
+## Code map
 
 | Path | Responsibility |
 | --- | --- |
-| `alphalab/dataio/` | Provider protocols, `DataEngine`, runtime partitions, sync, and quality. |
-| `alphalab/factors/` | Cross-sectional technical/fundamental inputs, safe expressions, and reusable custom-factor definitions. |
-| `alphalab/pipeline/` | Three-stage models, built-ins, composition, repository, runtime adapter, and narrow migrations. |
-| `alphalab/strategy/python_runtime.py` | Source validation and timeout-bounded child execution. |
-| `alphalab/python_lab/` | Guarded arbitrary-Python runtime capabilities, validation, and execution. |
-| `alphalab/engine.py` | Point-in-time features, fixed schedules, core gates, execution simulation, and parity. |
-| `alphalab/analytics/` | Signal evidence, performance, robustness, regression, and factor correlations. |
-| `alphalab/store.py` | Backtests, frozen source/manifest/attribution, paper state, reports, and artifacts. |
-| `dashboard/backend/routers/pipeline.py` | Current component/project API. |
-| `dashboard/backend/routers/python_lab.py` | Non-authoritative Lab runs and explicit candidate promotion. |
-| `dashboard/` | FastAPI plus Dockview workstations. |
-| `integrations/conexus/` | Optional published Agent using current typed tools only. |
+| `alphalab/sdk/v1/` | Stable public strategy types and decorators |
+| `alphalab/strategy/source.py` | AST inspection, dependency checks, and LibCST edits |
+| `alphalab/strategy/repository.py` | Drafts, immutable packages, probes, migration |
+| `alphalab/strategy/sdk_runtime.py` | Trusted-local child-process runner and boundary validation |
+| `alphalab/strategy/engine.py` | Preview, factor evaluation, daily events, fills, accounting |
+| `dashboard/backend/routers/strategy.py` | Current source/project/evaluation API |
+| `dashboard/backend/routers/backtests.py` | Confirmed background backtest jobs and frozen results |
+| `dashboard/frontend/src/contexts/StrategySdkContext.tsx` | Shared project, draft, revision, and hash state |
+| `integrations/conexus/alphalab-research-agent/` | SDK-aware bounded Agent tools and prompt |
 
-The public strategy facade stays small:
-
-```python
-from alphalab import (
-    DataEngine,
-    PipelineProject,
-    PipelineRepository,
-    preview_pipeline_project,
-    run_pipeline_project_backtest,
-)
-```
-
-Internal configuration dataclasses adapt structured project settings to the
-guarded engine; they are not an authoring or persistence format.
-
-## Persistence and Migration
-
-Current authoring and runtime never read or write YAML. Component source is
-Python; small metadata is JSON in SQLite. `legacy_migration.py` is the sole YAML
-exception for one-time import of ignored pre-pipeline user definitions.
-
-`four-stage-pipeline-v1` is a narrow persisted-data migration. It removes active
-timing refs, combines old portfolio/risk source into a current portfolio
-component with timing fixed at full exposure, records a review note, and
-preserves old component rows for historical snapshots. It does not expose a
-runtime compatibility branch.
-
-`three-stage-pipeline-v1` removes the authorable universe reference. For custom
-projects it folds frozen universe and selection source into one generated
-selection component, preserving prior stock-pool behavior without exposing the
-removed stage. The default project is reseeded as `three-stage-default`; its
-base pool remains structured project settings.
-
-Backtests persist:
-
-- project id and revision provenance;
-- complete composed Python source and SHA-256;
-- component ids, versions, parameters, and hashes;
-- structured project settings and research thresholds;
-- returns, benchmark, holdings, and period execution audit;
-- frozen factor-attribution inputs/results;
-- data-file, environment, and Git fingerprints.
-
-## Data Contract
-
-Adapters implement protocols under `alphalab.dataio.providers.protocol`. Demo
-and runtime profiles are explicit and never silently combined. Historical
-fundamentals require `available_date <= decision_date`; dated instruments are
-selected at or before the signal date. Missing amount blocks a trade rather
-than implying unlimited liquidity.
-
-An RQ sync request without explicit symbols resolves all A-shares from a live
-dated instrument snapshot at job start. It never substitutes the bundled demo
-manifest. Read-only plans may use the latest local RQ instrument snapshot to
-show an exact symbol and batch count; otherwise those values remain pending.
-
-Canonical local data remains:
-
-```text
-data/market/bars.parquet
-data/instruments/instruments.parquet
-data/fundamentals/fundamentals.parquet
-data/factors/factor_returns.parquet
-data/app/alphalab.db
-data/manifest.json
-```
-
-## Current HTTP Surface
-
-Strategy workstations use the component/project endpoints under `/api/pipeline`,
-background jobs under `/api/backtests/jobs`, and saved-run endpoints including:
-
-- `GET /api/backtests/{id}/analysis`
-- `GET /api/backtests/{id}/signals`
-- `GET /api/backtests/{id}/attribution`
-- `GET /api/backtests/{id}/robustness`
-- `POST /api/backtests/compare`
-
-Python Lab uses `/api/python-lab/capabilities`, `/api/python-lab/runs`, and the
-separately confirmed `/api/python-lab/runs/{id}/promote` boundary. It does not
-expose another backtest endpoint.
-
-There are no universe/timing/risk stage aliases and no independent stage-history API.
+The package facade in `alphalab/__init__.py` intentionally exports only data,
+source, repository, evaluation, backtest, and result-store entry points.

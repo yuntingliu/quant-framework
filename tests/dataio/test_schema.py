@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from alphalab.dataio.schema import DatasetField, discover_parquet_fields
-from dashboard.backend.routers import factor_research
+from dashboard.backend.routers import strategy
 
 
 def test_parquet_schema_discovery_unions_partition_columns_without_loading_rows(tmp_path):
@@ -29,7 +29,7 @@ def test_parquet_schema_discovery_unions_partition_columns_without_loading_rows(
     assert [field.data_type for field in fields] == ["date", "number", "number"]
 
 
-def test_factor_research_sources_are_generated_from_discovered_schema(monkeypatch):
+def test_strategy_field_catalog_is_generated_from_discovered_schema(monkeypatch):
     schemas = {
         "market_bars": (
             DatasetField("date", "date", True),
@@ -43,15 +43,15 @@ def test_factor_research_sources_are_generated_from_discovered_schema(monkeypatc
         ),
     }
     monkeypatch.setattr(
-        factor_research,
+        strategy,
         "research_dataset_schema",
         lambda _profile, dataset: schemas[dataset],
     )
+    monkeypatch.setattr(strategy, "_profile_range", lambda _profile: ("2024-01-01", "2025-01-01"))
 
-    sources = {item["id"]: item for item in factor_research._research_data_sources("demo")}
-    fields = {item["name"]: item for item in sources["market_bars"]["fields"]}
+    catalog = strategy.fields("demo")
+    fields = {item["name"]: item for item in catalog["datasets"]["market_bars"]}
 
-    assert set(fields) == {"date", "symbol", "close", "vendor_new_field"}
-    assert fields["close"]["expression_compatible"] is True
-    assert fields["vendor_new_field"]["expression_compatible"] is True
-    assert fields["vendor_new_field"]["label"] == "vendor new field"
+    assert set(fields) == {"close", "vendor_new_field"}
+    assert fields["close"]["data_type"] == "number"
+    assert catalog["start_date"] == "2024-01-01"

@@ -17,16 +17,13 @@ const documentId = "alphalab-research-document-v1"
 
 const toolNodes = [
   ["alphalab-tool-workspace-context-v1", "AlphaLab Workspace Context", "Get-Workspace-Context.tool.json"],
-  ["alphalab-tool-pipeline-project-v1", "AlphaLab Pipeline Project", "Get-Pipeline-Project.tool.json"],
-  ["alphalab-tool-manage-pipeline-v1", "Manage AlphaLab Pipeline", "Manage-Pipeline.tool.json"],
-  ["alphalab-tool-preview-pipeline-v1", "Preview AlphaLab Pipeline", "Preview-Pipeline.tool.json"],
-  ["alphalab-tool-run-python-lab-v1", "Run AlphaLab Python Lab", "Run-Python-Lab.tool.json"],
-  ["alphalab-tool-promote-python-lab-v1", "Promote AlphaLab Python Lab Candidate", "Promote-Python-Lab.tool.json"],
+  ["alphalab-tool-strategy-project-v1", "AlphaLab Strategy Project", "Get-Strategy-Project.tool.json"],
+  ["alphalab-tool-edit-strategy-source-v1", "Edit AlphaLab Strategy Source", "Edit-Strategy-Source.tool.json"],
+  ["alphalab-tool-preview-strategy-v1", "Preview AlphaLab Strategy", "Preview-Strategy.tool.json"],
+  ["alphalab-tool-evaluate-strategy-factor-v1", "Evaluate AlphaLab Strategy Factor", "Evaluate-Strategy-Factor.tool.json"],
   ["alphalab-tool-market-bars-v1", "AlphaLab Market Bars", "Get-Market-Bars.tool.json"],
   ["alphalab-tool-fundamentals-v1", "AlphaLab Fundamentals", "Get-Fundamentals.tool.json"],
   ["alphalab-tool-factor-returns-v1", "AlphaLab Factor Returns", "Get-Factor-Returns.tool.json"],
-  ["alphalab-tool-factor-library-v1", "AlphaLab Factor Library", "Get-Factor-Library.tool.json"],
-  ["alphalab-tool-evaluate-factor-v1", "Evaluate AlphaLab Factor", "Evaluate-Factor.tool.json"],
   ["alphalab-tool-evaluate-market-risk-factor-v1", "Evaluate AlphaLab Market Risk Factor", "Evaluate-Market-Risk-Factor.tool.json"],
   ["alphalab-tool-backtest-v1", "AlphaLab Backtest", "Get-Backtest.tool.json"],
   ["alphalab-tool-analyze-backtest-v1", "Analyze AlphaLab Backtest", "Analyze-Backtest.tool.json"],
@@ -84,6 +81,13 @@ const obsoleteNodeIds = new Set([
   "alphalab-tool-manage-strategy-v1",
   "alphalab-tool-manage-research-run-v1",
   "alphalab-tool-generate-signal-v1",
+  "alphalab-tool-pipeline-project-v1",
+  "alphalab-tool-manage-pipeline-v1",
+  "alphalab-tool-preview-pipeline-v1",
+  "alphalab-tool-run-python-lab-v1",
+  "alphalab-tool-promote-python-lab-v1",
+  "alphalab-tool-factor-library-v1",
+  "alphalab-tool-evaluate-factor-v1",
 ])
 const ownedEdgePrefix = "edge-alphalab-research-v1-"
 const canvas = JSON.parse(await readFile(canvasPath, "utf8"))

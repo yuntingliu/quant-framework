@@ -31,6 +31,8 @@ class BacktestRequest(BaseModel):
     start_date: str = Field(min_length=1)
     end_date: str = Field(min_length=1)
     profile: str = "demo"
+    revision: int | None = Field(default=None, ge=1)
+    confirm_python_execution: bool
 
 
 class BacktestCompareRequest(BaseModel):
@@ -65,8 +67,13 @@ def compare(request: BacktestCompareRequest) -> dict:
 
 @router.post("/jobs", status_code=202)
 def create_backtest_job(request: BacktestRequest) -> dict:
+    if request.confirm_python_execution is not True:
+        raise HTTPException(
+            status_code=409,
+            detail="backtest executes trusted local Python and requires confirmation",
+        )
     try:
-        return submit_backtest_job(request.model_dump())
+        return submit_backtest_job(request.model_dump(exclude={"confirm_python_execution"}))
     except KeyError:
         raise HTTPException(status_code=404, detail="strategy not found") from None
     except ValueError as exc:

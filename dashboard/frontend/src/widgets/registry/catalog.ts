@@ -21,28 +21,8 @@ const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
   { id: "data.workbench", title: "数据工作台", titleEn: "Data Workbench", category: "研究流程", categoryEn: "Research Flow", description: "管理研究范围、数据预览、同步和质量校验", descriptionEn: "Manage research scope, data previews, sync, and validation" },
   { id: "project.workbench", title: "研究项目", titleEn: "Research Project", category: "研究流程", categoryEn: "Research Flow", description: "管理项目生命周期和数据环境", descriptionEn: "Manage the project lifecycle and data profile" },
   { id: "factor.workbench", title: "因子研究", titleEn: "Factor Research", category: "研究流程", categoryEn: "Research Flow", description: "对照行情和财务 API 数据编辑因子，最后统一验证", descriptionEn: "Author factors against market and fundamental API data, then validate them" },
-  { id: "factor.library", title: "因子库", titleEn: "Factor Library", category: "因子研究", categoryEn: "Factor Research", description: "管理项目因子篮子，浏览内置因子与开源特征包", descriptionEn: "Manage project factors and browse built-ins and open-source feature packs" },
-  { id: "factor.editor", title: "因子定义", titleEn: "Factor Definition", category: "因子研究", categoryEn: "Factor Research", description: "配置方向、缩尾、中性化和安全表达式", descriptionEn: "Configure direction, winsorization, neutralization, and safe expressions" },
-  { id: "factor.snapshot", title: "最近验证截面", titleEn: "Latest Validated Cross-section", category: "因子研究", categoryEn: "Factor Research", description: "查看因子分布、覆盖率、极值和高低分证券", descriptionEn: "Inspect factor distribution, coverage, extrema, and high/low-ranked assets" },
-  { id: "factor.evidence", title: "单因子历史证据", titleEn: "Single-factor Evidence", category: "因子研究", categoryEn: "Factor Research", description: "查看 IC、ICIR、分组收益、衰减、换手和统计警告", descriptionEn: "Inspect IC, ICIR, quantile returns, decay, turnover, and inference warnings" },
-  { id: "selection.workbench", title: "信号模型", titleEn: "Signal Model", category: "研究流程", categoryEn: "Research Flow", description: "组合多因子生成横截面排名，并把信号集合转换成目标仓位", descriptionEn: "Combine factors into cross-sectional ranks and turn the signal set into target weights" },
-  { id: "portfolio.workbench", title: "内部仓位组件", titleEn: "Internal Allocation Component", category: "内部组件", categoryEn: "Internal Components", description: "由信号模型高级组件入口管理的内部 Python 阶段", descriptionEn: "Internal Python stage managed through the signal model's advanced component entry" },
-  { id: "execution.workbench", title: "执行工作台", titleEn: "Execution Workbench", category: "研究流程", categoryEn: "Research Flow", description: "定义成交时点、流动性与成本假设", descriptionEn: "Define fill timing, liquidity, and cost assumptions" },
-  { id: "selection.funnel", title: "信号覆盖", titleEn: "Signal Coverage", category: "信号模型", categoryEn: "Signal Model", description: "查看研究范围、数据可用、评分和信号集合的逐层损耗", descriptionEn: "Trace attrition from research scope through eligibility, scoring, and signal output" },
-  { id: "selection.ranking", title: "综合排名", titleEn: "Composite Ranking", category: "信号模型", categoryEn: "Signal Model", description: "查看综合得分、排名与模型输出", descriptionEn: "Inspect composite scores, ranks, and model output" },
-  { id: "selection.distribution", title: "分数分布", titleEn: "Score Distribution", category: "信号模型", categoryEn: "Signal Model", description: "检查截面分布、中位数和本次信号门槛", descriptionEn: "Inspect the cross-sectional distribution, median, and signal cutoff" },
-  { id: "selection.factor-evidence", title: "因子贡献", titleEn: "Factor Contributions", category: "信号模型", categoryEn: "Signal Model", description: "检查参与因子、当前截面覆盖和相关性，不代替历史有效性检验", descriptionEn: "Inspect active factors, current coverage, and correlation without implying historical validity" },
-  { id: "selection.chart", title: "信号证券行情", titleEn: "Signal Security Chart", category: "信号模型", categoryEn: "Signal Model", description: "联动查看模型输出证券行情", descriptionEn: "Inspect linked price history for securities emitted by the signal model" },
-  { id: "portfolio.input", title: "信号输入", titleEn: "Signal Input", category: "组合", categoryEn: "Portfolio", description: "查看组合实际接收的信号证券、排名与覆盖率", descriptionEn: "Inspect signal assets, ranks, and coverage consumed by construction" },
-  { id: "portfolio.weights", title: "目标权重", titleEn: "Target Weights", category: "组合", categoryEn: "Portfolio", description: "查看组合阶段生成的目标权重", descriptionEn: "Inspect target weights emitted by portfolio construction" },
-  { id: "portfolio.summary", title: "组合摘要", titleEn: "Portfolio Summary", category: "组合", categoryEn: "Portfolio", description: "查看信号集合、约束后敞口、现金与集中度", descriptionEn: "Inspect the signal set, constrained exposure, cash, and concentration" },
-  { id: "portfolio.constraints", title: "约束检查", titleEn: "Constraint Checks", category: "组合", categoryEn: "Portfolio", description: "核对信号边界、权重合同、单股上限和总敞口", descriptionEn: "Verify signal membership, weight contracts, position caps, and gross exposure" },
-  { id: "execution.settings", title: "执行计划", titleEn: "Execution Plan", category: "执行", categoryEn: "Execution", description: "查看策略实际输出的成交时点与流动性假设", descriptionEn: "Inspect fill timing and liquidity assumptions emitted by the strategy" },
-  { id: "execution.targets", title: "执行目标", titleEn: "Execution Targets", category: "执行", categoryEn: "Execution", description: "查看最终目标仓位；历史换手和成本留给回测", descriptionEn: "Inspect final targets; historical turnover and costs belong to backtests" },
-  { id: "execution.costs", title: "成本模型", titleEn: "Cost Model", category: "执行", categoryEn: "Execution", description: "拆解佣金、滑点、冲击参数和情景成本", descriptionEn: "Decompose commission, slippage, impact, and scenario costs" },
-  { id: "execution.guardrails", title: "成交门禁", titleEn: "Execution Guardrails", category: "执行", categoryEn: "Execution", description: "区分预览已验证的合同与必须逐期回测的成交约束", descriptionEn: "Separate preview-validated contracts from constraints requiring historical simulation" },
-  { id: "backtest.workbench", title: "回测工作台", titleEn: "Backtest Workbench", category: "研究流程", categoryEn: "Research Flow", description: "运行、历史结果、稳健性、持仓和策略对比", descriptionEn: "Run, inspect history, robustness, holdings, and comparisons" },
-  { id: "python.workbench", title: "Python Lab", titleEn: "Python Lab", category: "研究流程", categoryEn: "Research Flow", description: "在受控运行时执行自定义 Python，并把候选提升到正式流水线", descriptionEn: "Run custom Python in a guarded runtime and promote candidates into the authoritative pipeline" },
+  { id: "strategy.workbench", title: "策略工作台", titleEn: "Strategy Workbench", category: "研究流程", categoryEn: "Research Flow", description: "在同一 Python 模块中编辑信号、组合、状态事件和执行", descriptionEn: "Edit signals, portfolio, stateful events, and execution in one Python module" },
+  { id: "validation.workbench", title: "验证与回测", titleEn: "Validation & Backtest", category: "研究流程", categoryEn: "Research Flow", description: "选择冻结源码修订并运行预览、因子检验和事件回测", descriptionEn: "Select frozen source revisions and run previews, factor tests, and event backtests" },
   { id: "report.workbench", title: "报告工作台", titleEn: "Report Workbench", category: "研究流程", categoryEn: "Research Flow", description: "查看 Agent 生成的文档、表格、图表和来源", descriptionEn: "Inspect Agent documents, tables, charts, and sources" },
 
   // Optional extension slots retained outside the core workflow.
@@ -95,27 +75,13 @@ export const coreWorkflowWidgetIds = [
   "data.workbench",
   "factor.workbench",
   "project.workbench",
-  "selection.workbench",
-  "backtest.workbench",
-  "python.workbench",
+  "strategy.workbench",
+  "validation.workbench",
   "report.workbench",
-] as const
-
-export const factorResearchWidgetIds = [
-  "factor.library",
-  "factor.editor",
-  "factor.snapshot",
-  "factor.evidence",
-] as const
-
-export const stageResultWidgetIds = [
-  "selection.funnel", "selection.ranking", "selection.distribution", "selection.factor-evidence", "selection.chart",
 ] as const
 
 const activeWidgetIds = new Set<string>([
   ...coreWorkflowWidgetIds,
-  ...factorResearchWidgetIds,
-  ...stageResultWidgetIds,
   "trading.rebalance",
   "trading.alerts",
 ])
@@ -125,7 +91,7 @@ export const widgetCatalog: WidgetMeta[] = widgetDefinitions.map((widget) => ({
   status: activeWidgetIds.has(widget.id) ? "active" : "not_configured",
 }))
 
-export const agentWorkspaceWidgetIds: string[] = [...coreWorkflowWidgetIds, ...factorResearchWidgetIds, ...stageResultWidgetIds]
+export const agentWorkspaceWidgetIds: string[] = [...coreWorkflowWidgetIds]
 
 export function isActiveWidgetId(widgetId: string): boolean {
   return activeWidgetIds.has(widgetId)
