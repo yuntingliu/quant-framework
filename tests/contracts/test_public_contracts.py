@@ -77,6 +77,33 @@ def test_workbenches_share_the_strategy_sdk_context():
     assert "/backtests/jobs" in validation and "revision" in validation
 
 
+def test_strategy_save_hides_internal_revision_workflow():
+    context = (ROOT / "dashboard/frontend/src/contexts/StrategySdkContext.tsx").read_text(
+        encoding="utf-8"
+    )
+    factor = (ROOT / "dashboard/frontend/src/widgets/factors/FactorWorkbench.tsx").read_text(
+        encoding="utf-8"
+    )
+    strategy = (
+        ROOT / "dashboard/frontend/src/widgets/strategy/StrategyWorkbench.tsx"
+    ).read_text(encoding="utf-8")
+    backtest = (
+        ROOT / "dashboard/frontend/src/widgets/backtest/BacktestWorkbench.tsx"
+    ).read_text(encoding="utf-8")
+
+    assert "commitSavedProject" in context
+    assert "installFactorTemplate" in context
+    visible_workbenches = factor + strategy + backtest
+    for removed_label in (
+        "冻结新版本",
+        "草稿未冻结",
+        "冻结修订",
+        "运行冻结源码",
+        "当前冻结 revision",
+    ):
+        assert removed_label not in visible_workbenches
+
+
 def test_active_backend_mounts_only_sdk_strategy_authoring():
     main = (ROOT / "dashboard/backend/main.py").read_text(encoding="utf-8")
     assert "app.include_router(strategy.router)" in main

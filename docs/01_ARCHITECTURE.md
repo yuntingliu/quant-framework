@@ -3,7 +3,9 @@
 AlphaLab uses Strategy SDK v1 as its only active strategy-authoring and
 execution contract. A project owns one complete Python module. Forms, Codex,
 factor evaluation, previews, event backtests, and reports all refer to that
-module through an immutable source revision and SHA-256.
+module. A normal user save automatically records an immutable internal source
+package and SHA-256 so later results remain reproducible without exposing a
+manual revision workflow.
 
 The normative API is [02_STRATEGY_SDK_V1_CONTRACT.md](02_STRATEGY_SDK_V1_CONTRACT.md).
 
@@ -13,8 +15,8 @@ The normative API is [02_STRATEGY_SDK_V1_CONTRACT.md](02_STRATEGY_SDK_V1_CONTRAC
 Data recipe ── execute/sync ── canonical research store
                                       │
 Project ─────┐                        │
-Factor      ├── one mutable Python strategy draft ── validate/probe ── StrategySourcePackage
-Strategy ───┘                                                        │
+Factor      ├── one editable Python strategy ── save/validate/probe ── internal StrategySourcePackage
+Strategy ───┘                                                         │
                                                          ├── factor snapshot/history
                                                          ├── signal/portfolio/execution preview
                                                          └── daily event backtest ── frozen Run ── report
@@ -37,9 +39,9 @@ has a different SDK and lifecycle from strategy source.
 
 The project database remains authoritative. Before a document is opened, the
 backend writes a derived filesystem mirror under `data/runtime/editor/` for
-language-server access. Mirrors are ignored by git, never become a saved
-revision, and are never selected as execution input. Saves still use the
-strategy draft or data-recipe APIs and their existing validation and hashes.
+language-server access. Mirrors are ignored by git, never become saved source,
+and are never selected as execution input. Saves still use the strategy source
+or data-recipe APIs and their existing validation and hashes.
 
 Two fixed local language-server bridges enrich each Python model:
 
@@ -77,17 +79,19 @@ visible as custom Python and is never translated to an expression language.
 
 ## Source lifecycle
 
-`StrategyRepository` persists two objects:
+`StrategyRepository` persists two internal objects:
 
 - `strategy_projects`: mutable metadata and one mutable draft;
 - `strategy_source_packages`: immutable revisions containing full source,
   source hash, registry manifest, literal parameters, requirements, validator
   version, and environment fingerprint.
 
-Draft edits perform static contract validation. Freezing a revision additionally
-imports the complete module and runs bounded probes for the full path, every
-registered factor, and every registered event handler. Runs always pin a
-specific package; changing a later draft cannot alter a historical result.
+The UI exposes one operation: save. Saving performs static contract validation,
+imports the complete module, runs bounded probes for the full path, every
+registered factor, and every registered event handler, then records an immutable
+package automatically. Runs pin that internal package; changing the strategy
+later cannot alter a historical result. Revision numbers and hashes are audit
+metadata, not user-managed authoring controls.
 
 ## Runtime and event engine
 

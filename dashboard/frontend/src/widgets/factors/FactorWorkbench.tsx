@@ -158,34 +158,32 @@ function FactorMarketBrowser({ fields, onInsertField }: {
         error={barsQuery.error instanceof Error ? barsQuery.error.message : ""}
         onReload={() => setReloadRevision((value) => value + 1)} watchlist={watchlist}
         onToggleWatchlist={toggleWatchlist} dataLabel={`日线 · 截至 ${endDate}`}
-        emptyLabel="当前证券没有可用 K 线。" density="compact" contextPanelLabel="SDK 数据字段"
-        contextPanel={(
-          <div className="factor-source-fields">
-            <div className="factor-source-fields-heading">
-              <div><strong>当前数据全部字段</strong><small>点击即插入 Python</small></div>
-              <span>{fieldCount} 个字段</span>
-            </div>
-            <div className="factor-source-field-groups">
-              {Object.entries(fields?.datasets ?? {}).map(([dataset, rows]) => (
-                <section className="factor-source-field-group" key={dataset}>
-                  <header><strong>{dataset}</strong><code>context</code><span>{rows.length}</span></header>
-                  <div className="factor-source-field-grid">
-                    {rows.map((field) => {
-                      const value = dataset === "fundamentals" ? latestFundamental?.[field.name] : latestBar?.[field.name as keyof MarketBar]
-                      return (
-                        <button className="factor-source-field" type="button" key={`${dataset}-${field.name}`} title={`把 ${field.name} 插入当前 @factor`} onClick={() => onInsertField(field.name, dataset)}>
-                          <span><code>{field.name}</code><small>{field.data_type}</small></span>
-                          <strong>{displayValue(value)}</strong><Plus size={11} />
-                        </button>
-                      )
-                    })}
-                  </div>
-                </section>
-              ))}
-            </div>
-          </div>
-        )}
+        emptyLabel="当前证券没有可用 K 线。" density="compact"
       />
+      <div className="factor-source-fields">
+        <div className="factor-source-fields-heading">
+          <div><strong>当前数据全部字段</strong><small>点击即插入 Python</small></div>
+          <span>{fieldCount} 个字段</span>
+        </div>
+        <div className="factor-source-field-groups">
+          {Object.entries(fields?.datasets ?? {}).map(([dataset, rows]) => (
+            <section className="factor-source-field-group" key={dataset}>
+              <header><strong>{dataset}</strong><code>context</code><span>{rows.length}</span></header>
+              <div className="factor-source-field-grid">
+                {rows.map((field) => {
+                  const value = dataset === "fundamentals" ? latestFundamental?.[field.name] : latestBar?.[field.name as keyof MarketBar]
+                  return (
+                    <button className="factor-source-field" type="button" key={`${dataset}-${field.name}`} title={`把 ${field.name} 插入当前 @factor`} onClick={() => onInsertField(field.name, dataset)}>
+                      <span><code>{field.name}</code><small>{field.data_type}</small></span>
+                      <strong>{displayValue(value)}</strong><Plus size={11} />
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      </div>
     </section>
   )
 }
@@ -222,7 +220,7 @@ function FactorResultPanels({ snapshot, history }: {
         </div>
       </section>
       <section className="factor-lab-panel embedded">
-        <header className="factor-panel-header"><span><strong>历史截面</strong><small>同一冻结 @factor 函数逐期调用</small></span><Badge variant="outline">{history?.observations ?? 0} 期</Badge></header>
+        <header className="factor-panel-header"><span><strong>历史截面</strong><small>同一 @factor 函数逐期调用</small></span><Badge variant="outline">{history?.observations ?? 0} 期</Badge></header>
         <div className="factor-panel-scroll">
           {historyRows.length ? <div className="editor-list">{[...historyRows].reverse().slice(0, 30).map((row) => {
             const count = row.values.filter((item) => typeof item.value === "number").length
@@ -240,8 +238,7 @@ export function FactorWorkbenchWidget() {
   const confirm = useConfirm()
   const project = sdk.project
   const factorEditor = useRef<PythonEditorHandle>(null)
-  const [workspaceView, setWorkspaceView] = useState<"build" | "results" | "python">("build")
-  const [source, setSource] = useState("")
+  const [workspaceView, setWorkspaceView] = useState<"build" | "results">("build")
   const [factorSource, setFactorSource] = useState("")
   const [savedFactorSource, setSavedFactorSource] = useState("")
   const [loadingFactorSource, setLoadingFactorSource] = useState(false)
@@ -263,9 +260,8 @@ export function FactorWorkbenchWidget() {
   const projectProfile = project?.profile
   const projectSource = project?.draft_source ?? ""
   const activeFactorId = activeFactor?.id ?? ""
-  const moduleDirty = Boolean(project && source !== project.draft_source)
   const factorDirty = Boolean(activeFactor && factorSource !== savedFactorSource)
-  const localDirty = moduleDirty || factorDirty
+  const localDirty = factorDirty
   const templatesQuery = useQuery({
     queryKey: ["sdk-factor-templates"],
     queryFn: () => api.get<FactorTemplateCatalog>("/strategy/factor-templates"),
@@ -280,7 +276,6 @@ export function FactorWorkbenchWidget() {
   }, [templateCategory, templateQuery, templatesQuery.data?.templates])
 
   useEffect(() => {
-    setSource(projectSource)
     setSnapshot(null); setHistory(null)
     if (!projectProfile) return
     void api.get<FieldCatalog>(`/strategy/fields?profile=${projectProfile}`).then((value) => {
@@ -310,10 +305,6 @@ export function FactorWorkbenchWidget() {
 
   function insertAtFactorCursor(text: string) {
     if (!activeFactor) return
-    if (workspaceView === "python" && moduleDirty) {
-      setError("完整源码还有未保存修改，请先保存后再编辑单个因子。")
-      return
-    }
     setWorkspaceView("build")
     const insert = () => {
       if (!factorEditor.current) {
@@ -342,53 +333,50 @@ export function FactorWorkbenchWidget() {
     setFactorSource("")
     setSavedFactorSource("")
     setSelectedFactor(factorId)
+    setSnapshot(null)
+    setHistory(null)
   }
-  function changeWorkspaceView(nextView: "build" | "results" | "python") {
-    if (nextView === "python" && factorDirty) {
-      setError("当前因子还有未保存修改，请先保存再打开完整源码。")
-      return
-    }
-    if (workspaceView === "python" && nextView !== "python" && moduleDirty) {
-      setError("完整源码还有未保存修改，请先保存再返回因子视图。")
-      return
-    }
-    setError("")
-    setWorkspaceView(nextView)
-  }
-  function addFactor() {
+  async function addFactor() {
+    if (!project?.editable || busy) return
     if (factorDirty) {
       setError("当前因子还有未保存修改，请先保存再新建因子。")
       return
     }
-    const id = `factor_${factors.length + 1}`
-    const marker = source.indexOf("\n@signal")
-    const position = marker >= 0 ? marker : source.length
-    setSource(`${source.slice(0, position)}${factorSnippet(id)}${source.slice(position)}`); setWorkspaceView("python")
+    const knownIds = new Set(factors.map((factor) => factor.id))
+    let suffix = factors.length + 1
+    while (knownIds.has(`factor_${suffix}`)) suffix += 1
+    const id = `factor_${suffix}`
+    const marker = projectSource.indexOf("\n@signal")
+    const position = marker >= 0 ? marker : projectSource.length
+    setBusy(true); setError("")
+    try {
+      await sdk.updateDraft(`${projectSource.slice(0, position)}${factorSnippet(id)}${projectSource.slice(position)}`)
+      setFactorSource("")
+      setSavedFactorSource("")
+      setSelectedFactor(id)
+      setWorkspaceView("build")
+      setSnapshot(null); setHistory(null)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
+    }
   }
   async function installTemplate(template: FactorTemplate) {
     if (!project?.editable || localDirty || factors.some((factor) => factor.id === template.id)) return
     if (!await confirm({
       title: `加入因子 ${template.label}`,
-      description: `将把模板转换为 @factor(${template.id}) Python 函数并写入当前项目草稿，同时补齐数据字段声明。`,
+      description: `将把模板转换为 @factor(${template.id}) Python 函数并保存到当前项目，同时补齐数据字段声明。`,
       confirmText: "加入项目",
     })) return
     setInstallingTemplate(template.id); setError("")
     try {
-      await api.post(`/strategy/projects/${project.id}/factor-templates/${encodeURIComponent(template.id)}`, {
-        expected_source_sha256: project.draft_source_sha256,
-        confirm_write: true,
-      })
+      await sdk.installFactorTemplate(template.id)
       setFactorSource("")
       setSavedFactorSource("")
       setSelectedFactor(template.id)
-      await sdk.openProject(project.id)
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setInstallingTemplate("") }
-  }
-  async function saveDraft(nextSource = source) {
-    if (!project?.editable) return
-    setBusy(true); setError("")
-    try { await sdk.updateDraft(nextSource) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) } finally { setBusy(false) }
   }
   async function saveActiveFactor(nextSource = factorSource) {
     if (!project?.editable || !activeFactor) return
@@ -404,7 +392,6 @@ export function FactorWorkbenchWidget() {
       const nextFactor = updatedFactors.find((item) => item.function === activeFactor.function)
         ?? updatedFactors[factorIndex]
       if (nextFactor) setSelectedFactor(nextFactor.id)
-      setSource(updated.draft_source)
       setFactorSource(nextSource)
       setSavedFactorSource(nextSource)
     } catch (reason) {
@@ -435,7 +422,6 @@ export function FactorWorkbenchWidget() {
       setFactorSource("")
       setSavedFactorSource("")
       setSelectedFactor(nextFactor?.id ?? "")
-      setSource(updated.draft_source)
       setSnapshot(null); setHistory(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -444,10 +430,10 @@ export function FactorWorkbenchWidget() {
     }
   }
   async function evaluate(mode: "snapshot" | "history") {
-    if (!project || project.dirty || moduleDirty || factorDirty || !activeFactor) return
+    if (!project || project.dirty || factorDirty || !activeFactor) return
     if (!await confirm({
       title: mode === "history" ? "运行因子历史检验" : "运行因子截面检验",
-      description: `将运行 ${project.id}@${project.current_revision} 中的 @factor ${activeFactor.id}。本机 Python 不是安全沙箱。`,
+      description: `将运行当前已保存的 @factor ${activeFactor.id}。本机 Python 不是安全沙箱。`,
       confirmText: "确认运行",
     })) return
     setBusy(true); setError("")
@@ -466,23 +452,23 @@ export function FactorWorkbenchWidget() {
   }
 
   if (!project) return <Widget title="因子研究" loading={sdk.loading} error={sdk.error}><span /></Widget>
-  const requiresFreeze = project.dirty || localDirty
+  const hasUnsavedChanges = project.dirty || localDirty
   return (
     <Widget headerless>
       <div className="factor-workbench-shell">
         <FactorMarketBrowser fields={fields} onInsertField={insertField} />
-        <Tabs className="factor-workbench-tabs" value={workspaceView} onValueChange={(value) => changeWorkspaceView(value as "build" | "results" | "python")}>
+        <Tabs className="factor-workbench-tabs" value={workspaceView} onValueChange={(value) => setWorkspaceView(value as "build" | "results")}>
           <div className="factor-workbench-toolbar">
-            <TabsList><TabsTrigger value="build">因子库与参数</TabsTrigger><TabsTrigger value="results">最终验证{requiresFreeze ? <span className="factor-tab-warning">草稿未冻结</span> : null}</TabsTrigger><TabsTrigger value="python">高级 Python</TabsTrigger></TabsList>
+            <TabsList><TabsTrigger value="build">因子库与编辑</TabsTrigger><TabsTrigger value="results">因子检验{hasUnsavedChanges ? <span className="factor-tab-warning">尚未保存</span> : null}</TabsTrigger></TabsList>
             <div className="factor-workbench-actions">
-              <span className={requiresFreeze ? "factor-build-hint" : "factor-validation-ready"}>{factorDirty ? "当前因子尚未保存" : moduleDirty ? "完整源码尚未保存" : project.dirty ? "参数或源码已变化" : "当前源码可复现"}</span>
+              <span className={hasUnsavedChanges ? "factor-build-hint" : "factor-validation-ready"}>{hasUnsavedChanges ? "当前因子尚未保存" : "已保存"}</span>
             </div>
           </div>
           {error ? <div className="workbench-message error factor-workbench-error">{error}</div> : null}
 
           <TabsContent className="factor-workbench-content" value="build"><div className="factor-build-grid">
             <section className="factor-lab-panel embedded">
-              <header className="factor-panel-header"><span><strong><Library size={14} /> 因子库</strong></span><Button size="sm" variant="outline" disabled={!project.editable} onClick={addFactor}><Plus />新因子</Button></header>
+              <header className="factor-panel-header"><span><strong><Library size={14} /> 因子库</strong></span><Button size="sm" variant="outline" disabled={!project.editable || busy || factorDirty} onClick={() => void addFactor()}><Plus />新因子</Button></header>
               <div className="factor-template-controls"><label><Search size={12} /><input value={templateQuery} onChange={(event) => setTemplateQuery(event.target.value)} placeholder="搜索 16 个内置因子" /></label><div>{(["all", "technical", "fundamental"] as const).map((category) => <button type="button" key={category} className={templateCategory === category ? "active" : ""} onClick={() => setTemplateCategory(category)}>{category === "all" ? "全部" : category === "technical" ? "技术" : "基本面"}</button>)}</div></div>
               <div className="factor-panel-scroll">
                 <div className="factor-section-heading"><span>项目因子</span><strong>{factors.length}</strong></div>
@@ -499,7 +485,7 @@ export function FactorWorkbenchWidget() {
               </div>
             </section>
             <section className="factor-lab-panel embedded">
-              <header className="factor-panel-header"><span><strong><Braces size={14} /> 当前因子 Python</strong></span><div className="flex items-center gap-2">{activeFactor ? <Badge>@factor {activeFactor.id}</Badge> : null}<Button size="sm" variant="outline" disabled={!project.editable || busy || !activeFactor} onClick={() => void deleteActiveFactor()}><Trash2 />删除</Button><Button size="sm" disabled={!project.editable || busy || !factorDirty} onClick={() => void saveActiveFactor()}><Save />保存当前因子</Button></div></header>
+              <header className="factor-panel-header"><span><strong><Braces size={14} /> 当前因子 Python</strong></span><div className="flex items-center gap-2">{activeFactor ? <Badge>@factor {activeFactor.id}</Badge> : null}<Button size="sm" variant="outline" disabled={!project.editable || busy || !activeFactor} onClick={() => void deleteActiveFactor()}><Trash2 />删除</Button><Button size="sm" disabled={!project.editable || busy || (!factorDirty && !project.dirty)} onClick={() => void saveActiveFactor()}><Save />保存当前因子</Button></div></header>
               <div className="factor-editor-body">{loadingFactorSource ? <div className="python-editor-loading">正在加载当前因子…</div> : activeFactor ? <PythonEditor
                 ref={factorEditor}
                 kind="factor"
@@ -519,28 +505,9 @@ export function FactorWorkbenchWidget() {
           </div></TabsContent>
 
           <TabsContent className="factor-workbench-content" value="results"><div className="factor-final-validation">
-            <div className="factor-final-validation-intro"><div><FlaskConical size={16} /><span><strong>同一函数，两种检验</strong><small>最近截面与历史截面都直接调用当前冻结 revision 中的 @factor。</small></span></div><div className="flex items-end gap-2"><label className="text-[11px] text-muted-foreground">开始<Input className="h-8" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label className="text-[11px] text-muted-foreground">结束<Input className="h-8" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label><Button size="sm" variant="outline" disabled={busy || requiresFreeze || !activeFactor} onClick={() => void evaluate("snapshot")}><Play />最近截面</Button><Button size="sm" disabled={busy || requiresFreeze || !activeFactor} onClick={() => void evaluate("history")}><Play />历史检验</Button></div></div>
+            <div className="factor-final-validation-intro"><div><FlaskConical size={16} /><span><strong>单因子检验</strong><small>选择一个已保存因子，运行截面或历史检验。</small></span></div><div className="factor-validation-controls"><label className="factor-validation-control"><span>检验因子</span><select value={activeFactor?.id ?? ""} disabled={busy || factorDirty || factors.length === 0} onChange={(event) => selectProjectFactor(event.target.value)}>{factors.map((factor) => <option key={factor.id} value={factor.id}>{factor.label ? `${factor.label} (${factor.id})` : factor.id}</option>)}</select></label><label className="factor-validation-control"><span>开始</span><Input className="h-8" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label className="factor-validation-control"><span>结束</span><Input className="h-8" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label><Button size="sm" variant="outline" disabled={busy || hasUnsavedChanges || !activeFactor} onClick={() => void evaluate("snapshot")}><Play />截面检验</Button><Button size="sm" disabled={busy || hasUnsavedChanges || !activeFactor} onClick={() => void evaluate("history")}><Play />历史检验</Button></div></div>
             <FactorResultPanels snapshot={snapshot} history={history} />
           </div></TabsContent>
-
-          <TabsContent className="factor-workbench-content" value="python"><section className="factor-lab-panel embedded h-full">
-            <header className="factor-panel-header"><span><strong><Braces size={14} /> 完整 canonical module</strong><small>高级编辑不会生成第二份因子定义</small></span><div className="flex items-center gap-2"><Badge variant={requiresFreeze ? "destructive" : "outline"}>{moduleDirty ? "未保存" : project.draft_source_sha256.slice(0, 16)}</Badge><Button size="sm" disabled={!project.editable || busy || !moduleDirty} onClick={() => void saveDraft()}><Save />保存完整源码</Button></div></header>
-            <div className="factor-editor-body"><PythonEditor
-              kind="strategy"
-              documentId={project.id}
-              value={source}
-              version={project.draft_source_sha256}
-              baselineValue={project.draft_source}
-              disabled={!project.editable}
-              height={620}
-              revealLine={activeFactor?.line}
-              fields={Object.entries(fields?.datasets ?? {}).flatMap(([dataset, items]) => items.map((item) => ({ name: item.name, dataset, detail: `${item.data_type}${item.nullable ? " · 可空" : ""}` })))}
-              factors={factors.map((factor) => ({ id: factor.id, label: factor.label }))}
-              parameters={activeFactor?.parameters ?? []}
-              onChange={setSource}
-              onSave={(nextSource) => saveDraft(nextSource)}
-            /></div>
-          </section></TabsContent>
         </Tabs>
       </div>
     </Widget>

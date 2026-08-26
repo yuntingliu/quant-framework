@@ -109,7 +109,8 @@ catalog edits do not rewrite saved strategy source.
 
 ## Validation and errors
 
-Saving a revision performs parse, SDK version, registry uniqueness, signature,
+Saving strategy source automatically records an internal package and performs
+parse, SDK version, registry uniqueness, signature,
 literal metadata, factor dependency/cycle, compile/import, runtime requirement,
 and synthetic output probes. Add new validation at the narrowest boundary and
 return a phase: `parse`, `register`, `input`, `execute`, `output`, or `state`.
@@ -125,9 +126,9 @@ Current authoring routes are under `/api/strategy`. Mutations require
 `confirm_delete`, and anything importing or invoking strategy source requires
 `confirm_python_execution`.
 
-Backtests use `/api/backtests/jobs` and require an explicit revision. A job pins
-that revision before queueing. Historical result endpoints never read the
-current draft.
+Backtests use `/api/backtests/jobs`. The frontend supplies the current internal
+package ID; users do not choose or freeze revisions. A job pins that package
+before queueing, and historical result endpoints never read later source.
 
 Data recipe routes are under `/api/data-sync/recipes`. Source and no-code
 parameter writes require `confirm_write`; invoking recipe source requires
@@ -137,12 +138,15 @@ Do not implement a second arbitrary-Python runner for data acquisition.
 ## Frontend conventions
 
 All six workbenches use `StrategySdkContext`. A full-source edit saves the same
-draft; parameter and schedule forms call the CST edit endpoint. Factor field and
-dependency buttons insert valid Python into the active factor function. Factor
-tests and backtests are disabled for dirty drafts until a revision is frozen.
-The factor template catalog may add only to a clean editable draft and must then
-refresh the shared project context so Factor and Strategy views see the same
-registered factors immediately.
+strategy; parameter and schedule forms call the CST edit endpoint. Every source
+save or structured edit automatically validates and records the internal source
+package through the shared context. Do not expose revision numbers, hashes,
+draft/freeze states, or a second freeze action in normal workbench UI. Factor
+field and dependency buttons insert valid Python into the active factor
+function. Factor tests and backtests are disabled only while editor changes are
+unsaved. The factor template catalog may add only to a clean editable project
+and must then refresh the shared project context so Factor and Strategy views
+see the same registered factors immediately.
 
 The Data Workbench is the acquisition exception: it edits the project's one
 data-recipe module, not the strategy module. Built-in and user-saved template

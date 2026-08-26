@@ -127,7 +127,7 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   alphalab_get_workspace_context: { zh: "读取项目与数据目录", en: "Read project and data catalog" },
   alphalab_get_strategy_project: { zh: "读取策略源码项目", en: "Read strategy source project" },
   alphalab_edit_strategy_source: { zh: "编辑策略源码", en: "Edit strategy source" },
-  alphalab_preview_strategy: { zh: "预览冻结策略", en: "Preview frozen strategy" },
+  alphalab_preview_strategy: { zh: "预览已保存策略", en: "Preview saved strategy" },
   alphalab_evaluate_strategy_factor: { zh: "检验源码因子", en: "Evaluate source factor" },
   alphalab_get_market_bars: { zh: "读取历史行情", en: "Read historical bars" },
   alphalab_get_fundamentals: { zh: "读取点时基本面", en: "Read point-in-time fundamentals" },

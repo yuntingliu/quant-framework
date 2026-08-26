@@ -64,7 +64,7 @@ export function ProjectWorkbenchWidget() {
     if (!sdk.project?.editable) return
     if (!await confirm({
       title: "删除策略项目",
-      description: `历史回测不会删除，但“${sdk.project.name}”的草稿和历史版本将被移除。请输入项目名称确认。`,
+      description: `历史回测不会删除，但“${sdk.project.name}”的策略代码将被移除。请输入项目名称确认。`,
       requireText: sdk.project.name,
       confirmText: "删除",
       tone: "danger",

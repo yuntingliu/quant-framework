@@ -22,7 +22,7 @@ const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
   { id: "project.workbench", title: "研究项目", titleEn: "Research Project", category: "研究流程", categoryEn: "Research Flow", description: "创建、选择和管理研究项目", descriptionEn: "Create, select, and manage research projects" },
   { id: "factor.workbench", title: "因子研究", titleEn: "Factor Research", category: "研究流程", categoryEn: "Research Flow", description: "对照行情和财务 API 数据编辑因子，最后统一验证", descriptionEn: "Author factors against market and fundamental API data, then validate them" },
   { id: "strategy.workbench", title: "策略工作台", titleEn: "Strategy Workbench", category: "研究流程", categoryEn: "Research Flow", description: "在同一 Python 模块中编辑信号、组合、状态事件和执行", descriptionEn: "Edit signals, portfolio, stateful events, and execution in one Python module" },
-  { id: "validation.workbench", title: "验证与回测", titleEn: "Validation & Backtest", category: "研究流程", categoryEn: "Research Flow", description: "选择冻结源码修订并运行预览、因子检验和事件回测", descriptionEn: "Select frozen source revisions and run previews, factor tests, and event backtests" },
+  { id: "validation.workbench", title: "验证与回测", titleEn: "Validation & Backtest", category: "研究流程", categoryEn: "Research Flow", description: "运行当前已保存策略的预览、因子检验和事件回测", descriptionEn: "Run previews, factor tests, and event backtests for the current saved strategy" },
   { id: "report.workbench", title: "报告工作台", titleEn: "Report Workbench", category: "研究流程", categoryEn: "Research Flow", description: "查看 Agent 生成的文档、表格、图表和来源", descriptionEn: "Inspect Agent documents, tables, charts, and sources" },
 
   // Optional extension slots retained outside the core workflow.

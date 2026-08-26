@@ -5,7 +5,7 @@ import { CumulativeReturnsChart, DrawdownChart } from "@/components/charts"
 import { PythonEditor } from "@/components/python"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { useStrategySdk, type SourcePackage } from "@/contexts/StrategySdkContext"
+import { useStrategySdk } from "@/contexts/StrategySdkContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
 import { useConfirm } from "@/hooks/useConfirm"
 import {
@@ -47,8 +47,6 @@ export function ValidationWorkbenchWidget() {
   const [source, setSource] = useState("")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
-  const [revisions, setRevisions] = useState<SourcePackage[]>([])
-  const [revision, setRevision] = useState<number | null>(null)
   const [jobs, setJobs] = useState<BacktestJob[]>([])
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [runs, setRuns] = useState<BacktestRecord[]>([])
@@ -62,18 +60,16 @@ export function ValidationWorkbenchWidget() {
 
   useEffect(() => {
     setSource(project?.draft_source ?? "")
-    setRevision(project?.current_revision ?? null)
     setAnalysis(null); setSignals(null); setAttribution(null); setRobustness(null)
     if (!project) return
     void Promise.all([
       api.get<ProfileFields>(`/strategy/fields?profile=${project.profile}`),
-      api.get<SourcePackage[]>(`/strategy/projects/${project.id}/revisions`),
       api.get<BacktestRecord[]>("/backtests?limit=50"),
       api.get<BacktestJob[]>("/backtests/jobs?limit=20"),
-    ]).then(([profile, revisionRows, runRows, jobRows]) => {
+    ]).then(([profile, runRows, jobRows]) => {
       const projectRuns = runRows.filter((item) => item.strategy_id === project.id)
       setStartDate(profile.start_date); setEndDate(profile.end_date)
-      setRevisions(revisionRows); setRuns(projectRuns); setJobs(jobRows)
+      setRuns(projectRuns); setJobs(jobRows)
       const active = jobRows.find((item) => item.request?.project_id === project.id && (item.status === "queued" || item.status === "running"))
       setActiveJobId(active?.id ?? null)
       if (!selectedBacktest || !projectRuns.some((item) => item.id === selectedBacktest)) {
@@ -128,8 +124,8 @@ export function ValidationWorkbenchWidget() {
     return () => { current = false }
   }, [selectedBacktest])
 
-  const selectedPackage = revisions.find((item) => item.revision === revision)
   const localDirty = Boolean(project && source !== project.draft_source)
+  const hasUnsavedChanges = Boolean(project?.dirty || localDirty)
   const equityData = useMemo(() => analysis?.dates.map((date, index) => ({
     date,
     strategy: analysis.equity_curve[index] ?? 1,
@@ -145,16 +141,16 @@ export function ValidationWorkbenchWidget() {
   const invalidRange = Boolean(startDate && endDate && startDate > endDate)
 
   async function runBacktest() {
-    if (!project || !revision || !selectedPackage || invalidRange) return
+    if (!project || hasUnsavedChanges || invalidRange) return
     if (!await confirm({
       title: "运行完整事件回测",
-      description: `运行 ${project.id}@${revision}（${selectedPackage.source_sha256.slice(0, 16)}）。将调用受信任的本机 Python；它不是安全沙箱。`,
+      description: `运行当前已保存的“${project.name}”。将调用受信任的本机 Python；它不是安全沙箱。`,
       confirmText: "运行回测",
     })) return
     setBusy(true); setError("")
     try {
       const job = await api.post<BacktestJob>("/backtests/jobs", {
-        project_id: project.id, revision, profile: project.profile,
+        project_id: project.id, revision: project.current_revision, profile: project.profile,
         start_date: startDate, end_date: endDate, confirm_python_execution: true,
       })
       setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)])
@@ -164,7 +160,7 @@ export function ValidationWorkbenchWidget() {
   }
 
   async function saveAsDraft(nextSource = source) {
-    if (!project?.editable || nextSource === project.draft_source) return
+    if (!project?.editable || (nextSource === project.draft_source && !project.dirty)) return
     setBusy(true); setError("")
     try { await sdk.updateDraft(nextSource) }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
@@ -176,16 +172,15 @@ export function ValidationWorkbenchWidget() {
     <Widget headerless>
       <section className="backtest-run-setup">
         <div className="backtest-section-heading">
-          <div><strong>完整策略回测</strong><span>选择不可变 revision 和样本区间；调度、持仓与成交参数来自同一份 Python。</span></div>
+          <div><strong>完整策略回测</strong><span>选择样本区间并运行当前已保存策略；调度、持仓与成交参数来自同一份 Python。</span></div>
           <small>RQData · Strategy SDK v1</small>
         </div>
         <div className="backtest-setup-grid">
           <div className="backtest-setup-card">
-            <div className="backtest-setup-card-heading"><strong>策略与源码</strong><span>当前草稿不会覆盖历史 Run</span></div>
+            <div className="backtest-setup-card-heading"><strong>当前策略</strong><span>历史回测会保留各自运行时的代码</span></div>
             <div className="backtest-run-controls">
               <div className="pipeline-pinned-component"><span>策略项目</span><strong>{project.name}</strong></div>
-              <label><span>冻结修订</span><select value={revision ?? ""} onChange={(event) => setRevision(Number(event.target.value))}>{revisions.map((item) => <option key={item.revision} value={item.revision}>r{item.revision} · {item.source_sha256.slice(0, 10)}</option>)}</select></label>
-              <div className="pipeline-pinned-component readonly"><span>源码哈希</span><strong>{selectedPackage?.source_sha256.slice(0, 12) ?? "—"}</strong></div>
+              <div className="pipeline-pinned-component readonly"><span>代码状态</span><strong>{hasUnsavedChanges ? "尚未保存" : "已保存"}</strong></div>
             </div>
           </div>
           <div className="backtest-setup-card">
@@ -198,8 +193,8 @@ export function ValidationWorkbenchWidget() {
           </div>
         </div>
         <div className="backtest-run-footer">
-          <span className={invalidRange || project.dirty || localDirty ? "warning" : ""}>{invalidRange ? "开始日期必须早于结束日期" : localDirty ? "屏幕中的 Python 尚未保存；本次仍运行所选冻结 revision" : project.dirty ? "项目有未冻结草稿；本次仍运行所选冻结 revision" : "所有结果都固定源码哈希、数据范围和执行审计"}</span>
-          <div className="backtest-run-actions"><button className="primary-command" type="button" disabled={busy || Boolean(activeJobId) || !selectedPackage || invalidRange} onClick={() => void runBacktest()}><Play />{activeJobId ? "回测运行中" : "运行冻结源码"}</button></div>
+          <span className={invalidRange || hasUnsavedChanges ? "warning" : ""}>{invalidRange ? "开始日期必须早于结束日期" : hasUnsavedChanges ? "请先保存屏幕中的 Python，再运行回测" : "回测将使用当前已保存策略和所选数据范围"}</span>
+          <div className="backtest-run-actions"><button className="primary-command" type="button" disabled={busy || Boolean(activeJobId) || hasUnsavedChanges || invalidRange} onClick={() => void runBacktest()}><Play />{activeJobId ? "回测运行中" : "运行回测"}</button></div>
         </div>
       </section>
 
@@ -208,7 +203,7 @@ export function ValidationWorkbenchWidget() {
 
       <section className="backtest-result-identity">
         <div className="backtest-result-title"><strong>当前结果</strong><span>{analysis ? `${analysis.strategy_id} · ${analysis.start_date} — ${analysis.end_date}` : "选择历史 Run 或运行一次回测"}</span></div>
-        {analysis?.strategy_snapshot ? <div className="backtest-snapshot-summary"><Database size={13} /><span>StrategySourcePackage · {(analysis.strategy_snapshot as BacktestAnalysis["strategy_snapshot"] & { revision?: number }).revision ?? "—"} · {analysis.strategy_snapshot.factors.length} 个因子</span></div> : null}
+        {analysis?.strategy_snapshot ? <div className="backtest-snapshot-summary"><Database size={13} /><span>运行时策略 · {analysis.strategy_snapshot.factors.length} 个因子</span></div> : null}
         <select aria-label="选择历史回测" value={selectedBacktest ?? ""} onChange={(event) => setSelectedBacktest(event.target.value || null)}><option value="">选择历史 Run</option>{runs.map((run) => <option key={run.id} value={run.id}>{run.start_date}–{run.end_date} · {percent(run.total_return)} · {run.run_at.slice(0, 10)}</option>)}</select>
       </section>
 
@@ -219,7 +214,7 @@ export function ValidationWorkbenchWidget() {
         ] as Array<[ValidationTab, string]>).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
       </div>
 
-      {loadingResult ? <div className="analytics-empty">正在读取冻结结果…</div> : null}
+      {loadingResult ? <div className="analytics-empty">正在读取回测结果…</div> : null}
       {!loadingResult && tab === "performance" ? <div className="workbench-body">
         {analysis ? <>
           <div className="analytics-kpi-grid workbench-kpis">
@@ -230,7 +225,7 @@ export function ValidationWorkbenchWidget() {
           <div className="detail-strip"><span>{analysis.dates.length} 个交易日</span><span>{analysis.executions.length} 条执行记录</span><span>基准覆盖 {percent(analysis.benchmark_coverage)}</span><span className="font-mono">Run {analysis.id.slice(0, 12)}</span></div>
           <CumulativeReturnsChart data={equityData} series={[{ key: "strategy", name: "策略净值" }, { key: "benchmark", name: "等权基准" }, { key: "excess", name: "超额净值" }]} height={270} />
           <DrawdownChart data={drawdownData} height={190} />
-        </> : <div className="analytics-empty">尚无可显示的冻结回测结果。</div>}
+        </> : <div className="analytics-empty">尚无可显示的回测结果。</div>}
       </div> : null}
 
       {!loadingResult && tab === "signals" ? <div className="workbench-body">
@@ -246,7 +241,7 @@ export function ValidationWorkbenchWidget() {
           {attribution.warnings.map((warning) => <div key={warning} className="workbench-message warning">{warning}</div>)}
           <div className="analytics-kpi-grid workbench-kpis"><MetricCard label="CAPM 年化 Alpha" value={percent(attribution.capm.alpha_annualized)} /><MetricCard label="市场 Beta" value={number(attribution.capm.betas.MKT)} /><MetricCard label="R²" value={percent(attribution.capm.r_squared)} /><MetricCard label="回归样本" value={String(attribution.observations)} /></div>
           <div className="analytics-table-wrap"><table className="analytics-table compact"><thead><tr><th>因子</th><th>估计值</th><th>标准误</th><th>t 值</th></tr></thead><tbody>{Object.entries(attribution.multi_factor.estimates).map(([name, estimate]) => <tr key={name}><td><strong>{name}</strong></td><td>{number(estimate.estimate, 4)}</td><td>{number(estimate.standard_error, 4)}</td><td>{number(estimate.t_stat)}</td></tr>)}</tbody></table></div>
-        </> : <div className="analytics-empty">该 Run 没有冻结的归因数据。</div>}
+        </> : <div className="analytics-empty">该 Run 没有可用的归因数据。</div>}
       </div> : null}
 
       {!loadingResult && tab === "robustness" ? <div className="workbench-body">
@@ -258,7 +253,7 @@ export function ValidationWorkbenchWidget() {
       </div> : null}
 
       {tab === "source" ? <div className="workbench-body">
-        <div className="backtest-section-heading"><div><strong><Code2 size={15} /> 回测页高级 Python</strong><span>修改的是项目同一份 draft；历史 Run 与已选 revision 始终保持不变。</span></div><Badge variant={localDirty ? "destructive" : project.dirty ? "outline" : "secondary"}>{localDirty ? "尚未保存" : project.dirty ? "草稿未冻结" : "与冻结版本一致"}</Badge></div>
+        <div className="backtest-section-heading"><div><strong><Code2 size={15} /> 回测页 Python</strong><span>修改并保存当前项目代码；已有历史回测结果不会改变。</span></div><Badge variant={hasUnsavedChanges ? "destructive" : "secondary"}>{hasUnsavedChanges ? "尚未保存" : "已保存"}</Badge></div>
         <PythonEditor
           kind="strategy"
           documentId={project.id}
@@ -272,11 +267,11 @@ export function ValidationWorkbenchWidget() {
           onChange={setSource}
           onSave={(nextSource) => saveAsDraft(nextSource)}
         />
-        <div className="mt-3 flex justify-end"><Button disabled={!project.editable || busy || !localDirty} onClick={() => void saveAsDraft()}><Save />保存到同一草稿</Button></div>
+        <div className="mt-3 flex justify-end"><Button disabled={!project.editable || busy || (!localDirty && !project.dirty)} onClick={() => void saveAsDraft()}><Save />保存</Button></div>
       </div> : null}
 
       {tab === "history" ? <div className="workbench-body">
-        <div className="backtest-section-heading"><div><strong><History size={15} /> 历史 Run</strong><span>每条记录都绑定独立源码哈希和运行输入。</span></div><Button size="sm" variant="outline" onClick={() => void api.get<BacktestRecord[]>("/backtests?limit=50").then((rows) => setRuns(rows.filter((item) => item.strategy_id === project.id)))}><RefreshCw />刷新</Button></div>
+        <div className="backtest-section-heading"><div><strong><History size={15} /> 历史 Run</strong><span>每条记录都保留当时的策略代码和运行输入。</span></div><Button size="sm" variant="outline" onClick={() => void api.get<BacktestRecord[]>("/backtests?limit=50").then((rows) => setRuns(rows.filter((item) => item.strategy_id === project.id)))}><RefreshCw />刷新</Button></div>
         <div className="editor-list">{runs.map((run) => <button key={run.id} type="button" className={selectedBacktest === run.id ? "active" : ""} onClick={() => { setSelectedBacktest(run.id); setTab("performance") }}><strong>{run.start_date} → {run.end_date}</strong><small>{run.run_at.slice(0, 16).replace("T", " ")} · {run.profile}</small><em>{percent(run.total_return)} · Sharpe {number(run.sharpe)}</em></button>)}</div>
         {!runs.length ? <div className="analytics-empty">当前项目尚无历史回测。</div> : null}
       </div> : null}

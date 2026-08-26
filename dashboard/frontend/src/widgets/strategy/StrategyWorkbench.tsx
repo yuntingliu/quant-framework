@@ -436,7 +436,7 @@ export function StrategyWorkbenchWidget() {
   const stageEntrypoints = stageGroups[activeStage.id]
   const activeEntrypoint = stageEntrypoints.find((item) => item.id === selectedEntrypoint) ?? stageEntrypoints[0]
   const localDirty = Boolean(project && source !== project.draft_source)
-  const requiresFreeze = Boolean(project?.dirty || localDirty)
+  const hasUnsavedChanges = Boolean(project?.dirty || localDirty)
   const editLocked = localDirty
 
   useEffect(() => setSource(project?.draft_source ?? ""), [project?.id, project?.draft_source_sha256])
@@ -456,25 +456,16 @@ export function StrategyWorkbenchWidget() {
   }
 
   async function saveDraft(nextSource = source) {
-    if (!project?.editable || nextSource === project.draft_source) return
+    if (!project?.editable || (nextSource === project.draft_source && !project.dirty)) return
     setBusy(true); setError("")
     try { await sdk.updateDraft(nextSource) }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setBusy(false) }
   }
 
-  async function freezeRevision() {
-    if (!project?.editable || localDirty) return
-    if (!await confirm({ title: "验证并冻结策略版本", description: "系统将导入完整 Python 并探测选股、仓位、持有期事件和成交合同。成功后形成不可变 revision。", confirmText: "验证并冻结" })) return
-    setBusy(true); setError("")
-    try { await sdk.saveRevision() }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
-    finally { setBusy(false) }
-  }
-
   async function runPreview(operation: PreviewOperation) {
-    if (!project || requiresFreeze) return
-    if (!await confirm({ title: activeStage.previewLabel, description: `将运行 ${project.id}@${project.current_revision}，源码哈希 ${project.current_package.source_sha256.slice(0, 16)}。本机 Python 不是安全沙箱。`, confirmText: "运行预览" })) return
+    if (!project || hasUnsavedChanges) return
+    if (!await confirm({ title: activeStage.previewLabel, description: "将运行当前已保存策略。本机 Python 不是安全沙箱。", confirmText: "运行预览" })) return
     setBusy(true); setError("")
     try {
       setPreview(await api.post<Record<string, unknown>>(`/strategy/projects/${project.id}/preview`, { operation, profile: project.profile, revision: project.current_revision, confirm_python_execution: true }))
@@ -491,10 +482,8 @@ export function StrategyWorkbenchWidget() {
         <section className="backtest-run-setup pipeline-stage-setup strategy-project-bar">
           <div className="backtest-run-controls pipeline-stage-controls">
             <div className="pipeline-pinned-component"><span>策略项目</span><strong>{project.name}</strong></div>
-            <div className="pipeline-pinned-component"><span>当前版本</span><strong>r{project.current_revision} · {project.draft_source_sha256.slice(0, 12)}</strong></div>
             <div className="pipeline-stage-actions">
-              <Badge variant={requiresFreeze ? "destructive" : "secondary"}>{localDirty ? "Python 尚未保存" : project.dirty ? "草稿未冻结" : "可复现"}</Badge>
-              <button className="primary-command" type="button" disabled={!project.editable || busy || !project.dirty || localDirty} onClick={() => void freezeRevision()}>冻结新版本</button>
+              <Badge variant={hasUnsavedChanges ? "destructive" : "secondary"}>{hasUnsavedChanges ? "尚未保存" : "已保存"}</Badge>
             </div>
           </div>
         </section>
@@ -569,11 +558,11 @@ export function StrategyWorkbenchWidget() {
                   onChange={setSource}
                   onSave={(nextSource) => saveDraft(nextSource)}
                 />
-                <div className="strategy-code-actions"><span>保存后重新解析当前函数，并自动回填无代码界面。</span><Button variant="outline" disabled={!localDirty || busy} onClick={() => setSource(project.draft_source)}>放弃修改</Button><Button disabled={!project.editable || !localDirty || busy} onClick={() => void saveDraft()}><Save />保存草稿</Button></div>
+                <div className="strategy-code-actions"><span>保存后重新解析当前函数，并自动回填无代码界面。</span><Button variant="outline" disabled={!localDirty || busy} onClick={() => setSource(project.draft_source)}>放弃修改</Button><Button disabled={!project.editable || (!localDirty && !project.dirty) || busy} onClick={() => void saveDraft()}><Save />保存</Button></div>
               </div> : null}
 
               {mode === "module" ? <div className="strategy-code-editor-view">
-                <div className="strategy-code-note"><Code2 size={17} /><div><strong>完整 canonical module</strong><span>适合新增持有期事件、辅助函数或完全自定义逻辑；保存后所有工作台都会从这里重新投影。</span></div><Badge variant={localDirty ? "destructive" : "outline"}>{localDirty ? "未保存" : project.draft_source_sha256.slice(0, 12)}</Badge></div>
+                <div className="strategy-code-note"><Code2 size={17} /><div><strong>完整 Python</strong><span>适合新增持有期事件、辅助函数或完全自定义逻辑；保存后所有工作台都会从这里重新投影。</span></div><Badge variant={hasUnsavedChanges ? "destructive" : "outline"}>{hasUnsavedChanges ? "未保存" : "已保存"}</Badge></div>
                 <PythonEditor
                   kind="strategy"
                   documentId={project.id}
@@ -587,12 +576,12 @@ export function StrategyWorkbenchWidget() {
                   onChange={setSource}
                   onSave={(nextSource) => saveDraft(nextSource)}
                 />
-                <div className="strategy-code-actions"><span>完整源码保存为同一项目草稿，不会创建第二套策略。</span><Button variant="outline" disabled={!localDirty || busy} onClick={() => setSource(project.draft_source)}>放弃修改</Button><Button disabled={!project.editable || !localDirty || busy} onClick={() => void saveDraft()}><Save />保存完整草稿</Button></div>
+                <div className="strategy-code-actions"><span>这里编辑的就是当前项目的完整策略源码。</span><Button variant="outline" disabled={!localDirty || busy} onClick={() => setSource(project.draft_source)}>放弃修改</Button><Button disabled={!project.editable || (!localDirty && !project.dirty) || busy} onClick={() => void saveDraft()}><Save />保存</Button></div>
               </div> : null}
 
               {mode === "preview" ? <div className="strategy-preview-view">
-                <div className="strategy-preview-toolbar"><div><Play size={17} /><span><strong>{activeStage.previewLabel}</strong><small>调用当前冻结 revision，与回测使用同一函数和事件顺序。</small></span></div><Button disabled={busy || requiresFreeze} onClick={() => void runPreview(activeStage.previewOperation)}><Play />{busy ? "运行中" : activeStage.previewLabel}</Button></div>
-                {requiresFreeze ? <div className="workbench-message warning">请先保存代码并冻结新版本；预览不会运行可变草稿。</div> : null}
+                <div className="strategy-preview-toolbar"><div><Play size={17} /><span><strong>{activeStage.previewLabel}</strong><small>调用当前已保存策略，与回测使用同一函数和事件顺序。</small></span></div><Button disabled={busy || hasUnsavedChanges} onClick={() => void runPreview(activeStage.previewOperation)}><Play />{busy ? "运行中" : activeStage.previewLabel}</Button></div>
+                {hasUnsavedChanges ? <div className="workbench-message warning">请先保存代码，再运行预览。</div> : null}
                 <PreviewPanel preview={preview} />
               </div> : null}
             </div>

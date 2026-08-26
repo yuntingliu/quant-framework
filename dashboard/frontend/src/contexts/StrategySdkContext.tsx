@@ -91,8 +91,8 @@ interface StrategySdkValue {
   createProject: (targetId: string, name: string) => Promise<StrategyProject>
   updateDraft: (source: string) => Promise<StrategyProject>
   updateMetadata: (values: Pick<StrategyProject, "name" | "description" | "profile" | "settings">) => Promise<StrategyProject>
-  saveRevision: () => Promise<SourcePackage>
   structuredEdit: (payload: Record<string, unknown>) => Promise<StrategyProject>
+  installFactorTemplate: (templateId: string) => Promise<StrategyProject>
   removeProject: () => Promise<void>
 }
 
@@ -154,6 +154,21 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { void refresh() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const commitSavedProject = useCallback(async (value: StrategyProject) => {
+    if (!value.dirty) return adopt(value)
+    try {
+      await api.post<SourcePackage>(`/strategy/projects/${value.id}/revisions`, {
+        expected_source_sha256: value.draft_source_sha256,
+        confirm_save: true,
+        confirm_python_execution: true,
+      })
+      return adopt(await api.get<StrategyProject>(`/strategy/projects/${value.id}`))
+    } catch (reason) {
+      adopt(value)
+      throw reason
+    }
+  }, [adopt])
+
   const value = useMemo<StrategySdkValue>(() => ({
     projects,
     project,
@@ -171,28 +186,18 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
       await refresh(created.id)
       return created
     },
-    updateDraft: async (source) => adopt(await api.put<StrategyProject>(
-      `/strategy/projects/${project?.id}/draft`,
-      {
+    updateDraft: async (source) => {
+      if (!project) throw new Error("请先选择项目")
+      return commitSavedProject(await api.put<StrategyProject>(`/strategy/projects/${project.id}/draft`, {
         source,
-        expected_source_sha256: project?.draft_source_sha256,
+        expected_source_sha256: project.draft_source_sha256,
         confirm_write: true,
-      },
-    )),
+      }))
+    },
     updateMetadata: async (values) => adopt(await api.put<StrategyProject>(
       `/strategy/projects/${project?.id}/metadata`,
       { ...values, confirm_write: true },
     )),
-    saveRevision: async () => {
-      if (!project) throw new Error("请先选择项目")
-      const saved = await api.post<SourcePackage>(`/strategy/projects/${project.id}/revisions`, {
-        expected_source_sha256: project.draft_source_sha256,
-        confirm_save: true,
-        confirm_python_execution: true,
-      })
-      await openProject(project.id)
-      return saved
-    },
     structuredEdit: async (payload) => {
       if (!project) throw new Error("请先选择项目")
       const response = await api.post<{ project: StrategyProject }>(
@@ -203,7 +208,18 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
           confirm_write: true,
         },
       )
-      return adopt(response.project)
+      return commitSavedProject(response.project)
+    },
+    installFactorTemplate: async (templateId) => {
+      if (!project) throw new Error("请先选择项目")
+      const response = await api.post<{ project: StrategyProject }>(
+        `/strategy/projects/${project.id}/factor-templates/${encodeURIComponent(templateId)}`,
+        {
+          expected_source_sha256: project.draft_source_sha256,
+          confirm_write: true,
+        },
+      )
+      return commitSavedProject(response.project)
     },
     removeProject: async () => {
       if (!project) return
@@ -211,7 +227,7 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
       setSelectedStrategy(null)
       await refresh("sdk-v1-default")
     },
-  }), [adopt, error, loading, openProject, project, projects, refresh, setSelectedStrategy])
+  }), [adopt, commitSavedProject, error, loading, openProject, project, projects, refresh, setSelectedStrategy])
 
   return <StrategySdkContext.Provider value={value}>{children}</StrategySdkContext.Provider>
 }

@@ -921,7 +921,7 @@ button {
 }
 
 .backtest-run-controls.pipeline-stage-controls {
-  grid-template-columns: minmax(12rem, 1fr) minmax(12rem, 1fr) auto;
+  grid-template-columns: minmax(12rem, 1fr) auto;
 }
 
 .pipeline-pinned-component {
@@ -6335,6 +6335,12 @@ button.factor-source-field:hover { border-color: hsl(var(--primary) / 0.45); bac
 .factor-final-validation-intro span { display: grid; min-width: 0; gap: 0.05rem; }
 .factor-final-validation-intro strong { color: hsl(var(--foreground)); font-size: 0.64rem; }
 .factor-final-validation-intro small { overflow: hidden; color: hsl(var(--muted-foreground)); font-size: 0.53rem; text-overflow: ellipsis; white-space: nowrap; }
+.factor-validation-controls { display: flex; min-width: 0; align-items: flex-end; justify-content: flex-end; gap: 0.45rem; }
+.factor-validation-control { display: grid; min-width: 7.5rem; gap: 0.12rem; color: hsl(var(--muted-foreground)); font-size: 0.48rem; }
+.factor-validation-control:first-child { min-width: 12rem; }
+.factor-validation-control select { width: 100%; min-width: 0; height: 2rem; border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px); outline: 0; background: hsl(var(--background)); color: hsl(var(--foreground)); padding: 0 1.7rem 0 0.55rem; font-size: 0.6rem; }
+.factor-validation-control select:focus { border-color: hsl(var(--ring)); box-shadow: 0 0 0 2px hsl(var(--ring) / 0.15); }
+.factor-validation-control select:disabled { cursor: not-allowed; opacity: 0.55; }
 .factor-validation-settings { display: grid; min-width: 27rem; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.35rem; }
 .factor-validation-settings label { display: grid; gap: 0.1rem; color: hsl(var(--muted-foreground)); font-size: 0.48rem; }
 .factor-validation-settings input,
@@ -6363,6 +6369,7 @@ button.factor-source-field:hover { border-color: hsl(var(--primary) / 0.45); bac
 @media (max-width: 1050px) {
   .factor-source-browser { min-height: 31rem; }
   .factor-final-validation-intro { align-items: stretch; flex-wrap: wrap; }
+  .factor-validation-controls { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
   .factor-validation-settings { min-width: 100%; }
   .factor-build-grid,
   .factor-results-grid { grid-template-columns: minmax(0, 1fr); overflow: auto; }
@@ -6376,6 +6383,9 @@ button.factor-source-field:hover { border-color: hsl(var(--primary) / 0.45); bac
   .factor-source-browser { max-height: 25rem; overflow: auto; }
   .factor-source-field-grid { grid-template-columns: minmax(0, 1fr); }
   .factor-final-validation-intro { align-items: stretch; flex-direction: column; }
+  .factor-validation-controls { align-items: stretch; flex-direction: column; }
+  .factor-validation-control,
+  .factor-validation-control:first-child { min-width: 0; }
   .factor-validation-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -7286,35 +7296,64 @@ button.factor-source-field:hover { border-color: hsl(var(--primary) / 0.45); bac
   .strategy-code-actions > span { width: 100%; }
 }
 
-.factor-source-browser > .market-terminal {
-  height: 100%;
+.factor-source-browser {
+  height: auto;
   min-height: 0;
 }
 
-.market-terminal-context .factor-source-fields {
-  height: 100%;
+.factor-source-browser > .market-terminal {
+  height: clamp(22rem, 42vh, 29rem);
+  min-height: 22rem;
+  flex: 0 0 auto;
+}
+
+.factor-source-browser > .factor-source-fields {
+  display: grid;
   min-height: 0;
-  overflow: auto;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  padding: 0.55rem;
+  flex: 0 0 auto;
+  grid-template-columns: 9.5rem minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0.55rem;
+  padding: 0.45rem 0.5rem;
+}
+
+.factor-source-browser > .factor-source-fields .factor-source-fields-heading {
+  align-content: center;
+  align-items: flex-start;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.3rem;
+  margin: 0;
+  border-right: 1px solid hsl(var(--border));
+  padding-right: 0.55rem;
+}
+
+.factor-source-browser > .factor-source-fields .factor-source-field-groups {
+  display: flex;
+  min-width: 0;
+  gap: 0.65rem;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
   scrollbar-width: thin;
 }
 
-.market-terminal-context .factor-source-fields-heading {
-  position: sticky;
-  z-index: 2;
-  top: -0.55rem;
-  margin: -0.1rem -0.1rem 0.45rem;
-  border-bottom: 1px solid hsl(var(--border));
-  background: hsl(var(--card) / 0.96);
-  padding: 0.3rem 0.1rem 0.45rem;
-  backdrop-filter: blur(5px);
+.factor-source-browser > .factor-source-fields .factor-source-field-group {
+  min-width: max-content;
+  flex: 0 0 auto;
 }
 
-.market-terminal-context .factor-source-field-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.factor-source-browser > .factor-source-fields .factor-source-field-group > header {
+  grid-template-columns: auto auto auto;
+  justify-content: start;
+}
+
+.factor-source-browser > .factor-source-fields .factor-source-field-grid {
+  display: flex;
+}
+
+.factor-source-browser > .factor-source-fields .factor-source-field {
+  width: 7.25rem;
+  flex: 0 0 7.25rem;
 }
 
 .factor-source-fields-status {
@@ -7327,13 +7366,9 @@ button.factor-source-field:hover { border-color: hsl(var(--primary) / 0.45); bac
 }
 
 @media (max-width: 1180px) {
-  .factor-source-browser {
-    height: clamp(31rem, 56vh, 39rem);
-    min-height: 31rem;
-  }
-
-  .market-terminal-context .factor-source-field-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .factor-source-browser > .market-terminal {
+    height: clamp(25rem, 48vh, 32rem);
+    min-height: 25rem;
   }
 }
 
@@ -7341,12 +7376,27 @@ button.factor-source-field:hover { border-color: hsl(var(--primary) / 0.45); bac
   .factor-source-browser {
     height: auto;
     max-height: none;
-    min-height: 52rem;
+    min-height: 0;
     overflow: visible;
   }
 
-  .market-terminal-context .factor-source-field-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .factor-source-browser > .market-terminal {
+    height: auto;
+    min-height: 44rem;
+  }
+
+  .factor-source-browser > .factor-source-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .factor-source-browser > .factor-source-fields .factor-source-fields-heading {
+    align-items: center;
+    flex-direction: row;
+    justify-content: space-between;
+    border-right: 0;
+    border-bottom: 1px solid hsl(var(--border));
+    padding-right: 0;
+    padding-bottom: 0.4rem;
   }
 }
 
