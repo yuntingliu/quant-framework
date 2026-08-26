@@ -52,9 +52,14 @@ def factor(
     *,
     id: str | None = None,
     label: str | None = None,
-    inputs: list[str] | tuple[str, ...] = (),
+    **legacy_metadata: Any,
 ):
-    return _decorate("factor", function, id=id, label=label, inputs=tuple(inputs))
+    # Immutable SDK v1 revisions may still contain inputs=. Current authoring
+    # derives data access from context.* calls and does not expose that argument.
+    unknown = set(legacy_metadata) - {"inputs"}
+    if unknown:
+        raise TypeError(f"unsupported @factor arguments: {', '.join(sorted(unknown))}")
+    return _decorate("factor", function, id=id, label=label)
 
 
 def schedule(function=None, *, id: str | None = None, label: str | None = None):

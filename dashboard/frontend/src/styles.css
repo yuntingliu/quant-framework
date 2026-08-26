@@ -5681,7 +5681,7 @@ button {
 
 .factor-template-list footer {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
   align-items: center;
   gap: 0.4rem;
@@ -5957,8 +5957,12 @@ button {
 
 .factor-editor-body {
   display: grid;
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 auto;
   align-content: start;
   gap: 0.65rem;
+  overflow: hidden;
 }
 
 .factor-readonly-note {
@@ -6222,11 +6226,11 @@ button {
    editor share one workbench. Individual panels remain optional Dockview tabs. */
 .factor-workbench-shell {
   display: flex;
-  height: 100%;
-  min-height: 0;
+  height: auto;
+  min-height: 100%;
   min-width: 0;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   background: hsl(var(--background));
 }
 
@@ -6278,9 +6282,10 @@ button.factor-source-field:hover { border-color: hsl(var(--primary) / 0.45); bac
 .factor-source-field-grid em { grid-column: 2; grid-row: 1; color: hsl(var(--muted-foreground)); font-size: 0.41rem; font-style: normal; }
 .factor-workbench-tabs {
   display: flex;
-  min-height: 0;
+  height: clamp(52rem, 82vh, 64rem);
+  min-height: 52rem;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   flex-direction: column;
   overflow: hidden;
 }

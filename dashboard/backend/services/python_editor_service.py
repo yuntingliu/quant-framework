@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import contextlib
 import importlib.util
@@ -173,9 +174,9 @@ def _rqdata_operations() -> list[dict[str, str]]:
 
 
 def mirror_document(kind: str, document_id: str, source: str) -> dict[str, str]:
-    filenames = {"strategy": "strategy.py", "data": "recipe.py"}
+    filenames = {"strategy": "strategy.py", "factor": "factor.py", "data": "recipe.py"}
     if kind not in filenames:
-        raise ValueError("document kind must be strategy or data")
+        raise ValueError("document kind must be strategy, factor, or data")
     if not _SAFE_DOCUMENT_ID.fullmatch(document_id):
         raise ValueError("invalid Python editor document id")
     if len(source.encode("utf-8")) > 300_000:
@@ -199,10 +200,13 @@ def source_diagnostics(kind: str, source: str) -> dict[str, Any]:
     try:
         if kind == "strategy":
             inspection = inspect_strategy_source(source)
+        elif kind == "factor":
+            _validate_factor_document(source)
+            return {"valid": True, "diagnostics": diagnostics}
         elif kind == "data":
             inspection = inspect_data_recipe_source(source)
         else:
-            raise ValueError("diagnostic kind must be strategy or data")
+            raise ValueError("diagnostic kind must be strategy, factor, or data")
     except (StrategySourceError, DataRecipeError, SyntaxError, ValueError) as exc:
         diagnostics.append(
             {
@@ -227,6 +231,35 @@ def source_diagnostics(kind: str, source: str) -> dict[str, Any]:
             }
         )
     return {"valid": True, "diagnostics": diagnostics}
+
+
+def _validate_factor_document(source: str) -> None:
+    """Validate the isolated editor projection; full-module validation happens on save."""
+
+    tree = ast.parse(source)
+    functions = [item for item in tree.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    if len(tree.body) != 1 or len(functions) != 1:
+        raise StrategySourceError(
+            "factor editor source must contain exactly one @factor function",
+            phase="register",
+        )
+    function = functions[0]
+    registered = False
+    for decorator in function.decorator_list:
+        target = decorator.func if isinstance(decorator, ast.Call) else decorator
+        if (
+            isinstance(target, ast.Name)
+            and target.id == "factor"
+            or isinstance(target, ast.Attribute)
+            and target.attr == "factor"
+        ):
+            registered = True
+            break
+    if not registered:
+        raise StrategySourceError(
+            "factor editor source must remain a registered @factor function",
+            phase="register",
+        )
 
 
 def _error_line(exc: Exception) -> int:

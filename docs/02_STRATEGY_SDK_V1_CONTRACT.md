@@ -168,7 +168,7 @@ def etf_universe(context: UniverseContext) -> UniverseResult:
     ...
 
 
-@factor(id="momentum_20d", inputs=["close"])
+@factor(id="momentum_20d")
 def momentum_20d(context: FactorContext, *, window: int = 20):
     ...
 
@@ -233,7 +233,7 @@ MUST register metadata without silently changing strategy results.
 Keyword-only function defaults are the canonical parameter definition:
 
 ```python
-@factor(inputs=["close"])
+@factor()
 def momentum(context: FactorContext, *, window: int = 20, log_return: bool = False):
     ...
 ```
@@ -379,7 +379,7 @@ and non-bypassable tradability eligibility.
 The canonical factor signature is:
 
 ```python
-@factor(id="factor_id", inputs=[...])
+@factor(id="factor_id")
 def factor_name(context: FactorContext, *, parameter=default) -> pandas.Series:
     ...
 ```
@@ -812,7 +812,7 @@ def major_etfs(context):
     return UniverseResult(symbols=ETF_POOL)
 
 
-@factor(id="momentum", inputs=["close"])
+@factor(id="momentum")
 def momentum(context, *, window: int = 20):
     close = context.history("close", window=window + 1)
     return close.iloc[-1] / close.iloc[0] - 1

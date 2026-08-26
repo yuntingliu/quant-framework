@@ -66,7 +66,7 @@ SDK_VERSION = 1
 def etfs(context):
     return UniverseResult(symbols=context.universe)
 
-@factor(id="momentum", inputs=["close"])
+@factor(id="momentum")
 def momentum(context, *, window: int = 20):
     close = context.history("close", window=window + 1)
     return close.iloc[-1] / close.iloc[0] - 1
@@ -152,11 +152,12 @@ Keep the official RQData Python documentation link next to the editor.
 
 All Python workbench inputs use
 `dashboard/frontend/src/components/python/PythonEditor`. Do not instantiate a
-second Monaco runtime or create per-workbench source models. Strategy-facing
-views use one `file:` URI for the project's complete `strategy.py`; preserve the
-model when navigating so unsaved edits, undo history, markers, and cursor state
-remain coherent. Data recipes use a separate `recipe.py` URI through the same
-component.
+second Monaco runtime. Full-source strategy views share the project's complete
+`strategy.py` model. The Factor Workbench may use one derived `factor.py` model
+per selected entrypoint, but it must contain exactly one complete `@factor`
+function and save only through `replace_function`; it is never an executable or
+persistent source of truth. Data recipes use a separate `recipe.py` URI through
+the same component.
 
 Monaco and the language clients are lazy-loaded. `vite.config.ts` must retain ES
 worker output. Pyrefly and Ruff come from the active backend Python environment

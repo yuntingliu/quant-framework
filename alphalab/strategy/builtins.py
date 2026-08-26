@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 DEFAULT_STRATEGY_SOURCE = """from typing import Annotated
 
 from alphalab.sdk.v1 import (
@@ -31,7 +30,7 @@ def research_universe(context):
     return UniverseResult(symbols=context.universe)
 
 
-@factor(id="momentum_20d", label="20 日动量", inputs=["close"])
+@factor(id="momentum_20d", label="20 日动量")
 def momentum_20d(
     context,
     *,
@@ -120,7 +119,7 @@ def major_etfs(context):
     return UniverseResult(symbols=[symbol for symbol in ETF_POOL if symbol in available])
 
 
-@factor(id="momentum_20d", inputs=["close"])
+@factor(id="momentum_20d")
 def momentum_20d(context, *, window: int = 20):
     close = context.history("close", window=window + 1)
     return close.iloc[-1] / close.iloc[0] - 1.0

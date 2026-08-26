@@ -11,7 +11,6 @@ from typing import Any, Iterable
 import libcst as cst
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 
-
 MAX_STRATEGY_SOURCE_BYTES = 300_000
 VALIDATOR_VERSION = "sdk-v1-validator-1"
 _KINDS = {"universe", "factor", "schedule", "signal", "portfolio", "execution"}
@@ -295,14 +294,88 @@ def replace_registered_function(
     entrypoint_id: str,
     function_source: str,
 ) -> tuple[str, SourceInspection]:
+    current_inspection = inspect_strategy_source(source)
+    current_entrypoint = next(
+        (item for item in current_inspection.entrypoints if item.id == entrypoint_id),
+        None,
+    )
+    if current_entrypoint is None:
+        raise StrategySourceError(f"entrypoint {entrypoint_id!r} was not found", phase="edit")
     replacement_module = cst.parse_module(function_source)
     replacements = [item for item in replacement_module.body if isinstance(item, cst.FunctionDef)]
     if len(replacements) != 1:
         raise StrategySourceError("replacement must contain exactly one function", phase="edit")
-    transformer = _FunctionTransformer(entrypoint_id, replacements[0])
+    replacement = replacements[0]
+    replacement_kind, replacement_id = _cst_public_id(replacement)
+    if replacement_kind != current_entrypoint.kind or replacement_id is None:
+        raise StrategySourceError(
+            f"replacement for {current_entrypoint.kind} {entrypoint_id!r} must remain a "
+            f"registered @{current_entrypoint.kind} function",
+            phase="edit",
+        )
+    transformer = _FunctionTransformer(entrypoint_id, replacement)
     updated = cst.parse_module(source).visit(transformer).code
     if not transformer.changed:
         raise StrategySourceError(f"entrypoint {entrypoint_id!r} was not found", phase="edit")
+    if current_entrypoint.kind == "factor" and replacement_id != entrypoint_id:
+        updated = cst.parse_module(updated).visit(
+            _FactorReferenceRenameTransformer(entrypoint_id, replacement_id)
+        ).code
+    return updated, inspect_strategy_source(updated)
+
+
+def delete_registered_function(
+    source: str,
+    *,
+    entrypoint_id: str,
+) -> tuple[str, SourceInspection]:
+    current_inspection = inspect_strategy_source(source)
+    current_entrypoint = next(
+        (item for item in current_inspection.entrypoints if item.id == entrypoint_id),
+        None,
+    )
+    if current_entrypoint is None:
+        raise StrategySourceError(f"entrypoint {entrypoint_id!r} was not found", phase="edit")
+    if current_entrypoint.kind != "factor":
+        raise StrategySourceError("only @factor functions can be deleted here", phase="edit")
+    direct, dynamic = _factor_reference_owners(
+        source,
+        current_inspection.entrypoints,
+        factor_id=entrypoint_id,
+        excluded_function=current_entrypoint.function,
+    )
+    if direct:
+        raise StrategySourceError(
+            f"factor {entrypoint_id!r} is still referenced by: {', '.join(direct)}",
+            phase="edit",
+        )
+    if dynamic:
+        raise StrategySourceError(
+            f"factor {entrypoint_id!r} cannot be deleted safely because dynamic factor "
+            f"references exist in: {', '.join(dynamic)}",
+            phase="edit",
+        )
+    module = cst.parse_module(source)
+    body = [
+        item
+        for item in module.body
+        if not (
+            isinstance(item, cst.FunctionDef)
+            and _cst_public_id(item)[1] == entrypoint_id
+        )
+    ]
+    if len(body) == len(module.body):
+        raise StrategySourceError(f"entrypoint {entrypoint_id!r} was not found", phase="edit")
+    updated = module.with_changes(body=tuple(body)).code
+    return updated, inspect_strategy_source(updated)
+
+
+def remove_factor_inputs_arguments(source: str) -> tuple[str, SourceInspection]:
+    """Remove deprecated @factor(inputs=...) metadata from an editable module."""
+
+    inspect_strategy_source(source)
+    transformer = _FactorInputsTransformer()
+    updated = cst.parse_module(source).visit(transformer).code
     return updated, inspect_strategy_source(updated)
 
 
@@ -516,6 +589,71 @@ def _context_call(node: ast.Call, context_name: str, method: str) -> bool:
     )
 
 
+def _factor_reference_owners(
+    source: str,
+    entrypoints: Iterable[EntrypointSpec],
+    *,
+    factor_id: str,
+    excluded_function: str,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    tree = ast.parse(source)
+    function_specs = {item.function: item for item in entrypoints}
+    direct: set[str] = set()
+    dynamic: set[str] = set()
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef) or node.name == excluded_function:
+            continue
+        spec = function_specs.get(node.name)
+        positional = [*node.args.posonlyargs, *node.args.args]
+        if spec is None or not positional:
+            continue
+        context_name = positional[0].arg
+        for child in ast.walk(node):
+            if not isinstance(child, ast.Call):
+                continue
+            if _context_call(child, context_name, "factor"):
+                reference_value = (
+                    child.args[0]
+                    if child.args
+                    else next(
+                        (item.value for item in child.keywords if item.arg == "factor_id"),
+                        None,
+                    )
+                )
+                if reference_value is None:
+                    continue
+                try:
+                    referenced = ast.literal_eval(reference_value)
+                except (TypeError, ValueError):
+                    dynamic.add(spec.id)
+                    continue
+                if referenced == factor_id:
+                    direct.add(spec.id)
+            if not _context_call(child, context_name, "combine_factors"):
+                continue
+            values = [
+                next(
+                    (item.value for item in child.keywords if item.arg == "weights"),
+                    child.args[0] if child.args else None,
+                ),
+                next(
+                    (item.value for item in child.keywords if item.arg == "parameters"),
+                    None,
+                ),
+            ]
+            for value in values:
+                if value is None:
+                    continue
+                try:
+                    mapping = ast.literal_eval(value)
+                except (TypeError, ValueError):
+                    dynamic.add(spec.id)
+                    continue
+                if isinstance(mapping, dict) and factor_id in mapping:
+                    direct.add(spec.id)
+    return tuple(sorted(direct)), tuple(sorted(dynamic))
+
+
 def _literal_factor_parameters(value: ast.expr | None) -> dict[str, dict[str, Any]] | None:
     if value is None:
         return {}
@@ -623,9 +761,6 @@ def _signal_factor_blend_metadata(node: ast.FunctionDef) -> dict[str, Any]:
 
 def _decorator_metadata(kind: str, decorator: ast.Call) -> dict[str, Any]:
     metadata: dict[str, Any] = {}
-    if kind == "factor":
-        inputs = _decorator_literal(decorator, "inputs")
-        metadata["inputs"] = list(inputs) if isinstance(inputs, (list, tuple)) else []
     if kind == "signal":
         schedule_value = next(
             (item.value for item in decorator.keywords if item.arg == "schedule"), None
@@ -1196,6 +1331,133 @@ class _FunctionTransformer(cst.CSTTransformer):
         )
 
 
+class _FactorInputsTransformer(cst.CSTTransformer):
+    def leave_FunctionDef(
+        self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef
+    ) -> cst.FunctionDef:
+        kind, _ = _cst_public_id(original_node)
+        if kind != "factor":
+            return updated_node
+        decorators = []
+        for decorator in updated_node.decorators:
+            value = decorator.decorator
+            if _cst_decorator_name(decorator) != "factor" or not isinstance(value, cst.Call):
+                decorators.append(decorator)
+                continue
+            arguments = tuple(
+                argument
+                for argument in value.args
+                if argument.keyword is None or argument.keyword.value != "inputs"
+            )
+            decorators.append(decorator.with_changes(decorator=value.with_changes(args=arguments)))
+        return updated_node.with_changes(decorators=tuple(decorators))
+
+
+class _FactorReferenceRenameTransformer(cst.CSTTransformer):
+    """Rename one factor ID only at literal SDK reference boundaries."""
+
+    def __init__(self, old_id: str, new_id: str) -> None:
+        self.old_id = old_id
+        self.new_id = new_id
+        self._context_names: list[str | None] = []
+
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
+        kind, _ = _cst_public_id(node)
+        positional = [*node.params.posonly_params, *node.params.params]
+        context_name = positional[0].name.value if kind is not None and positional else None
+        self._context_names.append(context_name)
+
+    def leave_FunctionDef(
+        self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef
+    ) -> cst.FunctionDef:
+        self._context_names.pop()
+        return updated_node
+
+    def leave_Call(self, original_node: cst.Call, updated_node: cst.Call) -> cst.Call:
+        if not self._context_names or self._context_names[-1] is None:
+            return updated_node
+        function = updated_node.func
+        if not (
+            isinstance(function, cst.Attribute)
+            and isinstance(function.value, cst.Name)
+            and function.value.value == self._context_names[-1]
+        ):
+            return updated_node
+        if function.attr.value == "factor":
+            return updated_node.with_changes(args=self._rename_factor_argument(updated_node.args))
+        if function.attr.value == "combine_factors":
+            return updated_node.with_changes(args=self._rename_blend_arguments(updated_node.args))
+        return updated_node
+
+    def _rename_factor_argument(self, arguments: tuple[cst.Arg, ...]) -> tuple[cst.Arg, ...]:
+        updated = list(arguments)
+        for index, argument in enumerate(updated):
+            if argument.keyword is None and not argument.star:
+                updated[index] = argument.with_changes(
+                    value=self._rename_string(argument.value)
+                )
+                break
+        return tuple(updated)
+
+    def _rename_blend_arguments(self, arguments: tuple[cst.Arg, ...]) -> tuple[cst.Arg, ...]:
+        updated = list(arguments)
+        positional_index = next(
+            (
+                index
+                for index, argument in enumerate(updated)
+                if argument.keyword is None and not argument.star
+            ),
+            None,
+        )
+        for index, argument in enumerate(updated):
+            keyword = argument.keyword.value if argument.keyword is not None else None
+            if keyword == "weights" or (keyword is None and index == positional_index):
+                updated[index] = argument.with_changes(
+                    value=self._rename_mapping_key(argument.value, mapping_name="weights")
+                )
+            elif keyword == "parameters":
+                updated[index] = argument.with_changes(
+                    value=self._rename_mapping_key(argument.value, mapping_name="parameters")
+                )
+        return tuple(updated)
+
+    def _rename_string(self, value: cst.BaseExpression) -> cst.BaseExpression:
+        if not isinstance(value, cst.SimpleString):
+            return value
+        try:
+            literal = ast.literal_eval(value.value)
+        except (SyntaxError, ValueError):
+            return value
+        return cst.SimpleString(repr(self.new_id)) if literal == self.old_id else value
+
+    def _rename_mapping_key(
+        self,
+        value: cst.BaseExpression,
+        *,
+        mapping_name: str,
+    ) -> cst.BaseExpression:
+        if not isinstance(value, cst.Dict):
+            return value
+        literal_keys = [
+            ast.literal_eval(element.key.value)
+            for element in value.elements
+            if isinstance(element, cst.DictElement)
+            and isinstance(element.key, cst.SimpleString)
+        ]
+        if self.old_id in literal_keys and self.new_id in literal_keys:
+            raise StrategySourceError(
+                f"cannot rename factor {self.old_id!r} to {self.new_id!r}: "
+                f"{mapping_name} already contains the destination ID",
+                phase="edit",
+            )
+        elements: list[cst.DictElement | cst.StarredDictElement] = []
+        for element in value.elements:
+            if isinstance(element, cst.DictElement):
+                element = element.with_changes(key=self._rename_string(element.key))
+            elements.append(element)
+        return value.with_changes(elements=tuple(elements))
+
+
 __all__ = [
     "EntrypointSpec",
     "MAX_STRATEGY_SOURCE_BYTES",
@@ -1203,11 +1465,13 @@ __all__ = [
     "SourceInspection",
     "StrategySourceError",
     "VALIDATOR_VERSION",
+    "delete_registered_function",
     "factor_dependency_snippet",
     "factor_field_snippet",
     "insert_source",
     "inspect_strategy_source",
     "registered_function_source",
+    "remove_factor_inputs_arguments",
     "replace_registered_function",
     "update_parameter_default",
     "update_signal_factor_blend",

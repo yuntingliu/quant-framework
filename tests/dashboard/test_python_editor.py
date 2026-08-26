@@ -49,6 +49,24 @@ def test_sdk_contract_diagnostics_are_editor_markers() -> None:
     assert invalid["diagnostics"][0]["source"] == "AlphaLab SDK"
 
 
+def test_isolated_factor_document_has_function_level_diagnostics(tmp_path, monkeypatch) -> None:
+    source = '''@factor(id="momentum")
+def momentum(context, *, window: int = 20):
+    return context.history("close", window=window)
+'''
+    valid = python_editor_service.source_diagnostics("factor", source)
+    invalid = python_editor_service.source_diagnostics(
+        "factor", "def momentum(context):\n    return 1\n"
+    )
+    monkeypatch.setattr(python_editor_service, "MIRROR_ROOT", tmp_path / "editor")
+    mirrored = python_editor_service.mirror_document("factor", "project.factor.0", source)
+
+    assert valid == {"valid": True, "diagnostics": []}
+    assert invalid["valid"] is False
+    assert "@factor" in invalid["diagnostics"][0]["message"]
+    assert mirrored["uri"].endswith("/factor.py")
+
+
 def test_lsp_stdio_framing_round_trip() -> None:
     message = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
 

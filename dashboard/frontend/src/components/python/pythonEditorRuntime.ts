@@ -29,7 +29,7 @@ export interface PythonEditorCapabilities {
 }
 
 export interface PythonDocument {
-  kind: "strategy" | "data"
+  kind: "strategy" | "factor" | "data"
   document_id: string
   uri: string
   workspace_uri: string
@@ -197,7 +197,7 @@ export function startPythonEditorRuntime() {
 }
 
 export async function preparePythonDocument(
-  kind: "strategy" | "data",
+  kind: "strategy" | "factor" | "data",
   documentId: string,
   source: string,
 ): Promise<PythonDocument> {

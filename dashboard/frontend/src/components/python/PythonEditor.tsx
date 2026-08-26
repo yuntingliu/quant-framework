@@ -67,7 +67,7 @@ interface DiagnosticsPayload {
 }
 
 export interface PythonEditorProps {
-  kind: "strategy" | "data"
+  kind: "strategy" | "factor" | "data"
   documentId: string
   value: string
   version?: string
@@ -89,7 +89,7 @@ interface ModelMetadata {
 }
 
 interface SdkCatalog {
-  kind: "strategy" | "data"
+  kind: "strategy" | "factor" | "data"
   fields: PythonSdkField[]
   factors: PythonSdkFactor[]
   parameters: PythonSdkParameter[]
@@ -133,7 +133,7 @@ function loadRuntimeFields() {
 }
 
 const DECORATORS = [
-  ["factor", '@factor(id="${1:factor_id}", label="${2:因子}", inputs=["${3:close}"])\n'],
+  ["factor", '@factor(id="${1:factor_id}", label="${2:因子}")\n'],
   ["signal", '@signal(id="${1:signal_id}", label="${2:信号}", schedule=${3:Monthly.last_trading_day(at="close")})\n'],
   ["portfolio", '@portfolio(id="${1:portfolio_id}", label="${2:组合}")\n'],
   ["execution", '@execution(id="${1:execution_id}", label="${2:执行}")\n'],
@@ -319,7 +319,7 @@ export const PythonEditor = forwardRef<PythonEditorHandle, PythonEditorProps>(fu
 
   useEffect(() => { void startPythonEditorRuntime() }, [])
   useEffect(() => {
-    if (kind !== "strategy" || fields.length) return
+    if (kind === "data" || fields.length) return
     let current = true
     void loadRuntimeFields().then((items) => { if (current) setDiscoveredFields(items) })
     return () => { current = false }
@@ -434,7 +434,6 @@ export const PythonEditor = forwardRef<PythonEditorHandle, PythonEditorProps>(fu
     editorRef.current.revealLineInCenter(revealLine)
     editorRef.current.setPosition({ lineNumber: revealLine, column: 1 })
   }, [revealLine])
-
   useEffect(() => {
     const model = modelRef.current
     if (!model || !documentUri) return

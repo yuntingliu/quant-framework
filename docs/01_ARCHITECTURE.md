@@ -27,9 +27,11 @@ state, not independent strategy pipelines.
 ## Shared Python editor
 
 Every Python input is rendered by the shared Monaco-based `PythonEditor`.
-Factor, Strategy, and Backtest views open the same file URI and Monaco model for
-the project's complete `strategy.py`; changing workbenches only changes the
-visible function or line. The Data Workbench uses the same editor component but
+Strategy and Backtest full-source views open the same file URI and Monaco model
+for the project's complete `strategy.py`. The Factor Workbench opens a derived
+one-function `factor.py` document and saves it through the CST-aware
+`replace_function` operation; that projection is never persisted or executed as
+a second strategy source. The Data Workbench uses the same editor component but
 opens the project's separate canonical `recipe.py`, because acquisition source
 has a different SDK and lifecycle from strategy source.
 

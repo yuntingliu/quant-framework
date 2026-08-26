@@ -74,7 +74,9 @@ class AddFactorTemplateRequest(BaseModel):
 
 class StructuredEditRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: Literal["parameter", "schedule", "factor_blend", "replace_function"]
+    operation: Literal[
+        "parameter", "schedule", "factor_blend", "replace_function", "delete_function"
+    ]
     entrypoint_id: str = Field(min_length=1, max_length=100)
     parameter: str | None = None
     value: Any = None

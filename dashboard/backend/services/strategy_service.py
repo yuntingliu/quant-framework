@@ -28,6 +28,7 @@ from alphalab.strategy.factor_templates import (
 )
 from alphalab.strategy.repository import StrategyRepository
 from alphalab.strategy.source import (
+    delete_registered_function,
     factor_dependency_snippet,
     factor_field_snippet,
     insert_source,
@@ -221,6 +222,11 @@ def structured_edit(project_id: str, payload: Mapping[str, Any]) -> dict[str, An
             source,
             entrypoint_id=str(payload["entrypoint_id"]),
             function_source=str(payload["function_source"]),
+        )
+    elif operation == "delete_function":
+        updated, inspection = delete_registered_function(
+            source,
+            entrypoint_id=str(payload["entrypoint_id"]),
         )
     else:
         raise ValueError("unsupported structured edit operation")

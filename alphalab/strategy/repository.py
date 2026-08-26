@@ -18,9 +18,13 @@ import pandas as pd
 from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
 from alphalab.strategy.factor_templates import get_factor_template
 from alphalab.strategy.sdk_runtime import load_strategy_module, probe_sdk_operation
-from alphalab.strategy.source import SourceInspection, StrategySourceError, inspect_strategy_source
+from alphalab.strategy.source import (
+    SourceInspection,
+    StrategySourceError,
+    inspect_strategy_source,
+    remove_factor_inputs_arguments,
+)
 from alphalab.utils.paths import APP_DATA_DIR
-
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schema.sql"
 _DEFAULT_DB = APP_DATA_DIR / "alphalab.db"
@@ -29,6 +33,7 @@ _DEFAULT_PROJECT_ID = "sdk-v1-default"
 _MIGRATION_NAME = "strategy-sdk-v1-cutover"
 _FACTOR_REPAIR_MIGRATION = "strategy-sdk-v1-factor-repair"
 _RQ_PROFILE_MIGRATION = "strategy-sdk-v1-rq-profile"
+_FACTOR_INPUTS_MIGRATION = "strategy-sdk-v1-remove-factor-inputs"
 
 
 def normalize_project_id(value: str) -> str:
@@ -54,6 +59,7 @@ class StrategyRepository:
         self._migrate_pipeline_projects()
         self._repair_legacy_factor_migrations()
         self._migrate_projects_to_rq_profile()
+        self._remove_factor_inputs_from_drafts()
 
     def close(self) -> None:
         self._conn.close()
@@ -593,6 +599,34 @@ class StrategyRepository:
         )
         self._conn.commit()
 
+    def _remove_factor_inputs_from_drafts(self) -> None:
+        if self._conn.execute(
+            "SELECT 1 FROM strategy_contract_migrations WHERE name = ?",
+            (_FACTOR_INPUTS_MIGRATION,),
+        ).fetchone():
+            return
+        updated_projects: list[str] = []
+        rows = self._conn.execute(
+            "SELECT id, draft_source FROM strategy_projects ORDER BY id"
+        ).fetchall()
+        for row in rows:
+            current = str(row["draft_source"])
+            updated, inspection = remove_factor_inputs_arguments(current)
+            if updated == current:
+                continue
+            self._conn.execute(
+                """UPDATE strategy_projects
+                   SET draft_source = ?, draft_source_sha256 = ?, updated_at = datetime('now')
+                   WHERE id = ?""",
+                (updated, inspection.source_sha256, str(row["id"])),
+            )
+            updated_projects.append(str(row["id"]))
+        self._conn.execute(
+            "INSERT INTO strategy_contract_migrations (name, detail_json) VALUES (?, ?)",
+            (_FACTOR_INPUTS_MIGRATION, _json({"updated_projects": updated_projects})),
+        )
+        self._conn.commit()
+
 
 def _legacy_source(settings: Mapping[str, Any]) -> str:
     universe = dict(settings.get("universe") or {})
@@ -631,7 +665,7 @@ def _legacy_source(settings: Mapping[str, Any]) -> str:
                 + (f": {expression}" if expression else "")
             )
             definitions.append(
-                f"""@factor(id={factor_id!r}, label={f"迁移待复核：{factor_id}"!r}, inputs=[])
+                f"""@factor(id={factor_id!r}, label={f"迁移待复核：{factor_id}"!r})
 def {function_name}(context):
     raise RuntimeError({message!r})"""
             )

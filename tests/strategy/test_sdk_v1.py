@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from alphalab.sdk.v1 import Event, FactorContext
 from alphalab.dataio import create_default_engine
+from alphalab.sdk.v1 import Event, FactorContext
 from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
 from alphalab.strategy.engine import run_strategy_backtest
 from alphalab.strategy.factor_templates import (
@@ -18,11 +18,13 @@ from alphalab.strategy.repository import StrategyRepository
 from alphalab.strategy.sdk_runtime import SdkExecutionSession
 from alphalab.strategy.source import (
     StrategySourceError,
+    delete_registered_function,
     factor_dependency_snippet,
     factor_field_snippet,
-    inspect_strategy_source,
     insert_source,
+    inspect_strategy_source,
     registered_function_source,
+    remove_factor_inputs_arguments,
     replace_registered_function,
     update_parameter_default,
     update_signal_factor_blend,
@@ -177,8 +179,8 @@ def test_legacy_pipeline_migration_preserves_all_factors_and_weights(tmp_path: P
 
 def test_cst_parameter_and_schedule_edits_change_only_canonical_source():
     source = DEFAULT_STRATEGY_SOURCE.replace(
-        '@factor(id="momentum_20d", label="20 日动量", inputs=["close"])',
-        '# preserve this comment\n@factor(id="momentum_20d", label="20 日动量", inputs=["close"])',
+        '@factor(id="momentum_20d", label="20 日动量")',
+        '# preserve this comment\n@factor(id="momentum_20d", label="20 日动量")',
     )
     updated, inspection = update_parameter_default(
         source,
@@ -337,6 +339,111 @@ def test_registered_function_source_is_exact_replaceable_unit():
     assert next(item for item in inspection.entrypoints if item.id == "monthly_momentum")
 
 
+def test_deprecated_factor_inputs_are_removed_without_changing_function_code():
+    legacy = DEFAULT_STRATEGY_SOURCE.replace(
+        '@factor(id="momentum_20d", label="20 日动量")',
+        '@factor(id="momentum_20d", label="20 日动量", inputs=["close"])',
+        1,
+    )
+    updated, inspection = remove_factor_inputs_arguments(legacy)
+
+    assert "inputs=" not in updated
+    assert 'close = context.history("close", window=window + 1)' in updated
+    factor_spec = next(item for item in inspection.entrypoints if item.id == "momentum_20d")
+    assert factor_spec.metadata == {}
+
+
+def test_replacing_factor_function_renames_static_sdk_references():
+    function_source = registered_function_source(
+        DEFAULT_STRATEGY_SOURCE, entrypoint_id="momentum_20d"
+    ).replace('id="momentum_20d"', 'id="momentum_30d"')
+    updated, inspection = replace_registered_function(
+        DEFAULT_STRATEGY_SOURCE,
+        entrypoint_id="momentum_20d",
+        function_source=function_source,
+    )
+
+    factor_ids = {item.id for item in inspection.entrypoints if item.kind == "factor"}
+    assert "momentum_30d" in factor_ids
+    assert "momentum_20d" not in factor_ids
+    signal = next(item for item in inspection.entrypoints if item.id == "monthly_momentum")
+    assert signal.metadata["factor_blend"]["weights"] == {"momentum_30d": 1.0}
+    assert signal.metadata["factor_blend"]["parameters"] == {
+        "momentum_30d": {"window": 20}
+    }
+
+
+def test_replacing_factor_function_renames_factor_dependencies():
+    source = DEFAULT_STRATEGY_SOURCE.replace(
+        "\n@signal",
+        '''
+@factor(id="momentum_copy")
+def momentum_copy(context):
+    return context.factor("momentum_20d")
+
+@signal''',
+        1,
+    )
+    function_source = registered_function_source(
+        source, entrypoint_id="momentum_20d"
+    ).replace('id="momentum_20d"', 'id="momentum_30d"')
+    updated, inspection = replace_registered_function(
+        source,
+        entrypoint_id="momentum_20d",
+        function_source=function_source,
+    )
+
+    assert "context.factor('momentum_30d')" in updated
+    assert next(item for item in inspection.entrypoints if item.id == "momentum_copy")
+
+
+def test_replacing_registered_function_cannot_change_its_kind():
+    function_source = registered_function_source(
+        DEFAULT_STRATEGY_SOURCE, entrypoint_id="momentum_20d"
+    ).replace("@factor(", "@signal(", 1)
+    try:
+        replace_registered_function(
+            DEFAULT_STRATEGY_SOURCE,
+            entrypoint_id="momentum_20d",
+            function_source=function_source,
+        )
+    except StrategySourceError as exc:
+        assert exc.phase == "edit"
+        assert "must remain a registered @factor function" in str(exc)
+    else:
+        raise AssertionError("function-level editing must preserve the entrypoint kind")
+
+
+def test_deleting_an_unused_factor_removes_only_that_function():
+    source = DEFAULT_STRATEGY_SOURCE.replace(
+        "\n@signal",
+        '''
+@factor(id="unused_factor")
+def unused_factor(context):
+    return context.current("close")
+
+@signal''',
+        1,
+    )
+    updated, inspection = delete_registered_function(source, entrypoint_id="unused_factor")
+
+    assert "def unused_factor" not in updated
+    assert "unused_factor" not in {
+        item.id for item in inspection.entrypoints if item.kind == "factor"
+    }
+    assert next(item for item in inspection.entrypoints if item.id == "momentum_20d")
+
+
+def test_deleting_a_referenced_factor_is_rejected():
+    try:
+        delete_registered_function(DEFAULT_STRATEGY_SOURCE, entrypoint_id="momentum_20d")
+    except StrategySourceError as exc:
+        assert exc.phase == "edit"
+        assert "monthly_momentum" in str(exc)
+    else:
+        raise AssertionError("referenced factors must not be deleted")
+
+
 def test_annotated_parameter_metadata_is_projected_and_enforced():
     inspection = inspect_strategy_source(DEFAULT_STRATEGY_SOURCE)
     factor_spec = next(item for item in inspection.entrypoints if item.id == "momentum_20d")
@@ -474,6 +581,38 @@ def test_repository_uses_rq_profile_and_migrates_existing_projects(tmp_path: Pat
         assert {item["profile"] for item in repository.list_projects()} == {"runtime"}
     finally:
         repository.close()
+
+
+def test_repository_removes_deprecated_factor_inputs_from_mutable_drafts(tmp_path: Path):
+    database = tmp_path / "factor-inputs.db"
+    repository = StrategyRepository(database)
+    repository.close()
+    legacy = DEFAULT_STRATEGY_SOURCE.replace(
+        '@factor(id="momentum_20d", label="20 日动量")',
+        '@factor(id="momentum_20d", label="20 日动量", inputs=["close"])',
+        1,
+    )
+    legacy_hash = inspect_strategy_source(legacy).source_sha256
+    connection = sqlite3.connect(database)
+    connection.execute(
+        "UPDATE strategy_projects SET draft_source = ?, draft_source_sha256 = ?",
+        (legacy, legacy_hash),
+    )
+    connection.execute(
+        "DELETE FROM strategy_contract_migrations WHERE name = ?",
+        ("strategy-sdk-v1-remove-factor-inputs",),
+    )
+    connection.commit()
+    connection.close()
+
+    migrated = StrategyRepository(database)
+    try:
+        project = migrated.get_project("sdk-v1-default")
+        assert project is not None
+        assert "inputs=" not in project["draft_source"]
+        assert project["draft_source_sha256"] != legacy_hash
+    finally:
+        migrated.close()
 
 
 def test_event_backtest_runs_the_frozen_source_package(tmp_path: Path):

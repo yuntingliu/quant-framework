@@ -16,14 +16,14 @@ router = APIRouter(prefix="/api/python-editor", tags=["python-editor"])
 
 class MirrorRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["strategy", "data"]
+    kind: Literal["strategy", "factor", "data"]
     document_id: str = Field(min_length=1, max_length=128)
     source: str = Field(max_length=300_000)
 
 
 class DiagnosticsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["strategy", "data"]
+    kind: Literal["strategy", "factor", "data"]
     source: str = Field(max_length=300_000)
 
 

@@ -68,7 +68,7 @@ def _fundamental(
         requirements={"fundamentals": (factor_id,)},
         recommended_direction=direction,
         source=(
-            f'@factor(id="{factor_id}", label="{label}", inputs=["{factor_id}"])\n'
+            f'@factor(id="{factor_id}", label="{label}")\n'
             f"def {factor_id}(context):\n"
             f'    return context.fundamental("{factor_id}")\n'
         ),
@@ -82,7 +82,7 @@ FACTOR_TEMPLATES = (
         "最近 20 个交易日的价格涨跌幅。",
         ("close",),
         """
-@factor(id="momentum_20d", label="20 日动量", inputs=["close"])
+@factor(id="momentum_20d", label="20 日动量")
 def momentum_20d(context, *, window: int = 20):
     close = context.history("close", window=window + 1)
     return close.iloc[-1] / close.iloc[0] - 1.0
@@ -94,7 +94,7 @@ def momentum_20d(context, *, window: int = 20):
         "最近 60 个交易日的中期价格动量。",
         ("close",),
         """
-@factor(id="momentum_60d", label="60 日动量", inputs=["close"])
+@factor(id="momentum_60d", label="60 日动量")
 def momentum_60d(context, *, window: int = 60):
     close = context.history("close", window=window + 1)
     return close.iloc[-1] / close.iloc[0] - 1.0
@@ -106,7 +106,7 @@ def momentum_60d(context, *, window: int = 60):
         "最近 5 个交易日涨跌幅，通常以低值优先使用。",
         ("close",),
         """
-@factor(id="reversal_5d", label="5 日反转", inputs=["close"])
+@factor(id="reversal_5d", label="5 日反转")
 def reversal_5d(context, *, window: int = 5):
     close = context.history("close", window=window + 1)
     return close.iloc[-1] / close.iloc[0] - 1.0
@@ -119,7 +119,7 @@ def reversal_5d(context, *, window: int = 5):
         "最近 20 日收益率的年化波动率，通常以低值优先使用。",
         ("close",),
         """
-@factor(id="volatility_20d", label="20 日波动率", inputs=["close"])
+@factor(id="volatility_20d", label="20 日波动率")
 def volatility_20d(context, *, window: int = 20, annualization_days: int = 252):
     close = context.history("close", window=window + 1)
     returns = close.pct_change().tail(window)
@@ -133,7 +133,7 @@ def volatility_20d(context, *, window: int = 20, annualization_days: int = 252):
         "最近 20 日的平均成交量，用于刻画流动性。",
         ("volume",),
         """
-@factor(id="turnover_20d", label="20 日平均成交量", inputs=["volume"])
+@factor(id="turnover_20d", label="20 日平均成交量")
 def turnover_20d(context, *, window: int = 20):
     volume = context.history("volume", window=window)
     return volume.mean()
@@ -145,7 +145,7 @@ def turnover_20d(context, *, window: int = 20):
         "近 5 日平均成交量与近 20 日平均成交量之比。",
         ("volume",),
         """
-@factor(id="volume_ratio", label="成交量比率", inputs=["volume"])
+@factor(id="volume_ratio", label="成交量比率")
 def volume_ratio(context, *, short_window: int = 5, long_window: int = 20):
     volume = context.history("volume", window=long_window)
     baseline = volume.mean().replace(0.0, float("nan"))
@@ -158,7 +158,7 @@ def volume_ratio(context, *, short_window: int = 5, long_window: int = 20):
         "14 日相对强弱指标。",
         ("close",),
         """
-@factor(id="rsi_14", label="14 日 RSI", inputs=["close"])
+@factor(id="rsi_14", label="14 日 RSI")
 def rsi_14(context, *, window: int = 14):
     close = context.history("close", window=window + 1)
     delta = close.diff().tail(window)
@@ -175,7 +175,7 @@ def rsi_14(context, *, window: int = 14):
         "收盘价相对 20 日均线的偏离程度。",
         ("close",),
         """
-@factor(id="ma_deviation", label="均线偏离", inputs=["close"])
+@factor(id="ma_deviation", label="均线偏离")
 def ma_deviation(context, *, window: int = 20):
     close = context.history("close", window=window)
     moving_average = close.mean().replace(0.0, float("nan"))
