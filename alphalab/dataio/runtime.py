@@ -228,7 +228,12 @@ class OperationsStore:
                    updated_at=excluded.updated_at""",
                 (dataset, relative, rows, _sha256(path), min_date, max_date, _now()),
             )
-            summary = DataCatalog(self.root).status(dataset)
+            summary = connection.execute(
+                """SELECT COUNT(*) AS files, COALESCE(SUM(rows), 0) AS rows,
+                          MIN(min_date) AS min_date, MAX(max_date) AS max_date
+                   FROM partitions WHERE dataset_id=?""",
+                (dataset,),
+            ).fetchone()
             connection.execute(
                 """INSERT INTO datasets (id, status, watermark, rows, files, updated_at, error)
                    VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -237,14 +242,22 @@ class OperationsStore:
                    updated_at=excluded.updated_at, error=excluded.error""",
                 (
                     dataset,
-                    summary["status"],
-                    summary.get("date_end"),
-                    summary["rows"],
-                    summary["files"],
+                    "ready",
+                    summary["max_date"],
+                    int(summary["rows"]),
+                    int(summary["files"]),
                     _now(),
-                    summary.get("error"),
+                    None,
                 ),
             )
+
+    def dataset_status(self, dataset: str) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM datasets WHERE id=?",
+                (dataset,),
+            ).fetchone()
+        return dict(row) if row else None
 
     def watermark(self, dataset: str) -> str | None:
         with self._connect() as connection:
@@ -329,7 +342,7 @@ class RuntimeStore:
                     max_date=max_date,
                 )
                 written.append(str(path))
-        status = self.catalog.status(dataset)
+        status = self.operations.dataset_status(dataset) or self.catalog.status(dataset)
         return {"dataset": dataset, "written": written, "status": status}
 
     def _partitions(self, dataset: str, frame: pd.DataFrame) -> list[tuple[Path, pd.DataFrame]]:
@@ -344,7 +357,7 @@ class RuntimeStore:
                 )
                 for date, part in value.groupby("snapshot_date", sort=True)
             ]
-        if dataset == "rq.bars":
+        if dataset in {"rq.bars", "rq.paused", "rq.is_st", "rq.daily_factors"}:
             value["date"] = pd.to_datetime(value["date"]).dt.normalize()
             return [
                 (
@@ -355,6 +368,15 @@ class RuntimeStore:
                     [value["date"].dt.year, value["date"].dt.month],
                     sort=True,
                 )
+            ]
+        if dataset == "rq.index_components":
+            value["date"] = pd.to_datetime(value["date"]).dt.normalize()
+            return [
+                (
+                    base / f"year={int(year):04d}" / "part.parquet",
+                    part,
+                )
+                for year, part in value.groupby(value["date"].dt.year, sort=True)
             ]
         if dataset.startswith("rq.financials."):
             value["quarter"] = value["quarter"].astype(str).str.lower()

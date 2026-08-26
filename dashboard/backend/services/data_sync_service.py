@@ -67,5 +67,23 @@ def cancel(job_id: str) -> dict | None:
     return get_job_manager().cancel(job_id)
 
 
-def validate(dataset: str | None = None) -> dict | list[dict]:
-    return validate_dataset(dataset) if dataset else validate_all()
+def validate(
+    dataset: str | None = None,
+    *,
+    datasets: list[str] | None = None,
+    start_date: str | None = None,
+    as_of_date: str | None = None,
+    fail_on_gap: bool = False,
+) -> dict | list[dict]:
+    kwargs = {
+        "start_date": start_date,
+        "as_of_date": as_of_date,
+        "fail_on_gap": fail_on_gap,
+    }
+    if dataset and datasets:
+        raise ValueError("Use either dataset or datasets, not both")
+    return (
+        validate_dataset(dataset, **kwargs)
+        if dataset
+        else validate_all(datasets=datasets, **kwargs)
+    )

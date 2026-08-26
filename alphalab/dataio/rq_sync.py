@@ -2,14 +2,19 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import Any
 
 import pandas as pd
 
 from alphalab.dataio.errors import DataLoadError, DataValidationError
 from alphalab.dataio.providers.rq import RQDataClient, RQDataProvider
-from alphalab.dataio.symbols import to_framework_symbol, to_rq_symbol
+from alphalab.dataio.symbols import is_a_share_symbol, to_framework_symbol, to_rq_symbol
+
+RQ_FACTOR_ALIASES = {
+    "float_market_cap": "a_share_market_val_in_circulation",
+    "roe": "return_on_equity",
+}
 
 
 def quarter_range(start: str, end: str) -> list[str]:
@@ -65,7 +70,7 @@ class RQAcquirer:
     def from_env(cls, **kwargs: Any) -> "RQAcquirer":
         return cls(RQDataClient.from_env(), **kwargs)
 
-    def instruments(self, snapshot_date: str) -> pd.DataFrame:
+    def instruments(self, _snapshot_date: str) -> pd.DataFrame:
         rq = self.client.connect()
         raw = self._retry(lambda: rq.all_instruments(type="CS", market="cn"))
         frame = _reset(pd.DataFrame(raw))
@@ -77,7 +82,8 @@ class RQAcquirer:
             raise DataValidationError("RQ instruments do not include order_book_id")
         output = pd.DataFrame(
             {
-                "snapshot_date": pd.Timestamp(snapshot_date).normalize(),
+                # RQ returns a current reference snapshot when date is omitted.
+                "snapshot_date": pd.Timestamp.now().normalize(),
                 "symbol": frame[symbol_column].map(to_framework_symbol),
                 "name": _series(frame, columns, "symbol", "display_name", "name"),
                 "listed_date": pd.to_datetime(
@@ -93,7 +99,11 @@ class RQAcquirer:
                 "industry": pd.Series(pd.NA, index=frame.index, dtype="string"),
             }
         )
-        return output.dropna(subset=["symbol"]).drop_duplicates(["snapshot_date", "symbol"])
+        output = output.dropna(subset=["symbol"])
+        output = output.loc[output["symbol"].map(is_a_share_symbol)]
+        if output.empty:
+            raise DataLoadError("RQData returned no valid A-share instruments")
+        return output.drop_duplicates(["snapshot_date", "symbol"])
 
     def daily_bars(
         self,
@@ -101,31 +111,20 @@ class RQAcquirer:
         start: str,
         end: str,
         *,
+        date_chunk_days: int | None = None,
         progress: Callable[[str], None] | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> pd.DataFrame:
-        frames: list[pd.DataFrame] = []
-        for index, batch in enumerate(_chunks(symbols, self.stock_batch_size), start=1):
-            if cancelled and cancelled():
-                break
-            adjusted_provider = RQDataProvider(self.client, adjust_type="pre")
-            raw_provider = RQDataProvider(self.client, adjust_type="none")
-            adjusted = self._retry(
-                lambda batch=list(batch): adjusted_provider.get_bars(batch, start, end)
+        frames = list(
+            self.daily_bar_chunks(
+                symbols,
+                start,
+                end,
+                date_chunk_days=date_chunk_days,
+                progress=progress,
+                cancelled=cancelled,
             )
-            raw = self._retry(
-                lambda batch=list(batch): raw_provider.get_bars(
-                    batch,
-                    start,
-                    end,
-                    fields=["close"],
-                )
-            ).rename(columns={"close": "raw_close"})
-            combined = adjusted.merge(raw, on=["date", "symbol"], how="inner")
-            if not combined.empty:
-                frames.append(combined)
-            if progress:
-                progress(f"bars batch {index}")
+        )
         if not frames:
             raise DataLoadError("RQData returned no daily bars")
         return (
@@ -134,6 +133,220 @@ class RQAcquirer:
             .sort_values(["date", "symbol"])
             .reset_index(drop=True)
         )
+
+    def daily_bar_chunks(
+        self,
+        symbols: list[str],
+        start: str,
+        end: str,
+        *,
+        date_chunk_days: int | None = 366,
+        progress: Callable[[str], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> Iterator[pd.DataFrame]:
+        """Yield complete date-major bar chunks for recoverable local writes."""
+
+        if not symbols:
+            raise ValueError("symbols must not be empty")
+        adjusted_provider = RQDataProvider(self.client, adjust_type="pre")
+        raw_provider = RQDataProvider(self.client, adjust_type="none")
+        chunk_days = int(date_chunk_days or _calendar_days(start, end))
+        for chunk_start, chunk_end in _date_chunks(start, end, chunk_days):
+            frames: list[pd.DataFrame] = []
+            for index, batch in enumerate(_chunks(symbols, self.stock_batch_size), start=1):
+                if cancelled and cancelled():
+                    return
+                adjusted = self._retry(
+                    lambda batch=list(batch): adjusted_provider.get_bars(
+                        batch,
+                        chunk_start,
+                        chunk_end,
+                    )
+                )
+                raw = self._retry(
+                    lambda batch=list(batch): raw_provider.get_bars(
+                        batch,
+                        chunk_start,
+                        chunk_end,
+                        fields=["close"],
+                    )
+                ).rename(columns={"close": "raw_close"})
+                _require_same_keys(
+                    adjusted,
+                    raw,
+                    ["date", "symbol"],
+                    label=f"adjusted/raw bars {chunk_start}..{chunk_end}",
+                )
+                combined = adjusted.merge(raw, on=["date", "symbol"], how="inner")
+                if not combined.empty:
+                    frames.append(combined)
+                if progress:
+                    progress(f"bars {chunk_start}..{chunk_end} batch {index}")
+            if frames:
+                yield (
+                    pd.concat(frames, ignore_index=True)
+                    .drop_duplicates(["date", "symbol"], keep="last")
+                    .sort_values(["date", "symbol"])
+                    .reset_index(drop=True)
+                )
+
+    def market_state_chunks(
+        self,
+        symbols: list[str],
+        start: str,
+        end: str,
+        *,
+        date_chunk_days: int = 366,
+        progress: Callable[[str], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> Iterator[tuple[pd.DataFrame, pd.DataFrame]]:
+        """Yield historical suspension and ST state as long date/symbol tables."""
+
+        rq = self.client.connect()
+        rq_symbols = [to_rq_symbol(symbol) for symbol in symbols]
+        for chunk_start, chunk_end in _date_chunks(start, end, date_chunk_days):
+            paused_parts: list[pd.DataFrame] = []
+            st_parts: list[pd.DataFrame] = []
+            for index, batch in enumerate(_chunks(rq_symbols, self.stock_batch_size), start=1):
+                if cancelled and cancelled():
+                    return
+                paused_raw = self._retry(
+                    lambda batch=list(batch): rq.is_suspended(
+                        batch,
+                        start_date=chunk_start,
+                        end_date=chunk_end,
+                    )
+                )
+                st_raw = self._retry(
+                    lambda batch=list(batch): rq.is_st_stock(
+                        batch,
+                        start_date=chunk_start,
+                        end_date=chunk_end,
+                    )
+                )
+                paused = _normalize_bool_state(paused_raw, "paused")
+                is_st = _normalize_bool_state(st_raw, "is_st")
+                _require_same_keys(
+                    paused,
+                    is_st,
+                    ["date", "symbol"],
+                    label=f"paused/ST state {chunk_start}..{chunk_end}",
+                )
+                if not paused.empty:
+                    paused_parts.append(paused)
+                if not is_st.empty:
+                    st_parts.append(is_st)
+                if progress:
+                    progress(f"market-state {chunk_start}..{chunk_end} batch {index}")
+            if paused_parts and st_parts:
+                yield (
+                    _combine_long(paused_parts, ["date", "symbol"]),
+                    _combine_long(st_parts, ["date", "symbol"]),
+                )
+            elif paused_parts or st_parts:
+                raise DataLoadError(
+                    f"RQData returned only one market-state table for {chunk_start}..{chunk_end}"
+                )
+
+    def daily_factor_chunks(
+        self,
+        symbols: list[str],
+        fields: Iterable[str],
+        start: str,
+        end: str,
+        *,
+        date_chunk_days: int = 366,
+        progress: Callable[[str], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> Iterator[pd.DataFrame]:
+        """Yield normalized long-form daily-factor chunks."""
+
+        rq = self.client.connect()
+        rq_symbols = [to_rq_symbol(symbol) for symbol in symbols]
+        stored_fields = list(dict.fromkeys(str(field).strip() for field in fields if str(field).strip()))
+        if not stored_fields:
+            raise ValueError("daily factor fields must not be empty")
+        for chunk_start, chunk_end in _date_chunks(start, end, date_chunk_days):
+            parts: list[pd.DataFrame] = []
+            for field in stored_fields:
+                rq_field = RQ_FACTOR_ALIASES.get(field, field)
+                field_rows = 0
+                for index, batch in enumerate(_chunks(rq_symbols, self.stock_batch_size), start=1):
+                    if cancelled and cancelled():
+                        return
+                    raw = self._retry(
+                        lambda batch=list(batch), rq_field=rq_field: rq.get_factor(
+                            order_book_ids=batch,
+                            factor=rq_field,
+                            start_date=chunk_start,
+                            end_date=chunk_end,
+                        )
+                    )
+                    normalized = _normalize_daily_factor(raw, field)
+                    if not normalized.empty:
+                        parts.append(normalized)
+                        field_rows += len(normalized)
+                    if progress:
+                        progress(
+                            f"daily-factor {field} {chunk_start}..{chunk_end} batch {index}"
+                        )
+                if field_rows == 0:
+                    raise DataLoadError(
+                        f"RQData factor {field!r} returned no rows for {chunk_start}..{chunk_end}"
+                    )
+            if parts:
+                yield _combine_long(parts, ["date", "symbol", "field"])
+
+    def index_components(
+        self,
+        index_symbols: Iterable[str],
+        dates: Iterable[str],
+        *,
+        progress: Callable[[str], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> pd.DataFrame:
+        rq = self.client.connect()
+        rows: list[dict[str, object]] = []
+        for index_symbol in index_symbols:
+            rq_index = to_rq_symbol(index_symbol)
+            framework_index = to_framework_symbol(rq_index)
+            for value in dates:
+                if cancelled and cancelled():
+                    break
+                date_text = pd.Timestamp(value).strftime("%Y-%m-%d")
+                raw = self._retry(lambda: rq.index_components(rq_index, date=date_text))
+                for member in _component_values(raw):
+                    rows.append(
+                        {
+                            "date": pd.Timestamp(date_text).normalize(),
+                            "index_symbol": framework_index,
+                            "symbol": to_framework_symbol(member),
+                        }
+                    )
+                if progress:
+                    progress(f"index-components {framework_index} {date_text}")
+        if not rows:
+            raise DataLoadError("RQData returned no index components")
+        return _combine_long(
+            [pd.DataFrame(rows)],
+            ["date", "index_symbol", "symbol"],
+        )
+
+    @staticmethod
+    def symbols_for_period(
+        instruments: pd.DataFrame,
+        start: str,
+        end: str,
+    ) -> list[str]:
+        if instruments is None or instruments.empty:
+            return []
+        frame = instruments.copy()
+        listed = pd.to_datetime(frame.get("listed_date"), errors="coerce")
+        delisted = pd.to_datetime(frame.get("de_listed_date"), errors="coerce")
+        start_ts = pd.Timestamp(start)
+        end_ts = pd.Timestamp(end)
+        active = (listed.isna() | listed.le(end_ts)) & (delisted.isna() | delisted.ge(start_ts))
+        return sorted(frame.loc[active, "symbol"].dropna().astype(str).unique().tolist())
 
     def financials(
         self,
@@ -299,4 +512,142 @@ def _series(frame: pd.DataFrame, columns: dict[str, Any], *names: str) -> pd.Ser
     return pd.Series(pd.NA, index=frame.index, dtype="object")
 
 
-__all__ = ["RQAcquirer", "quarter_range"]
+def _date_chunks(start: str, end: str, days: int) -> Iterator[tuple[str, str]]:
+    if days <= 0:
+        raise ValueError("date chunk days must be positive")
+    cursor = pd.Timestamp(start).normalize()
+    last = pd.Timestamp(end).normalize()
+    if cursor > last:
+        raise ValueError("start must be on or before end")
+    while cursor <= last:
+        chunk_end = min(last, cursor + pd.Timedelta(days=days - 1))
+        yield cursor.strftime("%Y-%m-%d"), chunk_end.strftime("%Y-%m-%d")
+        cursor = chunk_end + pd.Timedelta(days=1)
+
+
+def _calendar_days(start: str, end: str) -> int:
+    return int((pd.Timestamp(end).normalize() - pd.Timestamp(start).normalize()).days) + 1
+
+
+def _combine_long(frames: list[pd.DataFrame], keys: list[str]) -> pd.DataFrame:
+    if not frames:
+        return pd.DataFrame()
+    return (
+        pd.concat(frames, ignore_index=True)
+        .drop_duplicates(keys, keep="last")
+        .sort_values(keys)
+        .reset_index(drop=True)
+    )
+
+
+def _require_same_keys(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    keys: list[str],
+    *,
+    label: str,
+) -> None:
+    if any(key not in left or key not in right for key in keys):
+        raise DataValidationError(f"RQData {label} response is missing key columns")
+    left_keys = left[keys].drop_duplicates()
+    right_keys = right[keys].drop_duplicates()
+    mismatch = left_keys.merge(right_keys, on=keys, how="outer", indicator=True)
+    mismatch = mismatch.loc[mismatch["_merge"].ne("both")]
+    if not mismatch.empty:
+        raise DataValidationError(
+            f"RQData {label} key mismatch ({len(mismatch)} unmatched rows)"
+        )
+
+
+def _normalize_bool_state(raw: Any, field: str) -> pd.DataFrame:
+    frame = pd.DataFrame(raw)
+    if frame.empty:
+        return pd.DataFrame(columns=["date", "symbol", field])
+    if isinstance(frame.index, pd.MultiIndex):
+        series = frame.iloc[:, 0] if frame.shape[1] == 1 else frame.stack()
+        frame = series.unstack(level=0)
+    try:
+        frame.index = pd.to_datetime(frame.index)
+    except Exception as exc:
+        raise DataValidationError(f"RQData {field} response has no date index") from exc
+    frame.index.name = "date"
+    long = frame.reset_index().melt(id_vars="date", var_name="symbol", value_name=field)
+    long["date"] = pd.to_datetime(long["date"], errors="coerce").dt.normalize()
+    long["symbol"] = long["symbol"].map(to_framework_symbol)
+    long[field] = long[field].astype("boolean")
+    return long.dropna(subset=["date", "symbol", field]).reset_index(drop=True)
+
+
+def _normalize_daily_factor(raw: Any, field: str) -> pd.DataFrame:
+    if raw is None:
+        return pd.DataFrame(columns=["date", "symbol", "field", "value"])
+    frame = pd.DataFrame(raw)
+    if frame.empty:
+        return pd.DataFrame(columns=["date", "symbol", "field", "value"])
+    rows: list[dict[str, object]] = []
+    if isinstance(frame.index, pd.MultiIndex):
+        series = frame.iloc[:, 0] if frame.shape[1] == 1 else frame.stack()
+        for index, value in series.dropna().items():
+            parts = index if isinstance(index, tuple) else (index,)
+            date_value = next((part for part in parts if _looks_like_date(part)), None)
+            symbol = next(
+                (part for part in parts if isinstance(part, str) and "." in part),
+                None,
+            )
+            if date_value is not None and symbol is not None:
+                rows.append(_factor_row(date_value, symbol, field, value))
+        return pd.DataFrame(rows, columns=["date", "symbol", "field", "value"])
+    sample = frame.index[: min(3, len(frame.index))]
+    if len(sample) and all(_looks_like_date(value) for value in sample):
+        for symbol in frame.columns:
+            for date_value, value in frame[symbol].dropna().items():
+                rows.append(_factor_row(date_value, str(symbol), field, value))
+        return pd.DataFrame(rows, columns=["date", "symbol", "field", "value"])
+    reset = _reset(frame)
+    columns = _columns(reset)
+    date_column = columns.get("date") or columns.get("datetime") or columns.get("trading_date")
+    symbol_column = columns.get("order_book_id") or columns.get("symbol")
+    value_column = columns.get(field.lower()) or columns.get("value")
+    if value_column is None:
+        candidates = [
+            column for column in reset.columns if column not in {date_column, symbol_column}
+        ]
+        value_column = candidates[-1] if candidates else None
+    if date_column is None or symbol_column is None or value_column is None:
+        raise DataValidationError(f"RQData factor {field!r} response shape is unsupported")
+    for row in reset[[date_column, symbol_column, value_column]].itertuples(index=False):
+        rows.append(_factor_row(row[0], str(row[1]), field, row[2]))
+    return pd.DataFrame(rows, columns=["date", "symbol", "field", "value"])
+
+
+def _factor_row(date_value: object, symbol: str, field: str, value: object) -> dict[str, object]:
+    return {
+        "date": pd.Timestamp(date_value).normalize(),
+        "symbol": to_framework_symbol(symbol),
+        "field": field,
+        "value": pd.to_numeric(value, errors="coerce"),
+    }
+
+
+def _looks_like_date(value: object) -> bool:
+    try:
+        pd.Timestamp(value)
+        return True
+    except Exception:
+        return False
+
+
+def _component_values(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, pd.DataFrame):
+        if raw.empty:
+            return []
+        column = "order_book_id" if "order_book_id" in raw else raw.columns[0]
+        return raw[column].dropna().astype(str).tolist()
+    if isinstance(raw, pd.Series):
+        return raw.dropna().astype(str).tolist()
+    return [str(value) for value in raw if value is not None]
+
+
+__all__ = ["RQAcquirer", "RQ_FACTOR_ALIASES", "quarter_range"]

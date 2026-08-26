@@ -12,6 +12,10 @@ Runtime datasets are:
 | --- | --- | --- |
 | `rq.instruments` | `snapshot_date, symbol` | snapshot date |
 | `rq.bars` | `date, symbol` | year and month |
+| `rq.paused` | `date, symbol` | year and month |
+| `rq.is_st` | `date, symbol` | year and month |
+| `rq.daily_factors` | `date, symbol, field` | year and month |
+| `rq.index_components` | `date, index_symbol, symbol` | year |
 | `rq.financials.income` | `symbol, quarter, info_date, if_adjusted` | report year |
 | `rq.financials.balance` | `symbol, quarter, info_date, if_adjusted` | report year |
 | `canonical.fundamentals` | `symbol, quarter` | available year |
@@ -25,9 +29,12 @@ yield curve is converted from an annual yield to the monthly `rf` return.
 ## Synchronization
 
 The default universe is the 300 symbols recorded in the tracked manifest. A
-request may supply another explicit list. Initial sync covers five years;
-incremental bars overlap seven calendar days (at least five trading days) and
-financials overlap eight quarters.
+request may supply another explicit list or use `--universe all`. The all-share
+mode resolves every common stock whose listing interval overlaps the requested
+range from an RQ instruments snapshot; it does not use today's membership as a
+historical universe. Initial sync covers five years unless `--start` is supplied.
+Incremental bars overlap seven calendar days, market state overlaps one day,
+and financials overlap eight quarters.
 
 Each instrument sync writes a dated reference snapshot. Historical research
 chooses the latest snapshot no later than the signal date. If history predates
@@ -45,6 +52,17 @@ Writes use a temporary sibling file and atomic replacement. Existing and new
 rows are merged by dataset primary key. Empty provider responses are errors and
 never overwrite a partition.
 
+Daily bars, suspension/ST state, and daily factors are requested in date-major
+chunks. Each complete date chunk is written and checkpointed before the next
+provider call. A failed rerun therefore resumes from the persisted watermark
+with a small overlap instead of restarting the full history. The default state
+factors are `market_cap` and `roe`; the default component snapshots are monthly
+for CSI 300, CSI 500, and CSI 1000.
+
+RQ access on this branch is direct. Only `RQ_USER`, `RQ_PASSWORD`, and `RQ_HOST`
+are read from the local environment. No SSH tunnel, jump-host, or machine-specific
+network configuration belongs in this repository.
+
 ## Interfaces
 
 CLI:
@@ -57,6 +75,26 @@ alphalab data sync rq
 alphalab data validate
 alphalab data jobs
 ```
+
+Full A-share daily research cache from 2005:
+
+```powershell
+alphalab data plan rq --datasets instruments,bars,market-state --universe all --start 2005-01-04 --end YYYY-MM-DD --force
+alphalab data sync rq --datasets instruments,bars,market-state --universe all --start 2005-01-04 --end YYYY-MM-DD --force
+alphalab data validate --datasets rq.instruments,rq.bars,rq.paused,rq.is_st,rq.daily_factors,rq.index_components --start 2005-01-04 --as-of YYYY-MM-DD --fail-on-gap
+```
+
+The initial clean pull uses `--force` so an existing recent watermark cannot hide
+older gaps. If a long pull fails after some partitions are written, rerun without
+`--force` to resume from the persisted watermark overlap.
+For an untrusted old cache, archive `data/runtime/` first or set
+`ALPHALAB_RUNTIME_DIR` to an empty directory. `--force` re-fetches the requested
+range but deliberately does not delete unrelated legacy rows.
+
+Always inspect the plan before the full-universe command. The plan is local and
+does not contact RQ; when no instruments snapshot exists, its symbol count is an
+explicit estimate and the exact listing-overlap universe is resolved at run time.
+Replace `YYYY-MM-DD` with the latest completed A-share trading day.
 
 FastAPI exposes health, catalog, plan, job, cancel, and validation routes below
 `/api/data-sync`. The backend uses one in-process worker and performs no startup

@@ -109,6 +109,9 @@ RQ_HOST=
 Do not copy credentials from the deployed server. Keep `.env` local; it is
 already ignored by Git.
 
+This branch connects to RQ directly through `RQ_HOST`. It does not require or
+start an SSH tunnel.
+
 Preview the deterministic five-year, 300-symbol plan before making any provider
 request, then run the download and validation:
 
@@ -131,14 +134,30 @@ request, then run the download and validation:
 ```
 
 `data sync rq` is the single download command. By default it synchronizes
-instruments, daily bars, point-in-time financial statements, canonical
-fundamentals, and factor returns. Re-running it performs an incremental update;
-use `data plan rq` first to inspect the dates and scope without contacting RQ.
+instruments, daily bars, historical suspension/ST state, daily market-cap/ROE
+factors, monthly major-index components, point-in-time financial statements,
+canonical fundamentals, and factor returns. Re-running it performs an
+incremental update; use `data plan rq` first to inspect the dates and scope
+without contacting RQ.
+
+For the full historical A-share research cache, use the explicit large-job mode:
+
+```powershell
+alphalab data plan rq --datasets instruments,bars,market-state --universe all --start 2005-01-04 --end YYYY-MM-DD --force
+alphalab data sync rq --datasets instruments,bars,market-state --universe all --start 2005-01-04 --end YYYY-MM-DD --force
+alphalab data validate --datasets rq.instruments,rq.bars,rq.paused,rq.is_st,rq.daily_factors,rq.index_components --start 2005-01-04 --as-of YYYY-MM-DD --fail-on-gap
+```
+
+Replace `YYYY-MM-DD` with the latest completed A-share trading day.
+If the initial full pull is interrupted after writing partitions, rerun the sync
+without `--force` to continue from the persisted watermark overlap.
+Archive an untrusted `data/runtime/` cache first, or use an empty
+`ALPHALAB_RUNTIME_DIR`; `--force` does not delete unrelated legacy rows.
 
 All downloaded files, checksums, checkpoints, and task state are written below
 `data/runtime/`, which is ignored by Git. The checked-in example bundle is
 never overwritten. `data status` may report `missing` before the first sync;
-after a successful sync, `data validate` should report `passed` for all six
+after a successful default sync, `data validate` should report `passed` for all ten
 runtime datasets.
 
 After a successful sync, use the runtime engine explicitly:

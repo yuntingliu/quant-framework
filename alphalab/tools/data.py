@@ -20,6 +20,9 @@ class EmptyInput(BaseModel):
 
 class DatasetInput(BaseModel):
     dataset: str
+    start: str | None = None
+    as_of: str | None = None
+    fail_on_gap: bool = False
 
 
 class QueryInput(BaseModel):
@@ -114,7 +117,13 @@ def create_data_tool_registry(root: str | Path | None = None) -> ToolRegistry:
             "data.validate",
             "Validate one runtime dataset.",
             DatasetInput,
-            lambda value: validate_dataset(value.dataset, root),
+            lambda value: validate_dataset(
+                value.dataset,
+                root,
+                start_date=value.start,
+                as_of_date=value.as_of,
+                fail_on_gap=value.fail_on_gap,
+            ),
         )
     )
     registry.register(

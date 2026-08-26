@@ -13,6 +13,10 @@ router = APIRouter(prefix="/api/data-sync", tags=["data-sync"])
 
 class ValidateRequest(BaseModel):
     dataset: str | None = None
+    datasets: list[str] | None = None
+    start: str | None = None
+    as_of: str | None = None
+    fail_on_gap: bool = False
 
 
 @router.get("/health")
@@ -65,6 +69,14 @@ def cancel(job_id: str) -> dict:
 @router.post("/validate")
 def validate(request: ValidateRequest) -> dict | list[dict]:
     try:
-        return data_sync_service.validate(request.dataset)
+        return data_sync_service.validate(
+            request.dataset,
+            datasets=request.datasets,
+            start_date=request.start,
+            as_of_date=request.as_of,
+            fail_on_gap=request.fail_on_gap,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

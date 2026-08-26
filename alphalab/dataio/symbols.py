@@ -64,10 +64,29 @@ def canonical_a_share_symbol(symbol: object) -> str:
     return to_framework_symbol(to_rq_symbol(symbol))
 
 
+def is_a_share_symbol(symbol: object) -> bool:
+    """Return whether a canonical exchange symbol is an onshore A-share security."""
+
+    value = to_framework_symbol(symbol)
+    if "." not in value:
+        return False
+    code, exchange = value.rsplit(".", maxsplit=1)
+    if len(code) != 6 or not code.isdigit():
+        return False
+    if exchange == "SH":
+        return code.startswith(("600", "601", "603", "605", "688", "689"))
+    if exchange == "SZ":
+        return code.startswith(("000", "001", "002", "003", "300", "301"))
+    if exchange == "BJ":
+        return code.startswith(("4", "8", "92"))
+    return False
+
+
 __all__ = [
     "normalize_symbol",
     "normalize_symbols",
     "canonical_a_share_symbol",
+    "is_a_share_symbol",
     "to_framework_symbol",
     "to_rq_symbol",
 ]
