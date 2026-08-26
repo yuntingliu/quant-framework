@@ -43,6 +43,7 @@ class RecipeParametersRequest(BaseModel):
 class CustomRecipeTemplateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=300)
+    expected_source_sha256: str | None = None
     confirm_save: bool = False
 
 
@@ -167,9 +168,12 @@ def save_custom_recipe_template(
             project_id,
             name=request.name,
             description=request.description,
+            expected_source_sha256=request.expected_source_sha256,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="data recipe draft not found") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (ValueError, DataRecipeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

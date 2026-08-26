@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS data_recipe_drafts (
     project_id TEXT PRIMARY KEY,
     source TEXT NOT NULL,
     source_sha256 TEXT NOT NULL,
+    selected_template_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS data_recipe_templates (
 
 _PROCESS_LOCKS: dict[str, threading.Lock] = {}
 _PROCESS_LOCKS_GUARD = threading.Lock()
+_UNCHANGED_TEMPLATE_ID = object()
 
 
 def _now() -> str:
@@ -116,6 +118,14 @@ class OperationsStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             connection.executescript(_OPERATIONS_SCHEMA)
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(data_recipe_drafts)")
+            }
+            if "selected_template_id" not in columns:
+                connection.execute(
+                    "ALTER TABLE data_recipe_drafts ADD COLUMN selected_template_id TEXT"
+                )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self.path), timeout=30)
@@ -303,13 +313,15 @@ class OperationsStore:
         source: str,
         *,
         expected_source_sha256: str | None = None,
+        selected_template_id: str | None | object = _UNCHANGED_TEMPLATE_ID,
     ) -> dict[str, Any]:
         project = str(project_id).strip()
         digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
         now = _now()
         with self._connect() as connection:
             current = connection.execute(
-                "SELECT source_sha256 FROM data_recipe_drafts WHERE project_id=?",
+                "SELECT source_sha256, selected_template_id "
+                "FROM data_recipe_drafts WHERE project_id=?",
                 (project,),
             ).fetchone()
             if (
@@ -318,15 +330,20 @@ class OperationsStore:
                 and current["source_sha256"] != expected_source_sha256
             ):
                 raise RuntimeError("data recipe draft changed since it was loaded")
+            if selected_template_id is _UNCHANGED_TEMPLATE_ID:
+                selected = current["selected_template_id"] if current is not None else None
+            else:
+                selected = str(selected_template_id).strip() if selected_template_id else None
             connection.execute(
                 """INSERT INTO data_recipe_drafts
-                   (project_id, source, source_sha256, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?)
+                   (project_id, source, source_sha256, selected_template_id, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
                    ON CONFLICT(project_id) DO UPDATE SET
                    source=excluded.source,
                    source_sha256=excluded.source_sha256,
+                   selected_template_id=excluded.selected_template_id,
                    updated_at=excluded.updated_at""",
-                (project, source, digest, now, now),
+                (project, source, digest, selected, now, now),
             )
         result = self.get_recipe_draft(project)
         assert result is not None

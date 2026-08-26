@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 import pandas as pd
 import pytest
 
@@ -87,6 +89,20 @@ def test_operations_store_persists_recipe_drafts_and_custom_templates(tmp_path) 
             expected_source_sha256="stale",
         )
 
+    selected = operations.save_recipe_draft(
+        "sample-project",
+        source,
+        expected_source_sha256=draft["source_sha256"],
+        selected_template_id="rq.a_share_daily",
+    )
+    assert selected["selected_template_id"] == "rq.a_share_daily"
+    preserved = operations.save_recipe_draft(
+        "sample-project",
+        source + "\n",
+        expected_source_sha256=selected["source_sha256"],
+    )
+    assert preserved["selected_template_id"] == "rq.a_share_daily"
+
     saved = operations.save_recipe_template(
         "custom.example",
         name="Example",
@@ -95,6 +111,37 @@ def test_operations_store_persists_recipe_drafts_and_custom_templates(tmp_path) 
     )
     assert operations.get_recipe_template("custom.example") == saved
     assert operations.delete_recipe_template("custom.example") is True
+
+
+def test_operations_store_migrates_existing_recipe_drafts_for_template_selection(
+    tmp_path,
+) -> None:
+    database = tmp_path / "app" / "dataio.db"
+    database.parent.mkdir(parents=True)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """CREATE TABLE data_recipe_drafts (
+                project_id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                source_sha256 TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+
+    operations = OperationsStore(tmp_path)
+    source = render_builtin_recipe(
+        "rq.a_share_daily",
+        start="2021-08-25",
+        end="2026-08-25",
+    )
+    draft = operations.save_recipe_draft(
+        "migrated-project",
+        source,
+        selected_template_id="rq.a_share_daily",
+    )
+
+    assert draft["selected_template_id"] == "rq.a_share_daily"
 
 
 def test_custom_recipe_job_executes_the_saved_source_and_publishes_runtime_data(tmp_path) -> None:

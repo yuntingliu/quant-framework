@@ -41,6 +41,7 @@ interface RecipeDraft {
   project_id: string
   source: string
   source_sha256: string
+  selected_template_id?: string | null
   updated_at: string
   inspection: RecipeInspection
 }
@@ -93,6 +94,7 @@ export function DataWorkbenchWidget() {
   const [customDescription, setCustomDescription] = useState("")
   const [showCustomSave, setShowCustomSave] = useState(false)
   const [switchingTemplateId, setSwitchingTemplateId] = useState<string | null>(null)
+  const [parameterSaving, setParameterSaving] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
 
@@ -125,17 +127,27 @@ export function DataWorkbenchWidget() {
 
   const selectedTemplate = useMemo(() => {
     if (!workspace) return null
+    const explicit = workspace.draft.selected_template_id
+    if (explicit && workspace.templates.some((item) => item.id === explicit)) return explicit
     const matched = workspace.draft.inspection.matched_template_id
     if (matched) return matched
-    return workspace.templates.find((item) => (
+    const custom = workspace.templates.find((item) => (
       item.kind === "custom" && item.source_sha256 === workspace.draft.source_sha256
-    ))?.id ?? null
+    ))?.id
+    if (custom) return custom
+    const declared = workspace.draft.inspection.template_id
+    return workspace.templates.some((item) => item.id === declared) ? declared : null
   }, [workspace])
   const dirty = Boolean(workspace && source !== workspace.draft.source)
+  const selectedTemplateItem = workspace?.templates.find((item) => item.id === selectedTemplate)
+  const draftMatchesSelectedTemplate = selectedTemplateItem?.kind === "built_in"
+    ? workspace?.draft.inspection.matched_template_id === selectedTemplateItem.id
+    : selectedTemplateItem?.source_sha256 === workspace?.draft.source_sha256
+  const saveAsRequired = selectedTemplateItem?.kind === "built_in"
+    && (dirty || !draftMatchesSelectedTemplate)
   const editableParameters = new Set(
     workspace?.draft.inspection.parameters.filter((item) => item.editable).map((item) => item.name),
   )
-  const supportsFormParameters = ["start", "end", "symbols"].some((name) => editableParameters.has(name))
   const activeJob = jobs.some((item) => item.status === "queued" || item.status === "running")
   const latestJob = jobs.find((item) => item.request.project_id === project?.id)
 
@@ -169,10 +181,12 @@ export function DataWorkbenchWidget() {
   }
 
   async function selectTemplate(item: RecipeTemplate) {
-    if (!project || !workspace || item.id === selectedTemplate) return
-    if (dirty && !await confirm({
+    if (!project || !workspace) return
+    const reloadSelectedTemplate = item.id === selectedTemplate && !draftMatchesSelectedTemplate
+    if (item.id === selectedTemplate && !dirty && !reloadSelectedTemplate) return
+    if ((dirty || reloadSelectedTemplate) && !await confirm({
       title: `切换到${item.label}`,
-      description: "当前未保存的 Python 修改会被模板源码替换。",
+      description: "当前 Python 修改会被模板中保存的源码替换。",
       confirmText: "替换源码",
       tone: "danger",
     })) return
@@ -190,42 +204,53 @@ export function DataWorkbenchWidget() {
   function changeSyncStart(value: string) {
     if (!workspace) return
     const next = clampDate(value, workspace.bounds.start, syncEnd || workspace.bounds.end)
+    const nextEnd = syncEnd && next > syncEnd ? next : syncEnd
     setSyncStart(next)
-    if (syncEnd && next > syncEnd) setSyncEnd(next)
+    if (nextEnd !== syncEnd) setSyncEnd(nextEnd)
+    void writeParameters(next, nextEnd, syncSymbols)
   }
 
   function changeSyncEnd(value: string) {
     if (!workspace) return
     const next = clampDate(value, syncStart || workspace.bounds.start, workspace.bounds.end)
+    const nextStart = syncStart && next < syncStart ? next : syncStart
     setSyncEnd(next)
-    if (syncStart && next < syncStart) setSyncStart(next)
+    if (nextStart !== syncStart) setSyncStart(nextStart)
+    void writeParameters(nextStart, next, syncSymbols)
   }
 
-  async function writeParameters() {
-    if (!project || !workspace) return
-    setBusy(true); setError("")
+  async function writeParameters(start = syncStart, end = syncEnd, symbolText = syncSymbols) {
+    if (!project || !workspace || busy || dirty) return
+    const symbols = splitSymbols(symbolText)
+    if (recipeParametersEqual(workspace.draft.inspection, start, end, symbols)) return
+    setParameterSaving(true); setBusy(true); setError("")
     try {
-      const symbols = syncSymbols.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean)
       const draft = await api.patch<RecipeDraft>(`/data-sync/recipes/${project.id}/parameters`, {
-        start: syncStart,
-        end: syncEnd,
+        start,
+        end,
         symbols: symbols.length ? symbols : null,
         expected_source_sha256: workspace.draft.source_sha256,
         confirm_write: true,
       })
       adoptRecipeDraft(draft)
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
-    finally { setBusy(false) }
+    } catch (reason) {
+      adoptRecipeDraft(workspace.draft)
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setParameterSaving(false)
+      setBusy(false)
+    }
   }
 
   async function saveCustomTemplate() {
     if (!project || !customName.trim()) return
     setBusy(true); setError("")
     try {
-      await persistSource()
+      const draft = await persistSource()
       await api.post(`/data-sync/recipes/${project.id}/templates`, {
         name: customName.trim(),
         description: customDescription.trim(),
+        expected_source_sha256: draft.source_sha256,
         confirm_save: true,
       })
       const refreshed = await api.get<RecipeWorkspace>(`/data-sync/recipes/${project.id}`)
@@ -234,6 +259,13 @@ export function DataWorkbenchWidget() {
       setCustomName(""); setCustomDescription(""); setShowCustomSave(false)
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setBusy(false) }
+  }
+
+  function openCustomSave() {
+    if (!customName.trim()) {
+      setCustomName(`${selectedTemplateItem?.label ?? "数据配方"} 自定义`)
+    }
+    setShowCustomSave(true)
   }
 
   async function deleteCustomTemplate(item: RecipeTemplate) {
@@ -328,14 +360,14 @@ export function DataWorkbenchWidget() {
         </section>
 
         <section className="rounded border border-border p-3">
-          <div className="mb-3">
+          <div className="mb-3 flex items-center gap-2">
             <strong className="text-sm">常用参数</strong>
+            {parameterSaving && <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" />正在更新 Python</span>}
           </div>
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[170px_170px_minmax(240px,1fr)_auto]">
-            <label className="text-xs">开始日期<Input type="date" min={workspace.bounds.start} max={syncEnd || workspace.bounds.end} value={syncStart} disabled={!editableParameters.has("start")} onChange={(event) => changeSyncStart(event.target.value)} /></label>
-            <label className="text-xs">结束日期<Input type="date" min={syncStart || workspace.bounds.start} max={workspace.bounds.end} value={syncEnd} disabled={!editableParameters.has("end")} onChange={(event) => changeSyncEnd(event.target.value)} /></label>
-            <label className="text-xs">标的（可空，逗号或换行分隔）<Input placeholder="空 = 模板全部标的" value={syncSymbols} disabled={!editableParameters.has("symbols")} onChange={(event) => setSyncSymbols(event.target.value)} /></label>
-            <div className="flex items-end"><Button size="sm" variant="outline" disabled={busy || dirty || !supportsFormParameters} onClick={() => void writeParameters()}><Braces />写入 Python</Button></div>
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[170px_170px_minmax(240px,1fr)]">
+            <label className="text-xs">开始日期<Input type="date" min={workspace.bounds.start} max={syncEnd || workspace.bounds.end} value={syncStart} disabled={busy || dirty || !editableParameters.has("start")} onChange={(event) => changeSyncStart(event.target.value)} /></label>
+            <label className="text-xs">结束日期<Input type="date" min={syncStart || workspace.bounds.start} max={workspace.bounds.end} value={syncEnd} disabled={busy || dirty || !editableParameters.has("end")} onChange={(event) => changeSyncEnd(event.target.value)} /></label>
+            <label className="text-xs">标的（可空，逗号或换行分隔）<Input placeholder="空 = 模板全部标的" value={syncSymbols} disabled={busy || dirty || !editableParameters.has("symbols")} onChange={(event) => setSyncSymbols(event.target.value)} onBlur={() => void writeParameters()} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur() }} /></label>
           </div>
         </section>
 
@@ -344,8 +376,15 @@ export function DataWorkbenchWidget() {
             <div>
               <div className="flex items-center gap-2"><Braces className="h-4 w-4" /><strong className="text-sm">Python 数据配方</strong>{dirty ? <Badge variant="outline">未保存</Badge> : <Badge variant="outline">已保存</Badge>}</div>
             </div>
-            <Button size="sm" variant="outline" disabled={busy || !dirty} onClick={() => void saveSource()}><Save />保存代码</Button>
+            <Button size="sm" variant="outline" disabled={busy || (!dirty && !saveAsRequired)} onClick={() => { if (saveAsRequired) openCustomSave(); else void saveSource() }}><Save />{saveAsRequired ? "另存为模板" : "保存代码"}</Button>
           </div>
+          {showCustomSave && (
+            <div className="grid gap-2 rounded border border-border p-3 md:grid-cols-[220px_minmax(260px,1fr)_auto]">
+              <Input placeholder="模板名称" value={customName} onChange={(event) => setCustomName(event.target.value)} />
+              <Input placeholder="模板说明（可选）" value={customDescription} onChange={(event) => setCustomDescription(event.target.value)} />
+              <Button size="sm" disabled={busy || !customName.trim()} onClick={() => void saveCustomTemplate()}>保存模板</Button>
+            </div>
+          )}
           <PythonEditor
             kind="data"
             documentId={project.id}
@@ -363,17 +402,10 @@ export function DataWorkbenchWidget() {
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="outline" disabled={busy || !health?.rq.ready} onClick={() => void testRqConnection()}><PlugZap />连接测试</Button>
             <Button size="sm" disabled={busy || activeJob} onClick={() => void runRecipe()}>{busy && <Loader2 className="animate-spin" />}运行并同步</Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setShowCustomSave((value) => !value)}>另存为模板</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => { if (showCustomSave) setShowCustomSave(false); else openCustomSave() }}>另存为模板</Button>
           </div>
           {!health?.rq.ready && <p className="mt-2 text-xs text-amber-600">RQData 尚未就绪；仍可编辑和预览不访问 RQData 的自定义代码。</p>}
           {connection && <p className="mt-2 text-xs text-emerald-600">{connection}</p>}
-          {showCustomSave && (
-            <div className="mt-3 grid gap-2 md:grid-cols-[220px_minmax(260px,1fr)_auto]">
-              <Input placeholder="模板名称" value={customName} onChange={(event) => setCustomName(event.target.value)} />
-              <Input placeholder="模板说明（可选）" value={customDescription} onChange={(event) => setCustomDescription(event.target.value)} />
-              <Button size="sm" disabled={busy || !customName.trim()} onClick={() => void saveCustomTemplate()}>保存模板</Button>
-            </div>
-          )}
           {latestJob && (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
               <Badge variant="outline">{latestJob.status}</Badge>
@@ -392,4 +424,25 @@ function clampDate(value: string, minimum: string, maximum: string): string {
   if (value < minimum) return minimum
   if (value > maximum) return maximum
   return value
+}
+
+function splitSymbols(value: string): string[] {
+  return value.split(/[\s,]+/).map((symbol) => symbol.trim()).filter(Boolean)
+}
+
+function recipeParametersEqual(
+  inspection: RecipeInspection,
+  start: string,
+  end: string,
+  symbols: string[],
+): boolean {
+  const parameters = new Map(inspection.parameters.map((item) => [item.name, item]))
+  const sameStart = !parameters.get("start")?.editable || parameters.get("start")?.default === start
+  const sameEnd = !parameters.get("end")?.editable || parameters.get("end")?.default === end
+  const currentSymbols = parameters.get("symbols")?.default
+  const normalizedCurrent = Array.isArray(currentSymbols) ? currentSymbols.map(String) : []
+  const sameSymbols = !parameters.get("symbols")?.editable
+    || (normalizedCurrent.length === symbols.length
+      && normalizedCurrent.every((symbol, index) => symbol === symbols[index]))
+  return sameStart && sameEnd && sameSymbols
 }

@@ -6,11 +6,13 @@ import os
 import uuid
 from datetime import date
 from functools import lru_cache
-from importlib.util import find_spec
 from importlib.metadata import PackageNotFoundError, version
+from importlib.util import find_spec
 
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.errors import DataLoadError
+from alphalab.dataio.providers.rq import RQDataClient
+from alphalab.dataio.quality import validate_all, validate_dataset
 from alphalab.dataio.recipes import (
     RQDATA_PYTHON_DOCS_URL,
     builtin_recipe_catalog,
@@ -18,10 +20,10 @@ from alphalab.dataio.recipes import (
     inspect_data_recipe_source,
     migrate_legacy_builtin_recipe,
     render_builtin_recipe,
+)
+from alphalab.dataio.recipes import (
     update_recipe_parameters as project_recipe_parameters,
 )
-from alphalab.dataio.quality import validate_all, validate_dataset
-from alphalab.dataio.providers.rq import RQDataClient
 from alphalab.dataio.rq_templates import (
     get_rq_sync_template,
     list_rq_sync_templates,
@@ -93,6 +95,18 @@ def recipe_workspace(project_id: str) -> dict:
     project = _project_id(project_id)
     manager = get_job_manager()
     bounds = _recipe_bounds()
+    built_in_templates = _built_in_recipe_templates(bounds)
+    custom_templates = [
+        {
+            "id": item["id"],
+            "label": item["name"],
+            "description": item["description"],
+            "kind": "custom",
+            "source_sha256": item["source_sha256"],
+            "updated_at": item["updated_at"],
+        }
+        for item in manager.operations.list_recipe_templates()
+    ]
     draft = manager.operations.get_recipe_draft(project)
     if draft is None:
         source = render_builtin_recipe(
@@ -100,7 +114,11 @@ def recipe_workspace(project_id: str) -> dict:
             start=bounds["start"],
             end=bounds["end"],
         )
-        draft = manager.operations.save_recipe_draft(project, source)
+        draft = manager.operations.save_recipe_draft(
+            project,
+            source,
+            selected_template_id="rq.a_share_daily",
+        )
     else:
         migrated = migrate_legacy_builtin_recipe(draft["source"])
         if migrated != draft["source"]:
@@ -109,22 +127,21 @@ def recipe_workspace(project_id: str) -> dict:
                 migrated,
                 expected_source_sha256=draft["source_sha256"],
             )
+    selected_template_id = _selected_recipe_template_id(
+        draft,
+        built_in_templates=built_in_templates,
+        custom_templates=custom_templates,
+    )
+    if selected_template_id != draft.get("selected_template_id"):
+        draft = manager.operations.save_recipe_draft(
+            project,
+            draft["source"],
+            expected_source_sha256=draft["source_sha256"],
+            selected_template_id=selected_template_id,
+        )
     return {
         "draft": _recipe_draft(draft),
-        "templates": [
-            *_built_in_recipe_templates(bounds),
-            *[
-                {
-                    "id": item["id"],
-                    "label": item["name"],
-                    "description": item["description"],
-                    "kind": "custom",
-                    "source_sha256": item["source_sha256"],
-                    "updated_at": item["updated_at"],
-                }
-                for item in manager.operations.list_recipe_templates()
-            ],
-        ],
+        "templates": [*built_in_templates, *custom_templates],
         "bounds": bounds,
         "docs_url": RQDATA_PYTHON_DOCS_URL,
         "execution": "trusted_local_python",
@@ -181,6 +198,7 @@ def apply_recipe_template(
             project,
             source,
             expected_source_sha256=expected_source_sha256,
+            selected_template_id=template_id,
         )
     )
 
@@ -236,7 +254,13 @@ def update_recipe_parameters(
     )
 
 
-def save_custom_recipe_template(project_id: str, *, name: str, description: str) -> dict:
+def save_custom_recipe_template(
+    project_id: str,
+    *,
+    name: str,
+    description: str,
+    expected_source_sha256: str | None = None,
+) -> dict:
     project = _project_id(project_id)
     normalized_name = name.strip()
     if not normalized_name:
@@ -245,6 +269,8 @@ def save_custom_recipe_template(project_id: str, *, name: str, description: str)
     draft = operations.get_recipe_draft(project)
     if draft is None:
         raise KeyError(project)
+    if expected_source_sha256 and draft["source_sha256"] != expected_source_sha256:
+        raise RuntimeError("data recipe draft changed since it was loaded")
     inspect_data_recipe_source(draft["source"])
     template_id = f"custom.{uuid.uuid4().hex[:12]}"
     item = operations.save_recipe_template(
@@ -253,6 +279,12 @@ def save_custom_recipe_template(project_id: str, *, name: str, description: str)
         description=description.strip(),
         source=draft["source"],
     )
+    selected_draft = operations.save_recipe_draft(
+        project,
+        draft["source"],
+        expected_source_sha256=draft["source_sha256"],
+        selected_template_id=template_id,
+    )
     return {
         "id": item["id"],
         "label": item["name"],
@@ -260,6 +292,7 @@ def save_custom_recipe_template(project_id: str, *, name: str, description: str)
         "kind": "custom",
         "source_sha256": item["source_sha256"],
         "updated_at": item["updated_at"],
+        "draft": _recipe_draft(selected_draft),
     }
 
 
@@ -408,9 +441,40 @@ def _recipe_draft(draft: dict) -> dict:
         "project_id": draft["project_id"],
         "source": draft["source"],
         "source_sha256": draft["source_sha256"],
+        "selected_template_id": draft.get("selected_template_id"),
         "updated_at": draft["updated_at"],
         "inspection": inspection.to_dict(),
     }
+
+
+def _selected_recipe_template_id(
+    draft: dict,
+    *,
+    built_in_templates: list[dict],
+    custom_templates: list[dict],
+) -> str | None:
+    built_in_ids = {item["id"] for item in built_in_templates}
+    custom_ids = {item["id"] for item in custom_templates}
+    valid_ids = built_in_ids | custom_ids
+    selected = draft.get("selected_template_id")
+    if selected in valid_ids:
+        return str(selected)
+    inspection = inspect_data_recipe_source(draft["source"])
+    if inspection.matched_template_id in built_in_ids:
+        return inspection.matched_template_id
+    matching_custom = next(
+        (
+            item["id"]
+            for item in custom_templates
+            if item.get("source_sha256") == draft["source_sha256"]
+        ),
+        None,
+    )
+    if matching_custom:
+        return str(matching_custom)
+    if inspection.template_id in built_in_ids:
+        return inspection.template_id
+    return None
 
 
 def _editable_recipe_parameters(source: str) -> dict[str, object]:

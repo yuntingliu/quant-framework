@@ -110,6 +110,7 @@ def test_data_recipe_workspace_uses_python_as_the_template_and_parameter_source(
     payload = workspace.json()
     assert payload["docs_url"] == ("https://www.ricequant.com/doc/rqdata/python/index-rqdatac")
     assert payload["draft"]["inspection"]["matched_template_id"] == "rq.a_share_daily"
+    assert payload["draft"]["selected_template_id"] == "rq.a_share_daily"
     assert "@data_recipe" in payload["draft"]["source"]
     assert "@universe" not in payload["draft"]["source"]
 
@@ -125,6 +126,7 @@ def test_data_recipe_workspace_uses_python_as_the_template_and_parameter_source(
     assert "rq.all_instruments(" in applied.json()["source"]
     assert "rq.get_price(" in applied.json()["source"]
     assert "RQSyncRequest" not in applied.json()["source"]
+    assert applied.json()["selected_template_id"] == "rq.etf_daily"
 
     projected = client.patch(
         "/api/data-sync/recipes/sdk-v1-default/parameters",
@@ -140,6 +142,7 @@ def test_data_recipe_workspace_uses_python_as_the_template_and_parameter_source(
     source = projected.json()["source"]
     assert "start: str = '2022-01-01'" in source
     assert "symbols: tuple[str, ...] | None = ('510300.XSHG',)" in source
+    assert projected.json()["selected_template_id"] == "rq.etf_daily"
 
     custom = client.post(
         "/api/data-sync/recipes/sdk-v1-default/templates",
@@ -147,6 +150,33 @@ def test_data_recipe_workspace_uses_python_as_the_template_and_parameter_source(
     )
     assert custom.status_code == 200, custom.text
     assert custom.json()["kind"] == "custom"
+    custom_id = custom.json()["id"]
+    assert custom.json()["draft"]["selected_template_id"] == custom_id
+
+    refreshed = client.get("/api/data-sync/recipes/sdk-v1-default")
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["draft"]["selected_template_id"] == custom_id
+
+    reset_to_builtin = client.post(
+        "/api/data-sync/recipes/sdk-v1-default/templates/rq.a_share_daily",
+        json={
+            "expected_source_sha256": refreshed.json()["draft"]["source_sha256"],
+            "confirm_write": True,
+        },
+    )
+    assert reset_to_builtin.status_code == 200, reset_to_builtin.text
+    assert reset_to_builtin.json()["selected_template_id"] == "rq.a_share_daily"
+
+    switched_back = client.post(
+        f"/api/data-sync/recipes/sdk-v1-default/templates/{custom_id}",
+        json={
+            "expected_source_sha256": reset_to_builtin.json()["source_sha256"],
+            "confirm_write": True,
+        },
+    )
+    assert switched_back.status_code == 200, switched_back.text
+    assert switched_back.json()["selected_template_id"] == custom_id
+    assert switched_back.json()["source_sha256"] == custom.json()["source_sha256"]
 
 
 def test_strategy_clone_cst_edit_and_revision_confirmation(tmp_path, monkeypatch):
