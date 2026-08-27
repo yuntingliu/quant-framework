@@ -21,8 +21,11 @@ from alphalab.strategy.sdk_runtime import load_strategy_module, probe_sdk_operat
 from alphalab.strategy.source import (
     SourceInspection,
     StrategySourceError,
+    assemble_strategy_source,
+    ensure_default_risk_handler,
     inspect_strategy_source,
     remove_factor_inputs_arguments,
+    split_strategy_source,
 )
 from alphalab.utils.paths import APP_DATA_DIR
 
@@ -34,6 +37,7 @@ _MIGRATION_NAME = "strategy-sdk-v1-cutover"
 _FACTOR_REPAIR_MIGRATION = "strategy-sdk-v1-factor-repair"
 _RQ_PROFILE_MIGRATION = "strategy-sdk-v1-rq-profile"
 _FACTOR_INPUTS_MIGRATION = "strategy-sdk-v1-remove-factor-inputs"
+_DEFAULT_RISK_MIGRATION = "strategy-sdk-v1-default-risk-event"
 
 
 def normalize_project_id(value: str) -> str:
@@ -46,7 +50,7 @@ def normalize_project_id(value: str) -> str:
 
 
 class StrategyRepository:
-    """Own the one mutable draft and immutable SDK source packages per project."""
+    """Own mutable source units, their runtime bundle, and immutable packages."""
 
     def __init__(self, db_path: str | Path | None = None) -> None:
         self.path = Path(db_path) if db_path else _DEFAULT_DB
@@ -60,6 +64,8 @@ class StrategyRepository:
         self._repair_legacy_factor_migrations()
         self._migrate_projects_to_rq_profile()
         self._remove_factor_inputs_from_drafts()
+        self._ensure_default_risk_in_drafts()
+        self._ensure_source_units()
 
     def close(self) -> None:
         self._conn.close()
@@ -86,6 +92,7 @@ class StrategyRepository:
                     _json(_default_settings()),
                 ),
             )
+            self._replace_source_units(_DEFAULT_PROJECT_ID, DEFAULT_STRATEGY_SOURCE)
             self._insert_package(
                 _DEFAULT_PROJECT_ID,
                 1,
@@ -144,6 +151,7 @@ class StrategyRepository:
                     _json({**_default_settings(), **dict(settings or {})}),
                 ),
             )
+            self._replace_source_units(normalized, source)
             self._insert_package(normalized, 1, None, source, inspection)
             self._conn.commit()
         return self.get_project(normalized) or {}
@@ -174,19 +182,129 @@ class StrategyRepository:
         *,
         expected_source_sha256: str | None = None,
     ) -> dict[str, Any]:
+        strategy_source, factor_units = split_strategy_source(source)
+        return self._commit_source_units(
+            project_id,
+            strategy_source,
+            [item.source for item in factor_units],
+            expected_source_sha256=expected_source_sha256,
+        )
+
+    def update_strategy_source(
+        self,
+        project_id: str,
+        strategy_source: str,
+        *,
+        expected_source_sha256: str | None = None,
+    ) -> dict[str, Any]:
         row = self._editable_row(project_id)
         if expected_source_sha256 and row["draft_source_sha256"] != expected_source_sha256:
             raise RuntimeError("draft changed since it was inspected")
-        inspection = inspect_strategy_source(source)
-        with self._lock:
-            self._conn.execute(
-                """UPDATE strategy_projects
-                   SET draft_source = ?, draft_source_sha256 = ?, updated_at = datetime('now')
-                   WHERE id = ?""",
-                (source, inspection.source_sha256, row["id"]),
-            )
-            self._conn.commit()
-        return self.get_project(row["id"]) or {}
+        factors = [
+            str(item["source"])
+            for item in self._source_unit_rows(str(row["id"]))
+            if item["kind"] == "factor"
+        ]
+        return self._commit_source_units(
+            str(row["id"]),
+            strategy_source,
+            factors,
+            expected_source_sha256=str(row["draft_source_sha256"]),
+        )
+
+    def add_factor_source(
+        self,
+        project_id: str,
+        factor_source: str,
+        *,
+        expected_source_sha256: str | None = None,
+    ) -> dict[str, Any]:
+        row = self._editable_row(project_id)
+        if expected_source_sha256 and row["draft_source_sha256"] != expected_source_sha256:
+            raise RuntimeError("draft changed since it was inspected")
+        units = self._source_unit_rows(str(row["id"]))
+        strategy = next(str(item["source"]) for item in units if item["kind"] == "strategy")
+        factors = [str(item["source"]) for item in units if item["kind"] == "factor"]
+        return self._commit_source_units(
+            str(row["id"]),
+            strategy,
+            [*factors, factor_source],
+            expected_source_sha256=str(row["draft_source_sha256"]),
+        )
+
+    def get_factor_source(self, project_id: str, factor_id: str) -> dict[str, Any]:
+        normalized = normalize_project_id(project_id)
+        project = self.get_project(normalized, include_source=False)
+        if project is None:
+            raise KeyError(normalized)
+        row = self._conn.execute(
+            """SELECT * FROM strategy_source_units
+               WHERE project_id = ? AND path = ? AND kind = 'factor'""",
+            (normalized, f"factors/{factor_id}.py"),
+        ).fetchone()
+        if row is None:
+            raise KeyError(factor_id)
+        return {
+            "path": row["path"],
+            "kind": row["kind"],
+            "source": row["source"],
+            "source_sha256": row["source_sha256"],
+            "position": int(row["position"]),
+        }
+
+    def replace_factor_source(
+        self,
+        project_id: str,
+        factor_id: str,
+        factor_source: str,
+        *,
+        expected_source_sha256: str | None = None,
+    ) -> dict[str, Any]:
+        row = self._editable_row(project_id)
+        if expected_source_sha256 and row["draft_source_sha256"] != expected_source_sha256:
+            raise RuntimeError("draft changed since it was inspected")
+        units = self._source_unit_rows(str(row["id"]))
+        strategy = next(str(item["source"]) for item in units if item["kind"] == "strategy")
+        factors = [str(item["source"]) for item in units if item["kind"] == "factor"]
+        paths = [str(item["path"]) for item in units if item["kind"] == "factor"]
+        try:
+            factor_index = paths.index(f"factors/{factor_id}.py")
+        except ValueError:
+            raise KeyError(factor_id) from None
+        factors[factor_index] = factor_source
+        return self._commit_source_units(
+            str(row["id"]),
+            strategy,
+            factors,
+            expected_source_sha256=str(row["draft_source_sha256"]),
+        )
+
+    def delete_factor_source(
+        self,
+        project_id: str,
+        factor_id: str,
+        *,
+        expected_source_sha256: str | None = None,
+    ) -> dict[str, Any]:
+        row = self._editable_row(project_id)
+        if expected_source_sha256 and row["draft_source_sha256"] != expected_source_sha256:
+            raise RuntimeError("draft changed since it was inspected")
+        units = self._source_unit_rows(str(row["id"]))
+        strategy = next(str(item["source"]) for item in units if item["kind"] == "strategy")
+        factor_rows = [item for item in units if item["kind"] == "factor"]
+        factors = [
+            str(item["source"])
+            for item in factor_rows
+            if item["path"] != f"factors/{factor_id}.py"
+        ]
+        if len(factors) == len(factor_rows):
+            raise KeyError(factor_id)
+        return self._commit_source_units(
+            str(row["id"]),
+            strategy,
+            factors,
+            expected_source_sha256=str(row["draft_source_sha256"]),
+        )
 
     def update_metadata(
         self,
@@ -296,6 +414,141 @@ class StrategyRepository:
             raise PermissionError("built-in projects are immutable; clone before editing")
         return row
 
+    def _source_unit_rows(self, project_id: str) -> list[sqlite3.Row]:
+        return self._conn.execute(
+            """SELECT * FROM strategy_source_units
+               WHERE project_id = ?
+               ORDER BY CASE kind WHEN 'strategy' THEN 0 ELSE 1 END, position, path""",
+            (normalize_project_id(project_id),),
+        ).fetchall()
+
+    def list_source_units(self, project_id: str) -> list[dict[str, Any]]:
+        normalized = normalize_project_id(project_id)
+        if self.get_project(normalized, include_source=False) is None:
+            raise KeyError(normalized)
+        return [
+            {
+                "path": row["path"],
+                "kind": row["kind"],
+                "source": row["source"],
+                "source_sha256": row["source_sha256"],
+                "position": int(row["position"]),
+            }
+            for row in self._source_unit_rows(normalized)
+        ]
+
+    def _replace_source_units(self, project_id: str, bundled_source: str) -> None:
+        strategy_source, factor_units = split_strategy_source(bundled_source)
+        self._write_source_units(
+            project_id,
+            strategy_source,
+            [item.source for item in factor_units],
+            [item.path.removeprefix("factors/").removesuffix(".py") for item in factor_units],
+        )
+
+    def _write_source_units(
+        self,
+        project_id: str,
+        strategy_source: str,
+        factor_sources: list[str],
+        factor_ids: list[str],
+    ) -> None:
+        if any(
+            factor_id in {".", ".."} or "/" in factor_id or "\\" in factor_id
+            for factor_id in factor_ids
+        ):
+            raise StrategySourceError(
+                "factor public IDs cannot contain path separators", phase="register"
+            )
+        strategy_hash = hashlib.sha256(strategy_source.encode("utf-8")).hexdigest()
+        rows = [
+            (project_id, "strategy.py", "strategy", strategy_source, strategy_hash, 0),
+            *[
+                (
+                    project_id,
+                    f"factors/{factor_id}.py",
+                    "factor",
+                    factor_source,
+                    hashlib.sha256(factor_source.encode("utf-8")).hexdigest(),
+                    position,
+                )
+                for position, (factor_id, factor_source) in enumerate(
+                    zip(factor_ids, factor_sources, strict=True)
+                )
+            ],
+        ]
+        self._conn.execute("DELETE FROM strategy_source_units WHERE project_id = ?", (project_id,))
+        self._conn.executemany(
+            """INSERT INTO strategy_source_units
+               (project_id, path, kind, source, source_sha256, position)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+
+    def _commit_source_units(
+        self,
+        project_id: str,
+        strategy_source: str,
+        factor_sources: list[str],
+        *,
+        expected_source_sha256: str | None = None,
+    ) -> dict[str, Any]:
+        row = self._editable_row(project_id)
+        if expected_source_sha256 and row["draft_source_sha256"] != expected_source_sha256:
+            raise RuntimeError("draft changed since it was inspected")
+        bundled, inspection = assemble_strategy_source(strategy_source, factor_sources)
+        factor_ids = [
+            item.id for item in inspection.entrypoints if item.kind == "factor"
+        ]
+        if len(factor_ids) != len(factor_sources):
+            raise StrategySourceError("assembled factor inventory is inconsistent", phase="register")
+        if any(
+            factor_id in {".", ".."} or "/" in factor_id or "\\" in factor_id
+            for factor_id in factor_ids
+        ):
+            raise StrategySourceError(
+                "factor public IDs cannot contain path separators", phase="register"
+            )
+        with self._lock:
+            self._conn.execute(
+                """UPDATE strategy_projects
+                   SET draft_source = ?, draft_source_sha256 = ?, updated_at = datetime('now')
+                   WHERE id = ?""",
+                (bundled, inspection.source_sha256, row["id"]),
+            )
+            self._write_source_units(
+                str(row["id"]), strategy_source, factor_sources, factor_ids
+            )
+            self._conn.commit()
+        return self.get_project(str(row["id"])) or {}
+
+    def _insert_package_units(
+        self, project_id: str, revision: int, bundled_source: str
+    ) -> None:
+        strategy_source, factor_units = split_strategy_source(bundled_source)
+        strategy_hash = hashlib.sha256(strategy_source.encode("utf-8")).hexdigest()
+        rows = [
+            (project_id, revision, "strategy.py", "strategy", strategy_source, strategy_hash, 0),
+            *[
+                (
+                    project_id,
+                    revision,
+                    unit.path,
+                    unit.kind,
+                    unit.source,
+                    unit.source_sha256,
+                    unit.position,
+                )
+                for unit in factor_units
+            ],
+        ]
+        self._conn.executemany(
+            """INSERT INTO strategy_source_package_units
+               (project_id, revision, path, kind, source, source_sha256, position)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+
     def _insert_package(
         self,
         project_id: str,
@@ -344,10 +597,13 @@ class StrategyRepository:
                 _json(_environment_fingerprint()),
             ),
         )
+        self._insert_package_units(project_id, revision, source)
 
     def _project_payload(self, row: sqlite3.Row, *, include_source: bool) -> dict[str, Any]:
         current = self.get_package(row["id"], int(row["current_revision"]), include_source=False)
         dirty = not current or current["source_sha256"] != row["draft_source_sha256"]
+        unit_rows = self._source_unit_rows(str(row["id"]))
+        strategy_unit = next((item for item in unit_rows if item["kind"] == "strategy"), None)
         payload = {
             "id": row["id"],
             "name": row["name"],
@@ -356,6 +612,18 @@ class StrategyRepository:
             "current_revision": int(row["current_revision"]),
             "draft_parent_revision": row["draft_parent_revision"],
             "draft_source_sha256": row["draft_source_sha256"],
+            "strategy_source_sha256": (
+                strategy_unit["source_sha256"] if strategy_unit is not None else ""
+            ),
+            "source_units": [
+                {
+                    "path": item["path"],
+                    "kind": item["kind"],
+                    "source_sha256": item["source_sha256"],
+                    "position": int(item["position"]),
+                }
+                for item in unit_rows
+            ],
             "dirty": dirty,
             "settings": _load_json(row["settings_json"], {}),
             "built_in": bool(row["built_in"]),
@@ -366,11 +634,13 @@ class StrategyRepository:
         }
         if include_source:
             payload["draft_source"] = row["draft_source"]
+            payload["strategy_source"] = (
+                strategy_unit["source"] if strategy_unit is not None else row["draft_source"]
+            )
             payload["inspection"] = inspect_strategy_source(row["draft_source"]).to_dict()
         return payload
 
-    @staticmethod
-    def _package_payload(row: sqlite3.Row, *, include_source: bool) -> dict[str, Any]:
+    def _package_payload(self, row: sqlite3.Row, *, include_source: bool) -> dict[str, Any]:
         payload = {
             "project_id": row["project_id"],
             "revision": int(row["revision"]),
@@ -387,6 +657,23 @@ class StrategyRepository:
         }
         if include_source:
             payload["source"] = row["source"]
+            unit_rows = self._conn.execute(
+                """SELECT path, kind, source, source_sha256, position
+                   FROM strategy_source_package_units
+                   WHERE project_id = ? AND revision = ?
+                   ORDER BY CASE kind WHEN 'strategy' THEN 0 ELSE 1 END, position, path""",
+                (row["project_id"], int(row["revision"])),
+            ).fetchall()
+            payload["source_units"] = [
+                {
+                    "path": item["path"],
+                    "kind": item["kind"],
+                    "source": item["source"],
+                    "source_sha256": item["source_sha256"],
+                    "position": int(item["position"]),
+                }
+                for item in unit_rows
+            ]
         return payload
 
     @staticmethod
@@ -625,6 +912,105 @@ class StrategyRepository:
             "INSERT INTO strategy_contract_migrations (name, detail_json) VALUES (?, ?)",
             (_FACTOR_INPUTS_MIGRATION, _json({"updated_projects": updated_projects})),
         )
+        self._conn.commit()
+
+    def _ensure_default_risk_in_drafts(self) -> None:
+        if self._conn.execute(
+            "SELECT 1 FROM strategy_contract_migrations WHERE name = ?",
+            (_DEFAULT_RISK_MIGRATION,),
+        ).fetchone():
+            return
+        updated_projects: list[str] = []
+        skipped_dirty_projects: list[str] = []
+        rows = self._conn.execute(
+            "SELECT * FROM strategy_projects ORDER BY id"
+        ).fetchall()
+        with self._lock:
+            try:
+                for row in rows:
+                    current = str(row["draft_source"])
+                    current_inspection = inspect_strategy_source(current)
+                    if any(item.kind == "event" for item in current_inspection.entrypoints):
+                        continue
+                    package = self.get_package(
+                        str(row["id"]), int(row["current_revision"]), include_source=False
+                    )
+                    dirty = not package or package["source_sha256"] != row["draft_source_sha256"]
+                    if dirty and not bool(row["built_in"]):
+                        skipped_dirty_projects.append(str(row["id"]))
+                        continue
+                    updated, inspection = ensure_default_risk_handler(current)
+                    revision = int(row["current_revision"]) + 1
+                    self._insert_package(
+                        str(row["id"]),
+                        revision,
+                        int(row["current_revision"]) or None,
+                        updated,
+                        inspection,
+                    )
+                    self._conn.execute(
+                        """UPDATE strategy_projects
+                           SET current_revision = ?, draft_parent_revision = ?,
+                               draft_source = ?, draft_source_sha256 = ?,
+                               updated_at = datetime('now')
+                           WHERE id = ?""",
+                        (
+                            revision,
+                            revision,
+                            updated,
+                            inspection.source_sha256,
+                            str(row["id"]),
+                        ),
+                    )
+                    self._replace_source_units(str(row["id"]), updated)
+                    updated_projects.append(str(row["id"]))
+                self._conn.execute(
+                    "INSERT INTO strategy_contract_migrations (name, detail_json) VALUES (?, ?)",
+                    (
+                        _DEFAULT_RISK_MIGRATION,
+                        _json(
+                            {
+                                "updated_projects": updated_projects,
+                                "skipped_dirty_projects": skipped_dirty_projects,
+                            }
+                        ),
+                    ),
+                )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def _ensure_source_units(self) -> None:
+        """Backfill canonical source files for pre-unit SDK projects and packages."""
+
+        projects = self._conn.execute(
+            "SELECT id, draft_source FROM strategy_projects ORDER BY id"
+        ).fetchall()
+        for project in projects:
+            exists = self._conn.execute(
+                """SELECT 1 FROM strategy_source_units
+                   WHERE project_id = ? AND kind = 'strategy'""",
+                (project["id"],),
+            ).fetchone()
+            if not exists:
+                self._replace_source_units(str(project["id"]), str(project["draft_source"]))
+        packages = self._conn.execute(
+            """SELECT project_id, revision, source
+               FROM strategy_source_packages ORDER BY project_id, revision"""
+        ).fetchall()
+        for package in packages:
+            exists = self._conn.execute(
+                """SELECT 1 FROM strategy_source_package_units
+                   WHERE project_id = ? AND revision = ?""",
+                (package["project_id"], package["revision"]),
+            ).fetchone()
+            if not exists:
+                self._insert_package_units(
+                    str(package["project_id"]),
+                    int(package["revision"]),
+                    str(package["source"]),
+                )
         self._conn.commit()
 
 

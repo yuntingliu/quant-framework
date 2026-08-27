@@ -69,6 +69,14 @@ export interface StrategyProject {
   draft_parent_revision: number | null
   draft_source_sha256: string
   draft_source: string
+  strategy_source_sha256: string
+  strategy_source: string
+  source_units: Array<{
+    path: string
+    kind: "strategy" | "factor"
+    source_sha256: string
+    position: number
+  }>
   dirty: boolean
   settings: Record<string, unknown>
   built_in: boolean
@@ -79,7 +87,7 @@ export interface StrategyProject {
   updated_at: string
 }
 
-type ProjectSummary = Omit<StrategyProject, "draft_source" | "inspection">
+type ProjectSummary = Omit<StrategyProject, "draft_source" | "strategy_source" | "inspection">
 
 interface StrategySdkValue {
   projects: ProjectSummary[]
@@ -92,7 +100,8 @@ interface StrategySdkValue {
   updateDraft: (source: string) => Promise<StrategyProject>
   updateMetadata: (values: Pick<StrategyProject, "name" | "description" | "profile" | "settings">) => Promise<StrategyProject>
   structuredEdit: (payload: Record<string, unknown>) => Promise<StrategyProject>
-  installFactorTemplate: (templateId: string) => Promise<StrategyProject>
+  addFactorSource: (source: string) => Promise<{ project: StrategyProject; factor: SdkEntrypoint }>
+  installFactorTemplate: (templateId: string) => Promise<{ project: StrategyProject; factor: SdkEntrypoint }>
   removeProject: () => Promise<void>
 }
 
@@ -112,7 +121,9 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
 
   const adopt = useCallback((value: StrategyProject) => {
     setProject(value)
-    const { draft_source: _source, inspection: _inspection, ...summary } = value
+    const summary = Object.fromEntries(
+      Object.entries(value).filter(([key]) => !["draft_source", "strategy_source", "inspection"].includes(key)),
+    ) as ProjectSummary
     setProjects((current) => current.map((item) => item.id === value.id ? summary : item))
     setSelectedStrategy(value.id)
     setSelectedStrategyEditable(value.editable)
@@ -210,16 +221,28 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
       )
       return commitSavedProject(response.project)
     },
+    addFactorSource: async (source) => {
+      if (!project) throw new Error("请先选择项目")
+      const response = await api.post<{ project: StrategyProject; factor: SdkEntrypoint }>(
+        `/strategy/projects/${project.id}/factors`,
+        {
+          source,
+          expected_source_sha256: project.draft_source_sha256,
+          confirm_write: true,
+        },
+      )
+      return { project: await commitSavedProject(response.project), factor: response.factor }
+    },
     installFactorTemplate: async (templateId) => {
       if (!project) throw new Error("请先选择项目")
-      const response = await api.post<{ project: StrategyProject }>(
+      const response = await api.post<{ project: StrategyProject; factor: SdkEntrypoint }>(
         `/strategy/projects/${project.id}/factor-templates/${encodeURIComponent(templateId)}`,
         {
           expected_source_sha256: project.draft_source_sha256,
           confirm_write: true,
         },
       )
-      return commitSavedProject(response.project)
+      return { project: await commitSavedProject(response.project), factor: response.factor }
     },
     removeProject: async () => {
       if (!project) return

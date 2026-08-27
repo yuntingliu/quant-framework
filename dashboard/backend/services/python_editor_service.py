@@ -18,7 +18,12 @@ from pathlib import Path
 from typing import Any, BinaryIO, Literal
 
 from alphalab.dataio.recipes import DataRecipeError, inspect_data_recipe_source
-from alphalab.strategy.source import StrategySourceError, inspect_strategy_source
+from alphalab.strategy.repository import StrategyRepository
+from alphalab.strategy.source import (
+    StrategySourceError,
+    assemble_strategy_source,
+    inspect_strategy_source,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MIRROR_ROOT = PROJECT_ROOT / "data" / "runtime" / "editor"
@@ -174,9 +179,15 @@ def _rqdata_operations() -> list[dict[str, str]]:
 
 
 def mirror_document(kind: str, document_id: str, source: str) -> dict[str, str]:
-    filenames = {"strategy": "strategy.py", "factor": "factor.py", "data": "recipe.py"}
+    filenames = {
+        "strategy": "strategy.py",
+        "function": "function.py",
+        "factor": "factor.py",
+        "data": "recipe.py",
+        "validation": "validation.py",
+    }
     if kind not in filenames:
-        raise ValueError("document kind must be strategy, factor, or data")
+        raise ValueError("document kind must be strategy, function, factor, data, or validation")
     if not _SAFE_DOCUMENT_ID.fullmatch(document_id):
         raise ValueError("invalid Python editor document id")
     if len(source.encode("utf-8")) > 300_000:
@@ -195,18 +206,42 @@ def mirror_document(kind: str, document_id: str, source: str) -> dict[str, str]:
     }
 
 
-def source_diagnostics(kind: str, source: str) -> dict[str, Any]:
+def source_diagnostics(
+    kind: str, source: str, *, document_id: str | None = None
+) -> dict[str, Any]:
     diagnostics: list[dict[str, Any]] = []
     try:
         if kind == "strategy":
-            inspection = inspect_strategy_source(source)
+            diagnostic_source = source
+            if document_id:
+                project_id = document_id.split(".", 1)[0]
+                repo = StrategyRepository()
+                try:
+                    factors = [
+                        item["source"]
+                        for item in repo.list_source_units(project_id)
+                        if item["kind"] == "factor"
+                    ]
+                finally:
+                    repo.close()
+                diagnostic_source, _ = assemble_strategy_source(source, factors)
+            inspection = inspect_strategy_source(diagnostic_source)
+        elif kind == "function":
+            _validate_function_document(source)
+            return {"valid": True, "diagnostics": diagnostics}
         elif kind == "factor":
             _validate_factor_document(source)
             return {"valid": True, "diagnostics": diagnostics}
         elif kind == "data":
             inspection = inspect_data_recipe_source(source)
+        elif kind == "validation":
+            from alphalab.validation.source import inspect_validation_source
+
+            inspection = inspect_validation_source(source)
         else:
-            raise ValueError("diagnostic kind must be strategy, factor, or data")
+            raise ValueError(
+                "diagnostic kind must be strategy, function, factor, data, or validation"
+            )
     except (StrategySourceError, DataRecipeError, SyntaxError, ValueError) as exc:
         diagnostics.append(
             {
@@ -260,6 +295,29 @@ def _validate_factor_document(source: str) -> None:
             "factor editor source must remain a registered @factor function",
             phase="register",
         )
+
+
+def _validate_function_document(source: str) -> None:
+    """Validate one isolated registered strategy function before module-level save."""
+
+    tree = ast.parse(source)
+    functions = [item for item in tree.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    if len(tree.body) != 1 or len(functions) != 1:
+        raise StrategySourceError(
+            "function editor source must contain exactly one registered strategy function",
+            phase="register",
+        )
+    allowed = {"universe", "factor", "schedule", "signal", "portfolio", "on_event", "execution"}
+    for decorator in functions[0].decorator_list:
+        target = decorator.func if isinstance(decorator, ast.Call) else decorator
+        if isinstance(target, ast.Name) and target.id in allowed:
+            return
+        if isinstance(target, ast.Attribute) and target.attr in allowed:
+            return
+    raise StrategySourceError(
+        "function editor source must remain a registered strategy function",
+        phase="register",
+    )
 
 
 def _error_line(exc: Exception) -> int:

@@ -1,13 +1,9 @@
-import { useEffect, useMemo, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import {
-  Activity,
-  ArrowRight,
-  Braces,
   CalendarDays,
   CheckCircle2,
   Code2,
   Gauge,
-  Layers3,
   Plus,
   Play,
   Save,
@@ -15,7 +11,6 @@ import {
   ShieldCheck,
   Trash2,
   WalletCards,
-  Workflow,
   type LucideIcon,
 } from "lucide-react"
 
@@ -29,29 +24,20 @@ import { api } from "@/lib/api"
 import { Widget } from "@/widgets/Widget"
 
 type StageId = "selection" | "allocation" | "risk" | "execution"
-type EditorMode = "visual" | "function" | "module" | "preview"
+type WorkspaceView = "author" | "preview"
 type PreviewOperation = "signal" | "portfolio" | "execution"
 
 interface StageDefinition {
   id: StageId
   title: string
-  subtitle: string
-  description: string
   kinds: SdkEntrypoint["kind"][]
   icon: LucideIcon
-  previewOperation: PreviewOperation
-  previewLabel: string
-  input: string
-  output: string
 }
 
 interface FactorBlendMetadata {
   mode?: "single" | "structured" | "custom"
   weights?: Record<string, number>
   normalization?: "raw" | "rank" | "zscore"
-  parameters?: Record<string, Record<string, unknown>>
-  factor_ids?: string[]
-  source?: string
 }
 
 interface FactorWeightDraft {
@@ -59,54 +45,42 @@ interface FactorWeightDraft {
   weight: string
 }
 
+interface VisualDraft {
+  edits: Array<Record<string, unknown>>
+  valid: boolean
+}
+
+interface VisualEditPreview {
+  project_id: string
+  base_source_sha256: string
+  source: string
+  source_sha256: string
+}
+
 const STAGES: StageDefinition[] = [
   {
     id: "selection",
     title: "选股与调仓",
-    subtitle: "什么时候计算，选择哪些标的",
-    description: "按照调仓日调用因子和过滤条件，形成当期入选证券与评分。",
     kinds: ["signal", "schedule"],
     icon: CalendarDays,
-    previewOperation: "signal",
-    previewLabel: "预览本期选股",
-    input: "标的池、因子分数、策略状态",
-    output: "入选证券与横截面评分",
   },
   {
     id: "allocation",
     title: "仓位分配",
-    subtitle: "选中以后分别买多少",
-    description: "把入选证券转换为目标权重，也可以配置现金或防御资产。",
     kinds: ["portfolio"],
     icon: WalletCards,
-    previewOperation: "portfolio",
-    previewLabel: "预览目标仓位",
-    input: "入选证券、评分、当前状态",
-    output: "目标持仓权重",
   },
   {
     id: "risk",
     title: "持有期风控",
-    subtitle: "持仓以后每天如何处理",
-    description: "处理止损、均线门控、利润锁定、减仓和禁止买回等有状态规则。",
     kinds: ["event"],
     icon: ShieldCheck,
-    previewOperation: "execution",
-    previewLabel: "预览风控后计划",
-    input: "实际持仓、每日行情、共享 State",
-    output: "保持仓位或覆盖目标仓位",
   },
   {
     id: "execution",
     title: "成交执行",
-    subtitle: "什么时候成交，成本如何计算",
-    description: "声明次日开盘/收盘、佣金、滑点和参与率；撮合与账户安全仍由核心引擎负责。",
     kinds: ["execution"],
     icon: Gauge,
-    previewOperation: "execution",
-    previewLabel: "预览成交计划",
-    input: "最终目标权重",
-    output: "成交策略与核心撮合约束",
   },
 ]
 
@@ -147,24 +121,12 @@ function parameterValue(parameter: SdkParameter, raw: string): unknown {
   return raw
 }
 
+function parameterDraftValue(parameter: SdkParameter) {
+  return parameter.default === null ? "None" : String(parameter.default)
+}
+
 function parameterLabel(parameter: SdkParameter) {
   return parameter.label || PARAMETER_LABELS[parameter.name] || parameter.name.replace(/_/g, " ")
-}
-
-function displayParameter(parameter: SdkParameter) {
-  if (typeof parameter.default === "boolean") return parameter.default ? "启用" : "关闭"
-  if (typeof parameter.default === "number" && /rate|weight|drawdown|momentum|volatility|profit|exposure|ratio|threshold/.test(parameter.name)) {
-    return `${(parameter.default * 100).toFixed(2)}%`
-  }
-  return String(parameter.default ?? "None")
-}
-
-function scheduleLabel(schedule: Record<string, string> | undefined) {
-  if (!schedule || schedule.mode !== "structured") return "自定义 Python 调度"
-  const frequency = { daily: "每日", weekly: "每周", monthly: "每月" }[schedule.frequency] ?? schedule.frequency
-  const selector = schedule.frequency === "daily" ? "" : schedule.selector === "first_trading_day" ? "首个交易日" : "最后交易日"
-  const at = schedule.at === "open" ? "开盘" : "收盘"
-  return [frequency, selector, at].filter(Boolean).join(" · ")
 }
 
 function entrypointBusinessLabel(entrypoint: SdkEntrypoint) {
@@ -177,145 +139,90 @@ function entrypointBusinessLabel(entrypoint: SdkEntrypoint) {
   return entrypoint.id
 }
 
-function entrypointTypeLabel(entrypoint: SdkEntrypoint) {
-  return ({ signal: "选股", schedule: "调度", portfolio: "仓位", event: "风控", execution: "成交" } as Record<string, string>)[entrypoint.kind] || entrypoint.kind
-}
-
-function ParameterEditor({ entrypoint, parameter, locked, onError }: {
-  entrypoint: SdkEntrypoint
+function ParameterControl({ parameter, value, disabled, onChange }: {
   parameter: SdkParameter
-  locked: boolean
-  onError: (message: string) => void
+  value: string
+  disabled: boolean
+  onChange: (value: string) => void
 }) {
-  const sdk = useStrategySdk()
-  const [value, setValue] = useState(String(parameter.default))
-  const [busy, setBusy] = useState(false)
-  useEffect(() => setValue(String(parameter.default)), [parameter.default])
-  const changed = value !== String(parameter.default)
-  const editable = parameter.editable && Boolean(sdk.project?.editable) && !locked
   const boundedNumber = typeof parameter.default === "number" && parameter.minimum !== null && parameter.maximum !== null
-
-  async function apply() {
-    setBusy(true); onError("")
-    try {
-      await sdk.structuredEdit({
-        operation: "parameter",
-        entrypoint_id: entrypoint.id,
-        parameter: parameter.name,
-        value: parameterValue(parameter, value),
-      })
-    } catch (reason) { onError(reason instanceof Error ? reason.message : String(reason)) }
-    finally { setBusy(false) }
+  if (typeof parameter.default === "boolean") {
+    return <div className="strategy-segmented-control"><button type="button" className={value === "true" ? "active" : ""} disabled={disabled} onClick={() => onChange("true")}>启用</button><button type="button" className={value === "false" ? "active" : ""} disabled={disabled} onClick={() => onChange("false")}>关闭</button></div>
   }
-
-  return (
-    <div className={`strategy-parameter-card ${changed ? "changed" : ""}`}>
-      <div className="strategy-parameter-heading">
-        <div><strong>{parameterLabel(parameter)}</strong><small>{parameter.description || `Python 参数：${parameter.name}`}</small></div>
-        <span>{displayParameter(parameter)}</span>
-      </div>
-      {typeof parameter.default === "boolean" ? (
-        <div className="strategy-segmented-control">
-          <button type="button" className={value === "true" ? "active" : ""} disabled={!editable} onClick={() => setValue("true")}>启用</button>
-          <button type="button" className={value === "false" ? "active" : ""} disabled={!editable} onClick={() => setValue("false")}>关闭</button>
-        </div>
-      ) : parameter.name === "activation" ? (
-        <select value={value} disabled={!editable} onChange={(event) => setValue(event.target.value)}>
-          <option value="next_session_open">下一交易日开盘</option>
-          <option value="next_session_close">下一交易日收盘</option>
-        </select>
-      ) : boundedNumber ? (
-        <div className="strategy-range-control">
-          <input type="range" min={parameter.minimum ?? undefined} max={parameter.maximum ?? undefined} step={parameter.step ?? "any"} value={value} disabled={!editable} onChange={(event) => setValue(event.target.value)} />
-          <Input type="number" min={parameter.minimum ?? undefined} max={parameter.maximum ?? undefined} step={parameter.step ?? undefined} value={value} disabled={!editable} onChange={(event) => setValue(event.target.value)} />
-        </div>
-      ) : (
-        <Input type={typeof parameter.default === "number" ? "number" : "text"} min={parameter.minimum ?? undefined} max={parameter.maximum ?? undefined} step={parameter.step ?? undefined} value={value} disabled={!editable} onChange={(event) => setValue(event.target.value)} />
-      )}
-      <div className="strategy-parameter-footer">
-        <code>{parameter.name}</code>
-        {parameter.minimum !== null || parameter.maximum !== null ? <small>{parameter.minimum ?? "−∞"} ～ {parameter.maximum ?? "+∞"}</small> : <span />}
-        <Button size="sm" variant="outline" disabled={!editable || busy || !changed} onClick={() => void apply()}>{busy ? "写入中" : "应用到 Python"}</Button>
-      </div>
-    </div>
-  )
+  if (parameter.name === "activation") {
+    return <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}><option value="next_session_open">下一交易日开盘</option><option value="next_session_close">下一交易日收盘</option></select>
+  }
+  if (boundedNumber) {
+    return <div className="strategy-range-control"><input type="range" min={parameter.minimum ?? undefined} max={parameter.maximum ?? undefined} step={parameter.step ?? "any"} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} /><Input type="number" min={parameter.minimum ?? undefined} max={parameter.maximum ?? undefined} step={parameter.step ?? undefined} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} /></div>
+  }
+  return <Input type={typeof parameter.default === "number" ? "number" : "text"} min={parameter.minimum ?? undefined} max={parameter.maximum ?? undefined} step={parameter.step ?? undefined} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
 }
 
-function ScheduleEditor({ entrypoint, locked, onError }: {
-  entrypoint: SdkEntrypoint
+function StrategyVisualEditor({ stageGroups, factors, locked, onError, onDraftChange }: {
+  stageGroups: Record<StageId, SdkEntrypoint[]>
+  factors: SdkEntrypoint[]
   locked: boolean
   onError: (message: string) => void
+  onDraftChange: (draft: VisualDraft) => void
 }) {
   const sdk = useStrategySdk()
-  const schedule = entrypoint.metadata.schedule as Record<string, string> | undefined
+  const strategyEntrypoints = STAGES.flatMap((stage) => stageGroups[stage.id])
+  const signalEntrypoint = stageGroups.selection.find((item) => item.kind === "signal")
+  const schedule = signalEntrypoint?.metadata.schedule as Record<string, string> | undefined
+  const blend = (signalEntrypoint?.metadata.factor_blend ?? {}) as FactorBlendMetadata
+  const projectionVersion = `${sdk.project?.id ?? ""}:${sdk.project?.draft_source_sha256 ?? ""}`
+  const scheduleKey = `${projectionVersion}:${JSON.stringify(schedule ?? {})}`
+  const blendKey = `${projectionVersion}:${JSON.stringify(blend)}`
+  const parameterKey = `${projectionVersion}:${JSON.stringify(strategyEntrypoints.map((entrypoint) => [entrypoint.id, entrypoint.parameters.map((item) => [item.name, item.default])]))}`
   const [frequency, setFrequency] = useState(schedule?.frequency || "monthly")
   const [selector, setSelector] = useState(schedule?.selector || "last_trading_day")
   const [at, setAt] = useState(schedule?.at || "close")
+  const [rows, setRows] = useState<FactorWeightDraft[]>(() => Object.entries(blend.weights ?? {}).map(([factorId, weight]) => ({ factorId, weight: String(weight) })))
+  const [normalization, setNormalization] = useState<"raw" | "rank" | "zscore">(blend.normalization ?? "rank")
+  const [addFactorId, setAddFactorId] = useState("")
+  const [parameterValues, setParameterValues] = useState<Record<string, Record<string, string>>>(() => Object.fromEntries(strategyEntrypoints.map((entrypoint) => [entrypoint.id, Object.fromEntries(entrypoint.parameters.map((parameter) => [parameter.name, parameterDraftValue(parameter)]))])))
+  const [expandedStages, setExpandedStages] = useState<StageId[]>(["selection"])
   const [busy, setBusy] = useState(false)
+
   useEffect(() => {
     setFrequency(schedule?.frequency || "monthly")
     setSelector(schedule?.selector || "last_trading_day")
     setAt(schedule?.at || "close")
-  }, [schedule?.frequency, schedule?.selector, schedule?.at])
-  if (!schedule) return null
-  if (schedule.mode !== "structured") return <div className="strategy-custom-notice"><Braces size={16} /><div><strong>调仓时间由 Python 自定义</strong><span>这个 schedule 不能安全投影为普通频率控件，请在“自定义当前环节”中修改。</span></div></div>
-  const changed = frequency !== schedule.frequency || selector !== schedule.selector || at !== schedule.at
-  const editable = Boolean(sdk.project?.editable) && !locked
-
-  async function apply() {
-    setBusy(true); onError("")
-    try {
-      await sdk.structuredEdit({ operation: "schedule", entrypoint_id: entrypoint.id, frequency, selector: frequency === "daily" ? "every" : selector, at })
-    } catch (reason) { onError(reason instanceof Error ? reason.message : String(reason)) }
-    finally { setBusy(false) }
-  }
-
-  return (
-    <section className="strategy-schedule-card">
-      <header><div><CalendarDays size={16} /><span><strong>重新计算时间</strong><small>直接修改 @signal 的 schedule</small></span></div><Badge variant="outline">{scheduleLabel(schedule)}</Badge></header>
-      <div className="strategy-schedule-grid">
-        <label><span>频率</span><select value={frequency} disabled={!editable} onChange={(event) => setFrequency(event.target.value)}><option value="daily">每日</option><option value="weekly">每周</option><option value="monthly">每月</option></select></label>
-        <label><span>交易日</span><select value={frequency === "daily" ? "every" : selector} disabled={!editable || frequency === "daily"} onChange={(event) => setSelector(event.target.value)}><option value="every">每个交易日</option><option value="first_trading_day">首个交易日</option><option value="last_trading_day">最后交易日</option></select></label>
-        <label><span>计算时点</span><select value={at} disabled={!editable} onChange={(event) => setAt(event.target.value)}><option value="open">开盘</option><option value="close">收盘</option></select></label>
-        <Button disabled={!editable || busy || !changed} onClick={() => void apply()}>{busy ? "写入中" : "应用调仓时间"}</Button>
-      </div>
-    </section>
-  )
-}
-
-function MultiFactorEditor({ entrypoint, factors, locked, onError, onOpenCode }: {
-  entrypoint: SdkEntrypoint
-  factors: SdkEntrypoint[]
-  locked: boolean
-  onError: (message: string) => void
-  onOpenCode: () => void
-}) {
-  const sdk = useStrategySdk()
-  const blend = (entrypoint.metadata.factor_blend ?? {}) as FactorBlendMetadata
-  const blendKey = JSON.stringify(blend)
-  const [rows, setRows] = useState<FactorWeightDraft[]>([])
-  const [normalization, setNormalization] = useState<"raw" | "rank" | "zscore">("rank")
-  const [addFactorId, setAddFactorId] = useState("")
-  const [busy, setBusy] = useState(false)
-
+  }, [scheduleKey]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const projected = Object.entries(blend.weights ?? {}).map(([factorId, weight]) => ({ factorId, weight: String(weight) }))
     setRows(projected)
     setNormalization(blend.normalization ?? "rank")
   }, [blendKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setParameterValues(Object.fromEntries(strategyEntrypoints.map((entrypoint) => [entrypoint.id, Object.fromEntries(entrypoint.parameters.map((parameter) => [parameter.name, parameterDraftValue(parameter)]))])))
+  }, [parameterKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const supported = blend.mode === "single" || blend.mode === "structured"
-  const editable = supported && Boolean(sdk.project?.editable) && !locked
+  const scheduleSupported = schedule?.mode === "structured"
+  const blendSupported = blend.mode === "single" || blend.mode === "structured"
+  const editable = Boolean(sdk.project?.editable) && !locked
   const factorById = Object.fromEntries(factors.map((factor) => [factor.id, factor]))
   const available = factors.filter((factor) => !rows.some((row) => row.factorId === factor.id))
   const selectedToAdd = available.some((factor) => factor.id === addFactorId) ? addFactorId : available[0]?.id ?? ""
   const parsed = rows.map((row) => ({ ...row, numeric: Number(row.weight) }))
-  const valid = rows.length > 0 && parsed.every((row) => row.weight !== "" && Number.isFinite(row.numeric) && Math.abs(row.numeric) > 1e-12)
+  const factorValuesValid = !blendSupported || rows.length > 0 && parsed.every((row) => row.weight !== "" && Number.isFinite(row.numeric) && Math.abs(row.numeric) > 1e-12)
   const projectedWeights = Object.fromEntries(parsed.filter((row) => Number.isFinite(row.numeric)).map((row) => [row.factorId, row.numeric]))
   const baselineWeights = blend.weights ?? {}
   const orderedKey = (weights: Record<string, number>) => JSON.stringify(Object.entries(weights).sort(([left], [right]) => left.localeCompare(right)))
-  const changed = supported && (orderedKey(projectedWeights) !== orderedKey(baselineWeights) || normalization !== blend.normalization)
+  const scheduleChanged = Boolean(scheduleSupported && (frequency !== schedule.frequency || (frequency === "daily" ? "every" : selector) !== schedule.selector || at !== schedule.at))
+  const blendChanged = Boolean(blendSupported && (orderedKey(projectedWeights) !== orderedKey(baselineWeights) || normalization !== blend.normalization))
+  const changedParameters = strategyEntrypoints.flatMap((entrypoint) => entrypoint.parameters.filter((parameter) => parameter.editable && parameterValues[entrypoint.id]?.[parameter.name] !== parameterDraftValue(parameter)).map((parameter) => ({ entrypoint, parameter })))
+  const parameterValuesValid = changedParameters.every(({ entrypoint, parameter }) => typeof parameter.default !== "number" || parameterValues[entrypoint.id]?.[parameter.name]?.trim() !== "" && Number.isFinite(Number(parameterValues[entrypoint.id]?.[parameter.name])))
+  const changed = scheduleChanged || blendChanged || changedParameters.length > 0
   const total = parsed.reduce((sum, row) => sum + (Number.isFinite(row.numeric) ? Math.abs(row.numeric) : 0), 0)
+  const pendingEdits: Array<Record<string, unknown>> = []
+  if (scheduleChanged && signalEntrypoint) pendingEdits.push({ operation: "schedule", entrypoint_id: signalEntrypoint.id, frequency, selector: frequency === "daily" ? "every" : selector, at })
+  if (blendChanged && signalEntrypoint) pendingEdits.push({ operation: "factor_blend", entrypoint_id: signalEntrypoint.id, factor_weights: projectedWeights, normalization })
+  for (const { entrypoint, parameter } of changedParameters) pendingEdits.push({ operation: "parameter", entrypoint_id: entrypoint.id, parameter: parameter.name, value: parameterValue(parameter, parameterValues[entrypoint.id][parameter.name]) })
+  const draftValid = factorValuesValid && parameterValuesValid
+  const draftKey = JSON.stringify(pendingEdits)
+  useEffect(() => onDraftChange({ edits: pendingEdits, valid: draftValid }), [draftKey, draftValid, onDraftChange]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onDraftChange({ edits: [], valid: true }), [onDraftChange])
 
   function updateWeight(factorId: string, value: string) {
     setRows((current) => current.map((row) => row.factorId === factorId ? { ...row, weight: value } : row))
@@ -339,43 +246,54 @@ function MultiFactorEditor({ entrypoint, factors, locked, onError, onOpenCode }:
     setAddFactorId("")
   }
 
+  function toggleStage(stageId: StageId) {
+    setExpandedStages((current) => current.includes(stageId) ? current.filter((item) => item !== stageId) : [...current, stageId])
+  }
+
   async function apply() {
     setBusy(true); onError("")
     try {
-      await sdk.structuredEdit({
-        operation: "factor_blend",
-        entrypoint_id: entrypoint.id,
-        factor_weights: projectedWeights,
-        normalization,
-      })
+      await sdk.structuredEdit({ operation: "batch", edits: pendingEdits })
     } catch (reason) { onError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setBusy(false) }
   }
 
-  if (!supported) {
-    const detected = blend.factor_ids ?? []
-    return <section className="strategy-factor-blend-card custom"><header><div><Layers3 size={16} /><span><strong>多因子选股</strong><small>因子评分与合成方式</small></span></div><Badge variant="outline">自定义 Python</Badge></header><div className="strategy-factor-custom"><div><Braces size={17} /><span><strong>当前是自定义因子组合</strong><small>{detected.length ? `检测到：${detected.join("、")}` : "信号函数没有可安全投影的标准因子调用。"} 无代码界面不会猜测或改写公式。</small></span></div><Button size="sm" variant="outline" onClick={onOpenCode}>编辑选股 Python</Button></div></section>
-  }
-
-  return (
-    <section className="strategy-factor-blend-card">
-      <header><div><Layers3 size={16} /><span><strong>多因子选股</strong><small>正权重偏好高值，负权重偏好低值；最终仍是当前信号函数里的 Python。</small></span></div><Badge variant={blend.mode === "single" ? "outline" : "secondary"}>{blend.mode === "single" ? "单因子，可扩展" : `${rows.length} 因子`}</Badge></header>
-      <div className="strategy-factor-toolbar">
-        <label><span>合成前标准化</span><select value={normalization} disabled={!editable} onChange={(event) => setNormalization(event.target.value as "raw" | "rank" | "zscore")}><option value="rank">横截面排名（推荐）</option><option value="zscore">Z-score 标准化</option><option value="raw">原始值</option></select></label>
-        <div><select aria-label="添加因子" value={selectedToAdd} disabled={!editable || !available.length} onChange={(event) => setAddFactorId(event.target.value)}>{available.length ? available.map((factor) => <option value={factor.id} key={factor.id}>{factor.label || factor.id}</option>) : <option value="">因子已全部加入</option>}</select><Button size="sm" variant="outline" disabled={!editable || !selectedToAdd} onClick={addFactor}><Plus />添加因子</Button></div>
-      </div>
-      <div className="strategy-factor-rows">
-        {rows.map((row) => {
-          const factor = factorById[row.factorId]
-          const numeric = Number(row.weight)
-          const share = total > 0 && Number.isFinite(numeric) ? Math.abs(numeric) / total : 0
-          const overrides = Object.keys(blend.parameters?.[row.factorId] ?? {}).length
-          return <article key={row.factorId} className="strategy-factor-row"><div className="strategy-factor-identity"><span className="strategy-factor-avatar">{(factor?.label || row.factorId).slice(0, 1).toUpperCase()}</span><span><strong>{factor?.label || row.factorId}</strong><small><code>{row.factorId}</code>{overrides ? ` · ${overrides} 个调用参数` : " · 使用因子默认参数"}</small></span></div><div className="strategy-factor-direction"><button type="button" className={numeric >= 0 ? "active" : ""} disabled={!editable} onClick={() => setDirection(row, 1)}>高值优先</button><button type="button" className={numeric < 0 ? "active inverse" : ""} disabled={!editable} onClick={() => setDirection(row, -1)}>低值优先</button></div><label className="strategy-factor-weight"><span>权重强度</span><Input type="number" min="0.01" step="0.05" value={row.weight === "" ? "" : Math.abs(numeric)} disabled={!editable} onChange={(event) => setMagnitude(row, event.target.value)} /></label><div className="strategy-factor-share"><span>{(share * 100).toFixed(1)}%</span><i><b className={numeric < 0 ? "inverse" : ""} style={{ width: `${share * 100}%` }} /></i></div><button className="strategy-factor-remove" type="button" aria-label={`移除 ${factor?.label || row.factorId}`} disabled={!editable || rows.length === 1} onClick={() => setRows((current) => current.filter((item) => item.factorId !== row.factorId))}><Trash2 size={14} /></button></article>
-        })}
-      </div>
-      <footer><span><code>context.combine_factors(...)</code>{blend.mode === "single" ? " · 应用后转换为标准多因子调用，并保留现有过滤逻辑。" : " · 只改 weights 与 normalization。"}</span><Button disabled={!editable || busy || !valid || !changed} onClick={() => void apply()}>{busy ? "写入中" : "应用多因子配置"}</Button></footer>
-    </section>
-  )
+  return <section className="strategy-all-settings">
+    <div className="strategy-stage-sections">{STAGES.map((stage) => {
+      const Icon = stage.icon
+      const entrypoints = stageGroups[stage.id]
+      const expanded = expandedStages.includes(stage.id)
+      return <article className={`strategy-stage-section ${expanded ? "expanded" : ""}`} key={stage.id}>
+        <button type="button" className="strategy-stage-section-toggle" onClick={() => toggleStage(stage.id)}><span><Icon size={17} /><strong>{stage.title}</strong></span><span className="strategy-stage-chevron">⌄</span></button>
+        {expanded ? <div className="strategy-settings-table-wrap"><table className="strategy-settings-table"><thead><tr><th>设置项</th><th>配置</th><th>操作</th></tr></thead><tbody>
+          {stage.id === "selection" && schedule ? <tr className="strategy-settings-group"><th colSpan={3}>调仓时间</th></tr> : null}
+          {stage.id === "selection" && scheduleSupported ? <>
+            <tr><td>频率</td><td colSpan={2}><select value={frequency} disabled={!editable} onChange={(event) => setFrequency(event.target.value)}><option value="daily">每日</option><option value="weekly">每周</option><option value="monthly">每月</option></select></td></tr>
+            <tr><td>交易日</td><td colSpan={2}><select value={frequency === "daily" ? "every" : selector} disabled={!editable || frequency === "daily"} onChange={(event) => setSelector(event.target.value)}><option value="every">每个交易日</option><option value="first_trading_day">首个交易日</option><option value="last_trading_day">最后交易日</option></select></td></tr>
+            <tr><td>计算时点</td><td colSpan={2}><select value={at} disabled={!editable} onChange={(event) => setAt(event.target.value)}><option value="open">开盘</option><option value="close">收盘</option></select></td></tr>
+          </> : stage.id === "selection" && schedule && signalEntrypoint ? <tr><td>调仓时间</td><td colSpan={2}>自定义 Python</td></tr> : null}
+          {stage.id === "selection" && signalEntrypoint ? <tr className="strategy-settings-group"><th colSpan={3}>因子选股</th></tr> : null}
+          {stage.id === "selection" && blendSupported ? <>
+            <tr><td>合成前标准化</td><td colSpan={2}><select value={normalization} disabled={!editable} onChange={(event) => setNormalization(event.target.value as "raw" | "rank" | "zscore")}><option value="rank">横截面排名</option><option value="zscore">Z-score 标准化</option><option value="raw">原始值</option></select></td></tr>
+            {rows.map((row) => {
+              const factor = factorById[row.factorId]
+              const numeric = Number(row.weight)
+              const share = total > 0 && Number.isFinite(numeric) ? Math.abs(numeric) / total : 0
+              return <tr key={row.factorId}><td><div className="strategy-factor-identity"><span className="strategy-factor-avatar">{(factor?.label || row.factorId).slice(0, 1).toUpperCase()}</span><strong>{factor?.label || row.factorId}</strong></div></td><td><div className="strategy-factor-config"><div className="strategy-factor-direction"><button type="button" className={numeric >= 0 ? "active" : ""} disabled={!editable} onClick={() => setDirection(row, 1)}>高值优先</button><button type="button" className={numeric < 0 ? "active inverse" : ""} disabled={!editable} onClick={() => setDirection(row, -1)}>低值优先</button></div><label className="strategy-factor-weight"><span>权重</span><Input type="number" min="0.01" step="0.05" value={row.weight === "" ? "" : Math.abs(numeric)} disabled={!editable} onChange={(event) => setMagnitude(row, event.target.value)} /></label></div></td><td><div className="strategy-factor-row-actions"><div className="strategy-factor-share"><span>{(share * 100).toFixed(1)}%</span><i><b className={numeric < 0 ? "inverse" : ""} style={{ width: `${share * 100}%` }} /></i></div><button className="strategy-factor-remove" type="button" aria-label={`移除 ${factor?.label || row.factorId}`} disabled={!editable || rows.length === 1} onClick={() => setRows((current) => current.filter((item) => item.factorId !== row.factorId))}><Trash2 size={14} /></button></div></td></tr>
+            })}
+            <tr><td>添加因子</td><td><select aria-label="添加因子" value={selectedToAdd} disabled={!editable || !available.length} onChange={(event) => setAddFactorId(event.target.value)}>{available.length ? available.map((factor) => <option value={factor.id} key={factor.id}>{factor.label || factor.id}</option>) : <option value="">因子已全部加入</option>}</select></td><td><Button size="sm" variant="outline" disabled={!editable || !selectedToAdd} onClick={addFactor}><Plus />添加</Button></td></tr>
+          </> : stage.id === "selection" && signalEntrypoint ? <tr><td>因子组合</td><td colSpan={2}>自定义 Python</td></tr> : null}
+          {entrypoints.map((entrypoint) => <Fragment key={entrypoint.id}>
+            <tr className="strategy-settings-group"><th colSpan={3}>{entrypointBusinessLabel(entrypoint)}</th></tr>
+            {entrypoint.parameters.map((parameter) => <tr key={`${entrypoint.id}.${parameter.name}`}><td><strong>{parameterLabel(parameter)}</strong></td><td colSpan={2}><ParameterControl parameter={parameter} value={parameterValues[entrypoint.id]?.[parameter.name] ?? parameterDraftValue(parameter)} disabled={!editable || !parameter.editable} onChange={(value) => setParameterValues((current) => ({ ...current, [entrypoint.id]: { ...current[entrypoint.id], [parameter.name]: value } }))} /></td></tr>)}
+            {!entrypoint.parameters.length ? <tr><td>实现方式</td><td colSpan={2}>自定义 Python</td></tr> : null}
+          </Fragment>)}
+          {!entrypoints.length ? stage.id === "risk" ? <tr><td>实现方式</td><td colSpan={2}>自定义 Python</td></tr> : <tr><td colSpan={3}>当前环节尚未配置</td></tr> : null}
+        </tbody></table></div> : null}
+      </article>
+    })}</div>
+    <footer><Button disabled={!editable || busy || !changed || !factorValuesValid || !parameterValuesValid} onClick={() => void apply()}><Save />{busy ? "应用中" : "应用全部设置"}</Button></footer>
+  </section>
 }
 
 function PreviewPanel({ preview }: { preview: Record<string, unknown> | null }) {
@@ -416,12 +334,15 @@ export function StrategyWorkbenchWidget() {
   const confirm = useConfirm()
   const project = sdk.project
   const [source, setSource] = useState("")
-  const [stageId, setStageId] = useState<StageId>("selection")
-  const [selectedEntrypoint, setSelectedEntrypoint] = useState("")
-  const [mode, setMode] = useState<EditorMode>("visual")
+  const [view, setView] = useState<WorkspaceView>("author")
+  const [visualDraft, setVisualDraft] = useState<VisualDraft>({ edits: [], valid: true })
+  const [sourcePreview, setSourcePreview] = useState<VisualEditPreview | null>(null)
+  const [loadingSourcePreview, setLoadingSourcePreview] = useState(false)
+  const [visualPaneWidth, setVisualPaneWidth] = useState(42)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null)
+  const splitPane = useRef<HTMLDivElement>(null)
 
   const strategyEntrypoints = useMemo(
     () => project?.inspection.entrypoints.filter((item) => item.kind !== "factor" && item.kind !== "universe") ?? [],
@@ -432,31 +353,68 @@ export function StrategyWorkbenchWidget() {
     [project?.inspection.entrypoints],
   )
   const stageGroups = useMemo(() => Object.fromEntries(STAGES.map((stage) => [stage.id, strategyEntrypoints.filter((item) => stage.kinds.includes(item.kind)).sort((left, right) => stage.kinds.indexOf(left.kind) - stage.kinds.indexOf(right.kind))])) as Record<StageId, SdkEntrypoint[]>, [strategyEntrypoints])
-  const activeStage = STAGES.find((stage) => stage.id === stageId) ?? STAGES[0]
-  const stageEntrypoints = stageGroups[activeStage.id]
-  const activeEntrypoint = stageEntrypoints.find((item) => item.id === selectedEntrypoint) ?? stageEntrypoints[0]
-  const localDirty = Boolean(project && source !== project.draft_source)
-  const hasUnsavedChanges = Boolean(project?.dirty || localDirty)
-  const editLocked = localDirty
+  const projectId = project?.id ?? ""
+  const projectHash = project?.draft_source_sha256 ?? ""
+  const moduleDirty = Boolean(project && source !== project.strategy_source)
+  const visualDirty = visualDraft.edits.length > 0
+  const visualDraftKey = JSON.stringify(visualDraft.edits)
+  const hasUnsavedChanges = Boolean(project?.dirty || moduleDirty || visualDirty)
+  const editLocked = moduleDirty
 
-  useEffect(() => setSource(project?.draft_source ?? ""), [project?.id, project?.draft_source_sha256])
+  useEffect(() => setSource(project?.strategy_source ?? ""), [project?.id, project?.strategy_source, project?.draft_source_sha256])
   useEffect(() => setPreview(null), [project?.id, project?.current_revision, project?.draft_source_sha256])
   useEffect(() => {
-    if (activeEntrypoint && activeEntrypoint.id !== selectedEntrypoint) setSelectedEntrypoint(activeEntrypoint.id)
-    if (!activeEntrypoint) setSelectedEntrypoint("")
-  }, [activeEntrypoint, selectedEntrypoint])
-  function chooseStage(next: StageId) {
-    if (next === stageId) return
-    setStageId(next); setSelectedEntrypoint(""); setPreview(null); setMode("visual")
+    if (!projectId || !visualDirty || !visualDraft.valid) {
+      setSourcePreview(null)
+      setLoadingSourcePreview(false)
+      return
+    }
+    let current = true
+    setSourcePreview(null)
+    setLoadingSourcePreview(true)
+    const timer = window.setTimeout(() => {
+      void api.post<VisualEditPreview>(`/strategy/projects/${projectId}/edits/preview`, {
+        edits: visualDraft.edits,
+        expected_source_sha256: projectHash,
+      }).then((payload) => {
+        if (current && payload.base_source_sha256 === projectHash) setSourcePreview(payload)
+      }).catch((reason: Error) => {
+        if (current) setError(reason.message)
+      }).finally(() => {
+        if (current) setLoadingSourcePreview(false)
+      })
+    }, 250)
+    return () => { current = false; window.clearTimeout(timer) }
+  }, [projectHash, projectId, visualDraft.valid, visualDraftKey, visualDirty]) // eslint-disable-line react-hooks/exhaustive-deps
+  function chooseView(next: WorkspaceView) {
+    if (next === view) return
+    if (visualDirty || moduleDirty) {
+      setError("当前修改尚未保存，请先应用或保存。")
+      return
+    }
+    setError("")
+    setView(next)
   }
 
-  function chooseEntrypoint(id: string) {
-    if (id === activeEntrypoint?.id) return
-    setSelectedEntrypoint(id)
+  function beginResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    const container = splitPane.current
+    if (!container) return
+    event.preventDefault()
+    const move = (pointer: PointerEvent) => {
+      const bounds = container.getBoundingClientRect()
+      const width = ((pointer.clientX - bounds.left) / bounds.width) * 100
+      setVisualPaneWidth(Math.min(65, Math.max(28, width)))
+    }
+    const stop = () => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", stop)
+    }
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", stop)
   }
 
   async function saveDraft(nextSource = source) {
-    if (!project?.editable || (nextSource === project.draft_source && !project.dirty)) return
+    if (!project?.editable || (nextSource === project.strategy_source && !project.dirty)) return
     setBusy(true); setError("")
     try { await sdk.updateDraft(nextSource) }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
@@ -465,7 +423,8 @@ export function StrategyWorkbenchWidget() {
 
   async function runPreview(operation: PreviewOperation) {
     if (!project || hasUnsavedChanges) return
-    if (!await confirm({ title: activeStage.previewLabel, description: "将运行当前已保存策略。本机 Python 不是安全沙箱。", confirmText: "运行预览" })) return
+    const previewLabel = operation === "signal" ? "预览本期选股" : operation === "portfolio" ? "预览目标仓位" : "预览完整策略"
+    if (!await confirm({ title: previewLabel, description: "将运行当前已保存策略。本机 Python 不是安全沙箱。", confirmText: "运行预览" })) return
     setBusy(true); setError("")
     try {
       setPreview(await api.post<Record<string, unknown>>(`/strategy/projects/${project.id}/preview`, { operation, profile: project.profile, revision: project.current_revision, confirm_python_execution: true }))
@@ -474,119 +433,98 @@ export function StrategyWorkbenchWidget() {
   }
 
   if (!project) return <Widget title="策略工作台" loading={sdk.loading} error={sdk.error}><span /></Widget>
-  const signalEntrypoint = stageEntrypoints.find((item) => item.kind === "signal")
+
+  const moduleDisplaySource = visualDirty && sourcePreview ? sourcePreview.source : source
+  const codeReadOnly = !project.editable || visualDirty
+  const sourcePreviewStatus = visualDirty
+    ? !visualDraft.valid
+      ? "左侧设置有误"
+      : loadingSourcePreview
+        ? "正在生成"
+        : sourcePreview
+          ? "待应用预览"
+          : "等待预览"
+    : null
 
   return (
-    <Widget headerless>
+    <Widget headerless className="strategy-workbench-widget">
       <div className="strategy-business-workbench">
-        <section className="backtest-run-setup pipeline-stage-setup strategy-project-bar">
-          <div className="backtest-run-controls pipeline-stage-controls">
-            <div className="pipeline-pinned-component"><span>策略项目</span><strong>{project.name}</strong></div>
-            <div className="pipeline-stage-actions">
-              <Badge variant={hasUnsavedChanges ? "destructive" : "secondary"}>{hasUnsavedChanges ? "尚未保存" : "已保存"}</Badge>
-            </div>
-          </div>
-        </section>
         {error ? <div className="workbench-message error strategy-workbench-error">{error}</div> : null}
+        <main className="strategy-authoring-main strategy-authoring-main-single">
+          <header className="strategy-authoring-header">
+            <nav aria-label="策略工作区"><button type="button" className={view === "author" ? "active" : ""} onClick={() => chooseView("author")}><Settings2 size={14} />策略编辑</button><button type="button" className={view === "preview" ? "active" : ""} onClick={() => chooseView("preview")}><Play size={14} />可视化预览</button></nav>
+          </header>
 
-        <section className="strategy-business-flow" aria-label="交易策略流程">
-          {STAGES.map((stage, index) => {
-            const Icon = stage.icon
-            const items = stageGroups[stage.id]
-            const signal = items.find((item) => item.kind === "signal")
-            const blend = signal?.metadata.factor_blend as FactorBlendMetadata | undefined
-            const factorCount = Object.keys(blend?.weights ?? {}).length
-            const summary = stage.id === "selection" ? `${factorCount || "自定义"} 因子 · ${scheduleLabel(signal?.metadata.schedule as Record<string, string> | undefined)}` : items.map(entrypointBusinessLabel).join("、") || "尚未配置"
-            const structuredSchedule = signal?.metadata.schedule as Record<string, string> | undefined
-            const projected = items.reduce((count, item) => count + item.parameters.filter((parameter) => parameter.editable).length, 0) + (structuredSchedule?.mode === "structured" ? 1 : 0) + ((blend?.mode === "single" || blend?.mode === "structured") ? factorCount + 1 : 0)
-            return <div className="strategy-flow-step" key={stage.id}>
-              <button type="button" className={stageId === stage.id ? "active" : ""} onClick={() => chooseStage(stage.id)}>
-                <header><span className="strategy-flow-number">{index + 1}</span><Icon size={18} /><Badge variant={items.length ? "secondary" : "outline"}>{items.length ? "已配置" : "可选"}</Badge></header>
-                <strong>{stage.title}</strong><small>{stage.subtitle}</small>
-                <footer><span>{summary}</span><em>{projected ? `${projected} 个无代码参数` : items.length ? "自定义 Python" : "未添加规则"}</em></footer>
-              </button>
-              {index < STAGES.length - 1 ? <ArrowRight className="strategy-flow-arrow" size={18} /> : null}
-            </div>
-          })}
-        </section>
+          <div className={`strategy-authoring-content ${view === "author" ? "strategy-authoring-content-split" : ""}`}>
+            {view === "author" ? <div
+              ref={splitPane}
+              className="strategy-split-authoring"
+              style={{ gridTemplateColumns: `${visualPaneWidth}% 0.4rem minmax(0, 1fr)` }}
+            >
+              <section className="strategy-visual-pane">
+                <header className="strategy-pane-header"><div><Settings2 size={16} /><strong>可视化配置</strong></div>{visualDirty ? <Badge variant={visualDraft.valid ? "secondary" : "destructive"}>待应用</Badge> : null}</header>
+                <div className="strategy-pane-scroll">
+                  {editLocked ? <div className="workbench-message warning">右侧 Python 有未保存修改；保存后才能调整左侧设置。</div> : null}
+                  <StrategyVisualEditor
+                    stageGroups={stageGroups}
+                    factors={factorEntrypoints}
+                    locked={editLocked}
+                    onError={setError}
+                    onDraftChange={setVisualDraft}
+                  />
+                </div>
+              </section>
 
-        <div className="strategy-authoring-layout">
-          <aside className="strategy-stage-sidebar">
-            <div className="strategy-stage-intro"><activeStage.icon size={22} /><div><span>第 {STAGES.indexOf(activeStage) + 1} 步</span><strong>{activeStage.title}</strong><p>{activeStage.description}</p></div></div>
-            <div className="strategy-contract-flow"><div><span>输入</span><strong>{activeStage.input}</strong></div><ArrowRight size={14} /><div><span>输出</span><strong>{activeStage.output}</strong></div></div>
-            <div className="strategy-stage-rules-heading"><strong>本环节规则</strong><span>{stageEntrypoints.length}</span></div>
-            <div className="strategy-stage-rule-list">
-              {stageEntrypoints.map((entrypoint) => <button key={entrypoint.id} type="button" className={activeEntrypoint?.id === entrypoint.id ? "active" : ""} onClick={() => chooseEntrypoint(entrypoint.id)}><span><strong>{entrypointBusinessLabel(entrypoint)}</strong><small>{entrypointTypeLabel(entrypoint)}{entrypoint.event ? ` · ${EVENT_LABELS[entrypoint.event] || entrypoint.event}` : ""}</small></span><em>{entrypoint.parameters.length} 参数</em></button>)}
-            </div>
-            {!stageEntrypoints.length ? <div className="strategy-empty-stage"><ShieldCheck size={20} /><strong>这个环节尚未配置</strong><p>{activeStage.id === "risk" ? "没有持有期事件时，仓位会一直保持到下一次调仓。可在完整 Python 中添加 @on_event。" : "请在完整 Python 中添加对应的 SDK 函数。"}</p><Button size="sm" variant="outline" onClick={() => setMode("module")}><Code2 />打开完整 Python</Button></div> : null}
-            {activeEntrypoint ? <details className="strategy-technical-details"><summary>Python 接口信息</summary><dl><div><dt>注册类型</dt><dd>@{activeEntrypoint.kind}</dd></div><div><dt>公开 ID</dt><dd>{activeEntrypoint.id}</dd></div><div><dt>函数名</dt><dd>{activeEntrypoint.function}</dd></div><div><dt>源码位置</dt><dd>L{activeEntrypoint.line}</dd></div></dl></details> : null}
-          </aside>
+              <button
+                type="button"
+                className="strategy-split-divider"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="调整可视化与 Python 面板宽度"
+                aria-valuemin={28}
+                aria-valuemax={65}
+                aria-valuenow={Math.round(visualPaneWidth)}
+                onPointerDown={beginResize}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
+                  event.preventDefault()
+                  setVisualPaneWidth((current) => Math.min(65, Math.max(28, current + (event.key === "ArrowLeft" ? -2 : 2))))
+                }}
+              />
 
-          <main className="strategy-authoring-main">
-            <header className="strategy-authoring-header">
-              <div><Workflow size={18} /><span><strong>{activeEntrypoint ? entrypointBusinessLabel(activeEntrypoint) : activeStage.title}</strong><small>无代码和 Python 编辑的是同一个策略函数</small></span></div>
-              <nav aria-label="策略编辑方式"><button type="button" className={mode === "visual" ? "active" : ""} onClick={() => setMode("visual")}><Settings2 size={14} />无代码配置</button><button type="button" className={mode === "function" ? "active" : ""} disabled={!activeEntrypoint} onClick={() => setMode("function")}><Braces size={14} />自定义当前环节</button><button type="button" className={mode === "module" ? "active" : ""} onClick={() => setMode("module")}><Code2 size={14} />完整 Python</button><button type="button" className={mode === "preview" ? "active" : ""} onClick={() => setMode("preview")}><Play size={14} />可视化预览</button></nav>
-            </header>
+              <section className="strategy-code-pane">
+                <header className="strategy-pane-header strategy-code-pane-header">
+                  <div><Code2 size={16} /><strong>完整策略 Python</strong>{sourcePreviewStatus ? <Badge variant={!visualDraft.valid ? "destructive" : "secondary"}>{sourcePreviewStatus}</Badge> : <Badge variant={moduleDirty ? "destructive" : "secondary"}>{moduleDirty ? "未保存" : "已同步"}</Badge>}</div>
+                </header>
+                <div className="strategy-pane-scroll strategy-code-pane-scroll">
+                  <div className="strategy-code-editor-view">
+                    <PythonEditor
+                      className="strategy-code-python-editor"
+                      kind="strategy"
+                      documentId={visualDirty ? `${project.id}.visual.strategy` : `${project.id}.strategy`}
+                      value={moduleDisplaySource}
+                      version={visualDirty ? sourcePreview?.source_sha256 ?? `${projectHash}:visual-pending` : projectHash}
+                      baselineValue={project.strategy_source}
+                      disabled={codeReadOnly}
+                      height="100%"
+                      factors={factorEntrypoints.map((factor) => ({ id: factor.id, label: factor.label }))}
+                      parameters={project.inspection.entrypoints.flatMap((entrypoint) => entrypoint.parameters)}
+                      onChange={visualDirty ? () => undefined : setSource}
+                      onSave={visualDirty ? undefined : (nextSource) => saveDraft(nextSource)}
+                    />
+                    {visualDirty ? <div className="workbench-message info strategy-code-preview-message">左侧设置尚未应用，右侧为只读 Python 预览。</div> : <div className="strategy-code-actions"><Button disabled={!project.editable || (!moduleDirty && !project.dirty) || busy} onClick={() => void saveDraft()}><Save />保存</Button></div>}
+                  </div>
+                </div>
+              </section>
+            </div> : null}
 
-            <div className="strategy-authoring-content">
-              {mode === "visual" ? <div className="strategy-visual-editor">
-                {editLocked ? <div className="workbench-message warning">Python 有未保存修改；保存或放弃后才能使用无代码控件。</div> : null}
-                {signalEntrypoint ? <ScheduleEditor entrypoint={signalEntrypoint} locked={editLocked} onError={setError} /> : null}
-                {signalEntrypoint ? <MultiFactorEditor entrypoint={signalEntrypoint} factors={factorEntrypoints} locked={editLocked} onError={setError} onOpenCode={() => { setSelectedEntrypoint(signalEntrypoint.id); setMode("function") }} /> : null}
-                {activeEntrypoint ? <>
-                  <div className="strategy-visual-summary"><div><Activity size={17} /><span><strong>当前逻辑</strong><small>{entrypointBusinessLabel(activeEntrypoint)}</small></span></div><div>{activeEntrypoint.parameters.slice(0, 4).map((parameter) => <span key={parameter.name}><small>{parameterLabel(parameter)}</small><strong>{displayParameter(parameter)}</strong></span>)}</div></div>
-                  <section><div className="backtest-section-heading"><div><strong>可视化参数</strong><span>每次应用只修改这个函数中对应的关键字默认值。</span></div><Badge variant="outline">{activeEntrypoint.parameters.filter((item) => item.editable).length} 个可编辑</Badge></div>
-                    {activeEntrypoint.parameters.length ? <div className="strategy-parameter-grid">{activeEntrypoint.parameters.map((parameter) => <ParameterEditor key={parameter.name} entrypoint={activeEntrypoint} parameter={parameter} locked={editLocked} onError={setError} />)}</div> : <div className="strategy-custom-notice"><Braces size={16} /><div><strong>这段逻辑目前完全由 Python 定义</strong><span>如需让参数出现在这里，请把它声明成带字面量默认值的 keyword-only 参数。</span></div></div>}
-                  </section>
-                  <div className="strategy-sdk-boundary"><ShieldCheck size={16} /><div><strong>核心安全边界不会被自定义代码绕过</strong><span>证券有效性、可交易性、价格、流动性、现金、费用和账户记账仍由事件引擎验证。</span></div></div>
-                </> : <div className="analytics-empty">当前环节没有已注册函数。可以从“完整 Python”添加自定义实现。</div>}
-              </div> : null}
-
-              {mode === "function" ? <div className="strategy-code-editor-view">
-                <div className="strategy-code-note"><Braces size={17} /><div><strong>定位到当前环节</strong><span>这里仍是项目唯一的 strategy.py，只是自动跳转到当前注册函数，不会复制函数源码。</span></div><Badge variant={localDirty ? "destructive" : "secondary"}>{localDirty ? "未保存" : "已同步"}</Badge></div>
-                <PythonEditor
-                  kind="strategy"
-                  documentId={project.id}
-                  value={source}
-                  version={project.draft_source_sha256}
-                  baselineValue={project.draft_source}
-                  disabled={!project.editable}
-                  height={620}
-                  revealLine={activeEntrypoint?.line}
-                  factors={factorEntrypoints.map((factor) => ({ id: factor.id, label: factor.label }))}
-                  parameters={activeEntrypoint?.parameters ?? []}
-                  onChange={setSource}
-                  onSave={(nextSource) => saveDraft(nextSource)}
-                />
-                <div className="strategy-code-actions"><span>保存后重新解析当前函数，并自动回填无代码界面。</span><Button variant="outline" disabled={!localDirty || busy} onClick={() => setSource(project.draft_source)}>放弃修改</Button><Button disabled={!project.editable || (!localDirty && !project.dirty) || busy} onClick={() => void saveDraft()}><Save />保存</Button></div>
-              </div> : null}
-
-              {mode === "module" ? <div className="strategy-code-editor-view">
-                <div className="strategy-code-note"><Code2 size={17} /><div><strong>完整 Python</strong><span>适合新增持有期事件、辅助函数或完全自定义逻辑；保存后所有工作台都会从这里重新投影。</span></div><Badge variant={hasUnsavedChanges ? "destructive" : "outline"}>{hasUnsavedChanges ? "未保存" : "已保存"}</Badge></div>
-                <PythonEditor
-                  kind="strategy"
-                  documentId={project.id}
-                  value={source}
-                  version={project.draft_source_sha256}
-                  baselineValue={project.draft_source}
-                  disabled={!project.editable}
-                  height={620}
-                  factors={factorEntrypoints.map((factor) => ({ id: factor.id, label: factor.label }))}
-                  parameters={project.inspection.entrypoints.flatMap((entrypoint) => entrypoint.parameters)}
-                  onChange={setSource}
-                  onSave={(nextSource) => saveDraft(nextSource)}
-                />
-                <div className="strategy-code-actions"><span>这里编辑的就是当前项目的完整策略源码。</span><Button variant="outline" disabled={!localDirty || busy} onClick={() => setSource(project.draft_source)}>放弃修改</Button><Button disabled={!project.editable || (!localDirty && !project.dirty) || busy} onClick={() => void saveDraft()}><Save />保存</Button></div>
-              </div> : null}
-
-              {mode === "preview" ? <div className="strategy-preview-view">
-                <div className="strategy-preview-toolbar"><div><Play size={17} /><span><strong>{activeStage.previewLabel}</strong><small>调用当前已保存策略，与回测使用同一函数和事件顺序。</small></span></div><Button disabled={busy || hasUnsavedChanges} onClick={() => void runPreview(activeStage.previewOperation)}><Play />{busy ? "运行中" : activeStage.previewLabel}</Button></div>
+            {view === "preview" ? <div className="strategy-preview-view">
+                <div className="strategy-preview-toolbar"><div><Play size={17} /><strong>策略预览</strong></div><div className="strategy-preview-actions"><Button variant="outline" disabled={busy || hasUnsavedChanges} onClick={() => void runPreview("signal")}>预览选股</Button><Button variant="outline" disabled={busy || hasUnsavedChanges} onClick={() => void runPreview("portfolio")}>预览仓位</Button><Button disabled={busy || hasUnsavedChanges} onClick={() => void runPreview("execution")}><Play />{busy ? "运行中" : "预览完整策略"}</Button></div></div>
                 {hasUnsavedChanges ? <div className="workbench-message warning">请先保存代码，再运行预览。</div> : null}
                 <PreviewPanel preview={preview} />
               </div> : null}
-            </div>
-          </main>
-        </div>
+          </div>
+        </main>
       </div>
     </Widget>
   )

@@ -1,11 +1,14 @@
 # AlphaLab Architecture
 
 AlphaLab uses Strategy SDK v1 as its only active strategy-authoring and
-execution contract. A project owns one complete Python module. Forms, Codex,
-factor evaluation, previews, event backtests, and reports all refer to that
-module. A normal user save automatically records an immutable internal source
-package and SHA-256 so later results remain reproducible without exposing a
-manual revision workflow.
+execution contract. A project owns trading source (`strategy.py` plus zero or
+more `factors/<factor_id>.py` units) and post-run research source
+(`validation.py`). Before strategy execution, AlphaLab deterministically
+assembles the trading units into one complete
+runtime module. Forms, Codex, factor evaluation, previews, event backtests, and
+reports pin the relevant source packages and hashes. A normal user save
+automatically records an immutable internal source package so later results
+remain reproducible without exposing a manual revision workflow.
 
 The normative API is [02_STRATEGY_SDK_V1_CONTRACT.md](02_STRATEGY_SDK_V1_CONTRACT.md).
 
@@ -15,11 +18,14 @@ The normative API is [02_STRATEGY_SDK_V1_CONTRACT.md](02_STRATEGY_SDK_V1_CONTRAC
 Data recipe ── execute/sync ── canonical research store
                                       │
 Project ─────┐                        │
-Factor      ├── one editable Python strategy ── save/validate/probe ── internal StrategySourcePackage
-Strategy ───┘                                                         │
-                                                         ├── factor snapshot/history
-                                                         ├── signal/portfolio/execution preview
-                                                         └── daily event backtest ── frozen Run ── report
+Factor      ├── strategy.py + factors/*.py ── deterministic assembly ── save/validate/probe
+Strategy ───┘                                                                  │
+                                                             internal StrategySourcePackage
+                                                                              │
+                                                         └── daily event backtest ── engine outputs
+                                                                                         │
+Validation ───── validation.py ── save/validate ── ValidationSourcePackage ──────────────┤
+                                                                                         └── frozen Run ── report
 ```
 
 The six workbench modes are `project`, `data`, `factor`, `strategy`,
@@ -29,13 +35,17 @@ state, not independent strategy pipelines.
 ## Shared Python editor
 
 Every Python input is rendered by the shared Monaco-based `PythonEditor`.
-Strategy and Backtest full-source views open the same file URI and Monaco model
-for the project's complete `strategy.py`. The Factor Workbench opens a derived
-one-function `factor.py` document and saves it through the CST-aware
-`replace_function` operation; that projection is never persisted or executed as
-a second strategy source. The Data Workbench uses the same editor component but
+The Strategy Workbench opens the project's `strategy.py`; it contains universe, selection/scheduling,
+portfolio, event-risk, and execution logic, but no `@factor` definitions. The
+Factor Workbench opens the selected persistent `factors/<factor_id>.py` unit,
+which contains exactly one complete `@factor` function. Factor saves use the
+CST-aware function operation and may rename the public ID, which also renames
+the source-unit path. The Data Workbench uses the same editor component but
 opens the project's separate canonical `recipe.py`, because acquisition source
 has a different SDK and lifecycle from strategy source.
+The Validation Workbench opens a separate canonical `validation.py`. It owns
+post-run metrics, Alpha/Beta attribution, and custom research outputs, while
+the event clock, fills, costs, cash, and accounting remain core-owned.
 
 The project database remains authoritative. Before a document is opened, the
 backend writes a derived filesystem mirror under `data/runtime/editor/` for
@@ -59,7 +69,14 @@ framing. This is editor tooling, not another Python execution route.
 
 ## Canonical source
 
-A valid module declares `SDK_VERSION = 1` and registers:
+Authoring source is split by responsibility, but there is only one executable
+contract. `strategy.py` owns imports, constants, helpers, universe, signal,
+portfolio, event, and execution registrations. Each factor unit owns one
+registered factor. `assemble_strategy_source()` inserts factor functions in a
+stable order before strategy entrypoints and validates the resulting module.
+No source unit is executed independently.
+
+The assembled module declares `SDK_VERSION = 1` and registers:
 
 - exactly one `@universe`;
 - zero or more `@factor` and `@schedule` functions;
@@ -79,19 +96,31 @@ visible as custom Python and is never translated to an expression language.
 
 ## Source lifecycle
 
-`StrategyRepository` persists two internal objects:
+`StrategyRepository` persists four internal objects:
 
-- `strategy_projects`: mutable metadata and one mutable draft;
+- `strategy_projects`: mutable metadata and the assembled draft artifact;
+- `strategy_source_units`: current `strategy.py` and `factors/*.py` authoring
+  units;
 - `strategy_source_packages`: immutable revisions containing full source,
   source hash, registry manifest, literal parameters, requirements, validator
-  version, and environment fingerprint.
+  version, and environment fingerprint;
+- `strategy_source_package_units`: the exact authoring units frozen with each
+  package.
 
-The UI exposes one operation: save. Saving performs static contract validation,
-imports the complete module, runs bounded probes for the full path, every
-registered factor, and every registered event handler, then records an immutable
-package automatically. Runs pin that internal package; changing the strategy
-later cannot alter a historical result. Revision numbers and hashes are audit
-metadata, not user-managed authoring controls.
+The UI exposes one operation: save. Saving a strategy or factor unit assembles
+all current units, performs static contract validation, imports the complete
+module, runs bounded probes for the full path, every registered factor, and
+every registered event handler, then records an immutable package automatically.
+Runs pin that internal package; changing any source unit later cannot alter a
+historical result. Revision numbers and hashes are audit metadata, not
+user-managed authoring controls.
+
+`ValidationRepository` applies the same user-facing save model to
+`validation_sources` and immutable `validation_source_packages`. A Run pins
+both the strategy package and validation package before it enters the queue.
+The default `validation.py` visibly implements headline performance metrics and
+CAPM/multi-factor OLS with Newey-West errors. Its keyword-only literal defaults
+are CST-projected into the visual panel; custom Python stays intact.
 
 ## Runtime and event engine
 
@@ -103,6 +132,13 @@ bounded stdout/stderr, and structured errors.
 This is trusted local execution, not a security sandbox. Source inspection
 surfaces capability-sensitive imports and calls, and every execution endpoint
 requires explicit `confirm_python_execution=true`. Docker is not used.
+
+After the event engine has produced returns, benchmark returns, weights,
+factor returns, executions, and settings, the pinned `validation.py` runs in a
+separate local Python subprocess with a timeout and JSON-output size limit.
+`ValidationContext` exposes copies of those frozen inputs and no engine mutation
+API. This process boundary contains crashes; it does not restrict filesystem or
+network permissions of trusted local code.
 
 The backtest engine enumerates provider sessions and applies this sequence:
 
@@ -154,7 +190,8 @@ providers must supply their own instrument snapshots.
 
 New backtests persist `strategy_project_id`, `strategy_revision`,
 `strategy_source_sha256`, the complete source, manifest, execution audit,
-weights, returns, attribution, settings, and provenance.
+weights, returns, attribution, settings, provenance, and the pinned
+`validation_source`, revision, hash, and named outputs.
 
 Old pipeline tables and old BacktestRuns remain only for one-time migration and
 read-only inspection. Migration converts every recognized legacy factor into an
@@ -174,11 +211,14 @@ and cannot create a second authoritative result.
 | `alphalab/dataio/rq_frames.py` | Stable adapters from raw rqdatac frames to runtime contracts |
 | `alphalab/dataio/rq_templates.py` | Declarative RQ acquisition templates |
 | `alphalab/strategy/factor_templates.py` | Built-in SDK Python factor templates and CST-aware installation |
-| `alphalab/strategy/source.py` | AST inspection, dependency checks, and LibCST edits |
-| `alphalab/strategy/repository.py` | Drafts, immutable packages, probes, migration |
+| `alphalab/strategy/source.py` | Source-unit split/assembly, AST inspection, dependency checks, and LibCST edits |
+| `alphalab/strategy/repository.py` | Authoring units, assembled drafts, immutable packages, probes, migration |
 | `alphalab/strategy/sdk_runtime.py` | Trusted-local child-process runner and boundary validation |
 | `alphalab/strategy/engine.py` | Preview, factor evaluation, daily events, fills, accounting |
+| `alphalab/validation_sdk/` | Small public `ValidationContext` and `@analysis` facade |
+| `alphalab/validation/` | Default validation.py, AST/CST contract, persistence, and bounded local runner |
 | `dashboard/backend/routers/strategy.py` | Current source/project/evaluation API |
+| `dashboard/backend/routers/validation.py` | Validation source and no-code parameter API |
 | `dashboard/backend/routers/backtests.py` | Confirmed background backtest jobs and frozen results |
 | `dashboard/backend/routers/python_editor.py` | Fixed Pyrefly/Ruff WebSocket bridge and editor document endpoints |
 | `dashboard/backend/services/python_editor_service.py` | Local server discovery, ignored source mirrors, framing, and SDK diagnostics |

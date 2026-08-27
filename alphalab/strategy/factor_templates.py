@@ -271,21 +271,74 @@ def _decorator_name(decorator: cst.Decorator) -> str | None:
     return None
 
 
+def _factor_copy_identity(
+    template: FactorTemplate,
+    *,
+    occupied: set[str],
+) -> tuple[str, str]:
+    copy_number = 1
+    factor_id = template.id
+    while factor_id in occupied:
+        copy_number += 1
+        factor_id = f"{template.id}_{copy_number}"
+    label = template.label if copy_number == 1 else f"{template.label}（副本 {copy_number}）"
+    return factor_id, label
+
+
+def _copy_factor_function(
+    function: cst.FunctionDef,
+    *,
+    factor_id: str,
+    label: str,
+) -> cst.FunctionDef:
+    decorators: list[cst.Decorator] = []
+    for decorator in function.decorators:
+        value = decorator.decorator
+        if _decorator_name(decorator) != "factor" or not isinstance(value, cst.Call):
+            decorators.append(decorator)
+            continue
+        arguments: list[cst.Arg] = []
+        found_id = False
+        found_label = False
+        for argument in value.args:
+            keyword = argument.keyword.value if isinstance(argument.keyword, cst.Name) else None
+            if keyword == "id":
+                argument = argument.with_changes(value=cst.SimpleString(repr(factor_id)))
+                found_id = True
+            elif keyword == "label":
+                argument = argument.with_changes(value=cst.SimpleString(repr(label)))
+                found_label = True
+            arguments.append(argument)
+        if not found_id:
+            arguments.append(
+                cst.Arg(value=cst.SimpleString(repr(factor_id)), keyword=cst.Name("id"))
+            )
+        if not found_label:
+            arguments.append(
+                cst.Arg(value=cst.SimpleString(repr(label)), keyword=cst.Name("label"))
+            )
+        decorators.append(
+            decorator.with_changes(decorator=value.with_changes(args=tuple(arguments)))
+        )
+    return function.with_changes(
+        name=cst.Name(factor_id),
+        decorators=tuple(decorators),
+        leading_lines=(cst.EmptyLine(), cst.EmptyLine()),
+    )
+
+
 def install_factor_template(source: str, *, template_id: str) -> tuple[str, SourceInspection]:
     inspection = inspect_strategy_source(source)
     template = get_factor_template(template_id)
     registered_ids = {item.id for item in inspection.entrypoints}
-    registered_functions = {item.function for item in inspection.entrypoints}
     tree = ast.parse(source)
     top_level_functions = {
         node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
-    if (
-        template.id in registered_ids
-        or template.id in registered_functions
-        or template.id in top_level_functions
-    ):
-        raise StrategySourceError(f"factor {template.id!r} is already registered", phase="edit")
+    factor_id, label = _factor_copy_identity(
+        template,
+        occupied=registered_ids | top_level_functions,
+    )
 
     requirements = {
         dataset: list(fields) for dataset, fields in inspection.data_requirements.items()
@@ -329,7 +382,7 @@ def install_factor_template(source: str, *, template_id: str) -> tuple[str, Sour
     )
     if function is None:
         raise StrategySourceError("factor template is invalid", phase="edit")
-    function = function.with_changes(leading_lines=(cst.EmptyLine(), cst.EmptyLine()))
+    function = _copy_factor_function(function, factor_id=factor_id, label=label)
     signal_index = next(
         (
             index

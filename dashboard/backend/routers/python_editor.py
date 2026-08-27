@@ -16,14 +16,15 @@ router = APIRouter(prefix="/api/python-editor", tags=["python-editor"])
 
 class MirrorRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["strategy", "factor", "data"]
+    kind: Literal["strategy", "function", "factor", "data", "validation"]
     document_id: str = Field(min_length=1, max_length=128)
     source: str = Field(max_length=300_000)
 
 
 class DiagnosticsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["strategy", "factor", "data"]
+    kind: Literal["strategy", "function", "factor", "data", "validation"]
+    document_id: str | None = Field(default=None, max_length=128)
     source: str = Field(max_length=300_000)
 
 
@@ -39,7 +40,11 @@ def mirror_document(request: MirrorRequest) -> dict:
 
 @router.post("/diagnostics")
 def diagnostics(request: DiagnosticsRequest) -> dict:
-    return python_editor_service.source_diagnostics(request.kind, request.source)
+    return python_editor_service.source_diagnostics(
+        request.kind,
+        request.source,
+        document_id=request.document_id,
+    )
 
 
 @router.websocket("/lsp/{server_id}")

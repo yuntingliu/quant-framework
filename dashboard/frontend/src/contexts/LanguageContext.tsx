@@ -22,7 +22,7 @@ const translations = {
     "mode.data.long": "研究范围、数据预览与质量校验",
     "mode.factor.long": "因子定义、截面与历史证据",
     "mode.project.long": "项目与数据环境",
-    "mode.strategy.long": "信号、组合、状态事件与执行共用一份 Python",
+    "mode.strategy.long": "信号、组合、状态事件与执行",
     "mode.validation.long": "因子检验、策略回测、归因与报告证据",
     "mode.report.long": "Agent 文档、表格、图表与导出",
     "home.indexBoard": "指数行情",
@@ -574,7 +574,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
           const normalized = normalizeLanguage(confirmed, next)
           if (normalized !== next) applyLanguage(normalized)
         })
-        .catch(() => {})
+        .catch(() => { })
     }
   }, [applyLanguage])
 
@@ -589,7 +589,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       .then((value) => {
         applyLanguage(normalizeLanguage(value))
       })
-      .catch(() => {})
+      .catch(() => { })
 
     const cleanup = electron?.onMenuSetLanguage?.((next) => {
       applyLanguage(normalizeLanguage(next))

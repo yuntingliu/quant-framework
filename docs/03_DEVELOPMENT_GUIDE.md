@@ -34,6 +34,9 @@ second Lab execution path.
 - Draft/package persistence belongs in `alphalab/strategy/repository.py`.
 - User-code invocation and boundary coercion belong in
   `alphalab/strategy/sdk_runtime.py`.
+- Validation authoring contracts, persistence, and post-run invocation belong
+  in `alphalab/validation_sdk/` and `alphalab/validation/`. Validation code may
+  consume frozen engine outputs but may not mutate fills or accounting.
 - Session ordering, tradability, fills, costs, and accounting belong in
   `alphalab/strategy/engine.py`.
 - Provider logic stays in `alphalab/dataio/`; strategy Python never receives a
@@ -41,8 +44,8 @@ second Lab execution path.
 - Public data-recipe types and the lazy RQ proxy belong in
   `alphalab/data_sdk/v1/recipe.py`; source rendering, AST/CST projection, and
   execution belong in `alphalab/dataio/recipes.py`.
-- API and workbench changes must preserve one revision/hash across frontend,
-  backend, Agent tools, Runs, and reports.
+- API and workbench changes must preserve one deterministically assembled
+  revision/hash across frontend, backend, Agent tools, Runs, and reports.
 
 Do not add an expression evaluator, generated stage source, hidden fallback to
 demo/default logic, or a parallel backtest path. Pre-SDK database tables are
@@ -51,8 +54,12 @@ historical report reconstruction stays in the analytics service.
 
 ## SDK source rules
 
-Tests and examples import the small `alphalab` facade. Strategy modules import
-only their public authoring API from `alphalab.sdk.v1`.
+Tests and examples import the small `alphalab` facade. Project authoring is a
+`strategy.py` unit plus one `factors/<factor_id>.py` unit per factor. Imports,
+constants, helpers, and non-factor registrations belong in `strategy.py`;
+factor units contain exactly one registered function. Factor units are not
+executed alone: the repository assembles them into the runtime module first.
+User source imports only the public authoring API from `alphalab.sdk.v1`.
 
 ```python
 from alphalab.sdk.v1 import (
@@ -65,11 +72,6 @@ SDK_VERSION = 1
 @universe(id="etfs")
 def etfs(context):
     return UniverseResult(symbols=context.universe)
-
-@factor(id="momentum")
-def momentum(context, *, window: int = 20):
-    close = context.history("close", window=window + 1)
-    return close.iloc[-1] / close.iloc[0] - 1
 
 @signal(id="monthly", schedule=Monthly.last_trading_day(at="close"))
 def monthly(context, state, *, top_n: int = 1):
@@ -93,24 +95,53 @@ def next_open(context, decision):
     return ExecutionPolicy(activation="next_session_open")
 ```
 
+`factors/momentum.py`:
+
+```python
+@factor(id="momentum")
+def momentum(context, *, window: int = 20):
+    close = context.history("close", window=window + 1)
+    return close.iloc[-1] / close.iloc[0] - 1
+```
+
 Keyword-only literal defaults are form-editable. Anything else displays as
 custom. Structured edits must use LibCST and target the registered entrypoint
 ID; never replace an arbitrary number or text match.
+
+The Strategy Workbench presents all four strategy stages in a scrollable,
+collapsible visual panel on the left and the shared Python editor on the right.
+The divider is resizable; the Python pane edits the complete `strategy.py`
+authoring unit so selection, scheduling, portfolio, event risk, and execution
+logic remain visible together. It must not display `@factor` definitions.
+Visual stage sections do not contain separate Python edit buttons or derived
+function editors.
+Projected schedules, factor blends, and literal parameters share one draft and
+one global apply action. While visual changes are pending, the backend applies
+the ordered edits in memory and returns a read-only Python preview without
+persisting it. Applying submits the same ordered `batch` edit, validates the
+final assembled module, returns the corresponding `strategy.py` preview, and
+persists once; partial visual-form saves are not allowed.
+Unsaved code locks the visual controls, and pending visual changes make the
+`strategy.py` preview read-only.
 
 Literal `context.combine_factors(weights=..., normalization=...)` calls are the
 form-editable multi-factor boundary. Signed weights encode factor direction.
 Keep conditional or non-literal formulas in Python and project them as custom;
 do not add an expression evaluator.
 
-Adding a built-in factor merges the template's data requirements and inserts
-its function before the registered signal with LibCST. Reject duplicate public
-IDs and functions. Once installed, the project owns that Python copy; later
-catalog edits do not rewrite saved strategy source.
+Adding a built-in factor merges the template's data requirements and creates a
+new `factors/<factor_id>.py` unit. Deterministic runtime assembly inserts its
+function before the registered signal. Templates are copyable:
+repeat installation allocates a deterministic unique public ID and Python
+function name (`factor_id`, `factor_id_2`, `factor_id_3`, ...). The project owns
+each Python copy independently; later catalog edits do not rewrite saved
+project source.
 
 ## Validation and errors
 
-Saving strategy source automatically records an internal package and performs
-parse, SDK version, registry uniqueness, signature,
+Saving `strategy.py` or a factor source unit assembles the complete runtime
+module, automatically records an internal package, and performs parse, SDK
+version, registry uniqueness, signature,
 literal metadata, factor dependency/cycle, compile/import, runtime requirement,
 and synthetic output probes. Add new validation at the narrowest boundary and
 return a phase: `parse`, `register`, `input`, `execute`, `output`, or `state`.
@@ -126,9 +157,24 @@ Current authoring routes are under `/api/strategy`. Mutations require
 `confirm_delete`, and anything importing or invoking strategy source requires
 `confirm_python_execution`.
 
+`PUT /api/strategy/projects/{id}/draft` writes `strategy.py`, not the assembled
+module. `POST /api/strategy/projects/{id}/factors` creates one factor unit;
+registered-function edits update the matching factor unit through the assembled
+CST and then split it back atomically. Responses expose `strategy_source` for
+authoring and retain `draft_source` only as the derived runtime bundle/audit
+artifact.
+
 Backtests use `/api/backtests/jobs`. The frontend supplies the current internal
-package ID; users do not choose or freeze revisions. A job pins that package
-before queueing, and historical result endpoints never read later source.
+strategy package ID; users do not choose or freeze revisions. The backend also
+pins the current validation package before queueing, and historical result
+endpoints never read later source.
+
+Validation source routes are under `/api/validation`. `validation.py` must
+declare `VALIDATION_SDK_VERSION = 1` and provide `performance` and `alpha_beta`
+`@analysis` functions. Each receives one `ValidationContext`; keyword-only
+literal defaults are form-editable. Saving requires `confirm_write`. Execution
+uses the already confirmed backtest job's trusted-local Python boundary and
+must retain timeout and JSON-output limits.
 
 Data recipe routes are under `/api/data-sync/recipes`. Source and no-code
 parameter writes require `confirm_write`; invoking recipe source requires
@@ -137,8 +183,8 @@ Do not implement a second arbitrary-Python runner for data acquisition.
 
 ## Frontend conventions
 
-All six workbenches use `StrategySdkContext`. A full-source edit saves the same
-strategy; parameter and schedule forms call the CST edit endpoint. Every source
+All six workbenches use the selected project from `StrategySdkContext`. A strategy-source edit saves
+`strategy.py`; parameter and schedule forms call the CST edit endpoint. Every source
 save or structured edit automatically validates and records the internal source
 package through the shared context. Do not expose revision numbers, hashes,
 draft/freeze states, or a second freeze action in normal workbench UI. Factor
@@ -156,12 +202,16 @@ Keep the official RQData Python documentation link next to the editor.
 
 All Python workbench inputs use
 `dashboard/frontend/src/components/python/PythonEditor`. Do not instantiate a
-second Monaco runtime. Full-source strategy views share the project's complete
-`strategy.py` model. The Factor Workbench may use one derived `factor.py` model
-per selected entrypoint, but it must contain exactly one complete `@factor`
-function and save only through `replace_function`; it is never an executable or
-persistent source of truth. Data recipes use a separate `recipe.py` URI through
-the same component.
+second Monaco runtime. The Strategy Workbench uses the project's `strategy.py`
+model; the Validation Workbench uses its independent `validation.py` model.
+The Factor Workbench uses one persistent factor source
+unit per selected factor. Each factor document must contain exactly one complete
+registered function and save only through the factor-create or
+`replace_function` boundary. The assembled module is the only executable
+artifact. Data recipes use a separate `recipe.py` URI through the same
+component. The validation editor uses `kind="validation"` so completion and
+contract diagnostics expose `ValidationContext` and `@analysis`, not trading
+Context methods.
 
 Monaco and the language clients are lazy-loaded. `vite.config.ts` must retain ES
 worker output. Pyrefly and Ruff come from the active backend Python environment

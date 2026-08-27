@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from functools import lru_cache
@@ -12,9 +13,9 @@ from typing import Callable, Iterator
 import pandas as pd
 
 from alphalab.store import ResultStore
-from dashboard.backend.services import strategy_service
+from dashboard.backend.services import strategy_service, validation_service
 
-BacktestRunner = Callable[[str, str, str, str, int | None], dict]
+BacktestRunner = Callable[..., dict]
 
 
 class BacktestJobManager:
@@ -81,13 +82,16 @@ class BacktestJobManager:
                 message="Running complete strategy backtest",
             )
         try:
-            result = self._runner(
-                request["project_id"],
-                request["start_date"],
-                request["end_date"],
-                request["profile"],
-                request.get("revision"),
+            arguments = (
+                request["project_id"], request["start_date"], request["end_date"],
+                request["profile"], request.get("revision"),
             )
+            if "validation_revision" in inspect.signature(self._runner).parameters:
+                result = self._runner(
+                    *arguments, validation_revision=request.get("validation_revision")
+                )
+            else:
+                result = self._runner(*arguments)
         except Exception as exc:
             with self._store() as store:
                 store.update_backtest_job(
@@ -131,12 +135,14 @@ def submit_backtest_job(request: dict) -> dict:
     revision = int(raw_revision) if raw_revision is not None else int(project["current_revision"])
     if strategy_service.get_revision(project_id, revision) is None:
         raise KeyError(f"{project_id}@{revision}")
+    validation = validation_service.get_workspace(project_id)
     normalized = {
         "project_id": project_id,
         "start_date": start.strftime("%Y-%m-%d"),
         "end_date": end.strftime("%Y-%m-%d"),
         "profile": profile,
         "revision": revision,
+        "validation_revision": int(validation["current_revision"]),
     }
     return manager().submit(normalized)
 

@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_get_strategy_project",
-  "description": "Read one canonical Strategy SDK v1 project, its complete draft inspection, current immutable revision, hashes, and optionally its complete Python source.",
+  "description": "Read one Strategy SDK v1 project, its source-unit inventory, assembled inspection, current immutable revision, hashes, and optionally strategy.py plus one registered function source.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {
@@ -9,11 +9,12 @@
     "required": ["project_id"],
     "properties": {
       "project_id": { "type": "string", "minLength": 2, "maxLength": 64 },
-      "include_source": { "type": "boolean", "default": false }
+      "include_source": { "type": "boolean", "default": false },
+      "entrypoint_id": { "type": "string", "minLength": 1, "maxLength": 100 }
     }
   },
   "outputSchema": { "type": "object" },
-  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function run(input){const id=String(input.project_id||'').trim();if(!id)throw new Error('project_id is required');const response=await fetch(origin()+'/api/strategy/projects/'+encodeURIComponent(id),{headers:{Accept:'application/json'}});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());const value=await response.json();const available=typeof value.draft_source==='string';if(input.include_source!==true)delete value.draft_source;return{...value,source_available:available,source_included:available&&input.include_source===true}}",
+  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function get(path){const response=await fetch(origin()+path,{headers:{Accept:'application/json'}});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());return response.json()}\nasync function run(input){const id=String(input.project_id||'').trim();if(!id)throw new Error('project_id is required');const value=await get('/api/strategy/projects/'+encodeURIComponent(id));const available=typeof value.strategy_source==='string';let entrypoint_source=null;if(input.entrypoint_id)entrypoint_source=await get('/api/strategy/projects/'+encodeURIComponent(id)+'/entrypoints/'+encodeURIComponent(String(input.entrypoint_id))+'/source');if(input.include_source!==true){delete value.draft_source;delete value.strategy_source}return{...value,entrypoint_source,source_available:available,source_included:available&&input.include_source===true}}",
   "timeoutMs": 30000,
   "permissions": { "network": "alphalab-api" },
   "sideEffects": "read"

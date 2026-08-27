@@ -43,6 +43,8 @@ export interface BacktestRunResult {
   strategy_type: "sdk_v1"
   revision: number
   source_sha256: string
+  validation_revision?: number
+  validation_source_sha256?: string
   metrics: Record<string, number>
   returns: { date: string; value: number }[]
   weights_count: number
@@ -60,6 +62,7 @@ export interface BacktestJob {
     end_date: string
     profile: "demo" | "runtime"
     revision: number
+    validation_revision?: number
   }
   result: BacktestRunResult | null
   result_id: string | null

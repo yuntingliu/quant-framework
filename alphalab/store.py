@@ -69,6 +69,10 @@ class ResultStore:
             ("strategy_revision", "INTEGER"),
             ("strategy_source_sha256", "TEXT"),
             ("strategy_manifest_json", "TEXT"),
+            ("validation_source", "TEXT"),
+            ("validation_revision", "INTEGER"),
+            ("validation_source_sha256", "TEXT"),
+            ("validation_output_json", "TEXT"),
         ):
             if name not in backtest_columns:
                 self._conn.execute(f"ALTER TABLE backtests ADD COLUMN {name} {sql_type}")
@@ -273,6 +277,10 @@ class ResultStore:
         strategy_revision: int | None = None,
         strategy_source_sha256: str | None = None,
         strategy_manifest: dict | list | None = None,
+        validation_source: str | None = None,
+        validation_revision: int | None = None,
+        validation_source_sha256: str | None = None,
+        validation_output: dict | None = None,
     ) -> str:
         backtest_id = _uuid()
         if start_date is None and not returns.empty:
@@ -288,8 +296,10 @@ class ResultStore:
                     n_periods, tags, notes, provenance_json, execution_json,
                     pipeline_project_id, strategy_source, component_manifest_json,
                     settings_json, attribution_json, strategy_project_id,
-                    strategy_revision, strategy_source_sha256, strategy_manifest_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    strategy_revision, strategy_source_sha256, strategy_manifest_json,
+                    validation_source, validation_revision, validation_source_sha256,
+                    validation_output_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     backtest_id,
                     strategy_id,
@@ -316,6 +326,10 @@ class ResultStore:
                     strategy_revision,
                     strategy_source_sha256,
                     json.dumps(strategy_manifest, sort_keys=True) if strategy_manifest else None,
+                    validation_source,
+                    validation_revision,
+                    validation_source_sha256,
+                    json.dumps(validation_output, sort_keys=True) if validation_output else None,
                 ),
             )
             rows = []

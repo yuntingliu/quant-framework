@@ -18,6 +18,7 @@ from alphalab.strategy.repository import StrategyRepository
 from alphalab.strategy.sdk_runtime import SdkExecutionSession
 from alphalab.strategy.source import (
     StrategySourceError,
+    assemble_strategy_source,
     delete_registered_function,
     factor_dependency_snippet,
     factor_field_snippet,
@@ -26,6 +27,7 @@ from alphalab.strategy.source import (
     registered_function_source,
     remove_factor_inputs_arguments,
     replace_registered_function,
+    split_strategy_source,
     update_parameter_default,
     update_signal_factor_blend,
     update_signal_schedule,
@@ -116,14 +118,112 @@ def test_builtin_factor_catalog_is_native_sdk_python_and_all_templates_install(t
         repository.close()
 
 
-def test_factor_template_install_rejects_duplicate_registration():
+def test_factor_template_repeat_install_creates_independent_copies():
+    source, inspection = install_factor_template(
+        DEFAULT_STRATEGY_SOURCE, template_id="momentum_20d"
+    )
+    source, inspection = install_factor_template(source, template_id="momentum_20d")
+
+    factors = {item.id: item for item in inspection.entrypoints if item.kind == "factor"}
+    assert {"momentum_20d", "momentum_20d_2", "momentum_20d_3"} <= set(factors)
+    assert factors["momentum_20d_2"].function == "momentum_20d_2"
+    assert factors["momentum_20d_2"].label == "20 日动量（副本 2）"
+    assert factors["momentum_20d_3"].label == "20 日动量（副本 3）"
+
+    updated, _ = update_parameter_default(
+        source,
+        entrypoint_id="momentum_20d_2",
+        parameter="window",
+        value=37,
+    )
+    updated_factors = {
+        item.id: item
+        for item in inspect_strategy_source(updated).entrypoints
+        if item.kind == "factor"
+    }
+    assert updated_factors["momentum_20d"].parameters[0].default == 20
+    assert updated_factors["momentum_20d_2"].parameters[0].default == 37
+
+
+def test_strategy_source_units_round_trip_without_factor_leak():
+    strategy_source, factor_units = split_strategy_source(DEFAULT_STRATEGY_SOURCE)
+
+    assert "@factor" not in strategy_source
+    assert "@signal" in strategy_source
+    assert "@portfolio" in strategy_source
+    assert "@execution" in strategy_source
+    assert [item.path for item in factor_units] == ["factors/momentum_20d.py"]
+    assert factor_units[0].source.startswith('@factor(id="momentum_20d"')
+
+    bundled, inspection = assemble_strategy_source(
+        strategy_source,
+        [item.source for item in factor_units],
+    )
+    assert bundled == DEFAULT_STRATEGY_SOURCE
+    assert {item.id for item in inspection.entrypoints if item.kind == "factor"} == {
+        "momentum_20d"
+    }
+
+
+def test_repository_edits_strategy_and_factor_units_independently(tmp_path: Path):
+    repository = StrategyRepository(tmp_path / "source-units.db")
     try:
-        install_factor_template(DEFAULT_STRATEGY_SOURCE, template_id="momentum_20d")
-    except StrategySourceError as exc:
-        assert exc.phase == "edit"
-        assert "already registered" in str(exc)
-    else:
-        raise AssertionError("duplicate built-in factor was installed")
+        project = repository.clone_project("sdk-v1-default", "source-units")
+        assert "@factor" not in project["strategy_source"]
+        assert {item["path"] for item in project["source_units"]} == {
+            "strategy.py",
+            "factors/momentum_20d.py",
+        }
+        package = repository.get_package("source-units", 1)
+        assert package is not None
+        frozen_strategy = next(
+            item for item in package["source_units"] if item["kind"] == "strategy"
+        )
+        assert "@factor" not in frozen_strategy["source"]
+
+        strategy_source = project["strategy_source"].replace(
+            "top_n: int = 10", "top_n: int = 7"
+        )
+        project = repository.update_strategy_source(
+            "source-units",
+            strategy_source,
+            expected_source_sha256=project["draft_source_sha256"],
+        )
+        assert "top_n: int = 7" in project["strategy_source"]
+        assert "@factor" not in project["strategy_source"]
+        assert "def momentum_20d(" in project["draft_source"]
+
+        project = repository.add_factor_source(
+            "source-units",
+            '''@factor(id="close_level", label="收盘价")
+def close_level(context):
+    return context.current("close")
+''',
+            expected_source_sha256=project["draft_source_sha256"],
+        )
+        assert "@factor" not in project["strategy_source"]
+        assert "def close_level(context)" in project["draft_source"]
+        assert {item["path"] for item in project["source_units"]} == {
+            "strategy.py",
+            "factors/momentum_20d.py",
+            "factors/close_level.py",
+        }
+        close_source = repository.get_factor_source("source-units", "close_level")
+        assert close_source["source"].startswith('@factor(id="close_level"')
+        project = repository.replace_factor_source(
+            "source-units",
+            "close_level",
+            close_source["source"].replace("close_level", "latest_close"),
+            expected_source_sha256=project["draft_source_sha256"],
+        )
+        assert "factors/close_level.py" not in {
+            item["path"] for item in project["source_units"]
+        }
+        assert "factors/latest_close.py" in {
+            item["path"] for item in project["source_units"]
+        }
+    finally:
+        repository.close()
 
 
 def test_legacy_pipeline_migration_preserves_all_factors_and_weights(tmp_path: Path):
@@ -611,6 +711,52 @@ def test_repository_removes_deprecated_factor_inputs_from_mutable_drafts(tmp_pat
         assert project is not None
         assert "inputs=" not in project["draft_source"]
         assert project["draft_source_sha256"] != legacy_hash
+    finally:
+        migrated.close()
+
+
+def test_repository_backfills_default_risk_python_for_clean_legacy_projects(tmp_path: Path):
+    database = tmp_path / "default-risk.db"
+    repository = StrategyRepository(database)
+    try:
+        repository.clone_project("sdk-v1-default", "legacy-risk-project")
+    finally:
+        repository.close()
+
+    start = DEFAULT_STRATEGY_SOURCE.index("@on_event(Event.SESSION_CLOSE")
+    end = DEFAULT_STRATEGY_SOURCE.index("@execution(", start)
+    legacy_source = DEFAULT_STRATEGY_SOURCE[:start] + DEFAULT_STRATEGY_SOURCE[end:]
+    legacy_hash = inspect_strategy_source(legacy_source).source_sha256
+    connection = sqlite3.connect(database)
+    connection.execute(
+        "UPDATE strategy_projects SET draft_source = ?, draft_source_sha256 = ? WHERE id = ?",
+        (legacy_source, legacy_hash, "legacy-risk-project"),
+    )
+    connection.execute(
+        "UPDATE strategy_source_packages SET source = ?, source_sha256 = ? "
+        "WHERE project_id = ? AND revision = 1",
+        (legacy_source, legacy_hash, "legacy-risk-project"),
+    )
+    connection.execute(
+        "DELETE FROM strategy_contract_migrations WHERE name = ?",
+        ("strategy-sdk-v1-default-risk-event",),
+    )
+    connection.commit()
+    connection.close()
+
+    migrated = StrategyRepository(database)
+    try:
+        project = migrated.get_project("legacy-risk-project")
+        assert project is not None
+        assert '@on_event(Event.SESSION_CLOSE, id="holding_period_risk"' in project[
+            "strategy_source"
+        ]
+        assert project["current_revision"] == 2
+        assert project["dirty"] is False
+        assert migrated.get_package("legacy-risk-project", 1)["source_sha256"] == legacy_hash
+        assert migrated.get_package("legacy-risk-project", 2)["source_sha256"] == project[
+            "draft_source_sha256"
+        ]
     finally:
         migrated.close()
 

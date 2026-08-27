@@ -36,6 +36,11 @@ def test_data_and_strategy_sdk_read_contracts(tmp_path, monkeypatch):
     assert project["current_package"]["sdk_version"] == 1
     assert project["inspection"]["source_sha256"] == project["draft_source_sha256"]
     assert "@factor" in project["draft_source"]
+    assert "@factor" not in project["strategy_source"]
+    assert {item["path"] for item in project["source_units"]} == {
+        "strategy.py",
+        "factors/momentum_20d.py",
+    }
     entrypoint = client.get(
         "/api/strategy/projects/sdk-v1-default/entrypoints/monthly_momentum/source"
     )
@@ -262,14 +267,22 @@ def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, mo
         },
     )
     assert cloned.status_code == 201, cloned.text
+    assert "@factor" not in cloned.json()["strategy_source"]
     source_hash = cloned.json()["draft_source_sha256"]
     installed = client.post(
         "/api/strategy/projects/template-project/factor-templates/momentum_60d",
         json={"expected_source_sha256": source_hash, "confirm_write": True},
     )
     assert installed.status_code == 200, installed.text
+    assert installed.json()["factor"]["id"] == "momentum_60d"
     project = installed.json()["project"]
     assert "def momentum_60d(context" in project["draft_source"]
+    assert "@factor" not in project["strategy_source"]
+    assert {item["path"] for item in project["source_units"]} >= {
+        "strategy.py",
+        "factors/momentum_20d.py",
+        "factors/momentum_60d.py",
+    }
     assert {item["id"] for item in project["inspection"]["entrypoints"]} >= {
         "momentum_20d",
         "momentum_60d",
@@ -298,7 +311,15 @@ def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, mo
             "confirm_write": True,
         },
     )
-    assert duplicate.status_code == 422
+    assert duplicate.status_code == 200, duplicate.text
+    assert duplicate.json()["factor"]["id"] == "momentum_60d_2"
+    assert duplicate.json()["factor"]["function"] == "momentum_60d_2"
+    assert duplicate.json()["factor"]["label"] == "60 日动量（副本 2）"
+    project = duplicate.json()["project"]
+    assert "def momentum_60d_2(context" in project["draft_source"]
+    assert "factors/momentum_60d_2.py" in {
+        item["path"] for item in project["source_units"]
+    }
 
     denied = client.post(
         "/api/strategy/projects/template-project/factor-templates/roe",
@@ -319,6 +340,165 @@ def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, mo
     )
     assert saved.status_code == 201, saved.text
     assert saved.json()["revision"] == 2
+
+
+def test_strategy_and_factor_source_routes_keep_authoring_files_separate(
+    tmp_path, monkeypatch
+):
+    database = tmp_path / "separate-source-routes.db"
+    monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
+    client = TestClient(app)
+    cloned = client.post(
+        "/api/strategy/projects/sdk-v1-default/clone",
+        json={
+            "target_id": "separate-source-routes",
+            "name": "Separate Source Routes",
+            "confirm_save": True,
+            "confirm_python_execution": True,
+        },
+    )
+    assert cloned.status_code == 201, cloned.text
+    project = cloned.json()
+
+    strategy_source = project["strategy_source"].replace(
+        "top_n: int = 10", "top_n: int = 4"
+    )
+    updated = client.put(
+        "/api/strategy/projects/separate-source-routes/draft",
+        json={
+            "source": strategy_source,
+            "expected_source_sha256": project["draft_source_sha256"],
+            "confirm_write": True,
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    project = updated.json()
+    assert "top_n: int = 4" in project["strategy_source"]
+    assert "@factor" not in project["strategy_source"]
+    assert "def momentum_20d(" in project["draft_source"]
+
+    added = client.post(
+        "/api/strategy/projects/separate-source-routes/factors",
+        json={
+            "source": '@factor(id="close_level")\ndef close_level(context):\n    return context.current("close")\n',
+            "expected_source_sha256": project["draft_source_sha256"],
+            "confirm_write": True,
+        },
+    )
+    assert added.status_code == 201, added.text
+    assert added.json()["factor"]["id"] == "close_level"
+    project = added.json()["project"]
+    assert "@factor" not in project["strategy_source"]
+    assert "def close_level(context)" in project["draft_source"]
+    assert "factors/close_level.py" in {
+        item["path"] for item in project["source_units"]
+    }
+
+
+def test_visual_settings_batch_is_one_atomic_source_edit(tmp_path, monkeypatch):
+    database = tmp_path / "visual-settings.db"
+    monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
+    client = TestClient(app)
+    cloned = client.post(
+        "/api/strategy/projects/sdk-v1-default/clone",
+        json={
+            "target_id": "visual-settings-project",
+            "name": "Visual Settings",
+            "confirm_save": True,
+            "confirm_python_execution": True,
+        },
+    )
+    assert cloned.status_code == 201, cloned.text
+    edits = [
+        {
+            "operation": "schedule",
+            "entrypoint_id": "monthly_momentum",
+            "frequency": "weekly",
+            "selector": "last_trading_day",
+            "at": "close",
+        },
+        {
+            "operation": "factor_blend",
+            "entrypoint_id": "monthly_momentum",
+            "factor_weights": {"momentum_20d": 0.75},
+            "normalization": "zscore",
+        },
+        {
+            "operation": "parameter",
+            "entrypoint_id": "monthly_momentum",
+            "parameter": "top_n",
+            "value": 3,
+        },
+    ]
+
+    preview = client.post(
+        "/api/strategy/projects/visual-settings-project/edits/preview",
+        json={
+            "edits": edits,
+            "expected_source_sha256": cloned.json()["draft_source_sha256"],
+        },
+    )
+    assert preview.status_code == 200, preview.text
+    assert "Weekly.last_trading_day" in preview.json()["source"]
+    assert "monthly_momentum" in preview.json()["source"]
+    assert "@factor" not in preview.json()["source"]
+    unchanged = client.get("/api/strategy/projects/visual-settings-project").json()
+    assert unchanged["draft_source_sha256"] == cloned.json()["draft_source_sha256"]
+
+    updated = client.post(
+        "/api/strategy/projects/visual-settings-project/edits",
+        json={
+            "operation": "batch",
+            "edits": edits,
+            "expected_source_sha256": cloned.json()["draft_source_sha256"],
+            "confirm_write": True,
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    project = updated.json()["project"]
+    signal = next(
+        item for item in project["inspection"]["entrypoints"]
+        if item["id"] == "monthly_momentum"
+    )
+    assert signal["metadata"]["schedule"]["frequency"] == "weekly"
+    assert signal["metadata"]["factor_blend"]["weights"] == {"momentum_20d": 0.75}
+    assert signal["metadata"]["factor_blend"]["normalization"] == "zscore"
+    assert next(item for item in signal["parameters"] if item["name"] == "top_n")["default"] == 3
+    assert project["current_revision"] == 1
+    assert project["dirty"] is True
+
+    rejected = client.post(
+        "/api/strategy/projects/visual-settings-project/edits",
+        json={
+            "operation": "batch",
+            "edits": [
+                {
+                    "operation": "schedule",
+                    "entrypoint_id": "monthly_momentum",
+                    "frequency": "daily",
+                    "selector": "every",
+                    "at": "open",
+                },
+                {
+                    "operation": "parameter",
+                    "entrypoint_id": "monthly_momentum",
+                    "parameter": "missing_parameter",
+                    "value": 1,
+                },
+            ],
+            "expected_source_sha256": project["draft_source_sha256"],
+            "confirm_write": True,
+        },
+    )
+    assert rejected.status_code == 422
+    unchanged = client.get("/api/strategy/projects/visual-settings-project").json()
+    assert unchanged["draft_source_sha256"] == project["draft_source_sha256"]
+
+    empty = client.post(
+        "/api/strategy/projects/visual-settings-project/edits",
+        json={"operation": "batch", "edits": [], "confirm_write": True},
+    )
+    assert empty.status_code == 422
 
 
 def test_legacy_authoring_routes_are_not_mounted():

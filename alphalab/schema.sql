@@ -31,7 +31,11 @@ CREATE TABLE IF NOT EXISTS backtests (
     strategy_project_id TEXT,
     strategy_revision INTEGER,
     strategy_source_sha256 TEXT,
-    strategy_manifest_json TEXT
+    strategy_manifest_json TEXT,
+    validation_source TEXT,
+    validation_revision INTEGER,
+    validation_source_sha256 TEXT,
+    validation_output_json TEXT
 );
 
 -- Strategy SDK v1 is the sole current authoring/runtime contract. Existing
@@ -74,6 +78,56 @@ CREATE TABLE IF NOT EXISTS strategy_source_packages (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_strategy_source_package_hash
     ON strategy_source_packages(project_id, source_sha256);
+
+-- Project-owned validation.py. The mutable row is the current editor model;
+-- packages are immutable run inputs pinned alongside strategy packages.
+CREATE TABLE IF NOT EXISTS validation_sources (
+    project_id TEXT PRIMARY KEY REFERENCES strategy_projects(id) ON DELETE CASCADE,
+    source TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    current_revision INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS validation_source_packages (
+    project_id TEXT NOT NULL REFERENCES strategy_projects(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    inspection_json TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY(project_id, revision)
+) WITHOUT ROWID;
+
+-- Canonical editable source files. draft_source remains the deterministic
+-- assembled runtime artifact for backward compatibility and execution.
+CREATE TABLE IF NOT EXISTS strategy_source_units (
+    project_id TEXT NOT NULL REFERENCES strategy_projects(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('strategy', 'factor')),
+    source TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY(project_id, path)
+) WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS idx_strategy_source_units_kind
+    ON strategy_source_units(project_id, kind, position);
+
+CREATE TABLE IF NOT EXISTS strategy_source_package_units (
+    project_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('strategy', 'factor')),
+    source TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(project_id, revision, path),
+    FOREIGN KEY(project_id, revision)
+        REFERENCES strategy_source_packages(project_id, revision) ON DELETE CASCADE
+) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS strategy_contract_migrations (
     name TEXT PRIMARY KEY,

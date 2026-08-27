@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { Code2, Database, History, Play, RefreshCw, Save, ShieldCheck } from "lucide-react"
 
 import { CumulativeReturnsChart, DrawdownChart } from "@/components/charts"
@@ -20,7 +20,47 @@ import {
 import { Widget } from "@/widgets/Widget"
 
 interface ProfileFields { start_date: string; end_date: string }
-type ValidationTab = "performance" | "signals" | "attribution" | "robustness" | "source" | "history"
+interface ValidationParameter {
+  name: string
+  annotation: string | null
+  default: unknown
+  editable: boolean
+  minimum: number | null
+  maximum: number | null
+  step: number | null
+}
+interface ValidationEntrypoint {
+  id: string
+  label: string | null
+  parameters: ValidationParameter[]
+  line: number
+}
+interface ValidationWorkspace {
+  project_id: string
+  source: string
+  source_sha256: string
+  current_revision: number
+  editable: boolean
+  inspection: { entrypoints: ValidationEntrypoint[] }
+}
+type ValidationTab = "performance" | "signals" | "attribution" | "robustness" | "history"
+
+const PARAMETER_LABELS: Record<string, string> = {
+  periods_per_year: "年化周期",
+  risk_free_rate: "无风险年利率",
+  minimum_observations: "最少回归样本",
+  newey_west_lags: "Newey-West 滞后阶数",
+}
+
+function parameterKey(entrypointId: string, parameter: string) {
+  return `${entrypointId}.${parameter}`
+}
+
+function parameterValues(workspace: ValidationWorkspace) {
+  return Object.fromEntries(workspace.inspection.entrypoints.flatMap((entrypoint) =>
+    entrypoint.parameters.map((parameter) => [parameterKey(entrypoint.id, parameter.name), parameter.default]),
+  ))
+}
 
 function percent(value: unknown, digits = 2) {
   return typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(digits)}%` : "—"
@@ -44,9 +84,13 @@ export function ValidationWorkbenchWidget() {
   const { selectedBacktest, setSelectedBacktest } = useWorkspace()
   const project = sdk.project
   const [tab, setTab] = useState<ValidationTab>("performance")
+  const [validation, setValidation] = useState<ValidationWorkspace | null>(null)
   const [source, setSource] = useState("")
+  const [validationParameters, setValidationParameters] = useState<Record<string, unknown>>({})
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
+  const [profileBounds, setProfileBounds] = useState<ProfileFields | null>(null)
+  const [configPaneWidth, setConfigPaneWidth] = useState(34)
   const [jobs, setJobs] = useState<BacktestJob[]>([])
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [runs, setRuns] = useState<BacktestRecord[]>([])
@@ -57,17 +101,24 @@ export function ValidationWorkbenchWidget() {
   const [busy, setBusy] = useState(false)
   const [loadingResult, setLoadingResult] = useState(false)
   const [error, setError] = useState("")
+  const authoringSplit = useRef<HTMLDivElement>(null)
+  const resultsSection = useRef<HTMLElement>(null)
 
   useEffect(() => {
-    setSource(project?.draft_source ?? "")
+    setValidation(null); setSource(""); setValidationParameters({})
     setAnalysis(null); setSignals(null); setAttribution(null); setRobustness(null)
     if (!project) return
     void Promise.all([
+      api.get<ValidationWorkspace>(`/validation/projects/${project.id}`),
       api.get<ProfileFields>(`/strategy/fields?profile=${project.profile}`),
       api.get<BacktestRecord[]>("/backtests?limit=50"),
       api.get<BacktestJob[]>("/backtests/jobs?limit=20"),
-    ]).then(([profile, runRows, jobRows]) => {
+    ]).then(([validationWorkspace, profile, runRows, jobRows]) => {
       const projectRuns = runRows.filter((item) => item.strategy_id === project.id)
+      setValidation(validationWorkspace)
+      setSource(validationWorkspace.source)
+      setValidationParameters(parameterValues(validationWorkspace))
+      setProfileBounds(profile)
       setStartDate(profile.start_date); setEndDate(profile.end_date)
       setRuns(projectRuns); setJobs(jobRows)
       const active = jobRows.find((item) => item.request?.project_id === project.id && (item.status === "queued" || item.status === "running"))
@@ -76,7 +127,7 @@ export function ValidationWorkbenchWidget() {
         setSelectedBacktest(projectRuns[0]?.id ?? null)
       }
     }).catch((reason: Error) => setError(reason.message))
-  }, [project?.id, project?.profile, project?.current_revision, project?.draft_source_sha256])
+  }, [project?.id, project?.profile, project?.current_revision, project?.draft_source_sha256, project?.strategy_source])
 
   useEffect(() => {
     if (!activeJobId) return
@@ -87,6 +138,7 @@ export function ValidationWorkbenchWidget() {
           setActiveJobId(null)
           setSelectedBacktest(job.result_id)
           setTab("performance")
+          window.setTimeout(() => resultsSection.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0)
           void api.get<BacktestRecord[]>("/backtests?limit=50").then((rows) => {
             setRuns(rows.filter((item) => item.strategy_id === project?.id))
           })
@@ -124,8 +176,18 @@ export function ValidationWorkbenchWidget() {
     return () => { current = false }
   }, [selectedBacktest])
 
-  const localDirty = Boolean(project && source !== project.draft_source)
-  const hasUnsavedChanges = Boolean(project?.dirty || localDirty)
+  const localDirty = Boolean(validation && source !== validation.source)
+  const visualEdits = useMemo(() => validation?.inspection.entrypoints.flatMap((entrypoint) =>
+    entrypoint.parameters.filter((parameter) => parameter.editable).flatMap((parameter) => {
+      const key = parameterKey(entrypoint.id, parameter.name)
+      return Object.is(validationParameters[key], parameter.default) ? [] : [{
+        entrypoint_id: entrypoint.id,
+        parameter: parameter.name,
+        value: validationParameters[key],
+      }]
+    })) ?? [], [validation, validationParameters])
+  const visualDirty = visualEdits.length > 0
+  const hasUnsavedChanges = Boolean(project?.dirty || localDirty || visualDirty)
   const equityData = useMemo(() => analysis?.dates.map((date, index) => ({
     date,
     strategy: analysis.equity_curve[index] ?? 1,
@@ -139,6 +201,23 @@ export function ValidationWorkbenchWidget() {
   })) ?? [], [analysis])
   const activeJob = jobs.find((item) => item.id === activeJobId)
   const invalidRange = Boolean(startDate && endDate && startDate > endDate)
+
+  function beginResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    const container = authoringSplit.current
+    if (!container) return
+    event.preventDefault()
+    const move = (pointer: PointerEvent) => {
+      const bounds = container.getBoundingClientRect()
+      const width = ((pointer.clientX - bounds.left) / bounds.width) * 100
+      setConfigPaneWidth(Math.min(56, Math.max(24, width)))
+    }
+    const stop = () => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", stop)
+    }
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", stop)
+  }
 
   async function runBacktest() {
     if (!project || hasUnsavedChanges || invalidRange) return
@@ -159,50 +238,146 @@ export function ValidationWorkbenchWidget() {
     finally { setBusy(false) }
   }
 
-  async function saveAsDraft(nextSource = source) {
-    if (!project?.editable || (nextSource === project.draft_source && !project.dirty)) return
+  async function saveValidationSource(nextSource = source) {
+    if (!project || !validation?.editable || nextSource === validation.source) return
     setBusy(true); setError("")
-    try { await sdk.updateDraft(nextSource) }
+    try {
+      const updated = await api.put<ValidationWorkspace>(`/validation/projects/${project.id}`, {
+        source: nextSource,
+        expected_source_sha256: validation.source_sha256,
+        confirm_write: true,
+      })
+      setValidation(updated); setSource(updated.source)
+      setValidationParameters(parameterValues(updated))
+    }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setBusy(false) }
+  }
+
+  async function applyValidationParameters() {
+    if (!project || !validation?.editable || !visualEdits.length || localDirty) return
+    setBusy(true); setError("")
+    try {
+      const updated = await api.post<ValidationWorkspace>(
+        `/validation/projects/${project.id}/parameters`,
+        {
+          edits: visualEdits,
+          expected_source_sha256: validation.source_sha256,
+          confirm_write: true,
+        },
+      )
+      setValidation(updated); setSource(updated.source)
+      setValidationParameters(parameterValues(updated))
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setBusy(false) }
   }
 
   if (!project) return <Widget title="验证与回测" loading={sdk.loading} error={sdk.error}><span /></Widget>
   return (
-    <Widget headerless>
-      <section className="backtest-run-setup">
-        <div className="backtest-section-heading">
-          <div><strong>完整策略回测</strong><span>选择样本区间并运行当前已保存策略；调度、持仓与成交参数来自同一份 Python。</span></div>
-          <small>RQData · Strategy SDK v1</small>
-        </div>
-        <div className="backtest-setup-grid">
-          <div className="backtest-setup-card">
-            <div className="backtest-setup-card-heading"><strong>当前策略</strong><span>历史回测会保留各自运行时的代码</span></div>
-            <div className="backtest-run-controls">
-              <div className="pipeline-pinned-component"><span>策略项目</span><strong>{project.name}</strong></div>
-              <div className="pipeline-pinned-component readonly"><span>代码状态</span><strong>{hasUnsavedChanges ? "尚未保存" : "已保存"}</strong></div>
+    <Widget headerless className="validation-workbench-widget">
+      <section className="backtest-authoring">
+        <div
+          ref={authoringSplit}
+          className="backtest-authoring-split"
+          style={{ gridTemplateColumns: `${configPaneWidth}% 0.4rem minmax(0, 1fr)` }}
+        >
+          <section className="backtest-config-pane">
+            <header className="backtest-authoring-pane-header"><strong>回测配置</strong></header>
+            <div className="backtest-config-pane-body">
+              <div className="backtest-setup-card">
+                <div className="backtest-setup-card-heading"><strong>回测样本</strong></div>
+                <div className="backtest-run-controls">
+                  <label><span>开始日期</span><input type="date" min={profileBounds?.start_date} max={profileBounds?.end_date} value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
+                  <label><span>结束日期</span><input type="date" min={profileBounds?.start_date} max={profileBounds?.end_date} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label>
+                </div>
+              </div>
+              {validation?.inspection.entrypoints.map((entrypoint) => entrypoint.parameters.some((parameter) => parameter.editable) ? (
+                <div className="backtest-setup-card" key={entrypoint.id}>
+                  <div className="backtest-setup-card-heading"><strong>{entrypoint.label || entrypoint.id}</strong></div>
+                  <div className="validation-parameter-grid">
+                    {entrypoint.parameters.filter((parameter) => parameter.editable).map((parameter) => {
+                      const key = parameterKey(entrypoint.id, parameter.name)
+                      const value = validationParameters[key]
+                      return <label key={key} className={Object.is(value, parameter.default) ? "" : "changed"}>
+                        <span>{PARAMETER_LABELS[parameter.name] || parameter.name}</span>
+                        {typeof parameter.default === "boolean" ? <select
+                          value={String(value)}
+                          disabled={!validation.editable || localDirty}
+                          onChange={(event) => setValidationParameters((current) => ({ ...current, [key]: event.target.value === "true" }))}
+                        ><option value="true">是</option><option value="false">否</option></select> : <input
+                          type={typeof parameter.default === "number" ? "number" : "text"}
+                          min={parameter.minimum ?? undefined}
+                          max={parameter.maximum ?? undefined}
+                          step={parameter.step ?? (parameter.annotation === "int" ? 1 : "any")}
+                          value={String(value ?? "")}
+                          disabled={!validation.editable || localDirty}
+                          onChange={(event) => setValidationParameters((current) => ({
+                            ...current,
+                            [key]: typeof parameter.default === "number" ? Number(event.target.value) : event.target.value,
+                          }))}
+                        />}
+                      </label>
+                    })}
+                  </div>
+                </div>
+              ) : null)}
+              <div className="validation-parameter-actions">
+                <Button disabled={!visualDirty || busy || localDirty || !validation?.editable} onClick={() => void applyValidationParameters()}>应用参数</Button>
+              </div>
             </div>
-          </div>
-          <div className="backtest-setup-card">
-            <div className="backtest-setup-card-heading"><strong>回测样本</strong><span>交易日和可交易性由所选数据 profile 提供</span></div>
-            <div className="backtest-run-controls">
-              <label><span>开始日期</span><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
-              <label><span>结束日期</span><input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label>
-              <div className="pipeline-pinned-component readonly"><span>执行环境</span><strong>本机 Python</strong></div>
+            <footer className="backtest-run-footer">
+              {invalidRange || hasUnsavedChanges ? <span className="warning">{invalidRange ? "开始日期必须早于结束日期" : project.dirty ? "请先保存策略修改" : visualDirty ? "请先应用验证参数" : "请先保存右侧 Python"}</span> : <span />}
+              <div className="backtest-run-actions"><button className="primary-command" type="button" disabled={busy || Boolean(activeJobId) || hasUnsavedChanges || invalidRange} onClick={() => void runBacktest()}><Play />{activeJobId ? "回测运行中" : "运行回测"}</button></div>
+            </footer>
+          </section>
+
+          <button
+            type="button"
+            className="backtest-split-divider"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整回测配置与 Python 面板宽度"
+            aria-valuemin={24}
+            aria-valuemax={56}
+            aria-valuenow={Math.round(configPaneWidth)}
+            onPointerDown={beginResize}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
+              event.preventDefault()
+              setConfigPaneWidth((current) => Math.min(56, Math.max(24, current + (event.key === "ArrowLeft" ? -2 : 2))))
+            }}
+          />
+
+          <section className="backtest-python-pane">
+            <header className="backtest-authoring-pane-header"><div><Code2 size={15} /><strong>验证 Python</strong></div></header>
+            <div className="backtest-python-pane-body">
+              {validation ? <PythonEditor
+                className="backtest-python-editor"
+                kind="validation"
+                documentId={`${project.id}.validation`}
+                value={source}
+                version={validation.source_sha256}
+                baselineValue={validation.source}
+                disabled={!validation.editable}
+                height="100%"
+                fields={[]}
+                factors={[]}
+                parameters={validation.inspection.entrypoints.flatMap((entrypoint) => entrypoint.parameters)}
+                onChange={setSource}
+                onSave={(nextSource) => saveValidationSource(nextSource)}
+              /> : <div className="python-editor-loading">正在加载 validation.py…</div>}
             </div>
-          </div>
-        </div>
-        <div className="backtest-run-footer">
-          <span className={invalidRange || hasUnsavedChanges ? "warning" : ""}>{invalidRange ? "开始日期必须早于结束日期" : hasUnsavedChanges ? "请先保存屏幕中的 Python，再运行回测" : "回测将使用当前已保存策略和所选数据范围"}</span>
-          <div className="backtest-run-actions"><button className="primary-command" type="button" disabled={busy || Boolean(activeJobId) || hasUnsavedChanges || invalidRange} onClick={() => void runBacktest()}><Play />{activeJobId ? "回测运行中" : "运行回测"}</button></div>
+            <footer className="backtest-python-actions"><Button disabled={!validation?.editable || busy || !localDirty || visualDirty} onClick={() => void saveValidationSource()}><Save />保存</Button></footer>
+          </section>
         </div>
       </section>
 
       {activeJob ? <div className="workbench-message"><RefreshCw className="spin" />{activeJob.message || (activeJob.status === "queued" ? "已进入回测队列" : "逐交易日运行事件引擎…")}</div> : null}
       {error ? <div className="workbench-message error">{error}</div> : null}
 
+      <section ref={resultsSection} className="backtest-results-section">
       <section className="backtest-result-identity">
-        <div className="backtest-result-title"><strong>当前结果</strong><span>{analysis ? `${analysis.strategy_id} · ${analysis.start_date} — ${analysis.end_date}` : "选择历史 Run 或运行一次回测"}</span></div>
+        <div className="backtest-result-title"><strong>回测结果</strong><span>{analysis ? `${analysis.start_date} — ${analysis.end_date}` : "选择历史 Run 或运行一次回测"}</span></div>
         {analysis?.strategy_snapshot ? <div className="backtest-snapshot-summary"><Database size={13} /><span>运行时策略 · {analysis.strategy_snapshot.factors.length} 个因子</span></div> : null}
         <select aria-label="选择历史回测" value={selectedBacktest ?? ""} onChange={(event) => setSelectedBacktest(event.target.value || null)}><option value="">选择历史 Run</option>{runs.map((run) => <option key={run.id} value={run.id}>{run.start_date}–{run.end_date} · {percent(run.total_return)} · {run.run_at.slice(0, 10)}</option>)}</select>
       </section>
@@ -210,7 +385,7 @@ export function ValidationWorkbenchWidget() {
       <div className="workbench-tabs" role="tablist" aria-label="验证结果视图">
         {([
           ["performance", "收益与回撤"], ["signals", "信号诊断"], ["attribution", "Alpha/Beta 归因"],
-          ["robustness", "稳健性"], ["source", "回测页 Python"], ["history", "历史 Run"],
+          ["robustness", "稳健性"], ["history", "历史 Run"],
         ] as Array<[ValidationTab, string]>).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
       </div>
 
@@ -252,29 +427,12 @@ export function ValidationWorkbenchWidget() {
         </> : <div className="analytics-empty">该 Run 无法形成稳健性结论，通常是基准数据覆盖不足。</div>}
       </div> : null}
 
-      {tab === "source" ? <div className="workbench-body">
-        <div className="backtest-section-heading"><div><strong><Code2 size={15} /> 回测页 Python</strong><span>修改并保存当前项目代码；已有历史回测结果不会改变。</span></div><Badge variant={hasUnsavedChanges ? "destructive" : "secondary"}>{hasUnsavedChanges ? "尚未保存" : "已保存"}</Badge></div>
-        <PythonEditor
-          kind="strategy"
-          documentId={project.id}
-          value={source}
-          version={project.draft_source_sha256}
-          baselineValue={project.draft_source}
-          disabled={!project.editable}
-          height={620}
-          fields={[]}
-          factors={project.inspection.entrypoints.filter((item) => item.kind === "factor").map((factor) => ({ id: factor.id, label: factor.label }))}
-          onChange={setSource}
-          onSave={(nextSource) => saveAsDraft(nextSource)}
-        />
-        <div className="mt-3 flex justify-end"><Button disabled={!project.editable || busy || (!localDirty && !project.dirty)} onClick={() => void saveAsDraft()}><Save />保存</Button></div>
-      </div> : null}
-
       {tab === "history" ? <div className="workbench-body">
         <div className="backtest-section-heading"><div><strong><History size={15} /> 历史 Run</strong><span>每条记录都保留当时的策略代码和运行输入。</span></div><Button size="sm" variant="outline" onClick={() => void api.get<BacktestRecord[]>("/backtests?limit=50").then((rows) => setRuns(rows.filter((item) => item.strategy_id === project.id)))}><RefreshCw />刷新</Button></div>
         <div className="editor-list">{runs.map((run) => <button key={run.id} type="button" className={selectedBacktest === run.id ? "active" : ""} onClick={() => { setSelectedBacktest(run.id); setTab("performance") }}><strong>{run.start_date} → {run.end_date}</strong><small>{run.run_at.slice(0, 16).replace("T", " ")} · {run.profile}</small><em>{percent(run.total_return)} · Sharpe {number(run.sharpe)}</em></button>)}</div>
         {!runs.length ? <div className="analytics-empty">当前项目尚无历史回测。</div> : null}
       </div> : null}
+      </section>
     </Widget>
   )
 }

@@ -72,6 +72,9 @@ def get_backtest(backtest_id: str) -> dict | None:
     record["provenance"] = _json_payload(record.pop("provenance_json", None), {})
     record["executions"] = _json_payload(record.pop("execution_json", None), [])
     record["attribution"] = _json_payload(record.pop("attribution_json", None), {})
+    record["validation_output"] = _json_payload(
+        record.pop("validation_output_json", None), {}
+    )
     record["component_manifest"] = _json_payload(record.pop("component_manifest_json", None), [])
     record["strategy_manifest"] = _json_payload(record.pop("strategy_manifest_json", None), [])
     record["settings"] = _json_payload(record.pop("settings_json", None), {})

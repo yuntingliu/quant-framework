@@ -4,7 +4,6 @@ from pathlib import Path
 
 import alphalab
 
-
 ROOT = Path(__file__).resolve().parents[2]
 MODES = ["project", "data", "factor", "strategy", "validation", "report"]
 
@@ -74,6 +73,23 @@ def test_workbenches_share_the_strategy_sdk_context():
     ).read_text(encoding="utf-8")
     assert "context.history" in factor and "context.factor" in factor
     assert "structuredEdit" in strategy
+    assert 'kind="strategy"' in strategy
+    assert 'kind="function"' not in strategy
+    assert 'operation: "replace_function"' not in strategy
+    assert "/entrypoints/" not in strategy
+    assert "StrategyVisualEditor" in strategy
+    assert "应用全部设置" in strategy
+    assert "strategy-split-authoring" in strategy
+    assert "完整策略 Python" in strategy
+    assert "project.strategy_source" in strategy
+    assert "project.draft_source" not in strategy
+    assert "addFactorSource" in factor
+    assert "strategy-code-mode-switch" not in strategy
+    assert "编辑 Python" not in strategy
+    assert "`/strategy/projects/${projectId}/edits/preview`" in strategy
+    assert "onDraftChange" in strategy
+    assert "strategy-business-flow" not in strategy
+    assert "strategy-stage-sidebar" not in strategy
     assert "/backtests/jobs" in validation and "revision" in validation
 
 
@@ -128,6 +144,22 @@ def test_no_legacy_executable_strategy_runtime_remains():
     schema = (ROOT / "alphalab/schema.sql").read_text(encoding="utf-8")
     assert "CREATE TABLE IF NOT EXISTS pipeline_" not in schema
     assert "CREATE TABLE IF NOT EXISTS python_lab_" not in schema
+
+
+def test_strategy_authoring_units_assemble_into_one_runtime_package():
+    schema = (ROOT / "alphalab/schema.sql").read_text(encoding="utf-8")
+    source = (ROOT / "alphalab/strategy/source.py").read_text(encoding="utf-8")
+    edit_tool = (
+        ROOT
+        / "integrations/conexus/alphalab-research-agent/tools/Edit-Strategy-Source.tool.json"
+    ).read_text(encoding="utf-8")
+
+    assert "strategy_source_units" in schema
+    assert "strategy_source_package_units" in schema
+    assert "def split_strategy_source(" in source
+    assert "def assemble_strategy_source(" in source
+    assert '"add_factor"' in edit_tool
+    assert "/factors" in edit_tool
 
 
 def test_strategy_contract_is_declared_implemented():

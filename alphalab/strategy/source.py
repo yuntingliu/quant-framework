@@ -79,6 +79,18 @@ class SourceInspection:
         return payload
 
 
+@dataclass(frozen=True)
+class StrategySourceUnit:
+    path: str
+    kind: str
+    source: str
+    source_sha256: str
+    position: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 def inspect_strategy_source(source: str) -> SourceInspection:
     encoded = source.encode("utf-8")
     if not source.strip():
@@ -180,6 +192,111 @@ def inspect_strategy_source(source: str) -> SourceInspection:
         runtime_requirements=runtime_requirements,
         warnings=tuple(_static_warnings(tree)),
     )
+
+
+def split_strategy_source(source: str) -> tuple[str, tuple[StrategySourceUnit, ...]]:
+    """Split registered factors from a validated runtime module.
+
+    ``strategy.py`` remains a normal Python module containing project imports,
+    constants, universe, signal, portfolio, event, and execution functions.
+    Each factor unit contains exactly one registered ``@factor`` function.  The
+    complete runtime module remains a deterministic derived artifact.
+    """
+
+    inspection = inspect_strategy_source(source)
+    factor_ids = {
+        item.function: item.id for item in inspection.entrypoints if item.kind == "factor"
+    }
+    module = cst.parse_module(source)
+    strategy_body: list[cst.BaseStatement] = []
+    factors: list[StrategySourceUnit] = []
+    for item in module.body:
+        if isinstance(item, cst.FunctionDef) and item.name.value in factor_ids:
+            leading_lines = list(item.leading_lines)
+            while leading_lines and leading_lines[0].comment is None:
+                leading_lines.pop(0)
+            factor_node = item.with_changes(leading_lines=tuple(leading_lines))
+            factor_source = module.code_for_node(factor_node).rstrip() + "\n"
+            factor_id = factor_ids[item.name.value]
+            factors.append(
+                StrategySourceUnit(
+                    path=f"factors/{factor_id}.py",
+                    kind="factor",
+                    source=factor_source,
+                    source_sha256=hashlib.sha256(factor_source.encode("utf-8")).hexdigest(),
+                    position=len(factors),
+                )
+            )
+            continue
+        strategy_body.append(item)
+    strategy_source = module.with_changes(body=tuple(strategy_body)).code
+    return strategy_source, tuple(factors)
+
+
+def assemble_strategy_source(
+    strategy_source: str,
+    factor_sources: Iterable[str],
+) -> tuple[str, SourceInspection]:
+    """Build and validate the one runtime module from canonical source units."""
+
+    try:
+        strategy_module = cst.parse_module(strategy_source)
+    except cst.ParserSyntaxError as exc:
+        raise StrategySourceError(f"Python syntax error: {exc}", phase="parse") from exc
+    sdk_version = _literal_assignment(
+        ast.parse(strategy_source, filename="<alphalab-strategy-unit>"), "SDK_VERSION"
+    )
+    if sdk_version != 1:
+        raise StrategySourceError(
+            "strategy.py must declare literal SDK_VERSION = 1", phase="register"
+        )
+    for item in strategy_module.body:
+        if isinstance(item, cst.FunctionDef) and _cst_public_id(item)[0] == "factor":
+            raise StrategySourceError(
+                "strategy.py cannot contain @factor functions; edit them in the Factor Workbench",
+                phase="register",
+            )
+
+    factor_nodes: list[cst.FunctionDef] = []
+    factor_ids: set[str] = set()
+    for source in factor_sources:
+        try:
+            factor_module = cst.parse_module(str(source))
+        except cst.ParserSyntaxError as exc:
+            raise StrategySourceError(f"factor Python syntax error: {exc}", phase="parse") from exc
+        if len(factor_module.body) != 1 or not isinstance(
+            factor_module.body[0], cst.FunctionDef
+        ):
+            raise StrategySourceError(
+                "each factor file must contain exactly one complete @factor function",
+                phase="register",
+            )
+        factor_node = factor_module.body[0]
+        kind, factor_id = _cst_public_id(factor_node)
+        if kind != "factor" or not factor_id:
+            raise StrategySourceError(
+                "each factor file must contain exactly one complete @factor function",
+                phase="register",
+            )
+        if factor_id in factor_ids:
+            raise StrategySourceError(f"duplicate factor source {factor_id!r}", phase="register")
+        factor_ids.add(factor_id)
+        factor_node = factor_node.with_changes(
+            leading_lines=(cst.EmptyLine(), cst.EmptyLine(), *factor_node.leading_lines)
+        )
+        factor_nodes.append(factor_node)
+
+    body = list(strategy_module.body)
+    insertion_index = len(body)
+    for index, item in enumerate(body):
+        if not isinstance(item, cst.FunctionDef):
+            continue
+        if _cst_public_id(item)[0] in {"signal", "portfolio", "event", "execution"}:
+            insertion_index = index
+            break
+    body[insertion_index:insertion_index] = factor_nodes
+    bundled = strategy_module.with_changes(body=tuple(body)).code
+    return bundled, inspect_strategy_source(bundled)
 
 
 def update_parameter_default(
@@ -285,6 +402,73 @@ def update_signal_factor_blend(
         raise StrategySourceError(
             f"structured factor blend for signal {signal_id!r} was not found", phase="edit"
         )
+    return updated, inspect_strategy_source(updated)
+
+
+def ensure_default_risk_handler(source: str) -> tuple[str, SourceInspection]:
+    """Add the editable no-op holding-risk hook used by the default strategy."""
+
+    inspection = inspect_strategy_source(source)
+    if any(item.kind == "event" for item in inspection.entrypoints):
+        return source, inspection
+
+    tree = ast.parse(source)
+    occupied = {item.id for item in inspection.entrypoints}
+    occupied.update(
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    )
+    function_name = "holding_period_risk"
+    suffix = 2
+    while function_name in occupied:
+        function_name = f"holding_period_risk_{suffix}"
+        suffix += 1
+
+    bound_imports: set[str] = set()
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom) or node.module != "alphalab.sdk.v1":
+            continue
+        bound_imports.update(alias.asname or alias.name for alias in node.names)
+    missing_imports = [name for name in ("Event", "on_event") if name not in bound_imports]
+
+    module = cst.parse_module(source)
+    body = list(module.body)
+    if missing_imports:
+        import_statement = cst.parse_statement(
+            f"from alphalab.sdk.v1 import {', '.join(missing_imports)}\n"
+        )
+        import_indexes = [
+            index
+            for index, statement in enumerate(body)
+            if isinstance(statement, cst.SimpleStatementLine)
+            and statement.body
+            and isinstance(statement.body[0], (cst.Import, cst.ImportFrom))
+        ]
+        body.insert((import_indexes[-1] + 1) if import_indexes else 0, import_statement)
+
+    function = cst.parse_module(
+        f'@on_event(Event.SESSION_CLOSE, id="{function_name}", label="自定义持有期风控")\n'
+        f"def {function_name}(context, state):\n"
+        "    # 在每日收盘检查持仓；返回 PortfolioDecision 可调整目标仓位。\n"
+        "    return None\n"
+    ).body[0]
+    if not isinstance(function, cst.FunctionDef):  # pragma: no cover
+        raise StrategySourceError("default risk handler is invalid", phase="edit")
+    function = function.with_changes(
+        leading_lines=(cst.EmptyLine(), cst.EmptyLine(), *function.leading_lines)
+    )
+    execution_index = next(
+        (
+            index
+            for index, statement in enumerate(body)
+            if isinstance(statement, cst.FunctionDef)
+            and _cst_public_id(statement)[0] == "execution"
+        ),
+        len(body),
+    )
+    body.insert(execution_index, function)
+    updated = module.with_changes(body=tuple(body)).code
     return updated, inspect_strategy_source(updated)
 
 
@@ -1463,9 +1647,12 @@ __all__ = [
     "MAX_STRATEGY_SOURCE_BYTES",
     "ParameterSpec",
     "SourceInspection",
+    "StrategySourceUnit",
     "StrategySourceError",
     "VALIDATOR_VERSION",
+    "assemble_strategy_source",
     "delete_registered_function",
+    "ensure_default_risk_handler",
     "factor_dependency_snippet",
     "factor_field_snippet",
     "insert_source",
@@ -1473,6 +1660,7 @@ __all__ = [
     "registered_function_source",
     "remove_factor_inputs_arguments",
     "replace_registered_function",
+    "split_strategy_source",
     "update_parameter_default",
     "update_signal_factor_blend",
     "update_signal_schedule",

@@ -8,9 +8,7 @@ import pandas as pd
 
 from alphalab.analytics import (
     FACTOR_NAMES,
-    PerformanceMetrics,
     equal_weight_benchmark,
-    factor_attribution,
 )
 from alphalab.dataio import MissingDataError
 from alphalab.provenance import build_research_provenance
@@ -28,6 +26,7 @@ from alphalab.strategy.factor_templates import (
 )
 from alphalab.strategy.repository import StrategyRepository
 from alphalab.strategy.source import (
+    SourceInspection,
     delete_registered_function,
     factor_dependency_snippet,
     factor_field_snippet,
@@ -35,10 +34,13 @@ from alphalab.strategy.source import (
     inspect_strategy_source,
     registered_function_source,
     replace_registered_function,
+    split_strategy_source,
     update_parameter_default,
     update_signal_factor_blend,
     update_signal_schedule,
 )
+from alphalab.validation.repository import ValidationRepository
+from alphalab.validation.runtime import execute_validation
 from dashboard.backend.services.data_service import _engine, _profile_range
 
 
@@ -65,7 +67,13 @@ def get_project(project_id: str) -> dict[str, Any] | None:
 def create_project(payload: Mapping[str, Any]) -> dict[str, Any]:
     repo = repository()
     try:
-        return repo.create_project(**dict(payload))
+        project = repo.create_project(**dict(payload))
+        validation_repo = ValidationRepository(repo.path)
+        try:
+            validation_repo.get_or_create(project["id"])
+        finally:
+            validation_repo.close()
+        return project
     finally:
         repo.close()
 
@@ -73,7 +81,13 @@ def create_project(payload: Mapping[str, Any]) -> dict[str, Any]:
 def clone_project(project_id: str, target_id: str, name: str | None) -> dict[str, Any]:
     repo = repository()
     try:
-        return repo.clone_project(project_id, target_id, name=name)
+        project = repo.clone_project(project_id, target_id, name=name)
+        validation_repo = ValidationRepository(repo.path)
+        try:
+            validation_repo.clone_source(project_id, project["id"])
+        finally:
+            validation_repo.close()
+        return project
     finally:
         repo.close()
 
@@ -93,6 +107,52 @@ def update_draft(
         )
     finally:
         repo.close()
+
+
+def update_strategy_source(
+    project_id: str,
+    source: str,
+    *,
+    expected_source_sha256: str | None = None,
+) -> dict[str, Any]:
+    repo = repository()
+    try:
+        return repo.update_strategy_source(
+            project_id,
+            source,
+            expected_source_sha256=expected_source_sha256,
+        )
+    finally:
+        repo.close()
+
+
+def add_project_factor_source(
+    project_id: str,
+    source: str,
+    *,
+    expected_source_sha256: str | None = None,
+) -> dict[str, Any]:
+    project = get_project(project_id)
+    if project is None:
+        raise KeyError(project_id)
+    before = {
+        item["id"] for item in project["inspection"]["entrypoints"]
+        if item["kind"] == "factor"
+    }
+    repo = repository()
+    try:
+        updated = repo.add_factor_source(
+            project_id,
+            source,
+            expected_source_sha256=expected_source_sha256,
+        )
+    finally:
+        repo.close()
+    factor = next(
+        item for item in updated["inspection"]["entrypoints"]
+        if item["kind"] == "factor" and item["id"] not in before
+    )
+    return {"project": updated, "factor": factor}
 
 
 def update_metadata(project_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -161,15 +221,26 @@ def add_project_factor_template(
         raise KeyError(project_id)
     if expected_source_sha256 and expected_source_sha256 != project["draft_source_sha256"]:
         raise RuntimeError("draft changed since it was inspected")
+    existing_factor_ids = {
+        item.id for item in inspect_strategy_source(project["draft_source"]).entrypoints
+        if item.kind == "factor"
+    }
     updated, inspection = install_factor_template(project["draft_source"], template_id=template_id)
     updated_project = update_draft(
         project_id,
         updated,
         expected_source_sha256=project["draft_source_sha256"],
     )
+    inspection_payload = inspection.to_dict()
+    installed_factor = next(
+        item
+        for item in inspection_payload["entrypoints"]
+        if item["kind"] == "factor" and item["id"] not in existing_factor_ids
+    )
     return {
         "project": updated_project,
-        "inspection": inspection.to_dict(),
+        "inspection": inspection_payload,
+        "factor": installed_factor,
         "template": get_factor_template(template_id).to_dict(),
     }
 
@@ -178,11 +249,92 @@ def get_entrypoint_source(project_id: str, entrypoint_id: str) -> dict[str, Any]
     project = get_project(project_id)
     if project is None:
         raise KeyError(project_id)
+    entrypoint = next(
+        (
+            item
+            for item in project["inspection"]["entrypoints"]
+            if item["id"] == entrypoint_id
+        ),
+        None,
+    )
+    if entrypoint is None:
+        raise KeyError(entrypoint_id)
+    if entrypoint["kind"] == "factor":
+        repo = repository()
+        try:
+            source = repo.get_factor_source(project_id, entrypoint_id)["source"]
+        finally:
+            repo.close()
+    else:
+        source = registered_function_source(
+            project["strategy_source"], entrypoint_id=entrypoint_id
+        )
     return {
         "project_id": project_id,
         "entrypoint_id": entrypoint_id,
         "source_sha256": project["draft_source_sha256"],
-        "source": registered_function_source(project["draft_source"], entrypoint_id=entrypoint_id),
+        "source": source,
+    }
+
+
+def _apply_structured_edit(
+    source: str, payload: Mapping[str, Any]
+) -> tuple[str, SourceInspection]:
+    operation = str(payload.get("operation") or "")
+    if operation == "parameter":
+        return update_parameter_default(
+            source,
+            entrypoint_id=str(payload["entrypoint_id"]),
+            parameter=str(payload["parameter"]),
+            value=payload.get("value"),
+        )
+    if operation == "schedule":
+        return update_signal_schedule(
+            source,
+            signal_id=str(payload["entrypoint_id"]),
+            frequency=str(payload["frequency"]),
+            selector=str(payload.get("selector") or "every"),
+            at=str(payload["at"]),
+        )
+    if operation == "factor_blend":
+        return update_signal_factor_blend(
+            source,
+            signal_id=str(payload["entrypoint_id"]),
+            factor_weights=dict(payload["factor_weights"]),
+            normalization=str(payload["normalization"]),
+        )
+    if operation == "replace_function":
+        return replace_registered_function(
+            source,
+            entrypoint_id=str(payload["entrypoint_id"]),
+            function_source=str(payload["function_source"]),
+        )
+    if operation == "delete_function":
+        return delete_registered_function(
+            source,
+            entrypoint_id=str(payload["entrypoint_id"]),
+        )
+    raise ValueError("unsupported structured edit operation")
+
+
+def preview_structured_edits(project_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    project = get_project(project_id)
+    if project is None:
+        raise KeyError(project_id)
+    expected = payload.get("expected_source_sha256")
+    if expected and expected != project["draft_source_sha256"]:
+        raise RuntimeError("draft changed since it was inspected")
+    updated = project["draft_source"]
+    inspection = inspect_strategy_source(updated)
+    for edit in payload.get("edits") or ():
+        updated, inspection = _apply_structured_edit(updated, edit)
+    strategy_source, _ = split_strategy_source(updated)
+    return {
+        "project_id": project_id,
+        "base_source_sha256": project["draft_source_sha256"],
+        "source": strategy_source,
+        "source_sha256": inspection.source_sha256,
+        "inspection": inspection.to_dict(),
     }
 
 
@@ -190,46 +342,59 @@ def structured_edit(project_id: str, payload: Mapping[str, Any]) -> dict[str, An
     project = get_project(project_id)
     if project is None:
         raise KeyError(project_id)
-    source = project["draft_source"]
     expected = payload.get("expected_source_sha256")
     if expected and expected != project["draft_source_sha256"]:
         raise RuntimeError("draft changed since it was inspected")
     operation = str(payload.get("operation") or "")
-    if operation == "parameter":
-        updated, inspection = update_parameter_default(
-            source,
-            entrypoint_id=str(payload["entrypoint_id"]),
-            parameter=str(payload["parameter"]),
-            value=payload.get("value"),
-        )
-    elif operation == "schedule":
-        updated, inspection = update_signal_schedule(
-            source,
-            signal_id=str(payload["entrypoint_id"]),
-            frequency=str(payload["frequency"]),
-            selector=str(payload.get("selector") or "every"),
-            at=str(payload["at"]),
-        )
-    elif operation == "factor_blend":
-        updated, inspection = update_signal_factor_blend(
-            source,
-            signal_id=str(payload["entrypoint_id"]),
-            factor_weights=dict(payload["factor_weights"]),
-            normalization=str(payload["normalization"]),
-        )
-    elif operation == "replace_function":
-        updated, inspection = replace_registered_function(
-            source,
-            entrypoint_id=str(payload["entrypoint_id"]),
-            function_source=str(payload["function_source"]),
-        )
-    elif operation == "delete_function":
-        updated, inspection = delete_registered_function(
-            source,
-            entrypoint_id=str(payload["entrypoint_id"]),
-        )
+    entrypoint_id = str(payload.get("entrypoint_id") or "")
+    entrypoint = next(
+        (
+            item
+            for item in project["inspection"]["entrypoints"]
+            if item["id"] == entrypoint_id
+        ),
+        None,
+    )
+    if operation in {"replace_function", "delete_function"} and entrypoint is None:
+        raise KeyError(entrypoint_id)
+    if operation == "replace_function" and entrypoint["kind"] == "factor":
+        repo = repository()
+        try:
+            updated_project = repo.replace_factor_source(
+                project_id,
+                entrypoint_id,
+                str(payload["function_source"]),
+                expected_source_sha256=project["draft_source_sha256"],
+            )
+        finally:
+            repo.close()
+        return {
+            "project": updated_project,
+            "inspection": updated_project["inspection"],
+        }
+    if operation == "delete_function" and entrypoint["kind"] == "factor":
+        repo = repository()
+        try:
+            updated_project = repo.delete_factor_source(
+                project_id,
+                entrypoint_id,
+                expected_source_sha256=project["draft_source_sha256"],
+            )
+        finally:
+            repo.close()
+        return {
+            "project": updated_project,
+            "inspection": updated_project["inspection"],
+        }
+
+    source = project["draft_source"]
+    if operation == "batch":
+        updated = source
+        inspection = inspect_strategy_source(source)
+        for edit in payload.get("edits") or ():
+            updated, inspection = _apply_structured_edit(updated, edit)
     else:
-        raise ValueError("unsupported structured edit operation")
+        updated, inspection = _apply_structured_edit(source, payload)
     project = update_draft(
         project_id,
         updated,
@@ -373,11 +538,19 @@ def run_project_backtest(
     end_date: str,
     profile: str,
     revision: int | None = None,
+    validation_revision: int | None = None,
 ) -> dict[str, Any]:
     if profile not in {"demo", "runtime"}:
         raise ValueError("profile must be demo or runtime")
     repo = repository()
     try:
+        validation_repo = ValidationRepository(repo.path)
+        try:
+            validation_package = validation_repo.get_package(
+                project_id, validation_revision
+            )
+        finally:
+            validation_repo.close()
         run = run_strategy_backtest(
             repo,
             project_id,
@@ -404,7 +577,6 @@ def run_project_backtest(
         if symbols
         else pd.Series(0.0, index=returns.index, name="benchmark")
     )
-    metrics = PerformanceMetrics.summarize(returns, 252)
     try:
         attribution_factors = engine.get_factors(
             [*FACTOR_NAMES, "rf"],
@@ -416,17 +588,26 @@ def run_project_backtest(
         )
     except MissingDataError:
         attribution_factors = pd.DataFrame()
-    attribution = factor_attribution(
-        returns,
-        attribution_factors,
+    validation_output = execute_validation(
+        validation_package["source"],
+        returns=returns,
+        benchmark_returns=benchmark,
+        weights=weights,
+        factor_returns=attribution_factors,
         executions=run.executions,
-        research_thresholds=dict(run.project["settings"].get("research_thresholds") or {}),
+        settings=dict(run.project["settings"]),
     )
+    metrics = dict(validation_output["performance"])
+    attribution = dict(validation_output["alpha_beta"])
     provenance = build_research_provenance(
         profile,
         strategy_python=run.package["source"],
     )
     provenance["strategy_source_package"] = run.diagnostics["strategy_source_package"]
+    provenance["validation_source_package"] = {
+        "revision": validation_package["revision"],
+        "source_sha256": validation_package["source_sha256"],
+    }
     store = ResultStore()
     try:
         store.ensure_backtest_subject(
@@ -452,6 +633,10 @@ def run_project_backtest(
             strategy_revision=run.package["revision"],
             strategy_source_sha256=run.package["source_sha256"],
             strategy_manifest=run.package["manifest"],
+            validation_source=validation_package["source"],
+            validation_revision=validation_package["revision"],
+            validation_source_sha256=validation_package["source_sha256"],
+            validation_output=validation_output,
         )
     finally:
         store.close()
@@ -462,6 +647,8 @@ def run_project_backtest(
         "strategy_type": "sdk_v1",
         "revision": run.package["revision"],
         "source_sha256": run.package["source_sha256"],
+        "validation_revision": validation_package["revision"],
+        "validation_source_sha256": validation_package["source_sha256"],
         "metrics": metrics,
         "returns": [
             {"date": str(date)[:10], "value": float(value)} for date, value in returns.items()
@@ -470,11 +657,13 @@ def run_project_backtest(
         "execution": run.diagnostics,
         "strategy_manifest": run.package["manifest"],
         "attribution": attribution,
+        "validation_output": validation_output,
         "provenance": provenance,
     }
 
 
 __all__ = [
+    "add_project_factor_source",
     "add_project_factor_template",
     "clone_project",
     "create_project",
@@ -483,6 +672,7 @@ __all__ = [
     "factor_snapshot",
     "factor_template_catalog",
     "get_entrypoint_source",
+    "preview_structured_edits",
     "get_project",
     "get_revision",
     "insertion",
@@ -493,6 +683,7 @@ __all__ = [
     "save_revision",
     "structured_edit",
     "update_draft",
+    "update_strategy_source",
     "update_metadata",
     "validate_source",
 ]

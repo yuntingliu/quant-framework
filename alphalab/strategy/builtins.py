@@ -5,6 +5,7 @@ from __future__ import annotations
 DEFAULT_STRATEGY_SOURCE = """from typing import Annotated
 
 from alphalab.sdk.v1 import (
+    Event,
     ExecutionPolicy,
     Monthly,
     Parameter,
@@ -13,6 +14,7 @@ from alphalab.sdk.v1 import (
     UniverseResult,
     execution,
     factor,
+    on_event,
     portfolio,
     signal,
     universe,
@@ -66,6 +68,12 @@ def equal_weight(context, signal, state, *, max_weight: float = 0.10):
         target_weights={symbol: weight for symbol in selected},
         state=state,
     )
+
+
+@on_event(Event.SESSION_CLOSE, id="holding_period_risk", label="自定义持有期风控")
+def holding_period_risk(context, state):
+    # 在每日收盘检查持仓；返回 PortfolioDecision 可调整目标仓位。
+    return None
 
 
 @execution(id="next_open", label="下一交易日开盘成交")

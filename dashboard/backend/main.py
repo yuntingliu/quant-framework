@@ -22,6 +22,7 @@ from dashboard.backend.routers import (
     reports,
     strategy,
     system,
+    validation,
 )
 
 app = FastAPI(
@@ -49,6 +50,7 @@ app.include_router(agent_tools.router)
 app.include_router(data_sync.router)
 app.include_router(market.router)
 app.include_router(strategy.router)
+app.include_router(validation.router)
 app.include_router(backtests.router)
 app.include_router(paper.router)
 app.include_router(python_editor.router)

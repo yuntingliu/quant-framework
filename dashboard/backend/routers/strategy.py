@@ -14,7 +14,6 @@ from alphalab.strategy.source import StrategySourceError
 from dashboard.backend.services import strategy_service
 from dashboard.backend.services.data_service import _profile_range, research_dataset_schema
 
-
 router = APIRouter(prefix="/api/strategy", tags=["strategy-sdk-v1"])
 
 
@@ -72,11 +71,16 @@ class AddFactorTemplateRequest(BaseModel):
     confirm_write: bool
 
 
-class StructuredEditRequest(BaseModel):
+class AddFactorSourceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: Literal[
-        "parameter", "schedule", "factor_blend", "replace_function", "delete_function"
-    ]
+    source: str = Field(min_length=1, max_length=100_000)
+    expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    confirm_write: bool
+
+
+class StructuredEditItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["parameter", "schedule", "factor_blend"]
     entrypoint_id: str = Field(min_length=1, max_length=100)
     parameter: str | None = None
     value: Any = None
@@ -85,9 +89,6 @@ class StructuredEditRequest(BaseModel):
     at: Literal["open", "close"] | None = None
     factor_weights: dict[str, float] | None = None
     normalization: Literal["raw", "rank", "zscore"] | None = None
-    function_source: str | None = Field(default=None, max_length=100_000)
-    expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
-    confirm_write: bool
 
     @model_validator(mode="after")
     def required_operation_fields(self):
@@ -97,9 +98,50 @@ class StructuredEditRequest(BaseModel):
             raise ValueError("frequency and at are required for a schedule edit")
         if self.operation == "factor_blend" and (not self.factor_weights or not self.normalization):
             raise ValueError("factor_weights and normalization are required")
+        return self
+
+
+class StructuredEditRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal[
+        "parameter", "schedule", "factor_blend", "replace_function", "delete_function", "batch"
+    ]
+    entrypoint_id: str | None = Field(default=None, min_length=1, max_length=100)
+    parameter: str | None = None
+    value: Any = None
+    frequency: Literal["daily", "weekly", "monthly"] | None = None
+    selector: Literal["every", "first_trading_day", "last_trading_day"] | None = None
+    at: Literal["open", "close"] | None = None
+    factor_weights: dict[str, float] | None = None
+    normalization: Literal["raw", "rank", "zscore"] | None = None
+    function_source: str | None = Field(default=None, max_length=100_000)
+    edits: list[StructuredEditItem] = Field(default_factory=list, max_length=100)
+    expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    confirm_write: bool
+
+    @model_validator(mode="after")
+    def required_operation_fields(self):
+        if self.operation == "batch":
+            if not self.edits:
+                raise ValueError("edits are required for a batch edit")
+            return self
+        if not self.entrypoint_id:
+            raise ValueError("entrypoint_id is required")
+        if self.operation == "parameter" and not self.parameter:
+            raise ValueError("parameter is required for a parameter edit")
+        if self.operation == "schedule" and (not self.frequency or not self.at):
+            raise ValueError("frequency and at are required for a schedule edit")
+        if self.operation == "factor_blend" and (not self.factor_weights or not self.normalization):
+            raise ValueError("factor_weights and normalization are required")
         if self.operation == "replace_function" and not self.function_source:
             raise ValueError("function_source is required")
         return self
+
+
+class StructuredEditPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    edits: list[StructuredEditItem] = Field(min_length=1, max_length=100)
+    expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
 
 
 class InsertRequest(BaseModel):
@@ -233,7 +275,7 @@ def clone_project(project_id: str, request: CloneRequest) -> dict[str, Any]:
 def save_draft(project_id: str, request: DraftRequest) -> dict[str, Any]:
     _confirmed(request.confirm_write, "updating strategy source requires confirmation")
     try:
-        return strategy_service.update_draft(
+        return strategy_service.update_strategy_source(
             project_id,
             request.source,
             expected_source_sha256=request.expected_source_sha256,
@@ -311,6 +353,17 @@ def edit(project_id: str, request: StructuredEditRequest) -> dict[str, Any]:
         raise _translate_error(exc) from exc
 
 
+@router.post("/projects/{project_id}/edits/preview")
+def preview_edits(project_id: str, request: StructuredEditPreviewRequest) -> dict[str, Any]:
+    try:
+        return strategy_service.preview_structured_edits(
+            project_id,
+            request.model_dump(exclude_none=True),
+        )
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
 @router.post("/projects/{project_id}/factor-templates/{template_id}")
 def add_factor_template(
     project_id: str, template_id: str, request: AddFactorTemplateRequest
@@ -320,6 +373,19 @@ def add_factor_template(
         return strategy_service.add_project_factor_template(
             project_id,
             template_id,
+            expected_source_sha256=request.expected_source_sha256,
+        )
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/factors", status_code=201)
+def add_factor_source(project_id: str, request: AddFactorSourceRequest) -> dict[str, Any]:
+    _confirmed(request.confirm_write, "adding factor source requires confirmation")
+    try:
+        return strategy_service.add_project_factor_source(
+            project_id,
+            request.source,
             expected_source_sha256=request.expected_source_sha256,
         )
     except Exception as exc:

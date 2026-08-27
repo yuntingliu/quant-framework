@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Braces, Check, FlaskConical, Library, Play, Plus, Save, Search, Trash2 } from "lucide-react"
+import { Braces, FlaskConical, Library, Play, Plus, Save, Search, Trash2 } from "lucide-react"
 
 import { MarketResearchTerminal, type MarketRange, useMarketWatchlist } from "@/components/market"
 import { PythonEditor, type PythonEditorHandle } from "@/components/python"
@@ -258,7 +258,6 @@ export function FactorWorkbenchWidget() {
   const projectId = project?.id ?? ""
   const projectHash = project?.draft_source_sha256 ?? ""
   const projectProfile = project?.profile
-  const projectSource = project?.draft_source ?? ""
   const activeFactorId = activeFactor?.id ?? ""
   const factorDirty = Boolean(activeFactor && factorSource !== savedFactorSource)
   const localDirty = factorDirty
@@ -281,7 +280,7 @@ export function FactorWorkbenchWidget() {
     void api.get<FieldCatalog>(`/strategy/fields?profile=${projectProfile}`).then((value) => {
       setFields(value); setStartDate(value.start_date); setEndDate(value.end_date)
     }).catch((reason: Error) => setError(reason.message))
-  }, [projectHash, projectId, projectProfile, projectSource])
+  }, [projectHash, projectId, projectProfile])
   useEffect(() => {
     if (!projectId || !activeFactorId) {
       setFactorSource("")
@@ -346,14 +345,12 @@ export function FactorWorkbenchWidget() {
     let suffix = factors.length + 1
     while (knownIds.has(`factor_${suffix}`)) suffix += 1
     const id = `factor_${suffix}`
-    const marker = projectSource.indexOf("\n@signal")
-    const position = marker >= 0 ? marker : projectSource.length
     setBusy(true); setError("")
     try {
-      await sdk.updateDraft(`${projectSource.slice(0, position)}${factorSnippet(id)}${projectSource.slice(position)}`)
+      const added = await sdk.addFactorSource(factorSnippet(id))
       setFactorSource("")
       setSavedFactorSource("")
-      setSelectedFactor(id)
+      setSelectedFactor(added.factor.id)
       setWorkspaceView("build")
       setSnapshot(null); setHistory(null)
     } catch (reason) {
@@ -363,18 +360,18 @@ export function FactorWorkbenchWidget() {
     }
   }
   async function installTemplate(template: FactorTemplate) {
-    if (!project?.editable || localDirty || factors.some((factor) => factor.id === template.id)) return
+    if (!project?.editable || localDirty) return
     if (!await confirm({
       title: `加入因子 ${template.label}`,
-      description: `将把模板转换为 @factor(${template.id}) Python 函数并保存到当前项目，同时补齐数据字段声明。`,
+      description: "将复制一份模板源码到当前项目；重复加入会创建新的独立因子。",
       confirmText: "加入项目",
     })) return
     setInstallingTemplate(template.id); setError("")
     try {
-      await sdk.installFactorTemplate(template.id)
+      const installed = await sdk.installFactorTemplate(template.id)
       setFactorSource("")
       setSavedFactorSource("")
-      setSelectedFactor(template.id)
+      setSelectedFactor(installed.factor.id)
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setInstallingTemplate("") }
   }
@@ -476,10 +473,7 @@ export function FactorWorkbenchWidget() {
                 <div className="factor-section-heading mt-4"><span>可用 Python 模板</span><strong>{templates.length}</strong></div>
                 {templatesQuery.isLoading ? <div className="analytics-empty">正在读取因子模板…</div> : null}
                 {templatesQuery.error instanceof Error ? <div className="workbench-message error">{templatesQuery.error.message}</div> : null}
-                <div className="factor-template-list">{templates.map((template) => {
-                  const installed = factors.some((factor) => factor.id === template.id)
-                  return <article key={template.id}><div><span><strong>{template.label}</strong><small>{template.description}</small></span><em>{template.category === "technical" ? "技术" : "基本面"} · {template.recommended_direction === "higher" ? "高值优先" : "低值优先"}</em></div><footer><code>{template.id}</code><button className={installed ? "installed" : ""} type="button" disabled={installed || !project.editable || localDirty || Boolean(installingTemplate)} onClick={() => void installTemplate(template)}>{installed ? <Check size={11} /> : <Plus size={11} />}{installed ? "已加入" : installingTemplate === template.id ? "加入中" : "加入项目"}</button></footer></article>
-                })}</div>
+                <div className="factor-template-list">{templates.map((template) => <article key={template.id}><div><span><strong>{template.label}</strong><small>{template.description}</small></span><em>{template.category === "technical" ? "技术" : "基本面"} · {template.recommended_direction === "higher" ? "高值优先" : "低值优先"}</em></div><footer><code>{template.id}</code><button type="button" disabled={!project.editable || localDirty || Boolean(installingTemplate)} onClick={() => void installTemplate(template)}><Plus size={11} />{installingTemplate === template.id ? "加入中" : "加入项目"}</button></footer></article>)}</div>
                 <div className="factor-section-heading mt-4">可复用因子依赖</div>
                 <div className="factor-catalog-list">{factors.filter((factor) => factor.id !== activeFactor?.id).map((factor) => <button type="button" key={factor.id} onClick={() => insertFactorDependency(factor)}><span><strong>{factor.label || factor.id}</strong><small>插入 context.factor("{factor.id}")</small></span><Plus size={13} /></button>)}</div>
               </div>

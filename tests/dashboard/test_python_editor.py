@@ -67,6 +67,26 @@ def momentum(context, *, window: int = 20):
     assert mirrored["uri"].endswith("/factor.py")
 
 
+def test_isolated_strategy_function_has_function_level_diagnostics(tmp_path, monkeypatch) -> None:
+    source = '''@signal(id="monthly")
+def monthly(context, state):
+    return state
+'''
+    valid = python_editor_service.source_diagnostics("function", source)
+    invalid = python_editor_service.source_diagnostics(
+        "function", "def monthly(context, state):\n    return state\n"
+    )
+    monkeypatch.setattr(python_editor_service, "MIRROR_ROOT", tmp_path / "editor")
+    mirrored = python_editor_service.mirror_document(
+        "function", "project.function.0", source
+    )
+
+    assert valid == {"valid": True, "diagnostics": []}
+    assert invalid["valid"] is False
+    assert "registered strategy function" in invalid["diagnostics"][0]["message"]
+    assert mirrored["uri"].endswith("/function.py")
+
+
 def test_lsp_stdio_framing_round_trip() -> None:
     message = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
 

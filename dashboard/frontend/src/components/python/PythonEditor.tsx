@@ -67,7 +67,7 @@ interface DiagnosticsPayload {
 }
 
 export interface PythonEditorProps {
-  kind: "strategy" | "factor" | "data"
+  kind: "strategy" | "function" | "factor" | "data" | "validation"
   documentId: string
   value: string
   version?: string
@@ -89,7 +89,7 @@ interface ModelMetadata {
 }
 
 interface SdkCatalog {
-  kind: "strategy" | "factor" | "data"
+  kind: "strategy" | "function" | "factor" | "data" | "validation"
   fields: PythonSdkField[]
   factors: PythonSdkFactor[]
   parameters: PythonSdkParameter[]
@@ -116,6 +116,15 @@ const DATA_CONTEXT_METHODS = [
   ["output", "output(name, value)", "发布有界的同步结果摘要"],
   ["finalize", "finalize()", "对已发布数据集执行质量契约"],
   ["result", "result()", "返回当前配方结果摘要"],
+] as const
+
+const VALIDATION_CONTEXT_FIELDS = [
+  ["returns", "pd.Series", "策略逐期收益"],
+  ["benchmark_returns", "pd.Series", "同频基准收益"],
+  ["weights", "pd.DataFrame", "逐期持仓权重"],
+  ["factor_returns", "pd.DataFrame", "归因因子收益"],
+  ["executions", "tuple[dict, ...]", "成交与换手审计记录"],
+  ["settings", "Mapping[str, Any]", "运行时策略设置快照"],
 ] as const
 
 let fieldsPromise: Promise<PythonSdkField[]> | null = null
@@ -157,6 +166,18 @@ function installSdkProviders() {
       const word = model.getWordUntilPosition(position)
       const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn)
       if (/context\.\w*$/.test(prefix)) {
+        if (catalog.kind === "validation") {
+          return {
+            suggestions: VALIDATION_CONTEXT_FIELDS.map(([label, signature, documentation]) => ({
+              label,
+              kind: monaco.languages.CompletionItemKind.Field,
+              detail: `ValidationContext · ${signature}`,
+              documentation,
+              insertText: label,
+              range,
+            })),
+          }
+        }
         const methods = catalog.kind === "data" ? DATA_CONTEXT_METHODS : CONTEXT_METHODS
         return {
           suggestions: methods.map(([label, signature, documentation]) => ({
@@ -212,6 +233,18 @@ function installSdkProviders() {
         }
       }
       if (/^\s*@\w*$/.test(prefix)) {
+        if (catalog.kind === "validation") {
+          return {
+            suggestions: [{
+              label: "@analysis",
+              kind: monaco.languages.CompletionItemKind.Function,
+              detail: "AlphaLab Validation SDK 装饰器",
+              insertText: '@analysis(id="${1:analysis_id}", label="${2:验证项}")\n',
+              insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+              range,
+            }],
+          }
+        }
         if (catalog.kind === "data") {
           return {
             suggestions: [{
@@ -319,7 +352,7 @@ export const PythonEditor = forwardRef<PythonEditorHandle, PythonEditorProps>(fu
 
   useEffect(() => { void startPythonEditorRuntime() }, [])
   useEffect(() => {
-    if (kind === "data" || fields.length) return
+    if (kind === "data" || kind === "validation" || fields.length) return
     let current = true
     void loadRuntimeFields().then((items) => { if (current) setDiscoveredFields(items) })
     return () => { current = false }
@@ -455,7 +488,7 @@ export const PythonEditor = forwardRef<PythonEditorHandle, PythonEditorProps>(fu
     const timer = window.setTimeout(() => {
       const source = model.getValue()
       void Promise.all([
-        api.post<DiagnosticsPayload>("/python-editor/diagnostics", { kind, source }),
+        api.post<DiagnosticsPayload>("/python-editor/diagnostics", { kind, document_id: documentId, source }),
         preparePythonDocument(kind, documentId, source),
       ]).then(([payload]) => {
         if (model.isDisposed() || model.getValue() !== source) return

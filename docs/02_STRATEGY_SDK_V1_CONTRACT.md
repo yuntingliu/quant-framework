@@ -11,7 +11,9 @@
 AlphaLab Strategy SDK v1 makes Python the single source of truth for strategy
 logic. Parameter forms, expression builders, factor research, signal modeling,
 portfolio policy, execution settings, Codex edits, previews, and backtests are
-different views or invocations of the same saved Python module.
+different views or invocations of the same saved Python source package. The
+authoring package contains `strategy.py` and independent `factors/*.py` units;
+the runtime deterministically assembles them into one complete module.
 
 The SDK must preserve both of these properties:
 
@@ -28,7 +30,8 @@ requirements for the v1 implementation.
 
 SDK v1 fixes the following architectural decisions:
 
-- A project draft owns one canonical UTF-8 Python strategy module.
+- A project draft owns one canonical UTF-8 Python source set: `strategy.py`
+  plus zero or more `factors/<factor_id>.py` units.
 - Python source is the only source of truth for executable strategy logic.
 - Forms modify exact Python syntax nodes; they do not maintain a parallel JSON
   strategy implementation.
@@ -37,11 +40,11 @@ SDK v1 fixes the following architectural decisions:
 - Unrecognized valid Python remains executable and is displayed as `custom` in
   structured views.
 - Saving creates an immutable strategy revision.
-- Every evaluation and backtest executes the exact saved module and records its
-  SHA-256.
+- Every evaluation and backtest executes the exact deterministically assembled
+  saved module and records its SHA-256.
 - Factor, cross-sectional, stage, and full backtest evaluation differ only by
   the SDK entrypoint invoked.
-- The editable module contains strategy code only. Data access enforcement,
+- The editable source set contains strategy code only. Data access enforcement,
   event delivery, fills, accounting, persistence, and broker authorization stay
   in the core engine.
 - Routine authoring does not use a candidate/promotion lifecycle. Scratch code
@@ -53,11 +56,13 @@ SDK v1 fixes the following architectural decisions:
 ## 3. Conceptual Flow
 
 ```text
-Data Workbench       edits @universe and declared data requirements
-Factor Workbench     edits @factor functions
-Strategy Workbench   edits @signal, @portfolio, @on_event, @execution
-Full Source Editor   edits the complete strategy module
-Codex                edits the same complete strategy module
+Data Workbench       edits the separate acquisition recipe
+Factor Workbench     edits persistent factors/<factor_id>.py units
+Strategy Workbench   edits strategy.py (@universe/@signal/@portfolio/events/@execution)
+Codex                edits those same source units
+                              |
+                              v
+                 deterministic assembly
                               |
                               v
                     validate + save revision
@@ -71,8 +76,9 @@ Codex                edits the same complete strategy module
                      Run + Artifact + Report
 ```
 
-There is no separate expression runtime, factor implementation, Lab strategy,
-or backtest-only strategy source.
+There is no separate expression runtime, generated strategy implementation,
+Lab strategy, or backtest-only strategy source. Source units are authoring
+boundaries, not independent runtimes.
 
 ## 4. Public Facade
 
@@ -137,9 +143,20 @@ Requirements are preflight contracts, not installation commands. The runner
 MUST fail before execution when the selected data profile or runtime cannot
 satisfy them. It MUST NOT install packages or switch data profiles implicitly.
 
-## 5. Canonical Module Contract
+## 5. Canonical Source and Module Contract
 
-A valid project strategy module MUST contain:
+`strategy.py` MUST contain `SDK_VERSION`, imports, shared constants/helpers,
+and all non-factor registrations. It MUST NOT contain a registered `@factor`
+function. Each factor unit MUST contain exactly one complete registered
+`@factor` function and no second top-level statement. The factor public ID
+determines its canonical path. Imports or helpers needed by factor bodies belong
+in `strategy.py` and are available after assembly.
+
+The assembler MUST insert factor functions in a stable stored order before the
+first signal, portfolio, event, or execution registration. It MUST then validate
+the complete result. No source unit may be imported or executed by itself.
+
+A valid assembled project strategy module MUST contain:
 
 - exactly one `@universe` function;
 - zero or more `@factor` functions;
@@ -155,7 +172,7 @@ Registered public IDs MUST be unique. By default the Python function name is
 the public ID. A literal decorator `id=` MAY provide a stable ID independent of
 the function name.
 
-The following is a valid module outline:
+The following is a valid assembled module outline:
 
 ```python
 from alphalab.sdk.v1 import *
@@ -271,8 +288,9 @@ as `custom` and edited in source mode.
 
 ## 8. Source Editing and Round Trips
 
-The complete Python module is canonical. Workbench forms are projections of its
-concrete syntax tree.
+The Python source set is canonical. Workbench forms are projections of its
+concrete syntax tree; the assembled complete module is the canonical validation
+and execution artifact.
 
 The implementation MUST use a concrete-syntax-tree editor such as LibCST or an
 equivalent comment-preserving mechanism. Regular expressions and global text
@@ -281,12 +299,13 @@ replacement MUST NOT be used for semantic edits.
 A structured edit follows this sequence:
 
 ```text
-parse current source
+load current source units and assemble them
   -> locate registered function/decorator/parameter by stable syntax identity
   -> replace one syntax node
   -> preserve unrelated formatting, comments, and custom code
-  -> parse and validate the complete module again
-  -> update the draft source
+  -> split the result back into the same source-unit boundaries
+  -> parse and validate the complete assembled module again
+  -> atomically update the affected unit and assembled draft artifact
 ```
 
 Clicking a data field inserts SDK Python at the active cursor, for example:
@@ -306,7 +325,8 @@ long = context.factor("momentum_60d", window=60)
 Registry calls are preferred over direct calls because they make dependency,
 parameter, caching, provenance, and cycle handling explicit.
 
-After a full-source edit, every workbench MUST reparse the module:
+After a `strategy.py` or factor-unit edit, every workbench MUST reparse the
+assembled module:
 
 - recognized metadata and defaults return to normal controls;
 - supported but unrecognized code is displayed as `custom`;
@@ -421,8 +441,8 @@ ordinary Python and MUST display as `custom`; the workbench MUST NOT interpret
 them through a second expression language.
 
 The built-in factor library is a catalog of complete SDK Python templates, not
-a second factor runtime. Adding a template MUST copy its `@factor` function into
-the current draft and merge its declared data requirements. From that point the
+a second factor runtime. Adding a template MUST create a new factor source unit
+and merge its declared data requirements into `strategy.py`. From that point the
 copied function is ordinary canonical project source: forms edit its literal
 defaults, the source editor may replace any supported logic, and evaluation and
 backtest invoke that exact function. Template catalog changes MUST NOT mutate a
@@ -658,16 +678,17 @@ MUST describe trusted-local code accurately and MUST NOT call it sandboxed.
 
 Saving a strategy revision requires all of these checks:
 
-1. parse valid Python;
-2. verify `SDK_VERSION`;
-3. build the decorator registry;
-4. verify required entrypoints and uniqueness;
-5. verify supported signatures;
-6. validate literal metadata and parameters;
-7. resolve registered dependencies and reject cycles;
-8. compile the complete module;
-9. run bounded contract probes with synthetic Contexts;
-10. compute the source SHA-256 and package manifest.
+1. parse every source unit and verify its boundary;
+2. deterministically assemble the complete module;
+3. verify `SDK_VERSION`;
+4. build the decorator registry;
+5. verify required entrypoints and uniqueness;
+6. verify supported signatures;
+7. validate literal metadata and parameters;
+8. resolve registered dependencies and reject cycles;
+9. compile the complete module;
+10. run bounded contract probes with synthetic Contexts;
+11. compute the assembled source SHA-256 and package manifest.
 
 Runtime boundary validation repeats on every entrypoint output. Static
 validation never substitutes for output validation.
@@ -699,8 +720,9 @@ Saving a draft creates an immutable package containing:
 ```text
 project id
 strategy revision
-complete Python source
-source SHA-256
+exact strategy.py and factors/*.py authoring units
+deterministically assembled complete Python source
+assembled source SHA-256
 SDK version
 compiler/validator version
 registered entrypoint manifest
@@ -733,15 +755,15 @@ The target user-facing boundaries are:
 
 | Surface | SDK source owned |
 | --- | --- |
-| Project/Data | project metadata, runtime profile, `@universe`, data requirements |
-| Factor Research | `@factor` functions and their tests |
-| Strategy | `@signal`, `@portfolio`, `@on_event`, `@execution` |
-| Validation | full source inspection, immutable revision selection, evaluations, backtests |
+| Project/Data | project metadata and the separate acquisition recipe |
+| Factor Research | persistent `factors/*.py` units and their tests |
+| Strategy | `strategy.py`: `@universe`, `@signal`, `@portfolio`, `@on_event`, `@execution` |
+| Validation | assembled-source inspection, immutable revision selection, evaluations, backtests |
 | Report | saved Run artifacts and provenance |
 
-The full source editor MAY be available from Strategy and Validation. A full-
-source save always creates or updates a project draft, reparses every workbench,
-and invalidates stale results.
+The `strategy.py` editor MAY be available from Strategy and Validation. A
+source-unit save always updates the project draft, reparses the assembled module
+for every workbench, and invalidates stale results.
 
 Validation MAY edit a new draft based on the selected revision. It MUST NOT
 mutate the source attached to an existing Run.
@@ -760,7 +782,7 @@ the registered Python factor functions from the same revision.
 The Factor surface lists both factors already registered in the project and the
 built-in Python template catalog. Installing a template is a confirmed draft
 write and is unavailable while the browser has unsaved source edits, preventing
-one source projection from overwriting another.
+one editor save from overwriting another.
 
 ## 23. Codex and Agent Contract
 
@@ -768,7 +790,8 @@ Codex and published Agents edit the same project draft as the workbenches.
 
 They MUST:
 
-- inspect the complete current source and revision before editing;
+- inspect the current source-unit inventory, relevant unit, assembled
+  inspection, and revision before editing;
 - use CST-aware source operations or replace an explicitly identified function;
 - never patch a generated number by global text matching;
 - preserve unrelated custom code and comments;
@@ -915,8 +938,8 @@ SDK v1 is complete only when all of these are demonstrated by automated tests:
 
 1. Changing a recognized form parameter changes one Python syntax node and the
    saved source hash.
-2. A full-source edit reparses into forms where recognizable and displays
-   `custom` elsewhere without losing source.
+2. A `strategy.py` or factor-unit edit reparses into forms where recognizable
+   and displays `custom` elsewhere without losing source.
 3. Clicking a data field or factor inserts valid SDK Python at the cursor.
 4. Factor snapshot and historical factor evaluation invoke the same saved
    factor function.
@@ -928,7 +951,8 @@ SDK v1 is complete only when all of these are demonstrated by automated tests:
 9. Invalid weights, symbols, state, and non-finite outputs fail at the core
    boundary.
 10. A Run remains reproducible after the project draft changes.
-11. Workbench, Codex, backend, and Agent use one source revision and hash.
+11. Workbench, Codex, backend, and Agent use one assembled source revision and
+    hash while editing the same persistent source units.
 12. No active expression, Lab, or legacy pipeline runtime can produce a second
     authoritative result.
 

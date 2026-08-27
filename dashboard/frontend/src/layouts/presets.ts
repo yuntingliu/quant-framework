@@ -49,7 +49,7 @@ export const layoutPresets: Record<WorkspaceMode, LayoutPreset> = {
   project: createWorkbenchPreset("project", "研究项目", "创建、选择和管理研究项目", "project.workbench", "研究项目"),
   data: createWorkbenchPreset("data", "数据", "研究范围、数据预览与质量校验", "data.workbench", "数据工作台"),
   factor: createWorkbenchPreset("factor", "因子", "因子定义、验证截面与历史证据", "factor.workbench", "因子研究"),
-  strategy: createWorkbenchPreset("strategy", "策略", "信号、组合、状态事件与执行共用一份 Python", "strategy.workbench", "策略工作台"),
+  strategy: createWorkbenchPreset("strategy", "策略", "信号、组合、状态事件与执行", "strategy.workbench", "策略工作台"),
   validation: createWorkbenchPreset("validation", "验证", "因子检验、策略预览、回测与归因", "validation.workbench", "验证与回测"),
   report: createWorkbenchPreset("report", "报告", "Agent 文档、表格、图表与导出", "report.workbench", "报告工作台"),
 }
