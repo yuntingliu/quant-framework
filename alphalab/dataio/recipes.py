@@ -24,6 +24,17 @@ from alphalab.dataio.rq_templates import get_rq_sync_template, list_rq_sync_temp
 RQDATA_PYTHON_DOCS_URL = "https://www.ricequant.com/doc/rqdata/python/index-rqdatac"
 MAX_RECIPE_SOURCE_BYTES = 300_000
 MAX_RECIPE_LOG_CHARS = 20_000
+_LEGACY_VISIBLE_NORMALIZED_HASHES = {
+    "rq.a_share_daily": "6cc97280b1486761da9abd396c12372f0c682e798ab5a112fd0853b34dfe549f",
+    "rq.etf_daily": "7bec1dd2f454463118478317e48e49adafa088c06c508a98212c607cd1839048",
+    "rq.exchange_fund_daily": "2653532b307aba8a80045c438164092260880fb5669be76b76e489b207c564b0",
+    "rq.a_share_research": "0d595f152b81707cb0e7ed424c5b39c4164765b43bdc4a5077d88a09150890de",
+}
+_LEGACY_NORMALIZED_PARAMETERS = {
+    "start": "2001-02-03",
+    "end": "2004-05-06",
+    "symbols": None,
+}
 
 
 class DataRecipeError(ValueError):
@@ -92,7 +103,9 @@ def _render_builtin_recipe_base(
         "    INCOME_FIELDS,\n"
         "    build_canonical_fundamentals,\n"
         "    build_factor_returns,\n"
+        "    normalize_rq_daily_factor,\n"
         "    normalize_rq_financials,\n"
+        "    normalize_rq_index_components,\n"
         "    normalize_rq_yield_curve,\n"
         if research
         else ""
@@ -100,6 +113,8 @@ def _render_builtin_recipe_base(
     research_plan = (
         """        context.expect("rq.financials.income", "rq.get_pit_financials_ex")
         context.expect("rq.financials.balance", "rq.get_pit_financials_ex")
+        context.expect("rq.daily_factors", "rq.get_factor", fields=DAILY_FACTORS)
+        context.expect("rq.index_components", "rq.index_components", indexes=INDEX_SYMBOLS)
         context.expect("canonical.fundamentals", "build_canonical_fundamentals")
         context.expect("runtime.factor_returns", "rq.get_yield_curve + build_factor_returns")
 """
@@ -117,6 +132,49 @@ def _quarter(value):
     )
     research_run = (
         """
+    for field in DAILY_FACTORS:
+        for request in context.sync_batches(
+            "rq.daily_factors",
+            active["symbol"].tolist(),
+            start=start,
+            end=end,
+            batch_size=200,
+            chunk_days=CHUNK_DAYS,
+            overlap_days=1,
+            force=FORCE,
+            available_from=available_from,
+            dimension=("field", field),
+        ):
+            raw_factor = rq.get_factor(
+                rq_order_book_ids(request.symbols),
+                RQ_FACTOR_NAMES.get(field, field),
+                start_date=request.start,
+                end_date=request.end,
+                market=MARKET,
+            )
+            daily_factor = normalize_rq_daily_factor(raw_factor, field=field)
+            if not daily_factor.empty:
+                context.publish("rq.daily_factors", daily_factor)
+
+    for index_symbol in INDEX_SYMBOLS:
+        component_start = start if FORCE else (
+            context.watermark(
+                "rq.index_components", dimension=("index_symbol", index_symbol)
+            ) or start
+        )
+        for snapshot_date in _component_dates(component_start, end):
+            raw_components = rq.index_components(
+                rq_order_book_ids([index_symbol])[0],
+                date=snapshot_date,
+            )
+            components = normalize_rq_index_components(
+                raw_components,
+                index_symbol=index_symbol,
+                snapshot_date=snapshot_date,
+            )
+            if not components.empty:
+                context.publish("rq.index_components", components)
+
     start_quarter = _quarter(start)
     end_quarter = _quarter(end)
     for batch in _batches(order_book_ids, 200):
@@ -162,6 +220,17 @@ def _quarter(value):
     risk_free = normalize_rq_yield_curve(raw_yield_curve, tenor="1M")
     factor_returns = build_factor_returns(bars, fundamentals, risk_free)
     context.publish("runtime.factor_returns", factor_returns)
+
+    context.require_coverage(
+        "rq.daily_factors",
+        start=start,
+        end=end,
+        fail_on_gap=True,
+        symbols=active["symbol"].tolist(),
+    )
+    context.require_coverage(
+        "rq.index_components", start=start, end=end, fail_on_gap=True
+    )
 """
         if research
         else ""
@@ -173,18 +242,34 @@ from alphalab.data_sdk.v1 import (
     framework_symbols,
     normalize_rq_bars,
     normalize_rq_instruments,
+    normalize_rq_market_state,
     rq,
     rq_order_book_ids,
+    require_same_keys,
 )
 
 
 ASSET_TYPES = {template.instrument_types!r}
 MARKET = {template.market!r}
+CHUNK_DAYS = 366
+FORCE = False
+DAILY_FACTORS = ("market_cap", "roe")
+RQ_FACTOR_NAMES = {{"roe": "return_on_equity"}}
+INDEX_SYMBOLS = ("000300.SH", "000905.SH", "000852.SH")
+INCLUDE_ST = {"CS" in template.instrument_types!r}
 
 
 def _batches(values, size):
     for offset in range(0, len(values), size):
         yield values[offset : offset + size]
+
+
+def _component_dates(start, end):
+    first = pd.Timestamp(start).normalize()
+    last = pd.Timestamp(end).normalize()
+    values = {{first, last}}
+    values.update(pd.date_range(first, last, freq="ME").normalize())
+    return [value.strftime("%Y-%m-%d") for value in sorted(values)]
 {quarter_helper}
 
 
@@ -199,6 +284,9 @@ def research_data(
     if context.mode == "plan":
         context.expect("rq.instruments", "rq.all_instruments", asset_types=ASSET_TYPES)
         context.expect("rq.bars", "rq.get_price", start=start, end=end)
+        context.expect("rq.paused", "rq.is_suspended", start=start, end=end)
+        if INCLUDE_ST:
+            context.expect("rq.is_st", "rq.is_st_stock", start=start, end=end)
 {research_plan}        return
 
     instrument_frames = []
@@ -228,15 +316,27 @@ def research_data(
         raise ValueError("RQData returned no active instruments for this recipe")
 
     context.publish("rq.instruments", active)
+    available_from = dict(zip(active["symbol"], active["listed_date"], strict=False))
     order_book_ids = rq_order_book_ids(active["symbol"].tolist())
     context.output("symbol_count", len(order_book_ids))
 
     published_bar_batches = 0
-    for batch in _batches(order_book_ids, 200):
+    for request in context.sync_batches(
+        "rq.bars",
+        active["symbol"].tolist(),
+        start=start,
+        end=end,
+        batch_size=200,
+        chunk_days=CHUNK_DAYS,
+        overlap_days=7,
+        force=FORCE,
+        available_from=available_from,
+    ):
+        batch = rq_order_book_ids(request.symbols)
         adjusted_raw = rq.get_price(
             batch,
-            start_date=start,
-            end_date=end,
+            start_date=request.start,
+            end_date=request.end,
             frequency="1d",
             fields=None,
             adjust_type="pre",
@@ -245,8 +345,8 @@ def research_data(
         )
         raw_close = rq.get_price(
             batch,
-            start_date=start,
-            end_date=end,
+            start_date=request.start,
+            end_date=request.end,
             frequency="1d",
             fields=["close"],
             adjust_type="none",
@@ -258,7 +358,63 @@ def research_data(
             context.publish("rq.bars", bars)
             published_bar_batches += 1
     if published_bar_batches == 0:
-        raise ValueError("RQData returned no daily bars")
+        if context.watermark("rq.bars") is None:
+            raise ValueError("RQData returned no daily bars")
+
+    published_state_batches = 0
+    for request in context.sync_batches(
+        "rq.paused",
+        active["symbol"].tolist(),
+        start=start,
+        end=end,
+        batch_size=200,
+        chunk_days=CHUNK_DAYS,
+        overlap_days=1,
+        force=FORCE,
+        available_from=available_from,
+        companions=(("rq.is_st",) if INCLUDE_ST else ()),
+    ):
+        batch = rq_order_book_ids(request.symbols)
+        paused_raw = rq.is_suspended(
+            batch,
+            start_date=request.start,
+            end_date=request.end,
+            market=MARKET,
+        )
+        paused = normalize_rq_market_state(paused_raw, field="paused")
+        if INCLUDE_ST:
+            is_st_raw = rq.is_st_stock(
+                batch,
+                start_date=request.start,
+                end_date=request.end,
+                market=MARKET,
+            )
+            is_st = normalize_rq_market_state(is_st_raw, field="is_st")
+            require_same_keys(
+                paused,
+                is_st,
+                ("date", "symbol"),
+                label=f"paused/ST state {{request.start}}..{{request.end}}",
+            )
+        if not paused.empty:
+            context.publish("rq.paused", paused)
+            if INCLUDE_ST:
+                context.publish("rq.is_st", is_st)
+            published_state_batches += 1
+    if published_state_batches == 0 and context.watermark("rq.paused") is None:
+        raise ValueError("RQData returned no historical market state")
+
+    context.require_coverage(
+        "rq.bars", start=start, end=end, fail_on_gap=True, symbols=active["symbol"].tolist()
+    )
+    context.require_coverage(
+        "rq.paused", start=start, end=end, fail_on_gap=True, symbols=active["symbol"].tolist()
+    )
+    if INCLUDE_ST:
+        context.require_coverage(
+            "rq.is_st", start=start, end=end, fail_on_gap=True,
+            symbols=active["symbol"].tolist(),
+        )
 {research_run}"""
 
 
@@ -373,7 +529,7 @@ def builtin_recipe_catalog(*, start: str, end: str) -> list[dict[str, Any]]:
 
 
 def migrate_legacy_builtin_recipe(source: str) -> str:
-    """Upgrade an untouched request-only built-in draft to executable RQ code."""
+    """Upgrade untouched built-in drafts while preserving edited custom Python."""
 
     inspection = inspect_data_recipe_source(source)
     if not inspection.template_id:
@@ -384,19 +540,51 @@ def migrate_legacy_builtin_recipe(source: str) -> str:
     if not isinstance(start, str) or not isinstance(end, str):
         return source
     symbol_values = list(symbols) if isinstance(symbols, (list, tuple)) else None
-    legacy = _render_legacy_builtin_recipe(
-        inspection.template_id,
-        start=start,
-        end=end,
-        symbols=symbol_values,
-    )
+    legacy_versions = {
+        _render_legacy_builtin_recipe(
+            inspection.template_id,
+            start=start,
+            end=end,
+            symbols=symbol_values,
+        )
+    }
+    original_datasets = {
+        "rq.a_share_daily": ("instruments", "bars"),
+        "rq.etf_daily": ("instruments", "bars"),
+        "rq.exchange_fund_daily": ("instruments", "bars"),
+        "rq.a_share_research": ("instruments", "bars", "fundamentals", "factors"),
+    }.get(inspection.template_id)
+    if original_datasets is not None:
+        legacy_versions.add(
+            _render_legacy_builtin_recipe(
+                inspection.template_id,
+                start=start,
+                end=end,
+                symbols=symbol_values,
+                datasets=original_datasets,
+            )
+        )
     uncommented = _render_builtin_recipe_base(
         inspection.template_id,
         start=start,
         end=end,
         symbols=symbol_values,
     )
-    if source not in {legacy, uncommented}:
+    try:
+        normalized_visible, _ = update_recipe_parameters(
+            source,
+            _LEGACY_NORMALIZED_PARAMETERS,
+        )
+        normalized_visible_hash = hashlib.sha256(
+            normalized_visible.replace("\r\n", "\n").encode("utf-8")
+        ).hexdigest()
+    except DataRecipeError:
+        normalized_visible_hash = None
+    known_visible_hash = _LEGACY_VISIBLE_NORMALIZED_HASHES.get(inspection.template_id)
+    if (
+        source not in {*legacy_versions, uncommented}
+        and normalized_visible_hash != known_visible_hash
+    ):
         return source
     return render_builtin_recipe(
         inspection.template_id,
@@ -412,6 +600,7 @@ def _render_legacy_builtin_recipe(
     start: str,
     end: str,
     symbols: list[str] | None,
+    datasets: tuple[str, ...] | None = None,
 ) -> str:
     template = get_rq_sync_template(template_id)
     symbol_literal = repr(tuple(symbols)) if symbols else "None"
@@ -429,7 +618,7 @@ def research_data(
     # rq 透明代理当前安装的 rqdatac，可在自定义配方中调用任意公开查询 API。
     return RQSyncRequest(
         template_id={template.id!r},
-        datasets={template.datasets!r},
+        datasets={(datasets or template.datasets)!r},
         start=start,
         end=end,
         symbols=symbols,

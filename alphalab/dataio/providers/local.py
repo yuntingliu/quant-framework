@@ -313,7 +313,7 @@ class PartitionedParquetMarketDataProvider(LocalParquetMarketDataProvider):
     def __init__(self, runtime_root: str | Path):
         self.catalog = DataCatalog(runtime_root)
         self.market_dir = self.catalog.path("rq.bars")
-        self.path = self.market_dir
+        self.path = Path(runtime_root)
         self._cache: pd.DataFrame | None = None
 
     def _load(self) -> pd.DataFrame:
@@ -326,6 +326,22 @@ class PartitionedParquetMarketDataProvider(LocalParquetMarketDataProvider):
         frame = pd.concat((pd.read_parquet(path) for path in files), ignore_index=True)
         frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
         frame["symbol"] = frame["symbol"].astype(str).str.upper()
+        for dataset, field in (("rq.paused", "paused"), ("rq.is_st", "is_st")):
+            state_files = self.catalog.files(dataset)
+            if not state_files:
+                continue
+            state = pd.concat(
+                (pd.read_parquet(path) for path in state_files), ignore_index=True
+            )
+            if not {"date", "symbol", field}.issubset(state.columns):
+                continue
+            state = state[["date", "symbol", field]].copy()
+            state["date"] = pd.to_datetime(state["date"], errors="coerce")
+            state["symbol"] = state["symbol"].astype(str).str.upper()
+            state = state.drop_duplicates(["date", "symbol"], keep="last")
+            frame = frame.merge(state, on=["date", "symbol"], how="left")
+        if "paused" in frame:
+            frame["is_suspended"] = frame["paused"].astype("boolean")
         self._cache = (
             frame.dropna(subset=["date", "symbol"])
             .drop_duplicates(["date", "symbol"], keep="last")
@@ -417,3 +433,108 @@ class PartitionedParquetFactorProvider(LocalParquetFactorProvider):
             .sort_index()
         )
         return self._cache
+
+
+class PartitionedParquetResearchDataProvider:
+    """Historical state/factor/membership provider for the runtime store."""
+
+    def __init__(self, runtime_root: str | Path):
+        self.catalog = DataCatalog(runtime_root)
+        self.path = Path(runtime_root)
+        self._cache: dict[str, pd.DataFrame] = {}
+
+    def _load(self, dataset: str) -> pd.DataFrame:
+        if dataset in self._cache:
+            return self._cache[dataset]
+        files = self.catalog.files(dataset)
+        frame = (
+            pd.concat((pd.read_parquet(path) for path in files), ignore_index=True)
+            if files
+            else pd.DataFrame()
+        )
+        if "date" in frame:
+            frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+        if "symbol" in frame:
+            frame["symbol"] = frame["symbol"].astype(str).str.upper()
+        if "index_symbol" in frame:
+            frame["index_symbol"] = frame["index_symbol"].astype(str).str.upper()
+        self._cache[dataset] = frame
+        return frame
+
+    def get_market_state(
+        self,
+        symbols: list[str],
+        start: str,
+        end: str,
+        fields: list[str] | None = None,
+    ) -> pd.DataFrame:
+        requested = list(dict.fromkeys(fields or ["paused", "is_st"]))
+        unknown = sorted(set(requested) - {"paused", "is_st", "is_suspended"})
+        if unknown:
+            raise KeyError(f"Unknown market-state fields: {unknown}")
+        selected_symbols = set(_normal_symbols(symbols))
+        output: pd.DataFrame | None = None
+        for requested_field in requested:
+            field = "paused" if requested_field == "is_suspended" else requested_field
+            dataset = "rq.paused" if field == "paused" else "rq.is_st"
+            frame = self._load(dataset)
+            if frame.empty or not {"date", "symbol", field}.issubset(frame.columns):
+                continue
+            part = frame.loc[
+                frame["symbol"].isin(selected_symbols)
+                & frame["date"].between(pd.Timestamp(start), pd.Timestamp(end)),
+                ["date", "symbol", field],
+            ].copy()
+            if requested_field == "is_suspended":
+                part = part.rename(columns={"paused": "is_suspended"})
+            output = part if output is None else output.merge(
+                part, on=["date", "symbol"], how="outer"
+            )
+        return (
+            output.sort_values(["date", "symbol"]).reset_index(drop=True)
+            if output is not None
+            else pd.DataFrame(columns=["date", "symbol", *requested])
+        )
+
+    def get_daily_factors(
+        self,
+        symbols: list[str],
+        fields: list[str],
+        start: str,
+        end: str,
+    ) -> pd.DataFrame:
+        frame = self._load("rq.daily_factors")
+        if frame.empty:
+            return pd.DataFrame(columns=["date", "symbol", "field", "value"])
+        selected_symbols = set(_normal_symbols(symbols))
+        selected_fields = set(str(value) for value in fields)
+        return (
+            frame.loc[
+                frame["symbol"].isin(selected_symbols)
+                & frame["field"].astype(str).isin(selected_fields)
+                & frame["date"].between(pd.Timestamp(start), pd.Timestamp(end))
+            ]
+            .drop_duplicates(["date", "symbol", "field"], keep="last")
+            .sort_values(["date", "symbol", "field"])
+            .reset_index(drop=True)
+        )
+
+    def get_index_components(
+        self,
+        index_symbols: list[str],
+        start: str,
+        end: str,
+    ) -> pd.DataFrame:
+        frame = self._load("rq.index_components")
+        if frame.empty:
+            return pd.DataFrame(columns=["date", "index_symbol", "symbol"])
+        requested = set(_normal_symbols(index_symbols))
+        return (
+            frame.loc[
+                frame["index_symbol"].isin(requested)
+                & frame["date"].between(pd.Timestamp(start), pd.Timestamp(end))
+            ]
+            .drop_duplicates(["date", "index_symbol", "symbol"], keep="last")
+            .sort_values(["date", "index_symbol", "symbol"])
+            .reset_index(drop=True)
+        )

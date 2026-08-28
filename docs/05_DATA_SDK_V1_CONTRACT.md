@@ -35,6 +35,29 @@ def research_data(
     context.publish("rq.bars", normalize_rq_bars(adjusted, raw_close))
 ```
 
+Production recipes place those visible RQ calls inside
+`context.sync_batches(...)`. The helper uses persisted per-symbol watermarks,
+listing dates, an explicit overlap, and optional field companions to return
+deterministic `DateSymbolBatch(start, end, symbols)` values. It never calls the
+vendor. A recipe may also use:
+
+```python
+context.watermark("rq.daily_factors", dimension=("field", "roe"))
+context.require_coverage(
+    "rq.bars", start=start, end=end, fail_on_gap=True, symbols=active_symbols
+)
+```
+
+Passing the recipe's active symbols keeps a template-specific validation from
+being polluted by bars acquired through another template in the shared runtime
+store. Omitting `symbols` intentionally validates the whole stored dataset.
+
+`context.publish()` commits every completed batch atomically. If a later RQ
+request fails or the job is cancelled, rerunning the same recipe resumes from
+the stored symbol/field watermarks and retains the earlier batches. `force=True`
+rewrites the requested range by primary key; it does not delete rows outside
+that range.
+
 `rq` connects lazily through the configured `RQDataClient` and transparently
 exposes the installed `rqdatac` module. AlphaLab deliberately does not mirror
 all vendor functions; new RQData operations become available when the local
@@ -72,6 +95,7 @@ source = data_source(
     instruments=my_instrument_provider,
     fundamentals=my_fundamental_provider,  # optional
     factors=my_factor_provider,            # optional
+    research=my_research_provider,          # optional state/factors/membership
 )
 engine = source.create_engine()
 bars = engine.get_bars(["510300.SH"], "2025-01-01", "2025-12-31")
@@ -85,8 +109,8 @@ not silently replace that profile.
 
 The source ID is 2–64 lowercase letters, numbers, dots, underscores, or
 hyphens. `market` and `instruments` are required because a backtest needs both
-prices and a point-in-time investable universe. Fundamentals and factor returns
-are optional capabilities.
+prices and a point-in-time investable universe. Fundamentals, factor returns,
+and historical research data are optional capabilities.
 
 ## Provider methods
 
@@ -116,6 +140,17 @@ Optional `FundamentalProvider` and `FactorProvider` implement the runtime-
 checkable protocols exported by the facade. Their exact signatures are visible
 through normal Python typing and match `DataEngine.get_fundamentals()` and
 `DataEngine.get_factors()`.
+
+Optional `ResearchDataProvider` implements `get_market_state()`,
+`get_daily_factors()`, and `get_index_components()`. Its canonical outputs are
+respectively state rows keyed by `date,symbol`, long factor rows keyed by
+`date,symbol,field`, and membership rows keyed by
+`date,index_symbol,symbol`. Strategy code consumes these only through Context;
+it never receives the provider object.
+
+Instrument publication records both `snapshot_date` (the requested effective
+research date) and `retrieved_at` (when the current vendor reference snapshot
+was fetched), so historical filtering and provenance are not conflated.
 
 ## Ownership and safety boundary
 

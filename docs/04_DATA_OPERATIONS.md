@@ -12,6 +12,10 @@ Runtime datasets are:
 | --- | --- | --- |
 | `rq.instruments` | `snapshot_date, symbol` | snapshot date |
 | `rq.bars` | `date, symbol` | year and month |
+| `rq.paused` | `date, symbol` | year and month |
+| `rq.is_st` | `date, symbol` | year and month |
+| `rq.daily_factors` | `date, symbol, field` | year and month |
+| `rq.index_components` | `date, index_symbol, symbol` | year |
 | `rq.financials.income` | `symbol, quarter, info_date, if_adjusted` | report year |
 | `rq.financials.balance` | `symbol, quarter, info_date, if_adjusted` | report year |
 | `canonical.fundamentals` | `symbol, quarter` | available year |
@@ -34,10 +38,15 @@ The Data Workbench and CLI expose four built-in acquisition templates:
 
 | Template | RQ instrument types | Default datasets |
 | --- | --- | --- |
-| `rq.a_share_daily` | `CS` | instruments, bars |
-| `rq.etf_daily` | `ETF` | instruments, bars |
-| `rq.exchange_fund_daily` | `ETF`, `LOF`, `INDX` | instruments, bars |
-| `rq.a_share_research` | `CS` | instruments, bars, fundamentals, factors |
+| `rq.a_share_daily` | `CS` | instruments, bars, market state |
+| `rq.etf_daily` | `ETF` | instruments, bars, suspensions |
+| `rq.exchange_fund_daily` | `ETF`, `LOF`, `INDX` | instruments, bars, suspensions |
+| `rq.a_share_research` | `CS` | daily data, market state, daily factors, index membership, PIT fundamentals, attribution factors |
+
+New data-recipe drafts, CLI sync commands without `--template`, direct RQ
+engines, and connection checks all use `rq.a_share_research` as the single
+default. The lighter daily templates remain explicit choices and never lose
+their editable Python source.
 
 A template defines source scope and allowed datasets only. All templates use
 the same acquirer, local partitions, quality checks, DataEngine contracts, and
@@ -59,6 +68,14 @@ the first stored snapshot, the earliest later snapshot is filtered by listing
 intervals and the run is marked with a future-snapshot warning; collecting
 snapshots over time is therefore preferable. With no instrument snapshots, the
 engine records that it used bar-history membership instead.
+
+Daily RQ calls use at most 200 instruments and 366 calendar days per batch.
+Each completed date chunk is written before the next request. Per-symbol
+watermarks make newly listed or newly selected instruments backfill from the
+requested/listing date while existing instruments use an overlap update.
+Daily factors keep separate field watermarks; index membership keeps separate
+index watermarks. Index templates store month-end snapshots plus the requested
+range endpoints and must not be described as daily membership.
 
 RQ calls use at most 200 stocks and 50 quarters per batch. Financial acquisition
 requests `statements="all"` and retains revisions. The canonical transform uses
@@ -85,6 +102,7 @@ alphalab data templates
 alphalab data plan rq --template rq.etf_daily
 alphalab data sync rq --template rq.a_share_daily
 alphalab data validate
+alphalab data validate --datasets rq.bars,rq.paused --start 2021-01-01 --as-of 2026-08-25 --fail-on-gap
 alphalab data jobs
 ```
 
@@ -92,6 +110,11 @@ FastAPI exposes templates, health, an explicit connection probe, plan, job,
 cancel, and validation routes below `/api/data-sync`. The backend uses one
 in-process worker and performs no startup sync. Jobs left queued or running
 during a restart become `interrupted`.
+
+Large daily validation streams Parquet partitions instead of concatenating the
+full market. `--fail-on-gap` checks requested bounds, suspension/ST coverage
+against stored bar keys, factor trading-date coverage, and per-index snapshot
+freshness. A non-passing CLI report exits non-zero.
 
 The Data Workbench keeps symbol selection and the daily market view as its
 primary workflow. Local update planning, synchronization, catalog inspection,

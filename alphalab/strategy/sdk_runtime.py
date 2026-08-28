@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import importlib.metadata
-import inspect
 import io
 import math
 import multiprocessing as mp
@@ -20,6 +19,7 @@ from packaging.specifiers import InvalidSpecifier, SpecifierSet
 
 from alphalab.sdk.v1.decorators import Registration
 from alphalab.sdk.v1.model import (
+    CalendarView,
     Event,
     ExecutionContext,
     ExecutionPolicy,
@@ -35,11 +35,11 @@ from alphalab.sdk.v1.model import (
     StrategyContext,
     UniverseContext,
     UniverseResult,
+    _time_frame,
     schedule_is_due,
     state_after,
 )
 from alphalab.strategy.source import SourceInspection, inspect_strategy_source
-
 
 MAX_LOG_CHARS = 20_000
 
@@ -325,7 +325,7 @@ def _session_worker(connection: Connection, source: str) -> None:
                 operation = str(request.get("operation"))
                 request_payload = dict(request.get("payload") or {})
                 if operation == "configure":
-                    configured_payload = request_payload
+                    configured_payload = _prepare_configured_payload(request_payload)
                     value = {"configured": True}
                 else:
                     value = _dispatch(
@@ -344,6 +344,36 @@ def _session_worker(connection: Connection, source: str) -> None:
         except Exception as exc:
             connection.send(_exception_response(exc, stdout, stderr))
     connection.close()
+
+
+def _prepare_configured_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize immutable run data once before event contexts share it."""
+
+    prepared = dict(payload)
+    for name, date_field, optional in (
+        ("bars", "date", False),
+        ("instruments", "snapshot_date", True),
+        ("fundamentals", "available_date", True),
+        ("daily_factors", "date", True),
+        ("index_components", "date", True),
+    ):
+        value = prepared.get(name)
+        if value is not None:
+            prepared[name] = _time_frame(value, date_field, optional=optional)
+    instruments = prepared.get("instruments")
+    if (
+        isinstance(instruments, pd.DataFrame)
+        and not instruments.empty
+        and "symbol" in instruments
+        and not instruments["symbol"].duplicated().any()
+    ):
+        prepared["_instrument_index"] = instruments.set_index("symbol", drop=False)
+    sessions = prepared.get("sessions") or ()
+    if not isinstance(sessions, CalendarView):
+        prepared["sessions"] = CalendarView(
+            tuple(pd.Timestamp(value).normalize() for value in sessions)
+        )
+    return prepared
 
 
 def _dispatch(
@@ -529,18 +559,34 @@ def _build_contexts(
     available_symbols = tuple(
         str(value).strip().upper() for value in payload.get("available_symbols") or ()
     )
+    instrument_scope = payload.get("instruments")
+    instrument_index = payload.get("_instrument_index")
+    if isinstance(instrument_index, pd.DataFrame):
+        instrument_scope = (
+            instrument_index.reindex(available_symbols)
+            .dropna(subset=["symbol"])
+            .reset_index(drop=True)
+        )
     common = {
         "event": payload.get("event", Event.SESSION_CLOSE.value),
         "as_of": payload["as_of"],
         "sessions": payload.get("sessions") or [payload["as_of"]],
         "symbols": available_symbols,
         "bars": payload.get("bars") if payload.get("bars") is not None else pd.DataFrame(),
-        "instruments": (
-            payload.get("instruments") if payload.get("instruments") is not None else pd.DataFrame()
-        ),
+        "instruments": instrument_scope if instrument_scope is not None else pd.DataFrame(),
         "fundamentals": (
             payload.get("fundamentals")
             if payload.get("fundamentals") is not None
+            else pd.DataFrame()
+        ),
+        "daily_factors": (
+            payload.get("daily_factors")
+            if payload.get("daily_factors") is not None
+            else pd.DataFrame()
+        ),
+        "index_components": (
+            payload.get("index_components")
+            if payload.get("index_components") is not None
             else pd.DataFrame()
         ),
         "portfolio": _portfolio_from_payload(payload.get("portfolio") or {}),
@@ -572,15 +618,34 @@ def _build_contexts(
     def resolver(factor_id: str, parameters: dict[str, Any]) -> pd.Series:
         return _call_factor(strategy, factor_id, contexts[FactorContext], parameters, cache)
 
-    active_common = {**common, "symbols": active_symbols, "factor_resolver": resolver}
-    factor_context = FactorContext(**active_common)
+    factor_context = FactorContext._derive(
+        universe_context,
+        symbols=active_symbols,
+        factor_resolver=resolver,
+    )
     contexts.update(
         {
             FactorContext: factor_context,
-            SignalContext: SignalContext(**active_common),
-            PortfolioContext: PortfolioContext(**active_common),
-            ExecutionContext: ExecutionContext(**active_common),
-            StrategyContext: StrategyContext(**active_common),
+            SignalContext: SignalContext._derive(
+                universe_context,
+                symbols=active_symbols,
+                factor_resolver=resolver,
+            ),
+            PortfolioContext: PortfolioContext._derive(
+                universe_context,
+                symbols=active_symbols,
+                factor_resolver=resolver,
+            ),
+            ExecutionContext: ExecutionContext._derive(
+                universe_context,
+                symbols=active_symbols,
+                factor_resolver=resolver,
+            ),
+            StrategyContext: StrategyContext._derive(
+                universe_context,
+                symbols=active_symbols,
+                factor_resolver=resolver,
+            ),
         }
     )
     return contexts, active_symbols, cache
@@ -607,6 +672,10 @@ def _call_factor(
         ) from exc
     if key in cache:
         return cache[key].copy()
+    if not context.universe:
+        empty = pd.Series(index=pd.Index([], dtype=object), dtype=float)
+        cache[key] = empty
+        return empty.copy()
     active_stack = getattr(context, "_alphalab_factor_stack", ())
     if factor_id in active_stack:
         raise SdkRuntimeError(

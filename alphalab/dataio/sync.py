@@ -25,18 +25,35 @@ from alphalab.dataio.recipes import (
     inspect_data_recipe_source,
 )
 from alphalab.dataio.rq_sync import RQAcquirer
-from alphalab.dataio.rq_templates import get_rq_sync_template
+from alphalab.dataio.rq_templates import DEFAULT_RQ_SYNC_TEMPLATE_ID, get_rq_sync_template
 from alphalab.dataio.runtime import OperationsStore, RuntimeStore
-from alphalab.dataio.symbols import canonical_a_share_symbol
+from alphalab.dataio.symbols import canonical_a_share_symbol, is_a_share_symbol
 from alphalab.utils.paths import RUNTIME_DIR
 
-SyncDataset = Literal["instruments", "bars", "fundamentals", "factors"]
-_ALLOWED_DATASETS = {"instruments", "bars", "fundamentals", "factors"}
+SyncDataset = Literal[
+    "instruments",
+    "bars",
+    "market-state",
+    "daily-factors",
+    "index-components",
+    "fundamentals",
+    "factors",
+]
+_ALLOWED_DATASETS = {
+    "instruments",
+    "bars",
+    "market-state",
+    "daily-factors",
+    "index-components",
+    "fundamentals",
+    "factors",
+}
+_DEFAULT_INDEXES = ("000300.SH", "000905.SH", "000852.SH")
 
 
 class SyncRequest(BaseModel):
     source: Literal["rq"] = "rq"
-    template_id: str = "rq.a_share_research"
+    template_id: str = DEFAULT_RQ_SYNC_TEMPLATE_ID
     datasets: list[SyncDataset] = Field(
         default_factory=lambda: ["instruments", "bars", "fundamentals", "factors"]
     )
@@ -44,6 +61,11 @@ class SyncRequest(BaseModel):
     start: str | None = None
     end: str | None = None
     force: bool = False
+    bar_chunk_days: int = Field(default=366, ge=1, le=3660)
+    market_state_chunk_days: int = Field(default=366, ge=1, le=3660)
+    daily_factors: list[str] = Field(default_factory=lambda: ["market_cap", "roe"])
+    index_symbols: list[str] = Field(default_factory=lambda: list(_DEFAULT_INDEXES))
+    component_frequency: Literal["ME", "W-FRI", "B"] = "ME"
 
     @model_validator(mode="before")
     @classmethod
@@ -51,7 +73,9 @@ class SyncRequest(BaseModel):
         if not isinstance(value, dict):
             return value
         normalized = dict(value)
-        template = get_rq_sync_template(normalized.get("template_id", "rq.a_share_research"))
+        template = get_rq_sync_template(
+            normalized.get("template_id", DEFAULT_RQ_SYNC_TEMPLATE_ID)
+        )
         normalized["template_id"] = template.id
         normalized["datasets"] = list(template.resolve_datasets(normalized.get("datasets")))
         return normalized
@@ -76,6 +100,21 @@ class SyncRequest(BaseModel):
         if not normalized:
             raise ValueError("symbols must not be empty")
         return normalized
+
+    @field_validator("daily_factors")
+    @classmethod
+    def validate_daily_factors(cls, values: list[str]) -> list[str]:
+        normalized = list(
+            dict.fromkeys(str(value).strip() for value in values if str(value).strip())
+        )
+        if not normalized:
+            raise ValueError("daily_factors must not be empty")
+        return normalized
+
+    @field_validator("index_symbols")
+    @classmethod
+    def validate_index_symbols(cls, values: list[str]) -> list[str]:
+        return list(dict.fromkeys(canonical_a_share_symbol(value) for value in values))
 
 
 class SyncCancelled(RuntimeError):
@@ -145,6 +184,78 @@ def build_sync_plan(
                 "start": bars_start.strftime("%Y-%m-%d"),
                 "end": end.strftime("%Y-%m-%d"),
                 "watermark": bars_watermark,
+                "date_chunk_days": request.bar_chunk_days,
+            }
+        )
+    if "market-state" in request.datasets:
+        state_datasets = ["rq.paused"]
+        if "CS" in template.instrument_types:
+            state_datasets.append("rq.is_st")
+        for dataset in state_datasets:
+            watermark = store.operations.watermark(dataset)
+            state_start = start
+            if watermark and not request.force:
+                state_start = max(start, pd.Timestamp(watermark) - pd.Timedelta(days=1))
+            steps.append(
+                {
+                    "dataset": dataset,
+                    "mode": "full" if request.force or not watermark else "incremental",
+                    "start": state_start.strftime("%Y-%m-%d"),
+                    "end": end.strftime("%Y-%m-%d"),
+                    "watermark": watermark,
+                    "date_chunk_days": request.market_state_chunk_days,
+                }
+            )
+    if "daily-factors" in request.datasets:
+        field_watermarks = store.dimension_watermarks("rq.daily_factors", "field")
+        field_starts = {
+            field: (
+                start
+                if request.force or field not in field_watermarks
+                else max(start, field_watermarks[field] - pd.Timedelta(days=1))
+            ).strftime("%Y-%m-%d")
+            for field in request.daily_factors
+        }
+        steps.append(
+            {
+                "dataset": "rq.daily_factors",
+                "mode": (
+                    "full"
+                    if request.force or any(field not in field_watermarks for field in field_starts)
+                    else "incremental"
+                ),
+                "start": min(field_starts.values()),
+                "end": end.strftime("%Y-%m-%d"),
+                "fields": request.daily_factors,
+                "field_starts": field_starts,
+                "date_chunk_days": request.market_state_chunk_days,
+            }
+        )
+    if "index-components" in request.datasets and request.index_symbols:
+        index_watermarks = store.dimension_watermarks(
+            "rq.index_components", "index_symbol"
+        )
+        index_starts = {
+            symbol: (
+                start
+                if request.force or symbol not in index_watermarks
+                else max(start, index_watermarks[symbol])
+            ).strftime("%Y-%m-%d")
+            for symbol in request.index_symbols
+        }
+        steps.append(
+            {
+                "dataset": "rq.index_components",
+                "mode": (
+                    "full"
+                    if request.force or any(symbol not in index_watermarks for symbol in index_starts)
+                    else "incremental"
+                ),
+                "start": min(index_starts.values()),
+                "end": end.strftime("%Y-%m-%d"),
+                "indexes": request.index_symbols,
+                "index_starts": index_starts,
+                "frequency": request.component_frequency,
             }
         )
     if "fundamentals" in request.datasets:
@@ -192,6 +303,7 @@ def build_sync_plan(
         "requested_start": start.strftime("%Y-%m-%d"),
         "requested_end": end.strftime("%Y-%m-%d"),
         "force": request.force,
+        "force_semantics": "rewrite_requested_range_keep_rows_outside_range",
         "steps": steps,
         "estimated_batches": (_estimate_batches(steps, len(symbols)) if symbols_resolved else None),
         "writes_are_local": True,
@@ -293,20 +405,181 @@ class RQSyncService:
             if "bars" in datasets:
                 self._check_cancel(job_id)
                 step = _step(plan, "rq.bars")
-                bars = acquirer.daily_bars(
+                wrote_bars = False
+                for group_start, group_symbols in _symbol_sync_groups(
+                    self.store,
+                    ["rq.bars"],
                     plan["symbols"],
-                    step["start"],
-                    step["end"],
-                    market=template.market,
-                    progress=lambda message: self.operations.update_job(
-                        job_id,
-                        message=message,
+                    default_start=step["start"],
+                    requested_start=plan["requested_start"],
+                    instruments=(
+                        instrument_frame
+                        if instrument_frame is not None
+                        else _read_cached_instruments(self.store)
                     ),
-                    cancelled=lambda: self.operations.is_cancel_requested(job_id),
-                )
+                    force=request.force,
+                    overlap_days=7,
+                ).items():
+                    for bars in _daily_bar_chunks(
+                        acquirer,
+                        group_symbols,
+                        group_start,
+                        step["end"],
+                        market=template.market,
+                        date_chunk_days=request.bar_chunk_days,
+                        progress=lambda message: self.operations.update_job(
+                            job_id, message=message
+                        ),
+                        cancelled=lambda: self.operations.is_cancel_requested(job_id),
+                    ):
+                        self._check_cancel(job_id)
+                        self.store.write("rq.bars", bars)
+                        self.operations.save_checkpoint(
+                            job_id,
+                            "rq.bars",
+                            pd.to_datetime(bars["date"]).max().strftime("%Y-%m-%d"),
+                        )
+                        wrote_bars = True
                 self._check_cancel(job_id)
-                self.store.write("rq.bars", bars)
+                if not wrote_bars:
+                    raise MissingDataError("RQData returned an empty response for daily bars")
                 progress = self._complete_step(job_id, "rq.bars", progress, total)
+
+            if "market-state" in datasets:
+                paused_step = _step(plan, "rq.paused")
+                state_datasets = ["rq.paused"]
+                include_st = any(
+                    item["dataset"] == "rq.is_st" for item in plan["steps"]
+                )
+                if include_st:
+                    state_datasets.append("rq.is_st")
+                groups = _symbol_sync_groups(
+                    self.store,
+                    state_datasets,
+                    plan["symbols"],
+                    default_start=paused_step["start"],
+                    requested_start=plan["requested_start"],
+                    instruments=(
+                        instrument_frame
+                        if instrument_frame is not None
+                        else _read_cached_instruments(self.store)
+                    ),
+                    force=request.force,
+                    overlap_days=1,
+                )
+                wrote_state = False
+                for group_start, group_symbols in groups.items():
+                    for paused, is_st in acquirer.market_state_chunks(
+                        group_symbols,
+                        group_start,
+                        paused_step["end"],
+                        market=template.market,
+                        include_st=include_st,
+                        date_chunk_days=request.market_state_chunk_days,
+                        progress=lambda message: self.operations.update_job(
+                            job_id, message=message
+                        ),
+                        cancelled=lambda: self.operations.is_cancel_requested(job_id),
+                    ):
+                        self._check_cancel(job_id)
+                        self.store.write("rq.paused", paused)
+                        if include_st:
+                            self.store.write("rq.is_st", is_st)
+                        checkpoint = pd.to_datetime(paused["date"]).max().strftime("%Y-%m-%d")
+                        self.operations.save_checkpoint(job_id, "rq.paused", checkpoint)
+                        if include_st:
+                            self.operations.save_checkpoint(job_id, "rq.is_st", checkpoint)
+                        wrote_state = True
+                self._check_cancel(job_id)
+                if not wrote_state:
+                    raise MissingDataError("RQData returned no historical market state")
+                progress = self._complete_step(job_id, "rq.paused", progress, total)
+                if include_st:
+                    progress = self._complete_step(job_id, "rq.is_st", progress, total)
+
+            if "daily-factors" in datasets:
+                factor_step = _step(plan, "rq.daily_factors")
+                wrote_daily_factors = False
+                for field, field_start in factor_step["field_starts"].items():
+                    groups = _symbol_sync_groups(
+                        self.store,
+                        ["rq.daily_factors"],
+                        plan["symbols"],
+                        default_start=field_start,
+                        requested_start=plan["requested_start"],
+                        instruments=(
+                            instrument_frame
+                            if instrument_frame is not None
+                            else _read_cached_instruments(self.store)
+                        ),
+                        force=request.force,
+                        overlap_days=1,
+                        dimension=("field", field),
+                    )
+                    for group_start, group_symbols in groups.items():
+                        for daily_factors in acquirer.daily_factor_chunks(
+                            group_symbols,
+                            [field],
+                            group_start,
+                            factor_step["end"],
+                            market=template.market,
+                            date_chunk_days=request.market_state_chunk_days,
+                            progress=lambda message: self.operations.update_job(
+                                job_id, message=message
+                            ),
+                            cancelled=lambda: self.operations.is_cancel_requested(job_id),
+                        ):
+                            self._check_cancel(job_id)
+                            self.store.write("rq.daily_factors", daily_factors)
+                            self.operations.save_checkpoint(
+                                job_id,
+                                "rq.daily_factors",
+                                pd.to_datetime(daily_factors["date"]).max().strftime(
+                                    "%Y-%m-%d"
+                                ),
+                            )
+                            wrote_daily_factors = True
+                self._check_cancel(job_id)
+                if not wrote_daily_factors:
+                    raise MissingDataError("RQData returned no daily factors")
+                progress = self._complete_step(
+                    job_id, "rq.daily_factors", progress, total
+                )
+
+            if "index-components" in datasets:
+                component_step = _step(plan, "rq.index_components")
+                wrote_components = False
+                for component_start, indexes in _group_starts(
+                    component_step["index_starts"]
+                ).items():
+                    dates = _component_dates(
+                        component_start,
+                        component_step["end"],
+                        component_step["frequency"],
+                    )
+                    if not dates:
+                        continue
+                    components = acquirer.index_components(
+                        indexes,
+                        dates,
+                        progress=lambda message: self.operations.update_job(
+                            job_id, message=message
+                        ),
+                        cancelled=lambda: self.operations.is_cancel_requested(job_id),
+                    )
+                    self._check_cancel(job_id)
+                    self.store.write("rq.index_components", components)
+                    self.operations.save_checkpoint(
+                        job_id,
+                        "rq.index_components",
+                        pd.to_datetime(components["date"]).max().strftime("%Y-%m-%d"),
+                    )
+                    wrote_components = True
+                if not wrote_components:
+                    raise MissingDataError("RQData returned no index components")
+                progress = self._complete_step(
+                    job_id, "rq.index_components", progress, total
+                )
 
             if "fundamentals" in datasets:
                 income_step = _step(plan, "rq.financials.income")
@@ -657,6 +930,11 @@ def _symbols_from_instruments(
     candidates = candidates.loc[
         (listed.isna() | listed.le(end)) & (delisted.isna() | delisted.ge(start))
     ]
+    if "asset_type" in candidates:
+        is_common_stock = candidates["asset_type"].astype(str).str.upper().eq("CS")
+        candidates = candidates.loc[
+            ~is_common_stock | candidates["symbol"].map(is_a_share_symbol)
+        ]
     return sorted(
         dict.fromkeys(
             canonical_a_share_symbol(value) for value in candidates["symbol"].dropna().astype(str)
@@ -674,6 +952,89 @@ def _select_instruments(frame: pd.DataFrame, symbols: list[str]) -> pd.DataFrame
             f"RQData instrument snapshot is missing requested symbols: {missing[:10]}"
         )
     return selected
+
+
+def _symbol_sync_groups(
+    store: RuntimeStore,
+    datasets: list[str],
+    symbols: list[str],
+    *,
+    default_start: str,
+    requested_start: str,
+    instruments: pd.DataFrame,
+    force: bool,
+    overlap_days: int,
+    dimension: tuple[str, str] | None = None,
+) -> dict[str, list[str]]:
+    """Group symbols by honest backfill start across all required datasets."""
+
+    requested = pd.Timestamp(requested_start).normalize()
+    default = pd.Timestamp(default_start).normalize()
+    listing_starts: dict[str, pd.Timestamp] = {}
+    if not instruments.empty and {"symbol", "listed_date"}.issubset(instruments.columns):
+        listed = instruments[["symbol", "listed_date"]].copy()
+        listed["symbol"] = listed["symbol"].astype(str).str.upper()
+        listed["listed_date"] = pd.to_datetime(listed["listed_date"], errors="coerce")
+        listing_starts = {
+            str(symbol): pd.Timestamp(value).normalize()
+            for symbol, value in listed.dropna().groupby("symbol")["listed_date"].min().items()
+        }
+    dataset_watermarks = [
+        store.watermarks(dataset, dimension=dimension) for dataset in datasets
+    ]
+    grouped: dict[str, list[str]] = {}
+    for raw_symbol in symbols:
+        symbol = str(raw_symbol).upper()
+        base = max(requested, listing_starts.get(symbol, requested))
+        effective = base
+        if not force:
+            values = [watermarks.get(symbol) for watermarks in dataset_watermarks]
+            if values and all(value is not None for value in values):
+                effective = max(
+                    base,
+                    min(pd.Timestamp(value) for value in values if value is not None)
+                    - pd.Timedelta(days=overlap_days),
+                    default,
+                )
+        grouped.setdefault(effective.strftime("%Y-%m-%d"), []).append(symbol)
+    return {start: sorted(values) for start, values in sorted(grouped.items())}
+
+
+def _daily_bar_chunks(
+    acquirer: Any,
+    symbols: list[str],
+    start: str,
+    end: str,
+    **kwargs: Any,
+):
+    """Keep older injected acquirers compatible while the built-in streams."""
+
+    if hasattr(acquirer, "daily_bar_chunks"):
+        yield from acquirer.daily_bar_chunks(symbols, start, end, **kwargs)
+        return
+    fallback_kwargs = {
+        key: value for key, value in kwargs.items() if key != "date_chunk_days"
+    }
+    frame = acquirer.daily_bars(symbols, start, end, **fallback_kwargs)
+    if frame is not None and not frame.empty:
+        yield frame
+
+
+def _group_starts(values: dict[str, str]) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for dimension, start in values.items():
+        grouped.setdefault(str(start), []).append(str(dimension))
+    return {start: sorted(items) for start, items in sorted(grouped.items())}
+
+
+def _component_dates(start: str, end: str, frequency: str) -> list[str]:
+    first = pd.Timestamp(start).normalize()
+    last = pd.Timestamp(end).normalize()
+    if first > last:
+        return []
+    values = {first, last}
+    values.update(pd.date_range(first, last, freq=frequency).normalize())
+    return [value.strftime("%Y-%m-%d") for value in sorted(values)]
 
 
 def _date_quarter(value: pd.Timestamp) -> str:
@@ -696,7 +1057,39 @@ def _estimate_batches(steps: list[dict], symbol_count: int) -> int:
     total = 0
     for step in steps:
         if step["dataset"] == "rq.bars":
-            total += stock_batches * 2
+            chunks = max(
+                1,
+                (
+                    (pd.Timestamp(step["end"]) - pd.Timestamp(step["start"])).days
+                    // int(step.get("date_chunk_days", 366))
+                )
+                + 1,
+            )
+            total += stock_batches * chunks * 2
+        elif step["dataset"] in {"rq.paused", "rq.is_st"}:
+            chunks = max(
+                1,
+                (
+                    (pd.Timestamp(step["end"]) - pd.Timestamp(step["start"])).days
+                    // int(step.get("date_chunk_days", 366))
+                )
+                + 1,
+            )
+            total += stock_batches * chunks
+        elif step["dataset"] == "rq.daily_factors":
+            chunks = max(
+                1,
+                (
+                    (pd.Timestamp(step["end"]) - pd.Timestamp(step["start"])).days
+                    // int(step.get("date_chunk_days", 366))
+                )
+                + 1,
+            )
+            total += stock_batches * chunks * max(1, len(step.get("fields", [])))
+        elif step["dataset"] == "rq.index_components":
+            total += len(step.get("indexes", [])) * len(
+                _component_dates(step["start"], step["end"], step.get("frequency", "ME"))
+            )
         elif step["dataset"].startswith("rq.financials."):
             start_year, start_quarter = int(step["start_quarter"][:4]), int(
                 step["start_quarter"][-1]

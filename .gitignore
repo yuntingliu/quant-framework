@@ -3,6 +3,7 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+.codex-tmp/
 .ruff_cache/
 .mypy_cache/
 .coverage

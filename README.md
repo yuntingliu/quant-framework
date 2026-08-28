@@ -15,7 +15,7 @@ Windows PowerShell:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dashboard,dev]"
+.\.venv\Scripts\python.exe -m pip install -e ".[dashboard,dev,rq]"
 
 python -m uvicorn dashboard.backend.main:app --reload --port 8000
 ```
@@ -30,6 +30,34 @@ npm run dev
 
 The bundled `demo` profile works offline. Configure `RQ_USER`, `RQ_PASSWORD`,
 and `RQ_HOST` in an untracked `.env` to use the `runtime` profile.
+
+Before starting the workbench, the read-only doctor reports local Python,
+Node, RQData, editor tools, runtime datasets, and port readiness without
+printing credential values:
+
+```powershell
+alphalab dev doctor
+```
+
+## Runtime RQ data
+
+The Data Workbench and CLI use the same visible Python recipe and the same
+partitioned store below ignored `data/runtime/`. Inspect a plan before a large
+request, then run and validate the selected scope:
+
+```powershell
+alphalab data templates
+alphalab data plan rq --template rq.etf_daily
+alphalab data sync rq --template rq.a_share_research
+alphalab data validate --datasets rq.bars,rq.paused,rq.is_st --fail-on-gap
+```
+
+Daily RQ requests are split by symbols and dates. Each completed chunk is
+persisted immediately; rerunning resumes from per-symbol/per-field/per-index
+watermarks with an overlap refresh. Runtime research data includes adjusted
+bars with `raw_close`, suspensions, ST state, daily factors, historical index
+membership, PIT financials, and attribution factors. See
+[Data operations](docs/04_DATA_OPERATIONS.md) for exact templates and schemas.
 
 ## Strategy SDK v1
 

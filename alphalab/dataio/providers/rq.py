@@ -12,6 +12,13 @@ from typing import Any, Mapping, Optional
 import pandas as pd
 
 from alphalab.dataio.errors import DataLoadError, DataValidationError, MissingDataError
+from alphalab.dataio.rq_frames import (
+    normalize_rq_daily_factor,
+    normalize_rq_index_components,
+    normalize_rq_market_state,
+    require_same_keys,
+)
+from alphalab.dataio.symbols import is_a_share_symbol
 from alphalab.utils.env import load_env_files
 
 _BAR_FIELDS = ("open", "high", "low", "close", "volume", "amount")
@@ -243,6 +250,7 @@ class RQDataProvider:
             out = pd.DataFrame(
                 {
                     "snapshot_date": pd.Timestamp.now().normalize(),
+                    "retrieved_at": pd.Timestamp.now(tz="UTC").tz_localize(None),
                     "symbol": frame[symbol_column].map(_from_rq_symbol),
                     "asset_type": frame["__requested_asset_type"],
                     "listed_date": _optional_datetime(
@@ -264,6 +272,10 @@ class RQDataProvider:
                 if source_column == symbol_column or not target or target in out.columns:
                     continue
                 out[target] = frame[source_column].to_numpy()
+            is_common_stock = out["asset_type"].astype(str).str.upper().eq("CS")
+            out = out.loc[
+                ~is_common_stock | out["symbol"].map(is_a_share_symbol)
+            ].copy()
             out = out.dropna(subset=["symbol"])
             self._instrument_cache = out.drop_duplicates("symbol", keep="last")
             out = self._instrument_cache.copy()
@@ -273,6 +285,8 @@ class RQDataProvider:
                 (out["listed_date"].isna() | out["listed_date"].le(cutoff))
                 & (out["de_listed_date"].isna() | out["de_listed_date"].gt(cutoff))
             ]
+            out = out.copy()
+            out["snapshot_date"] = cutoff.normalize()
         return out.reset_index(drop=True)
 
     def get_fundamentals(
@@ -323,6 +337,128 @@ class RQDataProvider:
             ["symbol", "quarter", "if_adjusted", "available_date"]
         ).drop_duplicates(["quarter", "symbol"], keep="first")
         return combined.sort_values(["available_date", "quarter", "symbol"]).reset_index(drop=True)
+
+    def get_market_state(
+        self,
+        symbols: list[str],
+        start: str,
+        end: str,
+        fields: list[str] | None = None,
+    ) -> pd.DataFrame:
+        default_fields = ["paused", *( ["is_st"] if "CS" in self.instrument_types else [])]
+        requested = list(dict.fromkeys(fields or default_fields))
+        unknown = sorted(set(requested) - {"paused", "is_st", "is_suspended"})
+        if unknown:
+            raise DataValidationError(f"Unsupported RQ market-state fields: {unknown}")
+        rq = self.client.connect()
+        rq_symbols = [_to_rq_symbol(symbol) for symbol in symbols]
+        try:
+            paused = normalize_rq_market_state(
+                rq.is_suspended(
+                    rq_symbols,
+                    start_date=start,
+                    end_date=end,
+                    market=self.market,
+                ),
+                field="paused",
+            )
+            wants_st = "is_st" in requested
+            is_st = (
+                normalize_rq_market_state(
+                    rq.is_st_stock(
+                        rq_symbols,
+                        start_date=start,
+                        end_date=end,
+                        market=self.market,
+                    ),
+                    field="is_st",
+                )
+                if wants_st
+                else pd.DataFrame(columns=["date", "symbol", "is_st"])
+            )
+        except Exception as exc:
+            if isinstance(exc, DataValidationError):
+                raise
+            raise DataLoadError("RQData market-state request failed") from exc
+        if wants_st:
+            require_same_keys(paused, is_st, ("date", "symbol"), label="paused/ST state")
+            output = paused.merge(is_st, on=["date", "symbol"], how="inner")
+        else:
+            output = paused
+        output["is_suspended"] = output["paused"]
+        keep = ["date", "symbol", *requested]
+        return output[[column for column in keep if column in output]].copy()
+
+    def get_daily_factors(
+        self,
+        symbols: list[str],
+        fields: list[str],
+        start: str,
+        end: str,
+    ) -> pd.DataFrame:
+        rq = self.client.connect()
+        rq_symbols = [_to_rq_symbol(symbol) for symbol in symbols]
+        aliases = {"roe": "return_on_equity"}
+        frames: list[pd.DataFrame] = []
+        for factor_name in fields:
+            try:
+                raw = rq.get_factor(
+                    rq_symbols,
+                    aliases.get(factor_name, factor_name),
+                    start_date=start,
+                    end_date=end,
+                    market=self.market,
+                )
+            except Exception as exc:
+                raise DataLoadError(
+                    f"RQData daily factor request failed: {factor_name}"
+                ) from exc
+            normalized = normalize_rq_daily_factor(raw, field=factor_name)
+            if not normalized.empty:
+                frames.append(normalized)
+        if not frames:
+            return pd.DataFrame(columns=["date", "symbol", "field", "value"])
+        return (
+            pd.concat(frames, ignore_index=True)
+            .drop_duplicates(["date", "symbol", "field"], keep="last")
+            .sort_values(["date", "symbol", "field"])
+            .reset_index(drop=True)
+        )
+
+    def get_index_components(
+        self,
+        index_symbols: list[str],
+        start: str,
+        end: str,
+    ) -> pd.DataFrame:
+        rq = self.client.connect()
+        dates = {pd.Timestamp(start).normalize(), pd.Timestamp(end).normalize()}
+        dates.update(pd.date_range(start, end, freq="ME").normalize())
+        frames: list[pd.DataFrame] = []
+        for index_symbol in index_symbols:
+            for date in sorted(dates):
+                try:
+                    raw = rq.index_components(
+                        _to_rq_symbol(index_symbol),
+                        date=date.strftime("%Y-%m-%d"),
+                    )
+                except Exception as exc:
+                    raise DataLoadError("RQData index-component request failed") from exc
+                normalized = normalize_rq_index_components(
+                    raw,
+                    index_symbol=index_symbol,
+                    snapshot_date=date.strftime("%Y-%m-%d"),
+                )
+                if not normalized.empty:
+                    frames.append(normalized)
+        if not frames:
+            return pd.DataFrame(columns=["date", "index_symbol", "symbol"])
+        return (
+            pd.concat(frames, ignore_index=True)
+            .drop_duplicates(["date", "index_symbol", "symbol"], keep="last")
+            .sort_values(["date", "index_symbol", "symbol"])
+            .reset_index(drop=True)
+        )
 
 
 def _normalize_bars(raw: Any, fields: list[str]) -> pd.DataFrame:

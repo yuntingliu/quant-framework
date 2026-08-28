@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from alphalab.dataio.errors import DataLoadError, MissingDataError
 from alphalab.dataio.recipes import DataRecipeError
+from alphalab.dataio.rq_templates import DEFAULT_RQ_SYNC_TEMPLATE_ID
 from alphalab.dataio.sync import SyncRequest
 from dashboard.backend.services import data_sync_service
 
@@ -15,10 +16,14 @@ router = APIRouter(prefix="/api/data-sync", tags=["data-sync"])
 
 class ValidateRequest(BaseModel):
     dataset: str | None = None
+    datasets: list[str] | None = None
+    start: str | None = None
+    as_of: str | None = None
+    fail_on_gap: bool = False
 
 
 class ConnectionTestRequest(BaseModel):
-    template_id: str = "rq.a_share_daily"
+    template_id: str = DEFAULT_RQ_SYNC_TEMPLATE_ID
 
 
 class RecipeSourceRequest(BaseModel):
@@ -246,9 +251,17 @@ def cancel(job_id: str) -> dict:
 @router.post("/validate")
 def validate(request: ValidateRequest) -> dict | list[dict]:
     try:
-        return data_sync_service.validate(request.dataset)
+        return data_sync_service.validate(
+            request.dataset,
+            datasets=request.datasets,
+            start=request.start,
+            as_of=request.as_of,
+            fail_on_gap=request.fail_on_gap,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _confirmed(value: bool, message: str) -> None:

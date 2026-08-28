@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from alphalab import ResultStore
+from alphalab.dataio.recipes import render_builtin_recipe
 from alphalab.dataio.runtime import OperationsStore
 from alphalab.strategy.repository import StrategyRepository
 from dashboard.backend.main import app
@@ -96,6 +97,13 @@ def test_data_sync_connection_probe_uses_selected_template(monkeypatch) -> None:
         "rqdatac_version": "3.6.3",
     }
 
+    default_response = TestClient(app).post(
+        "/api/data-sync/connection-test",
+        json={},
+    )
+    assert default_response.status_code == 200
+    assert default_response.json()["template_id"] == "rq.a_share_research"
+
 
 def test_data_recipe_workspace_uses_python_as_the_template_and_parameter_source(
     tmp_path,
@@ -114,8 +122,8 @@ def test_data_recipe_workspace_uses_python_as_the_template_and_parameter_source(
     assert workspace.status_code == 200, workspace.text
     payload = workspace.json()
     assert payload["docs_url"] == ("https://www.ricequant.com/doc/rqdata/python/index-rqdatac")
-    assert payload["draft"]["inspection"]["matched_template_id"] == "rq.a_share_daily"
-    assert payload["draft"]["selected_template_id"] == "rq.a_share_daily"
+    assert payload["draft"]["inspection"]["matched_template_id"] == "rq.a_share_research"
+    assert payload["draft"]["selected_template_id"] == "rq.a_share_research"
     assert "@data_recipe" in payload["draft"]["source"]
     assert "@universe" not in payload["draft"]["source"]
 
@@ -182,6 +190,44 @@ def test_data_recipe_workspace_uses_python_as_the_template_and_parameter_source(
     assert switched_back.status_code == 200, switched_back.text
     assert switched_back.json()["selected_template_id"] == custom_id
     assert switched_back.json()["source_sha256"] == custom.json()["source_sha256"]
+
+
+def test_system_default_recipe_upgrades_only_an_untouched_previous_default(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    operations = OperationsStore(tmp_path)
+    old_source = render_builtin_recipe(
+        "rq.a_share_daily",
+        start="2021-08-25",
+        end="2026-08-25",
+    )
+    operations.save_recipe_draft(
+        "sdk-v1-default",
+        old_source,
+        selected_template_id="rq.a_share_daily",
+    )
+    operations.save_recipe_draft(
+        "custom-project",
+        old_source,
+        selected_template_id="rq.a_share_daily",
+    )
+    manager = SimpleNamespace(operations=operations)
+    monkeypatch.setattr(data_sync_service, "get_job_manager", lambda: manager)
+    monkeypatch.setattr(strategy_service, "get_project", lambda project_id: {"id": project_id})
+    monkeypatch.setattr(
+        data_sync_service,
+        "_recipe_bounds",
+        lambda: {"start": "2021-08-25", "end": "2026-08-25"},
+    )
+
+    upgraded = data_sync_service.recipe_workspace("sdk-v1-default")["draft"]
+    preserved = data_sync_service.recipe_workspace("custom-project")["draft"]
+
+    assert upgraded["selected_template_id"] == "rq.a_share_research"
+    assert upgraded["inspection"]["matched_template_id"] == "rq.a_share_research"
+    assert preserved["selected_template_id"] == "rq.a_share_daily"
+    assert preserved["inspection"]["matched_template_id"] == "rq.a_share_daily"
 
 
 def test_strategy_clone_cst_edit_and_revision_confirmation(tmp_path, monkeypatch):

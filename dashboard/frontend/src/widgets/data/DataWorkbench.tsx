@@ -290,7 +290,7 @@ export function DataWorkbenchWidget() {
     if (!workspace) return
     setBusy(true); setError(""); setConnection("")
     try {
-      const templateId = workspace.draft.inspection.template_id ?? "rq.a_share_daily"
+      const templateId = workspace.draft.inspection.template_id ?? "rq.a_share_research"
       const result = await api.post<{ latest_trading_date: string; rqdatac_version: string }>(
         "/data-sync/connection-test",
         { template_id: templateId },

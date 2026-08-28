@@ -3,13 +3,15 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 
 from alphalab.dataio import create_default_engine
 from alphalab.sdk.v1 import Event, FactorContext
 from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
-from alphalab.strategy.engine import run_strategy_backtest
+from alphalab.strategy.config import ExecutionSpec
+from alphalab.strategy.engine import _apply_execution_constraints, run_strategy_backtest
 from alphalab.strategy.factor_templates import (
     install_factor_template,
     list_factor_templates,
@@ -864,6 +866,8 @@ class _SuspensionEngine:
                     "close": 10.0,
                     "volume": 0.0 if index == 1 else 1_000_000.0,
                     "amount": 0.0 if index == 1 else 10_000_000.0,
+                    # Nullable market-state columns are not a suspension.
+                    "is_suspended": pd.NA,
                 }
                 for index, date in enumerate(self.dates)
             ]
@@ -916,6 +920,142 @@ def test_rejected_fill_does_not_change_actual_positions(tmp_path: Path):
     assert result.weights.loc[pd.Timestamp("2024-01-02")].sum() == 0.0
 
 
+def test_equal_buy_deltas_use_symbol_as_a_deterministic_tie_breaker():
+    date = pd.Timestamp("2024-01-02")
+    bars = pd.DataFrame(
+        {
+            "date": [date, date],
+            "symbol": ["B", "A"],
+            "open": [10.0, 10.0],
+            "close": [10.0, 10.0],
+            "volume": [1_000_000.0, 1_000_000.0],
+            "amount": [100_000_000.0, 100_000_000.0],
+        }
+    )
+    executed, audit = _apply_execution_constraints(
+        {"B": 0.5, "A": 0.5},
+        {},
+        bars,
+        date,
+        SimpleNamespace(
+            execution=ExecutionSpec(
+                cost_bps=2.5,
+                slippage_bps=2.0,
+                portfolio_value=1_000_000.0,
+                max_participation_rate=1.0,
+            )
+        ),
+    )
+
+    assert executed["A"] == 0.5
+    assert executed["B"] < 0.5
+    assert audit["constrained_symbols"] == ["B"]
+
+
+class _FutureInstrumentSnapshotEngine:
+    """RQ-like master whose retrieval stamp is later than its bar history."""
+
+    def __init__(self):
+        self.dates = pd.bdate_range("2024-01-01", periods=45)
+        self.bars = pd.DataFrame(
+            [
+                {
+                    "date": date,
+                    "symbol": symbol,
+                    "open": 100.0 + index,
+                    "high": 101.0 + index,
+                    "low": 99.0 + index,
+                    "close": 100.0 + index + (1.0 if symbol == "B" else 0.0),
+                    "volume": 1_000_000.0,
+                    "amount": 100_000_000.0,
+                }
+                for index, date in enumerate(self.dates)
+                for symbol in ("A", "B")
+            ]
+        )
+
+    def get_instruments(self, as_of_date=None):
+        return pd.DataFrame(
+            {
+                "snapshot_date": [pd.Timestamp("2026-08-25")] * 2,
+                "symbol": ["A", "B"],
+                "asset_type": ["ETF", "ETF"],
+                "listed_date": [self.dates[0], self.dates[25]],
+                "de_listed_date": [pd.NaT, pd.NaT],
+            }
+        )
+
+    def get_bars(self, symbols, start_date, end_date, **kwargs):
+        requested = set(symbols)
+        return self.bars.loc[
+            self.bars["symbol"].isin(requested)
+            & self.bars["date"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))
+        ].copy()
+
+
+def test_backtest_uses_listing_intervals_when_instrument_snapshot_is_later(
+    tmp_path: Path,
+):
+    engine = _FutureInstrumentSnapshotEngine()
+    repository = StrategyRepository(tmp_path / "future-snapshot.db")
+    try:
+        repository.create_project(
+            "future-snapshot", name="Future Snapshot", source=DEFAULT_STRATEGY_SOURCE
+        )
+        result = run_strategy_backtest(
+            repository,
+            "future-snapshot",
+            engine.dates[0].strftime("%Y-%m-%d"),
+            engine.dates[-1].strftime("%Y-%m-%d"),
+            engine,
+        )
+    finally:
+        repository.close()
+
+    assert len(result.returns) == len(engine.dates)
+    assert result.executions
+    assert result.diagnostics["warnings"] == []
+
+
+def test_factor_execution_handles_empty_universe_and_short_history():
+    payload = _payload()
+    dates = payload["sessions"]
+    with SdkExecutionSession(DEFAULT_STRATEGY_SOURCE) as session:
+        session.configure(payload)
+        empty = session.execute(
+            "factor",
+            {
+                "event": "session_close",
+                "as_of": dates[-1],
+                "available_symbols": [],
+                "factor_id": "momentum_20d",
+                "parameters": {"window": 20},
+                "portfolio": {},
+                "state": {},
+                "limits": {"max_weight": 1.0, "max_gross_exposure": 1.0},
+            },
+        )
+        short = session.execute(
+            "factor",
+            {
+                "event": "session_close",
+                "as_of": dates[0],
+                "available_symbols": ["A", "B"],
+                "factor_id": "momentum_20d",
+                "parameters": {"window": 20},
+                "portfolio": {},
+                "state": {},
+                "limits": {"max_weight": 1.0, "max_gross_exposure": 1.0},
+            },
+        )
+
+    assert empty.value["values"] == []
+    assert short.value["values"] == [
+        {"symbol": "A", "value": None},
+        {"symbol": "B", "value": None},
+    ]
+
+
 def test_decision_event_gets_prior_state_and_actual_portfolio():
     source = DEFAULT_STRATEGY_SOURCE.replace(
         "    execution,\n",
@@ -948,3 +1088,41 @@ def decision_audit(context, state):
         ).value
     assert first["state"] == {"prior": 7, "decision_count": 1, "actual_positions": 1}
     assert "decision_audit" in first["invoked"]
+
+
+def test_strategy_context_exposes_daily_factors_and_index_membership() -> None:
+    as_of = pd.Timestamp("2025-01-03")
+    context = FactorContext(
+        event="session_close",
+        as_of=as_of,
+        sessions=pd.bdate_range("2025-01-01", "2025-01-03"),
+        symbols=["000001.SZ", "600000.SH"],
+        bars=pd.DataFrame(
+            {
+                "date": [as_of, as_of],
+                "symbol": ["000001.SZ", "600000.SH"],
+                "close": [10.0, 20.0],
+            }
+        ),
+        daily_factors=pd.DataFrame(
+            {
+                "date": ["2025-01-02", "2025-01-03", "2025-01-03"],
+                "symbol": ["000001.SZ", "000001.SZ", "600000.SH"],
+                "field": ["roe", "roe", "roe"],
+                "value": [0.1, 0.2, 0.3],
+            }
+        ),
+        index_components=pd.DataFrame(
+            {
+                "date": ["2024-12-31", "2024-12-31"],
+                "index_symbol": ["000300.SH", "000300.SH"],
+                "symbol": ["000001.SZ", "600000.SH"],
+            }
+        ),
+    )
+
+    assert context.daily_factor("roe").to_dict() == {
+        "000001.SZ": 0.2,
+        "600000.SH": 0.3,
+    }
+    assert context.index_components("000300.SH") == ("000001.SZ", "600000.SH")

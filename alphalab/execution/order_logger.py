@@ -11,7 +11,7 @@ class OrderLogger:
         self.store = store or ResultStore()
 
     def log(self, order: dict) -> str:
-        cursor = self.store._conn.execute(
+        self.store._conn.execute(
             """INSERT INTO orders
                (id, signal_id, symbol, action, quantity, price, status, broker)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",

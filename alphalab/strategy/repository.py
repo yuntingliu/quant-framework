@@ -710,6 +710,12 @@ class StrategyRepository:
         )
         fundamentals_fields = set(inspection.data_requirements.get("fundamentals") or ())
         instrument_fields = set(inspection.data_requirements.get("instruments") or ())
+        daily_factor_fields = set(
+            inspection.data_requirements.get("daily_factors") or ()
+        )
+        index_component_ids = set(
+            inspection.data_requirements.get("index_components") or ()
+        )
         fundamentals = pd.DataFrame(
             [
                 {
@@ -740,6 +746,29 @@ class StrategyRepository:
                 }
             ),
             "fundamentals": fundamentals,
+            "daily_factors": pd.DataFrame(
+                [
+                    {
+                        "date": dates[-1],
+                        "symbol": symbol,
+                        "field": field,
+                        "value": 1.0,
+                    }
+                    for symbol in ("TEST_A", "TEST_B", "511260")
+                    for field in daily_factor_fields
+                ]
+            ),
+            "index_components": pd.DataFrame(
+                [
+                    {
+                        "date": dates[-1],
+                        "index_symbol": index_symbol,
+                        "symbol": symbol,
+                    }
+                    for index_symbol in index_component_ids
+                    for symbol in ("TEST_A", "TEST_B", "511260")
+                ]
+            ),
             "portfolio": {},
             "state": {},
             "force_signal": True,

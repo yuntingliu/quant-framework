@@ -13,7 +13,6 @@ from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.schema import DatasetField, discover_parquet_fields
 from alphalab.utils.paths import APP_DATA_DIR, DATA_DIR, FACTOR_DIR, FUNDAMENTAL_DIR, MARKET_DIR
 
-
 _DATASET_METADATA_FIELDS = {
     "market_bars": {"date", "symbol"},
     "fundamentals": {"quarter", "available_date", "symbol"},

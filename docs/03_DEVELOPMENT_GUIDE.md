@@ -20,6 +20,14 @@ cd dashboard\frontend
 npm run dev
 ```
 
+Before investigating a local startup failure, run the read-only environment
+doctor. It reports Python/Node/RQData/editor-tool availability, runtime paths,
+and the usual development ports without printing credential values:
+
+```powershell
+alphalab dev doctor
+```
+
 The strategy runtime invokes the same local Python environment in a spawned
 child process. Do not describe it as sandboxed and do not add a Docker-only or
 second Lab execution path.
@@ -227,9 +235,10 @@ the backend source inspector remains authoritative for SDK errors. Ctrl+S saves
 through the existing canonical draft API; formatting and code actions come from
 Ruff and may modify only the active Monaco model until the user saves.
 
-The request-only data-template migration is intentionally narrow: only source
-that exactly matches a former built-in renderer is replaced with the equivalent
-visible RQ command recipe. Any manually changed or custom source is preserved.
+Data-template migration is intentionally narrow: only source that exactly
+matches a former request-only or visible built-in renderer after normalizing its
+three form parameters is replaced with the current visible RQ command recipe.
+Any manually changed or custom source is preserved.
 
 Inactive legacy widgets may not be registered in `widgetComponents`, a layout
 preset, Agent workspace commands, or navigation.
@@ -239,6 +248,8 @@ preset, Agent workspace commands, or navigation.
 ```powershell
 python -m pytest tests -q --basetemp=data\pytest
 python scripts\check_facade_imports.py
+python scripts\check_repository_hygiene.py
+python -m ruff check alphalab dashboard\backend tests scripts
 python -m compileall -q alphalab dashboard\backend
 cd dashboard\frontend
 npm run lint

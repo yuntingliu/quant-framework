@@ -14,6 +14,7 @@ from typing import Any, Iterator
 from uuid import uuid4
 
 import pandas as pd
+import pyarrow.parquet as pq
 
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.errors import DataLoadError, MissingDataError
@@ -262,7 +263,12 @@ class OperationsStore:
                    updated_at=excluded.updated_at""",
                 (dataset, relative, rows, _sha256(path), min_date, max_date, _now()),
             )
-            summary = DataCatalog(self.root).status(dataset)
+            summary = connection.execute(
+                """SELECT COUNT(*) AS files, COALESCE(SUM(rows), 0) AS rows,
+                          MIN(min_date) AS min_date, MAX(max_date) AS max_date
+                   FROM partitions WHERE dataset_id=?""",
+                (dataset,),
+            ).fetchone()
             connection.execute(
                 """INSERT INTO datasets (id, status, watermark, rows, files, updated_at, error)
                    VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -271,14 +277,82 @@ class OperationsStore:
                    updated_at=excluded.updated_at, error=excluded.error""",
                 (
                     dataset,
-                    summary["status"],
-                    summary.get("date_end"),
-                    summary["rows"],
-                    summary["files"],
+                    "ready",
+                    summary["max_date"],
+                    int(summary["rows"]),
+                    int(summary["files"]),
                     _now(),
-                    summary.get("error"),
+                    None,
                 ),
             )
+
+    def dataset_status(self, dataset: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM datasets WHERE id=?",
+                (dataset,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def partition_count(self, dataset: str) -> int:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM partitions WHERE dataset_id=?",
+                (dataset,),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def reconcile_partitions(
+        self,
+        dataset: str,
+        entries: list[tuple[Path, int, str | None, str | None]],
+    ) -> dict[str, Any]:
+        """Replace one dataset's derived partition inventory atomically."""
+
+        now = _now()
+        with self._connect() as connection:
+            connection.execute("DELETE FROM partitions WHERE dataset_id=?", (dataset,))
+            for path, rows, min_date, max_date in entries:
+                relative = path.relative_to(self.root).as_posix()
+                connection.execute(
+                    """INSERT INTO partitions
+                       (dataset_id, path, rows, sha256, min_date, max_date, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        dataset,
+                        relative,
+                        int(rows),
+                        _sha256(path),
+                        min_date,
+                        max_date,
+                        now,
+                    ),
+                )
+            summary = connection.execute(
+                """SELECT COUNT(*) AS files, COALESCE(SUM(rows), 0) AS rows,
+                          MIN(min_date) AS min_date, MAX(max_date) AS max_date
+                   FROM partitions WHERE dataset_id=?""",
+                (dataset,),
+            ).fetchone()
+            status = "ready" if int(summary["files"]) else "missing"
+            connection.execute(
+                """INSERT INTO datasets (id, status, watermark, rows, files, updated_at, error)
+                   VALUES (?, ?, ?, ?, ?, ?, NULL)
+                   ON CONFLICT(id) DO UPDATE SET status=excluded.status,
+                   watermark=excluded.watermark, rows=excluded.rows, files=excluded.files,
+                   updated_at=excluded.updated_at, error=NULL""",
+                (
+                    dataset,
+                    status,
+                    summary["max_date"],
+                    int(summary["rows"]),
+                    int(summary["files"]),
+                    now,
+                ),
+            )
+        result = self.dataset_status(dataset)
+        assert result is not None
+        return result
 
     def watermark(self, dataset: str) -> str | None:
         with self._connect() as connection:
@@ -463,8 +537,90 @@ class RuntimeStore:
                     max_date=max_date,
                 )
                 written.append(str(path))
-        status = self.catalog.status(dataset)
+        files = self.catalog.files(dataset)
+        if self.operations.partition_count(dataset) != len(files):
+            status = self._reconcile_partition_inventory(dataset, files)
+        else:
+            status = self.operations.dataset_status(dataset) or self.catalog.status(dataset)
         return {"dataset": dataset, "written": written, "status": status}
+
+    def watermarks(
+        self,
+        dataset: str,
+        *,
+        dimension: tuple[str, str] | None = None,
+    ) -> dict[str, pd.Timestamp]:
+        """Return latest stored date per symbol, optionally within one dimension."""
+
+        spec = self.catalog.spec(dataset)
+        if spec.date_column is None:
+            return {}
+        date_column = spec.date_column
+        result: dict[str, pd.Timestamp] = {}
+        for path in self.catalog.files(dataset):
+            columns = [date_column, "symbol"]
+            if dimension is not None:
+                columns.append(dimension[0])
+            try:
+                frame = pd.read_parquet(path, columns=list(dict.fromkeys(columns)))
+            except (KeyError, ValueError):
+                continue
+            if dimension is not None:
+                name, value = dimension
+                if name not in frame:
+                    continue
+                frame = frame.loc[frame[name].astype(str).eq(str(value))]
+            if frame.empty or "symbol" not in frame:
+                continue
+            frame[date_column] = pd.to_datetime(frame[date_column], errors="coerce")
+            for symbol, latest in frame.dropna(subset=[date_column, "symbol"]).groupby(
+                "symbol"
+            )[date_column].max().items():
+                key = str(symbol).upper()
+                timestamp = pd.Timestamp(latest).normalize()
+                if key not in result or timestamp > result[key]:
+                    result[key] = timestamp
+        return result
+
+    def dimension_watermarks(self, dataset: str, dimension: str) -> dict[str, pd.Timestamp]:
+        """Return latest stored date per field/index dimension."""
+
+        spec = self.catalog.spec(dataset)
+        if spec.date_column is None:
+            return {}
+        result: dict[str, pd.Timestamp] = {}
+        for path in self.catalog.files(dataset):
+            try:
+                frame = pd.read_parquet(path, columns=[spec.date_column, dimension])
+            except (KeyError, ValueError):
+                continue
+            frame[spec.date_column] = pd.to_datetime(frame[spec.date_column], errors="coerce")
+            for value, latest in frame.dropna(subset=[spec.date_column, dimension]).groupby(
+                dimension
+            )[spec.date_column].max().items():
+                key = str(value)
+                timestamp = pd.Timestamp(latest).normalize()
+                if key not in result or timestamp > result[key]:
+                    result[key] = timestamp
+        return result
+
+    def _reconcile_partition_inventory(
+        self,
+        dataset: str,
+        files: list[Path],
+    ) -> dict[str, Any]:
+        spec = self.catalog.spec(dataset)
+        entries: list[tuple[Path, int, str | None, str | None]] = []
+        for path in files:
+            frame = (
+                pd.read_parquet(path, columns=[spec.date_column])
+                if spec.date_column is not None
+                else pd.DataFrame()
+            )
+            rows = int(pq.ParquetFile(path).metadata.num_rows)
+            min_date, max_date = self._date_range(frame, spec.date_column)
+            entries.append((path, rows, min_date, max_date))
+        return self.operations.reconcile_partitions(dataset, entries)
 
     def _partitions(self, dataset: str, frame: pd.DataFrame) -> list[tuple[Path, pd.DataFrame]]:
         value = frame.copy()
@@ -478,7 +634,7 @@ class RuntimeStore:
                 )
                 for date, part in value.groupby("snapshot_date", sort=True)
             ]
-        if dataset == "rq.bars":
+        if dataset in {"rq.bars", "rq.paused", "rq.is_st", "rq.daily_factors"}:
             value["date"] = pd.to_datetime(value["date"]).dt.normalize()
             return [
                 (
@@ -489,6 +645,15 @@ class RuntimeStore:
                     [value["date"].dt.year, value["date"].dt.month],
                     sort=True,
                 )
+            ]
+        if dataset == "rq.index_components":
+            value["date"] = pd.to_datetime(value["date"]).dt.normalize()
+            return [
+                (
+                    base / f"year={int(year):04d}" / "part.parquet",
+                    part,
+                )
+                for year, part in value.groupby(value["date"].dt.year, sort=True)
             ]
         if dataset.startswith("rq.financials."):
             value["quarter"] = value["quarter"].astype(str).str.lower()

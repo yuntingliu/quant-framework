@@ -85,6 +85,8 @@ FACTOR_TEMPLATES = (
 @factor(id="momentum_20d", label="20 日动量")
 def momentum_20d(context, *, window: int = 20):
     close = context.history("close", window=window + 1)
+    if len(close.index) < window + 1:
+        return close.mean(axis=0) * float("nan")
     return close.iloc[-1] / close.iloc[0] - 1.0
 """,
     ),
@@ -97,6 +99,8 @@ def momentum_20d(context, *, window: int = 20):
 @factor(id="momentum_60d", label="60 日动量")
 def momentum_60d(context, *, window: int = 60):
     close = context.history("close", window=window + 1)
+    if len(close.index) < window + 1:
+        return close.mean(axis=0) * float("nan")
     return close.iloc[-1] / close.iloc[0] - 1.0
 """,
     ),
@@ -109,6 +113,8 @@ def momentum_60d(context, *, window: int = 60):
 @factor(id="reversal_5d", label="5 日反转")
 def reversal_5d(context, *, window: int = 5):
     close = context.history("close", window=window + 1)
+    if len(close.index) < window + 1:
+        return close.mean(axis=0) * float("nan")
     return close.iloc[-1] / close.iloc[0] - 1.0
 """,
         direction="lower",
@@ -178,6 +184,8 @@ def rsi_14(context, *, window: int = 14):
 @factor(id="ma_deviation", label="均线偏离")
 def ma_deviation(context, *, window: int = 20):
     close = context.history("close", window=window)
+    if len(close.index) < window:
+        return close.mean(axis=0) * float("nan")
     moving_average = close.mean().replace(0.0, float("nan"))
     return close.iloc[-1] / moving_average - 1.0
 """,

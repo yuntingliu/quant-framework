@@ -73,43 +73,59 @@ def equal_weight_benchmark(
         if position < len(sessions):
             schedule.append((signal, pd.Timestamp(sessions[position])))
     field = "open" if execution_price == "next_open" else "close"
+    close_prices = bars.pivot_table(
+        index="date", columns="symbol", values="close", aggfunc="last"
+    ).reindex(sessions)
+    close_asof = close_prices.ffill()
+    execution_prices = bars.pivot_table(
+        index="date", columns="symbol", values=field, aggfunc="last"
+    ).reindex(index=sessions, columns=close_asof.columns)
+    prices = execution_prices.combine_first(close_asof)
+    instruments = engine.get_instruments(None)
+    if not instruments.empty and "symbol" in instruments:
+        instruments = instruments.copy()
+        instruments["symbol"] = instruments["symbol"].astype(str).str.upper()
+        instruments = instruments.loc[
+            instruments["symbol"].isin(prices.columns.astype(str).str.upper())
+        ].reset_index(drop=True)
+
     values: dict[pd.Timestamp, float] = {}
     for index, (signal_date, entry_date) in enumerate(schedule[:-1]):
         _, exit_date = schedule[index + 1]
-        instruments = engine.get_instruments(signal_date.strftime("%Y-%m-%d"))
-        eligible_symbols = (
-            set(instruments["symbol"].astype(str).str.upper())
-            if not instruments.empty
-            else set(symbols)
+        eligible_symbols = _eligible_benchmark_symbols(instruments, signal_date, symbols)
+        entry_values = pd.to_numeric(prices.loc[entry_date], errors="coerce")
+        exit_values = pd.to_numeric(prices.loc[exit_date], errors="coerce")
+        valid = (
+            entry_values.index.isin(eligible_symbols)
+            & entry_values.notna()
+            & exit_values.notna()
+            & entry_values.gt(0)
         )
-        period_returns: list[float] = []
-        for symbol, frame in bars.groupby("symbol"):
-            if str(symbol).upper() not in eligible_symbols:
-                continue
-            ordered = frame.sort_values("date")
-            entry_rows = ordered.loc[ordered["date"].le(entry_date)]
-            exit_rows = ordered.loc[ordered["date"].le(exit_date)]
-            if entry_rows.empty or exit_rows.empty:
-                continue
-            entry_row = entry_rows.iloc[-1]
-            exit_row = exit_rows.iloc[-1]
-            entry_value = (
-                entry_row.get(field)
-                if pd.Timestamp(entry_row["date"]) == entry_date
-                else entry_row.get("close")
-            )
-            exit_value = (
-                exit_row.get(field)
-                if pd.Timestamp(exit_row["date"]) == exit_date
-                else exit_row.get("close")
-            )
-            entry_price = pd.to_numeric(pd.Series([entry_value]), errors="coerce").iloc[0]
-            exit_price = pd.to_numeric(pd.Series([exit_value]), errors="coerce").iloc[0]
-            if pd.notna(entry_price) and pd.notna(exit_price) and float(entry_price) > 0:
-                period_returns.append(float(exit_price / entry_price - 1.0))
-        if period_returns:
-            values[entry_date] = float(np.mean(period_returns))
+        period_returns = exit_values.loc[valid] / entry_values.loc[valid] - 1.0
+        if not period_returns.empty:
+            values[entry_date] = float(period_returns.mean())
     return pd.Series(values, name="benchmark", dtype=float).sort_index()
+
+
+def _eligible_benchmark_symbols(
+    instruments: pd.DataFrame,
+    signal_date: pd.Timestamp,
+    fallback: list[str],
+) -> set[str]:
+    if instruments.empty or "symbol" not in instruments:
+        return set(str(symbol).upper() for symbol in fallback)
+    selected = instruments
+    for column in ("listed_date", "list_date"):
+        if column in selected:
+            listed = pd.to_datetime(selected[column], errors="coerce")
+            selected = selected.loc[listed.isna() | listed.le(signal_date)]
+            break
+    for column in ("de_listed_date", "delisted_date"):
+        if column in selected:
+            delisted = pd.to_datetime(selected[column], errors="coerce")
+            selected = selected.loc[delisted.isna() | delisted.gt(signal_date)]
+            break
+    return set(selected["symbol"].dropna().astype(str).str.upper())
 
 
 def robustness_report(

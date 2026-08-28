@@ -5,7 +5,13 @@ import sqlite3
 import pandas as pd
 import pytest
 
-from alphalab.data_sdk.v1 import RQDataAPI
+from alphalab.data_sdk.v1 import (
+    DataRecipeContext,
+    RQDataAPI,
+    normalize_rq_bars,
+    normalize_rq_instruments,
+)
+from alphalab.dataio import DataValidationError
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.providers import rq as rq_provider
 from alphalab.dataio.recipes import (
@@ -56,8 +62,23 @@ def test_builtin_recipe_is_real_python_and_parameters_are_cst_projected() -> Non
     assert [item["operation"] for item in preview["planned"]] == [
         "rq.all_instruments",
         "rq.get_price",
+        "rq.is_suspended",
     ]
 
+
+def test_visible_recipe_instrument_normalizer_keeps_only_a_shares_for_cs() -> None:
+    raw = pd.DataFrame(
+        {
+            "order_book_id": ["600000.XSHG", "900901.XSHG", "510300.XSHG"],
+            "listed_date": pd.Timestamp("2020-01-01"),
+        }
+    )
+
+    stocks = normalize_rq_instruments(raw, snapshot_date="2025-01-02", asset_type="CS")
+    funds = normalize_rq_instruments(raw, snapshot_date="2025-01-02", asset_type="ETF")
+
+    assert stocks["symbol"].tolist() == ["600000.SH"]
+    assert funds["symbol"].tolist() == ["600000.SH", "900901.SH", "510300.SH"]
 
 def test_manual_recipe_logic_is_custom_and_static_errors_have_a_phase() -> None:
     source = render_builtin_recipe(
@@ -215,12 +236,19 @@ def test_builtin_recipe_executes_visible_rq_commands_and_publishes_results(
                 )
             return pd.DataFrame(values)
 
+        def is_suspended(self, order_book_ids, **kwargs):
+            self.calls.append(("is_suspended", kwargs.get("start_date")))
+            return pd.DataFrame(
+                {order_book_ids[0]: [False]},
+                index=pd.DatetimeIndex(["2025-01-02"], name="date"),
+            )
+
     fake = FakeRQ()
     monkeypatch.setattr(RQDataAPI, "_module", lambda _self: fake)
     source = render_builtin_recipe(
         "rq.etf_daily",
         start="2025-01-01",
-        end="2025-12-31",
+        end="2025-01-03",
         symbols=["510300.XSHG"],
     )
 
@@ -231,10 +259,12 @@ def test_builtin_recipe_executes_visible_rq_commands_and_publishes_results(
         "all_instruments",
         "get_price",
         "get_price",
+        "is_suspended",
     ]
     assert {item["dataset"] for item in result["published"]} == {
         "rq.instruments",
         "rq.bars",
+        "rq.paused",
     }
     assert DataCatalog(tmp_path).status("rq.bars")["rows"] == 1
 
@@ -303,3 +333,53 @@ def waiting_recipe(context):
         execute_data_recipe(source, mode="plan", cancelled=lambda: True)
 
     assert caught.value.phase == "cancel"
+
+
+def test_recipe_sync_batches_resume_existing_symbols_and_backfill_new_ones(tmp_path) -> None:
+    context = DataRecipeContext(mode="run", root=str(tmp_path))
+    existing = pd.DataFrame(
+        {
+            "date": pd.date_range("2025-01-01", "2025-01-10", freq="B"),
+            "symbol": "000001.SZ",
+            "open": 10.0,
+            "high": 10.5,
+            "low": 9.5,
+            "close": 10.2,
+            "raw_close": 10.2,
+            "volume": 1000.0,
+            "amount": 10000.0,
+        }
+    )
+    context.publish("rq.bars", existing)
+
+    batches = context.sync_batches(
+        "rq.bars",
+        ["000001.SZ", "600000.SH"],
+        start="2025-01-01",
+        end="2025-01-20",
+        overlap_days=1,
+        chunk_days=366,
+    )
+    starts = {symbol: batch.start for batch in batches for symbol in batch.symbols}
+
+    assert starts["000001.SZ"] == "2025-01-09"
+    assert starts["600000.SH"] == "2025-01-01"
+
+
+def test_adjusted_and_raw_bar_key_mismatch_is_rejected() -> None:
+    adjusted = pd.DataFrame(
+        {
+            "order_book_id": ["000001.XSHE", "600000.XSHG"],
+            "date": ["2025-01-02", "2025-01-02"],
+            "open": [10.0, 20.0],
+            "high": [10.5, 20.5],
+            "low": [9.5, 19.5],
+            "close": [10.2, 20.2],
+            "volume": [1000.0, 2000.0],
+            "total_turnover": [10200.0, 40400.0],
+        }
+    )
+    raw = adjusted.iloc[:1][["order_book_id", "date", "close"]]
+
+    with pytest.raises(DataValidationError, match="key mismatch"):
+        normalize_rq_bars(adjusted, raw)

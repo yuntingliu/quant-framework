@@ -11,8 +11,8 @@ from pydantic import BaseModel, Field
 
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.quality import validate_dataset
-from alphalab.dataio.runtime import RuntimeStore
 from alphalab.dataio.rq_templates import list_rq_sync_templates
+from alphalab.dataio.runtime import RuntimeStore
 from alphalab.dataio.sync import SyncJobManager, SyncRequest, build_sync_plan
 
 
@@ -22,6 +22,9 @@ class EmptyInput(BaseModel):
 
 class DatasetInput(BaseModel):
     dataset: str
+    start: str | None = None
+    as_of: str | None = None
+    fail_on_gap: bool = False
 
 
 class QueryInput(BaseModel):
@@ -124,7 +127,13 @@ def create_data_tool_registry(root: str | Path | None = None) -> ToolRegistry:
             "data.validate",
             "Validate one runtime dataset.",
             DatasetInput,
-            lambda value: validate_dataset(value.dataset, root),
+            lambda value: validate_dataset(
+                value.dataset,
+                root,
+                start_date=value.start,
+                as_of_date=value.as_of,
+                fail_on_gap=value.fail_on_gap,
+            ),
         )
     )
     registry.register(

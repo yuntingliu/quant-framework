@@ -12,6 +12,8 @@ from typing import Any, Iterable
 
 from alphalab.dataio.errors import DataValidationError
 
+DEFAULT_RQ_SYNC_TEMPLATE_ID = "rq.a_share_research"
+
 
 @dataclass(frozen=True)
 class RQSyncTemplate:
@@ -48,37 +50,47 @@ RQ_SYNC_TEMPLATES: tuple[RQSyncTemplate, ...] = (
     RQSyncTemplate(
         id="rq.a_share_daily",
         label="A 股日线",
-        description="中国 A 股标的信息与前复权/不复权日线行情。",
+        description="中国 A 股标的信息、前复权/不复权日线、停牌与 ST 历史状态。",
         market="cn",
         instrument_types=("CS",),
-        datasets=("instruments", "bars"),
+        datasets=("instruments", "bars", "market-state"),
         scope="a_shares",
     ),
     RQSyncTemplate(
         id="rq.etf_daily",
         label="ETF 日线",
-        description="中国场内 ETF 标的信息与前复权/不复权日线行情。",
+        description="中国场内 ETF 标的信息、前复权/不复权日线与历史停牌状态。",
         market="cn",
         instrument_types=("ETF",),
-        datasets=("instruments", "bars"),
+        datasets=("instruments", "bars", "market-state"),
         scope="etfs",
     ),
     RQSyncTemplate(
         id="rq.exchange_fund_daily",
         label="场内基金与指数日线",
-        description="ETF、LOF 与指数标的信息和日线行情。",
+        description="ETF、LOF 与指数标的信息、日线行情和历史停牌状态。",
         market="cn",
         instrument_types=("ETF", "LOF", "INDX"),
-        datasets=("instruments", "bars"),
+        datasets=("instruments", "bars", "market-state"),
         scope="exchange_funds_and_indices",
     ),
     RQSyncTemplate(
         id="rq.a_share_research",
         label="A 股完整研究",
-        description="A 股日线、PIT 财务报表、标准基本面因子与归因收益。",
+        description=(
+            "A 股日线、停牌/ST、日频因子、历史指数成分、PIT 财务报表与归因收益。"
+        ),
         market="cn",
         instrument_types=("CS",),
-        datasets=("instruments", "bars", "fundamentals", "factors"),
+        datasets=(
+            "instruments",
+            "bars",
+            "market-state",
+            "daily-factors",
+            "index-components",
+            "fundamentals",
+            "factors",
+        ),
         scope="a_share_research",
     ),
 )
@@ -98,6 +110,7 @@ def get_rq_sync_template(template_id: str) -> RQSyncTemplate:
 
 
 __all__ = [
+    "DEFAULT_RQ_SYNC_TEMPLATE_ID",
     "RQ_SYNC_TEMPLATES",
     "RQSyncTemplate",
     "get_rq_sync_template",

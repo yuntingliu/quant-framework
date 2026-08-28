@@ -7,7 +7,7 @@ from typing import Any, Iterable
 import pandas as pd
 
 from alphalab.dataio.errors import DataValidationError
-from alphalab.dataio.symbols import to_framework_symbol, to_rq_symbol
+from alphalab.dataio.symbols import is_a_share_symbol, to_framework_symbol, to_rq_symbol
 
 _REQUIRED_BAR_FIELDS = ("open", "high", "low", "close", "volume", "amount")
 
@@ -42,6 +42,7 @@ def normalize_rq_instruments(
     output = pd.DataFrame(
         {
             "snapshot_date": pd.Timestamp(snapshot_date).normalize(),
+            "retrieved_at": pd.Timestamp.now(tz="UTC").tz_localize(None),
             "symbol": frame[symbol_column].map(to_framework_symbol),
             "asset_type": str(asset_type).upper(),
             "name": _series(frame, columns, "symbol", "display_name", "name"),
@@ -69,6 +70,8 @@ def normalize_rq_instruments(
         if source_column == symbol_column or not target or target in output.columns:
             continue
         output[target] = frame[source_column].to_numpy()
+    if str(asset_type).upper() == "CS":
+        output = output.loc[output["symbol"].map(is_a_share_symbol)].copy()
     return output.dropna(subset=["symbol"]).drop_duplicates(["snapshot_date", "symbol"])
 
 
@@ -79,7 +82,8 @@ def normalize_rq_bars(adjusted_raw: Any, raw_close: Any) -> pd.DataFrame:
     unadjusted = _normalize_selected_bars(raw_close, ("close",)).rename(
         columns={"close": "raw_close"}
     )
-    if adjusted.empty or unadjusted.empty:
+    _require_same_keys(adjusted, unadjusted, ("date", "symbol"), label="adjusted/raw bars")
+    if adjusted.empty:
         return pd.DataFrame()
     return (
         adjusted.merge(unadjusted, on=["date", "symbol"], how="inner")
@@ -87,6 +91,97 @@ def normalize_rq_bars(adjusted_raw: Any, raw_close: Any) -> pd.DataFrame:
         .sort_values(["date", "symbol"])
         .reset_index(drop=True)
     )
+
+
+def require_same_keys(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    keys: Iterable[str],
+    *,
+    label: str,
+) -> None:
+    """Reject a multi-query vendor response that would silently lose rows on merge."""
+
+    _require_same_keys(left, right, keys, label=label)
+
+
+def normalize_rq_market_state(raw: Any, *, field: str) -> pd.DataFrame:
+    """Normalize ``is_suspended`` or ``is_st_stock`` to date/symbol/value rows."""
+
+    target = str(field).strip().lower()
+    if target not in {"paused", "is_st"}:
+        raise ValueError("market-state field must be paused or is_st")
+    frame = pd.DataFrame(raw)
+    if frame.empty:
+        return pd.DataFrame(columns=["date", "symbol", target])
+    long = _wide_or_long_state(frame, target)
+    long["date"] = pd.to_datetime(long["date"], errors="coerce").dt.normalize()
+    long["symbol"] = long["symbol"].map(to_framework_symbol)
+    long[target] = long[target].astype("boolean")
+    return (
+        long.dropna(subset=["date", "symbol", target])
+        .drop_duplicates(["date", "symbol"], keep="last")
+        .sort_values(["date", "symbol"])
+        .reset_index(drop=True)
+    )
+
+
+def normalize_rq_daily_factor(raw: Any, *, field: str) -> pd.DataFrame:
+    """Normalize one RQ daily factor into the canonical long factor contract."""
+
+    factor = str(field).strip()
+    if not factor:
+        raise ValueError("daily factor field must not be empty")
+    frame = pd.DataFrame(raw)
+    if frame.empty:
+        return pd.DataFrame(columns=["date", "symbol", "field", "value"])
+    state = _wide_or_long_state(frame, "value")
+    result = pd.DataFrame(
+        {
+            "date": pd.to_datetime(state["date"], errors="coerce").dt.normalize(),
+            "symbol": state["symbol"].map(to_framework_symbol),
+            "field": factor,
+            "value": pd.to_numeric(state["value"], errors="coerce"),
+        }
+    )
+    return (
+        result.dropna(subset=["date", "symbol", "value"])
+        .drop_duplicates(["date", "symbol", "field"], keep="last")
+        .sort_values(["date", "symbol", "field"])
+        .reset_index(drop=True)
+    )
+
+
+def normalize_rq_index_components(
+    raw: Any,
+    *,
+    index_symbol: str,
+    snapshot_date: str,
+) -> pd.DataFrame:
+    """Normalize one dated ``rq.index_components`` response."""
+
+    if raw is None:
+        values: list[str] = []
+    elif isinstance(raw, pd.DataFrame):
+        if raw.empty:
+            values = []
+        else:
+            columns = _columns(raw)
+            column = columns.get("order_book_id") or columns.get("symbol") or raw.columns[0]
+            values = raw[column].dropna().astype(str).tolist()
+    elif isinstance(raw, pd.Series):
+        values = raw.dropna().astype(str).tolist()
+    else:
+        values = [str(value) for value in raw if value is not None]
+    date = pd.Timestamp(snapshot_date).normalize()
+    index = to_framework_symbol(str(index_symbol))
+    return pd.DataFrame(
+        {
+            "date": [date] * len(values),
+            "index_symbol": [index] * len(values),
+            "symbol": [to_framework_symbol(value) for value in values],
+        }
+    ).drop_duplicates(["date", "index_symbol", "symbol"])
 
 
 def normalize_rq_financials(raw: Any, fields: Iterable[str]) -> pd.DataFrame:
@@ -246,11 +341,94 @@ def _series(frame: pd.DataFrame, columns: dict[str, Any], *names: str) -> pd.Ser
     return pd.Series(pd.NA, index=frame.index, dtype="object")
 
 
+def _wide_or_long_state(frame: pd.DataFrame, value_name: str) -> pd.DataFrame:
+    reset = _reset(frame)
+    columns = _columns(reset)
+    date_column = columns.get("date") or columns.get("datetime") or columns.get("trading_date")
+    symbol_column = columns.get("order_book_id") or columns.get("symbol")
+    value_column = columns.get(value_name.lower()) or columns.get("value")
+    if date_column is not None and symbol_column is not None:
+        if value_column is None:
+            candidates = [
+                column for column in reset.columns if column not in {date_column, symbol_column}
+            ]
+            value_column = candidates[-1] if candidates else None
+        if value_column is None:
+            raise DataValidationError("RQData state response has no value column")
+        return reset[[date_column, symbol_column, value_column]].rename(
+            columns={date_column: "date", symbol_column: "symbol", value_column: value_name}
+        )
+
+    wide = frame.copy()
+    if isinstance(wide.index, pd.MultiIndex):
+        stacked = wide.stack(dropna=False).rename(value_name).reset_index()
+        stacked_columns = list(stacked.columns)
+        date_column = next(
+            (column for column in stacked_columns[:-1] if _date_like(stacked[column])),
+            None,
+        )
+        symbol_column = next(
+            (
+                column
+                for column in stacked_columns[:-1]
+                if column != date_column and stacked[column].astype(str).str.contains("\\.").any()
+            ),
+            None,
+        )
+        if date_column is not None and symbol_column is not None:
+            return stacked[[date_column, symbol_column, value_name]].rename(
+                columns={date_column: "date", symbol_column: "symbol"}
+            )
+
+    if not _date_like(pd.Series(wide.index)):
+        raise DataValidationError("RQData state response has no date index")
+    wide.index = pd.to_datetime(wide.index, errors="coerce")
+    wide.index.name = "date"
+    return wide.reset_index().melt(
+        id_vars="date",
+        var_name="symbol",
+        value_name=value_name,
+    )
+
+
+def _date_like(values: pd.Series | pd.Index) -> bool:
+    sample = pd.Series(values).dropna().head(3)
+    if sample.empty:
+        return False
+    return pd.to_datetime(sample, errors="coerce").notna().all()
+
+
+def _require_same_keys(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    keys: Iterable[str],
+    *,
+    label: str,
+) -> None:
+    key_columns = list(keys)
+    if any(key not in left or key not in right for key in key_columns):
+        if left.empty and right.empty:
+            return
+        raise DataValidationError(f"RQData {label} response is missing key columns")
+    left_keys = left[key_columns].drop_duplicates()
+    right_keys = right[key_columns].drop_duplicates()
+    mismatch = left_keys.merge(right_keys, on=key_columns, how="outer", indicator=True)
+    unmatched = mismatch.loc[mismatch["_merge"].ne("both")]
+    if not unmatched.empty:
+        raise DataValidationError(
+            f"RQData {label} key mismatch ({len(unmatched)} unmatched rows)"
+        )
+
+
 __all__ = [
     "framework_symbols",
     "normalize_rq_bars",
+    "normalize_rq_daily_factor",
     "normalize_rq_financials",
+    "normalize_rq_index_components",
     "normalize_rq_instruments",
+    "normalize_rq_market_state",
     "normalize_rq_yield_curve",
+    "require_same_keys",
     "rq_order_book_ids",
 ]

@@ -51,6 +51,50 @@ DATASET_SPECS: tuple[DatasetSpec, ...] = (
         "provider_daily_schema_plus_raw_close",
     ),
     DatasetSpec(
+        "rq.paused",
+        "RQ historical suspension state",
+        "rq/market_state/paused",
+        ("date", "symbol"),
+        "date",
+        "rq",
+        ("is_suspended",),
+        "execution_input",
+        "boolean_daily_state",
+    ),
+    DatasetSpec(
+        "rq.is_st",
+        "RQ historical ST state",
+        "rq/market_state/is_st",
+        ("date", "symbol"),
+        "date",
+        "rq",
+        ("is_st_stock",),
+        "strategy_input",
+        "boolean_daily_state",
+    ),
+    DatasetSpec(
+        "rq.daily_factors",
+        "RQ daily point-in-time factors",
+        "rq/market_state/daily_factors",
+        ("date", "symbol", "field"),
+        "date",
+        "rq",
+        ("get_factor",),
+        "point_in_time_factor_input",
+        "long_daily_field_value",
+    ),
+    DatasetSpec(
+        "rq.index_components",
+        "RQ historical index components",
+        "rq/market_state/index_components",
+        ("date", "index_symbol", "symbol"),
+        "date",
+        "rq",
+        ("index_components",),
+        "point_in_time_universe_input",
+        "dated_membership_snapshot",
+    ),
+    DatasetSpec(
         "rq.financials.income",
         "RQ PIT income statements",
         "rq/financials/statement=income",
@@ -134,7 +178,8 @@ class DataCatalog:
             return {**base, "status": "missing"}
         try:
             rows = sum(int(pq.ParquetFile(path).metadata.num_rows) for path in files)
-            dates: list[pd.Series] = []
+            date_start: pd.Timestamp | None = None
+            date_end: pd.Timestamp | None = None
             symbols: set[str] = set()
             for path in files:
                 schema = pq.read_schema(path)
@@ -147,10 +192,16 @@ class DataCatalog:
                     continue
                 frame = pd.read_parquet(path, columns=columns)
                 if spec.date_column and spec.date_column in frame:
-                    dates.append(pd.to_datetime(frame[spec.date_column], errors="coerce"))
+                    dates = pd.to_datetime(frame[spec.date_column], errors="coerce").dropna()
+                    if not dates.empty:
+                        current_start = pd.Timestamp(dates.min())
+                        current_end = pd.Timestamp(dates.max())
+                        date_start = (
+                            current_start if date_start is None else min(date_start, current_start)
+                        )
+                        date_end = current_end if date_end is None else max(date_end, current_end)
                 if "symbol" in frame:
                     symbols.update(frame["symbol"].dropna().astype(str).str.upper())
-            combined_dates = pd.concat(dates, ignore_index=True).dropna() if dates else pd.Series(dtype="datetime64[ns]")
             return {
                 **base,
                 "status": "ready",
@@ -158,14 +209,10 @@ class DataCatalog:
                 "rows": rows,
                 "bytes": sum(path.stat().st_size for path in files),
                 "date_start": (
-                    pd.Timestamp(combined_dates.min()).strftime("%Y-%m-%d")
-                    if not combined_dates.empty
-                    else None
+                    date_start.strftime("%Y-%m-%d") if date_start is not None else None
                 ),
                 "date_end": (
-                    pd.Timestamp(combined_dates.max()).strftime("%Y-%m-%d")
-                    if not combined_dates.empty
-                    else None
+                    date_end.strftime("%Y-%m-%d") if date_end is not None else None
                 ),
                 "symbol_count": len(symbols),
             }

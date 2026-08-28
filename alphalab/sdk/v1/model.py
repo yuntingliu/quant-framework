@@ -13,7 +13,6 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 import pandas as pd
 
-
 JsonObject = dict[str, Any]
 MAX_STATE_BYTES = 64_000
 
@@ -297,6 +296,8 @@ class StrategyContext:
         "_event",
         "_factor_resolver",
         "_fundamentals",
+        "_daily_factors",
+        "_index_components",
         "_instruments",
         "_last_decision",
         "_portfolio",
@@ -310,11 +311,13 @@ class StrategyContext:
         *,
         event: Event | str,
         as_of: Any,
-        sessions: Sequence[Any],
+        sessions: Sequence[Any] | CalendarView,
         symbols: Sequence[str],
         bars: pd.DataFrame | Sequence[Mapping[str, Any]],
         instruments: pd.DataFrame | Sequence[Mapping[str, Any]] = (),
         fundamentals: pd.DataFrame | Sequence[Mapping[str, Any]] = (),
+        daily_factors: pd.DataFrame | Sequence[Mapping[str, Any]] = (),
+        index_components: pd.DataFrame | Sequence[Mapping[str, Any]] = (),
         portfolio: PortfolioSnapshot | None = None,
         last_decision: PortfolioDecision | None = None,
         seed: int = 0,
@@ -325,20 +328,71 @@ class StrategyContext:
             as_of_value = as_of_value.tz_localize(None)
         self._as_of = as_of_value
         self._event = Event(event)
-        self.calendar = CalendarView(tuple(pd.Timestamp(value).normalize() for value in sessions))
+        self.calendar = (
+            sessions
+            if isinstance(sessions, CalendarView)
+            else CalendarView(tuple(pd.Timestamp(value).normalize() for value in sessions))
+        )
         self._symbols = _symbols(symbols)
-        self._bars = _pit_frame(bars, as_of_value, "date")
+        # Static run data is shared by all event contexts.  Keep the immutable
+        # normalized frames here and apply the as-of boundary only in accessors;
+        # eagerly copying the complete history for every context and session
+        # makes multi-year event backtests quadratic in practice.
+        self._bars = _time_frame(bars, "date")
         self._instruments = _pit_frame(instruments, as_of_value, "snapshot_date", optional=True)
         if not self._instruments.empty and "snapshot_date" in self._instruments:
             latest_snapshot = self._instruments["snapshot_date"].max()
             self._instruments = self._instruments.loc[
                 self._instruments["snapshot_date"].eq(latest_snapshot)
             ].reset_index(drop=True)
-        self._fundamentals = _pit_frame(fundamentals, as_of_value, "available_date", optional=True)
+        for column in ("listed_date", "list_date"):
+            if column in self._instruments:
+                listed = pd.to_datetime(self._instruments[column], errors="coerce")
+                self._instruments = self._instruments.loc[
+                    listed.isna() | listed.le(as_of_value)
+                ].reset_index(drop=True)
+                break
+        for column in ("de_listed_date", "delisted_date"):
+            if column in self._instruments:
+                delisted = pd.to_datetime(self._instruments[column], errors="coerce")
+                self._instruments = self._instruments.loc[
+                    delisted.isna() | delisted.gt(as_of_value)
+                ].reset_index(drop=True)
+                break
+        self._fundamentals = _time_frame(fundamentals, "available_date", optional=True)
+        self._daily_factors = _time_frame(daily_factors, "date", optional=True)
+        self._index_components = _time_frame(index_components, "date", optional=True)
         self._portfolio = portfolio or PortfolioSnapshot()
         self._last_decision = last_decision
         self._random = random.Random(int(seed))
         self._factor_resolver = factor_resolver
+
+    @classmethod
+    def _derive(
+        cls,
+        source: "StrategyContext",
+        *,
+        symbols: Sequence[str],
+        factor_resolver: Callable[..., pd.Series] | None,
+    ) -> "StrategyContext":
+        """Create another typed capability view over the same event snapshot."""
+
+        derived = cls.__new__(cls)
+        derived._as_of = source._as_of
+        derived._bars = source._bars
+        derived._event = source._event
+        derived._factor_resolver = factor_resolver
+        derived._fundamentals = source._fundamentals
+        derived._daily_factors = source._daily_factors
+        derived._index_components = source._index_components
+        derived._instruments = source._instruments
+        derived._last_decision = source._last_decision
+        derived._portfolio = source._portfolio
+        derived._random = random.Random()
+        derived._random.setstate(source._random.getstate())
+        derived._symbols = _symbols(symbols)
+        derived.calendar = source.calendar
+        return derived
 
     @property
     def event(self) -> Event:
@@ -376,7 +430,9 @@ class StrategyContext:
         requested = self._requested_symbols(symbols)
         if field not in self._bars:
             raise KeyError(f"market field is unavailable: {field}")
-        rows = self._bars.loc[self._bars["symbol"].isin(requested)].sort_values("date")
+        rows = self._bars.loc[
+            self._bars["date"].le(self._as_of) & self._bars["symbol"].isin(requested)
+        ].sort_values("date")
         latest = rows.drop_duplicates("symbol", keep="last").set_index("symbol")
         return pd.to_numeric(latest[field], errors="coerce").reindex(requested).copy()
 
@@ -394,7 +450,9 @@ class StrategyContext:
         missing = [name for name in names if name not in self._bars]
         if missing:
             raise KeyError(f"market fields are unavailable: {missing}")
-        rows = self._bars.loc[self._bars["symbol"].isin(requested)].sort_values("date")
+        rows = self._bars.loc[
+            self._bars["date"].le(self._as_of) & self._bars["symbol"].isin(requested)
+        ].sort_values("date")
         if len(names) == 1:
             result = rows.pivot_table(
                 index="date", columns="symbol", values=names[0], aggfunc="last"
@@ -412,12 +470,65 @@ class StrategyContext:
         requested = self._requested_symbols(symbols)
         if field not in self._fundamentals:
             raise KeyError(f"fundamental field is unavailable: {field}")
-        rows = self._fundamentals.loc[self._fundamentals["symbol"].isin(requested)].copy()
+        available = pd.Series(True, index=self._fundamentals.index)
+        if "available_date" in self._fundamentals:
+            available = self._fundamentals["available_date"].le(self._as_of)
+        rows = self._fundamentals.loc[
+            available & self._fundamentals["symbol"].isin(requested)
+        ].copy()
         ordering = [name for name in ("available_date", "quarter") if name in rows]
         if ordering:
             rows = rows.sort_values(ordering)
         latest = rows.drop_duplicates("symbol", keep="last").set_index("symbol")
         return pd.to_numeric(latest[field], errors="coerce").reindex(requested).copy()
+
+    def daily_factor(
+        self,
+        field: str,
+        *,
+        symbols: Sequence[str] | None = None,
+    ) -> pd.Series:
+        """Return the latest available value of one dated provider factor."""
+
+        requested = self._requested_symbols(symbols)
+        frame = self._daily_factors
+        required = {"date", "symbol", "field", "value"}
+        if frame.empty or not required.issubset(frame.columns):
+            raise KeyError(f"daily factor is unavailable: {field}")
+        rows = frame.loc[
+            frame["date"].le(self._as_of)
+            & frame["field"].astype(str).eq(str(field))
+            & frame["symbol"].isin(requested)
+        ].sort_values("date")
+        if rows.empty:
+            raise KeyError(f"daily factor is unavailable: {field}")
+        latest = rows.drop_duplicates("symbol", keep="last").set_index("symbol")
+        return pd.to_numeric(latest["value"], errors="coerce").reindex(requested).copy()
+
+    def index_components(self, index_symbol: str) -> tuple[str, ...]:
+        """Return the latest known membership snapshot at or before ``as_of``."""
+
+        frame = self._index_components
+        required = {"date", "index_symbol", "symbol"}
+        if frame.empty or not required.issubset(frame.columns):
+            raise KeyError(f"index components are unavailable: {index_symbol}")
+        index_id = str(index_symbol).strip().upper()
+        rows = frame.loc[
+            frame["date"].le(self._as_of)
+            & frame["index_symbol"].astype(str).str.upper().eq(index_id)
+        ]
+        if rows.empty:
+            raise KeyError(f"index components are unavailable: {index_symbol}")
+        latest = pd.to_datetime(rows["date"], errors="coerce").max()
+        members = rows.loc[pd.to_datetime(rows["date"], errors="coerce").eq(latest), "symbol"]
+        allowed = set(self._symbols)
+        return tuple(
+            sorted(
+                symbol
+                for symbol in members.dropna().astype(str).str.upper().unique()
+                if symbol in allowed
+            )
+        )
 
     def factor(self, factor_id: str, **parameters: Any) -> pd.Series:
         if self._factor_resolver is None:
@@ -523,18 +634,47 @@ def _pit_frame(
     *,
     optional: bool = False,
 ) -> pd.DataFrame:
-    frame = value.copy() if isinstance(value, pd.DataFrame) else pd.DataFrame(list(value))
+    frame = _time_frame(value, date_field, optional=optional)
     if frame.empty:
         return frame
-    if "symbol" in frame:
-        frame["symbol"] = frame["symbol"].astype(str).str.upper()
-    if date_field not in frame:
-        if optional:
-            return frame.reset_index(drop=True)
-        raise KeyError(f"point-in-time data requires {date_field}")
-    frame[date_field] = pd.to_datetime(frame[date_field], errors="coerce")
     frame = frame.loc[frame[date_field].notna() & frame[date_field].le(as_of)].copy()
     return frame.reset_index(drop=True)
+
+
+def _time_frame(
+    value: pd.DataFrame | Sequence[Mapping[str, Any]],
+    date_field: str,
+    *,
+    optional: bool = False,
+) -> pd.DataFrame:
+    frame = value if isinstance(value, pd.DataFrame) else pd.DataFrame(list(value))
+    if frame.empty:
+        return frame
+    normalized_fields = set(frame.attrs.get("_alphalab_time_fields") or ())
+    if date_field in normalized_fields:
+        return frame
+    if date_field not in frame:
+        if optional:
+            return frame
+        raise KeyError(f"point-in-time data requires {date_field}")
+    copied = False
+    if "symbol" in frame:
+        symbols = frame["symbol"].astype(str)
+        normalized = symbols.str.upper()
+        if not symbols.equals(normalized):
+            frame = frame.copy()
+            copied = True
+            frame["symbol"] = normalized
+    if not pd.api.types.is_datetime64_any_dtype(frame[date_field]):
+        if not copied:
+            frame = frame.copy()
+        frame[date_field] = pd.to_datetime(frame[date_field], errors="coerce")
+    normalized_fields.add(date_field)
+    # The worker owns these frames after configuration.  The marker lets all
+    # event-specific contexts reuse them without rescanning every symbol and
+    # date column on every trading day.
+    frame.attrs["_alphalab_time_fields"] = tuple(sorted(normalized_fields))
+    return frame
 
 
 def schedule_is_due(

@@ -174,6 +174,16 @@ Raw results pass through stable frame adapters and `context.publish()` before
 entering the shared store. `RQSyncRequest` remains available only as an
 explicit lower-level handoff for custom code and CLI compatibility.
 
+Recipes use `context.sync_batches()` to derive date/symbol chunks from
+per-symbol and per-dimension persisted watermarks. Provider calls remain
+visible in `recipe.py`; the helper owns only deterministic batching and resume
+semantics. Every completed batch is atomically published before the next
+network call, so a later failure does not discard completed history. Runtime
+contracts also include historical suspension/ST state, daily point-in-time
+factors, and dated index membership. The runtime market provider joins
+suspension state into bars for execution, while Strategy Context exposes daily
+factors and index membership through bounded point-in-time methods.
+
 `alphalab.data_sdk.v1.rq` is a lazy transparent proxy to the installed
 `rqdatac` package, so the framework does not duplicate or lag the vendor API.
 Recipes still publish only through known runtime dataset contracts. Advanced

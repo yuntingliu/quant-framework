@@ -20,12 +20,14 @@ from alphalab.dataio.providers.local import (
     PartitionedParquetFundamentalProvider,
     PartitionedParquetInstrumentProvider,
     PartitionedParquetMarketDataProvider,
+    PartitionedParquetResearchDataProvider,
 )
 from alphalab.dataio.providers.protocol import (
     FactorProvider,
     FundamentalProvider,
     InstrumentProvider,
     MarketDataProvider,
+    ResearchDataProvider,
     to_wide,
 )
 from alphalab.utils.paths import CACHE_DIR, DATA_DIR, RUNTIME_DIR
@@ -73,10 +75,12 @@ class DataEngine:
         self._instrument: dict[str, InstrumentProvider] = {}
         self._fundamental: dict[str, FundamentalProvider] = {}
         self._factor: dict[str, FactorProvider] = {}
+        self._research: dict[str, ResearchDataProvider] = {}
         self._default_market: str | None = None
         self._default_instrument: str | None = None
         self._default_fundamental: str | None = None
         self._default_factor: str | None = None
+        self._default_research: str | None = None
         self._cache = cache or DataCache()
 
     def register_market(
@@ -115,6 +119,17 @@ class DataEngine:
         self._factor[name] = provider
         if default or self._default_factor is None:
             self._default_factor = name
+        return self
+
+    def register_research(
+        self,
+        name: str,
+        provider: ResearchDataProvider,
+        default: bool = False,
+    ) -> "DataEngine":
+        self._research[name] = provider
+        if default or self._default_research is None:
+            self._default_research = name
         return self
 
     def get_bars(
@@ -284,12 +299,111 @@ class DataEngine:
             return pd.Series(dtype=float, name="rf")
         return self._factor[source].get_risk_free_rate(start, end, freq)
 
+    def get_market_state(
+        self,
+        symbols: list[str],
+        start: str,
+        end: str,
+        *,
+        fields: list[str] | None = None,
+        source: Optional[str] = None,
+        use_cache: bool = True,
+    ) -> pd.DataFrame:
+        source = source or self._default_research
+        if source is None or source not in self._research:
+            return pd.DataFrame(columns=["date", "symbol", *(fields or [])])
+        provider = self._research[source]
+        key = DataCache.key(
+            "market-state",
+            source,
+            _provider_cache_token(provider),
+            sorted(symbols),
+            start,
+            end,
+            sorted(fields or []),
+        )
+        if use_cache and (cached := self._cache.get(key)) is not None:
+            return cached
+        out = provider.get_market_state(symbols, start, end, fields=fields)
+        if use_cache and not out.empty:
+            self._cache.put(key, out)
+        return out
+
+    def get_daily_factors(
+        self,
+        symbols: list[str],
+        fields: list[str],
+        start: str,
+        end: str,
+        *,
+        source: Optional[str] = None,
+        use_cache: bool = True,
+        strict: bool = True,
+    ) -> pd.DataFrame:
+        source = source or self._default_research
+        if source is None or source not in self._research:
+            if strict:
+                raise MissingDataError("No daily research-factor provider is registered")
+            return pd.DataFrame(columns=["date", "symbol", "field", "value"])
+        provider = self._research[source]
+        key = DataCache.key(
+            "daily-factors",
+            source,
+            _provider_cache_token(provider),
+            sorted(symbols),
+            sorted(fields),
+            start,
+            end,
+        )
+        if use_cache and (cached := self._cache.get(key)) is not None:
+            return cached
+        out = provider.get_daily_factors(symbols, fields, start, end)
+        if strict and out.empty:
+            raise MissingDataError(f"No daily factors returned for {fields}")
+        if use_cache and not out.empty:
+            self._cache.put(key, out)
+        return out
+
+    def get_index_components(
+        self,
+        index_symbols: list[str],
+        start: str,
+        end: str,
+        *,
+        source: Optional[str] = None,
+        use_cache: bool = True,
+        strict: bool = True,
+    ) -> pd.DataFrame:
+        source = source or self._default_research
+        if source is None or source not in self._research:
+            if strict:
+                raise MissingDataError("No historical index-component provider is registered")
+            return pd.DataFrame(columns=["date", "index_symbol", "symbol"])
+        provider = self._research[source]
+        key = DataCache.key(
+            "index-components",
+            source,
+            _provider_cache_token(provider),
+            sorted(index_symbols),
+            start,
+            end,
+        )
+        if use_cache and (cached := self._cache.get(key)) is not None:
+            return cached
+        out = provider.get_index_components(index_symbols, start, end)
+        if strict and out.empty:
+            raise MissingDataError(f"No index components returned for {index_symbols}")
+        if use_cache and not out.empty:
+            self._cache.put(key, out)
+        return out
+
     def providers(self) -> dict[str, list[str]]:
         return {
             "market": sorted(self._market),
             "instrument": sorted(self._instrument),
             "fundamental": sorted(self._fundamental),
             "factor": sorted(self._factor),
+            "research": sorted(self._research),
         }
 
     def clear_cache(self) -> None:
@@ -338,14 +452,17 @@ def _provider_cache_token(provider: object) -> tuple[str, int, int]:
 def create_rq_engine_from_env(
     cache: DataCache | None = None,
     *,
-    template_id: str = "rq.a_share_research",
+    template_id: str | None = None,
 ) -> DataEngine:
     """Create an engine whose market and fundamental source is RQData."""
 
     from alphalab.dataio.providers.rq import RQDataProvider
-    from alphalab.dataio.rq_templates import get_rq_sync_template
+    from alphalab.dataio.rq_templates import (
+        DEFAULT_RQ_SYNC_TEMPLATE_ID,
+        get_rq_sync_template,
+    )
 
-    template = get_rq_sync_template(template_id)
+    template = get_rq_sync_template(template_id or DEFAULT_RQ_SYNC_TEMPLATE_ID)
     provider = RQDataProvider.from_env(
         instrument_types=template.instrument_types,
         market=template.market,
@@ -354,6 +471,7 @@ def create_rq_engine_from_env(
     engine.register_market("rq", provider, default=True)
     engine.register_instrument("rq", provider, default=True)
     engine.register_fundamental("rq", provider, default=True)
+    engine.register_research("rq", provider, default=True)
     return engine
 
 
@@ -380,6 +498,11 @@ def create_runtime_engine(runtime_dir: str | Path | None = None) -> DataEngine:
     engine.register_factor(
         "runtime",
         PartitionedParquetFactorProvider(root),
+        default=True,
+    )
+    engine.register_research(
+        "runtime",
+        PartitionedParquetResearchDataProvider(root),
         default=True,
     )
     return engine

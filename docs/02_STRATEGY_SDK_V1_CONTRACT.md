@@ -131,6 +131,8 @@ A module MAY declare literal capability requirements:
 DATA_REQUIREMENTS = {
     "bars": ["open", "high", "low", "close", "volume", "amount"],
     "fundamentals": ["roe", "market_cap"],
+    "daily_factors": ["roe"],
+    "index_components": ["000300.SH"],
 }
 
 RUNTIME_REQUIREMENTS = {
@@ -361,6 +363,8 @@ context.current("close")
 context.history("close", window=120)
 context.history(["open", "high", "low", "close", "volume"], window=120)
 context.fundamental("roe")
+context.daily_factor("roe")
+context.index_components("000300.SH")
 context.factor("momentum_20d", window=20)
 context.combine_factors(
     weights={"momentum_20d": 0.6, "low_volatility": -0.4},
@@ -374,6 +378,13 @@ machine clock.
 
 Missing or unavailable fields MUST fail explicitly. Demo and runtime profiles
 MUST never be silently mixed.
+
+`daily_factor()` returns the latest provider value whose date is no later than
+`context.as_of`. `index_components()` chooses the latest membership snapshot no
+later than that time and intersects it with the core-owned point-in-time
+instrument universe. Historical suspension state is joined to market rows as
+`paused`/`is_suspended`; the execution engine rejects fills when
+`is_suspended` is true.
 
 ## 10. Universe Contract
 

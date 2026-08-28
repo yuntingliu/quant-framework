@@ -12,7 +12,6 @@ from alphalab.factors.expression import factor_dependencies
 from alphalab.strategy.config import FactorSpec
 from alphalab.utils.paths import APP_DATA_DIR
 
-
 _SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schema.sql"
 _DEFAULT_DB = APP_DATA_DIR / "alphalab.db"
 _NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,79}$")

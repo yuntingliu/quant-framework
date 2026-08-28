@@ -633,7 +633,16 @@ def _mapping_assignment(tree: ast.Module, name: str) -> dict[str, Any]:
 
 def _data_requirements(tree: ast.Module) -> dict[str, list[str]]:
     value = _mapping_assignment(tree, "DATA_REQUIREMENTS")
-    unsupported = sorted(set(value) - {"bars", "fundamentals", "instruments"})
+    unsupported = sorted(
+        set(value)
+        - {
+            "bars",
+            "fundamentals",
+            "instruments",
+            "daily_factors",
+            "index_components",
+        }
+    )
     if unsupported:
         raise StrategySourceError(
             f"unsupported DATA_REQUIREMENTS datasets: {unsupported}", phase="register"

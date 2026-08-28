@@ -74,6 +74,39 @@ class FactorProvider(Protocol):
         ...
 
 
+@runtime_checkable
+class ResearchDataProvider(Protocol):
+    """Historical state, daily point-in-time factors, and universe membership."""
+
+    def get_market_state(
+        self,
+        symbols: list[str],
+        start: str,
+        end: str,
+        fields: Optional[list[str]] = None,
+    ) -> pd.DataFrame:
+        """Return date/symbol rows containing paused and/or is_st."""
+        ...
+
+    def get_daily_factors(
+        self,
+        symbols: list[str],
+        fields: list[str],
+        start: str,
+        end: str,
+    ) -> pd.DataFrame:
+        """Return canonical date/symbol/field/value rows."""
+        ...
+
+    def get_index_components(
+        self,
+        index_symbols: list[str],
+        start: str,
+        end: str,
+    ) -> pd.DataFrame:
+        """Return dated index membership snapshots."""
+        ...
+
 @dataclass(frozen=True)
 class Tick:
     """A normalized realtime tick."""

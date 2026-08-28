@@ -10,7 +10,6 @@ from scipy.stats import t as student_t
 
 from alphalab.analytics.metrics import PerformanceMetrics
 
-
 FACTOR_NAMES = ("MKT", "SMB", "HML", "MOM", "RMW")
 
 

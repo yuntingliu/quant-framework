@@ -18,6 +18,7 @@ import pandas as pd
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.quality import validate_dataset
 from alphalab.dataio.runtime import RuntimeStore
+from alphalab.dataio.symbols import to_framework_symbol
 from alphalab.utils.paths import RUNTIME_DIR
 
 _RECIPE_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{1,63}$")
@@ -34,6 +35,11 @@ class RQSyncRequest:
     end: str | None = None
     symbols: tuple[str, ...] | None = None
     force: bool = False
+    bar_chunk_days: int = 366
+    market_state_chunk_days: int = 366
+    daily_factors: tuple[str, ...] = ("market_cap", "roe")
+    index_symbols: tuple[str, ...] = ("000300.SH", "000905.SH", "000852.SH")
+    component_frequency: str = "ME"
 
     def __init__(
         self,
@@ -44,6 +50,11 @@ class RQSyncRequest:
         end: str | None = None,
         symbols: Iterable[str] | None = None,
         force: bool = False,
+        bar_chunk_days: int = 366,
+        market_state_chunk_days: int = 366,
+        daily_factors: Iterable[str] = ("market_cap", "roe"),
+        index_symbols: Iterable[str] = ("000300.SH", "000905.SH", "000852.SH"),
+        component_frequency: str = "ME",
     ) -> None:
         object.__setattr__(self, "template_id", str(template_id).strip())
         object.__setattr__(self, "datasets", tuple(str(value).strip() for value in datasets))
@@ -55,6 +66,15 @@ class RQSyncRequest:
             tuple(str(value).strip() for value in symbols) if symbols is not None else None,
         )
         object.__setattr__(self, "force", bool(force))
+        object.__setattr__(self, "bar_chunk_days", int(bar_chunk_days))
+        object.__setattr__(self, "market_state_chunk_days", int(market_state_chunk_days))
+        object.__setattr__(
+            self, "daily_factors", tuple(str(value).strip() for value in daily_factors)
+        )
+        object.__setattr__(
+            self, "index_symbols", tuple(str(value).strip() for value in index_symbols)
+        )
+        object.__setattr__(self, "component_frequency", str(component_frequency).strip())
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -65,7 +85,21 @@ class RQSyncRequest:
             "end": self.end,
             "symbols": list(self.symbols) if self.symbols is not None else None,
             "force": self.force,
+            "bar_chunk_days": self.bar_chunk_days,
+            "market_state_chunk_days": self.market_state_chunk_days,
+            "daily_factors": list(self.daily_factors),
+            "index_symbols": list(self.index_symbols),
+            "component_frequency": self.component_frequency,
         }
+
+
+@dataclass(frozen=True)
+class DateSymbolBatch:
+    """One deterministic, resumable date/symbol acquisition batch."""
+
+    start: str
+    end: str
+    symbols: tuple[str, ...]
 
 
 class RQDataAPI:
@@ -113,6 +147,7 @@ class DataRecipeContext:
         self._published: list[dict[str, Any]] = []
         self._outputs: list[dict[str, Any]] = []
         self._planned: list[dict[str, Any]] = []
+        self._coverage_requirements: list[dict[str, Any]] = []
 
     @property
     def rq(self) -> RQDataAPI:
@@ -166,13 +201,172 @@ class DataRecipeContext:
             raise RuntimeError("context.read() is available only while running a recipe")
         return self._store.read(str(dataset).strip())
 
+    def sync_batches(
+        self,
+        dataset: str,
+        symbols: Iterable[str],
+        *,
+        start: str,
+        end: str,
+        batch_size: int = 200,
+        chunk_days: int = 366,
+        overlap_days: int = 1,
+        force: bool = False,
+        available_from: dict[str, Any] | None = None,
+        dimension: tuple[str, str] | None = None,
+        companions: Iterable[str] = (),
+    ) -> tuple[DateSymbolBatch, ...]:
+        """Plan missing date/symbol batches from persisted per-symbol watermarks.
+
+        Recipes still own and visibly execute each provider call. This helper
+        only provides the deterministic batching/resume boundary used by built-in
+        and custom recipes.
+        """
+
+        dataset_id = str(dataset).strip()
+        spec = self._catalog.spec(dataset_id)
+        if spec.date_column is None or "symbol" not in spec.key_columns:
+            raise ValueError(f"{dataset_id} does not support date/symbol batching")
+        if int(batch_size) < 1 or int(chunk_days) < 1 or int(overlap_days) < 0:
+            raise ValueError("batch_size/chunk_days must be positive and overlap_days non-negative")
+        requested_start = pd.Timestamp(start).normalize()
+        requested_end = pd.Timestamp(end).normalize()
+        if requested_start > requested_end:
+            raise ValueError("start must be on or before end")
+        normalized = tuple(
+            dict.fromkeys(
+                to_framework_symbol(str(symbol))
+                for symbol in symbols
+                if str(symbol).strip()
+            )
+        )
+        if not normalized:
+            return ()
+        listed = {
+            to_framework_symbol(str(symbol)): pd.Timestamp(value).normalize()
+            for symbol, value in dict(available_from or {}).items()
+            if value is not None and not pd.isna(value)
+        }
+        companion_ids = tuple(str(value).strip() for value in companions)
+        for companion in companion_ids:
+            companion_spec = self._catalog.spec(companion)
+            if companion_spec.date_column != spec.date_column or "symbol" not in companion_spec.key_columns:
+                raise ValueError(f"{companion} is not compatible with {dataset_id} batching")
+        watermark_sets = (
+            [
+                self._store.watermarks(candidate, dimension=dimension)
+                for candidate in (dataset_id, *companion_ids)
+            ]
+            if self.mode == "run" and self._store is not None and not force
+            else []
+        )
+        grouped: dict[pd.Timestamp, list[str]] = {}
+        for symbol in normalized:
+            effective = max(requested_start, listed.get(symbol, requested_start))
+            values = [watermarks.get(symbol) for watermarks in watermark_sets]
+            if values and all(value is not None for value in values):
+                effective = max(
+                    effective,
+                    min(pd.Timestamp(value) for value in values if value is not None)
+                    - pd.Timedelta(days=int(overlap_days)),
+                )
+            if effective > requested_end:
+                continue
+            grouped.setdefault(effective, []).append(symbol)
+
+        planned: list[DateSymbolBatch] = []
+        for effective_start, group_symbols in sorted(grouped.items()):
+            cursor = effective_start
+            while cursor <= requested_end:
+                chunk_end = min(
+                    requested_end,
+                    cursor + pd.Timedelta(days=int(chunk_days) - 1),
+                )
+                for offset in range(0, len(group_symbols), int(batch_size)):
+                    planned.append(
+                        DateSymbolBatch(
+                            start=cursor.strftime("%Y-%m-%d"),
+                            end=chunk_end.strftime("%Y-%m-%d"),
+                            symbols=tuple(group_symbols[offset : offset + int(batch_size)]),
+                        )
+                    )
+                cursor = chunk_end + pd.Timedelta(days=1)
+        return tuple(planned)
+
+    def watermark(
+        self,
+        dataset: str,
+        *,
+        dimension: tuple[str, str] | None = None,
+    ) -> str | None:
+        """Return the latest persisted date for a dataset or one dimension."""
+
+        dataset_id = str(dataset).strip()
+        self._catalog.spec(dataset_id)
+        if self.mode != "run" or self._store is None:
+            return None
+        if dimension is not None:
+            latest = self._store.dimension_watermarks(dataset_id, dimension[0]).get(
+                str(dimension[1])
+            )
+        else:
+            status = self._catalog.status(dataset_id)
+            latest = status.get("date_end")
+        if latest is None:
+            return None
+        return pd.Timestamp(latest).strftime("%Y-%m-%d")
+
+    def require_coverage(
+        self,
+        dataset: str,
+        *,
+        start: str | None = None,
+        end: str | None = None,
+        fail_on_gap: bool = True,
+        symbols: Iterable[str] | None = None,
+    ) -> None:
+        """Declare the bounded quality gate that must pass after publication."""
+
+        dataset_id = str(dataset).strip()
+        self._catalog.spec(dataset_id)
+        self._coverage_requirements.append(
+            {
+                "dataset": dataset_id,
+                "start": start,
+                "end": end,
+                "fail_on_gap": bool(fail_on_gap),
+                "symbols": (
+                    list(dict.fromkeys(to_framework_symbol(value) for value in symbols))
+                    if symbols is not None
+                    else None
+                ),
+            }
+        )
+
     def finalize(self) -> None:
         """Run each published dataset's quality contract once after all batches."""
 
         if self.mode != "run":
             return
-        for dataset_id in dict.fromkeys(item["dataset"] for item in self._published):
-            report = validate_dataset(dataset_id, self._root)
+        requirements = {
+            item["dataset"]: item for item in self._coverage_requirements
+        }
+        selected = dict.fromkeys(
+            [
+                *(item["dataset"] for item in self._published),
+                *(item["dataset"] for item in self._coverage_requirements),
+            ]
+        )
+        for dataset_id in selected:
+            requirement = requirements.get(dataset_id, {})
+            report = validate_dataset(
+                dataset_id,
+                self._root,
+                start_date=requirement.get("start"),
+                as_of_date=requirement.get("end"),
+                fail_on_gap=bool(requirement.get("fail_on_gap", False)),
+                symbols=requirement.get("symbols"),
+            )
             if report["status"] != "passed":
                 raise ValueError(f"quality validation failed for {dataset_id}")
             for item in self._published:
@@ -243,6 +437,7 @@ def data_recipe(
 
 __all__ = [
     "DataRecipeContext",
+    "DateSymbolBatch",
     "RQDataAPI",
     "RQSyncRequest",
     "data_recipe",

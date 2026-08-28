@@ -45,9 +45,9 @@ class FakeRQData:
         assert kwargs == {"type": "CS", "market": "cn"}
         return pd.DataFrame(
             {
-                "order_book_id": ["600000.XSHG", "000001.XSHE"],
-                "exchange": ["XSHG", "XSHE"],
-                "round_lot": [100, 100],
+                "order_book_id": ["600000.XSHG", "000001.XSHE", "900901.XSHG"],
+                "exchange": ["XSHG", "XSHE", "XSHG"],
+                "round_lot": [100, 100, 100],
             }
         )
 
@@ -187,4 +187,5 @@ def test_rq_engine_factory_registers_market_and_fundamental(monkeypatch, tmp_pat
         "instrument": ["rq"],
         "fundamental": ["rq"],
         "factor": [],
+        "research": ["rq"],
     }

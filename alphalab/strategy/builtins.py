@@ -42,6 +42,8 @@ def momentum_20d(
     ] = 20,
 ):
     close = context.history("close", window=window + 1)
+    if len(close.index) < window + 1:
+        return close.mean(axis=0) * float("nan")
     return close.iloc[-1] / close.iloc[0] - 1.0
 
 
@@ -130,6 +132,8 @@ def major_etfs(context):
 @factor(id="momentum_20d")
 def momentum_20d(context, *, window: int = 20):
     close = context.history("close", window=window + 1)
+    if len(close.index) < window + 1:
+        return close.mean(axis=0) * float("nan")
     return close.iloc[-1] / close.iloc[0] - 1.0
 
 

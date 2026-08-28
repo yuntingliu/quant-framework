@@ -10,7 +10,6 @@ import pandas as pd
 
 from alphalab.strategy.repository import StrategyRepository
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 

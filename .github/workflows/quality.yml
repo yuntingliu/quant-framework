@@ -1,0 +1,38 @@
+name: quality
+
+on:
+  pull_request:
+  push:
+    branches: [main, dongfang]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: dashboard/frontend/package-lock.json
+      - name: Install Python
+        run: python -m pip install -e ".[dev,dashboard]"
+      - name: Python quality
+        run: |
+          python -m pytest tests -q
+          python scripts/check_facade_imports.py
+          python -m ruff check alphalab dashboard/backend tests scripts
+          python scripts/check_repository_hygiene.py
+      - name: Frontend quality
+        run: |
+          npm --prefix dashboard/frontend ci
+          npm --prefix dashboard/frontend run lint
+          npm --prefix dashboard/frontend run build

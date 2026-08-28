@@ -11,6 +11,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from alphalab.data_sdk.v1.recipe import (
+    DataRecipeContext,
+    DateSymbolBatch,
+    RQDataAPI,
+    RQSyncRequest,
+    data_recipe,
+    rq,
+)
 from alphalab.dataio.engine import DataCache, DataEngine
 from alphalab.dataio.factor_returns import build_factor_returns
 from alphalab.dataio.fundamentals import (
@@ -23,21 +31,19 @@ from alphalab.dataio.providers.protocol import (
     FundamentalProvider,
     InstrumentProvider,
     MarketDataProvider,
+    ResearchDataProvider,
 )
 from alphalab.dataio.rq_frames import (
     framework_symbols,
     normalize_rq_bars,
+    normalize_rq_daily_factor,
     normalize_rq_financials,
+    normalize_rq_index_components,
     normalize_rq_instruments,
+    normalize_rq_market_state,
     normalize_rq_yield_curve,
+    require_same_keys,
     rq_order_book_ids,
-)
-from alphalab.data_sdk.v1.recipe import (
-    DataRecipeContext,
-    RQDataAPI,
-    RQSyncRequest,
-    data_recipe,
-    rq,
 )
 
 SDK_VERSION = 1
@@ -53,6 +59,7 @@ class PythonDataSource:
     instruments: InstrumentProvider
     fundamentals: FundamentalProvider | None = None
     factors: FactorProvider | None = None
+    research: ResearchDataProvider | None = None
 
     def __post_init__(self) -> None:
         normalized = str(self.id).strip().lower()
@@ -69,6 +76,8 @@ class PythonDataSource:
             raise TypeError("fundamentals must implement FundamentalProvider")
         if self.factors is not None and not isinstance(self.factors, FactorProvider):
             raise TypeError("factors must implement FactorProvider")
+        if self.research is not None and not isinstance(self.research, ResearchDataProvider):
+            raise TypeError("research must implement ResearchDataProvider")
         object.__setattr__(self, "id", normalized)
 
     @property
@@ -78,6 +87,8 @@ class PythonDataSource:
             values.append("fundamentals")
         if self.factors is not None:
             values.append("factors")
+        if self.research is not None:
+            values.append("research")
         return tuple(values)
 
     def create_engine(self, *, cache: DataCache | None = None) -> DataEngine:
@@ -88,6 +99,8 @@ class PythonDataSource:
             engine.register_fundamental(self.id, self.fundamentals, default=True)
         if self.factors is not None:
             engine.register_factor(self.id, self.factors, default=True)
+        if self.research is not None:
+            engine.register_research(self.id, self.research, default=True)
         return engine
 
 
@@ -98,6 +111,7 @@ def data_source(
     instruments: InstrumentProvider,
     fundamentals: FundamentalProvider | None = None,
     factors: FactorProvider | None = None,
+    research: ResearchDataProvider | None = None,
 ) -> PythonDataSource:
     """Build a versioned custom data source from ordinary Python providers."""
 
@@ -107,6 +121,7 @@ def data_source(
         instruments=instruments,
         fundamentals=fundamentals,
         factors=factors,
+        research=research,
     )
 
 
@@ -122,17 +137,23 @@ __all__ = [
     "MarketDataProvider",
     "PythonDataSource",
     "DataRecipeContext",
+    "DateSymbolBatch",
     "RQDataAPI",
     "RQSyncRequest",
+    "ResearchDataProvider",
     "build_canonical_fundamentals",
     "build_factor_returns",
     "data_source",
     "data_recipe",
     "framework_symbols",
     "normalize_rq_bars",
+    "normalize_rq_daily_factor",
     "normalize_rq_financials",
+    "normalize_rq_index_components",
     "normalize_rq_instruments",
+    "normalize_rq_market_state",
     "normalize_rq_yield_curve",
+    "require_same_keys",
     "rq",
     "rq_order_book_ids",
 ]

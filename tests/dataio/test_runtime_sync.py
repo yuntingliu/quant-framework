@@ -4,14 +4,20 @@ import pandas as pd
 import pytest
 
 from alphalab import create_runtime_engine
-from alphalab.dataio import MissingDataError, RQDataClient, RQDataConfig
+from alphalab.dataio import (
+    DataLoadError,
+    DataValidationError,
+    MissingDataError,
+    RQDataClient,
+    RQDataConfig,
+)
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.fundamentals import (
     INCOME_FIELDS,
     build_canonical_fundamentals,
     first_disclosures,
 )
-from alphalab.dataio.quality import validate_dataset
+from alphalab.dataio.quality import validate_all, validate_dataset
 from alphalab.dataio.rq_sync import RQAcquirer
 from alphalab.dataio.runtime import OperationsStore, RuntimeStore
 from alphalab.dataio.sync import RQSyncService, SyncRequest, build_sync_plan
@@ -142,6 +148,34 @@ class _FakeAcquirer:
         source = self.income if set(fields) == set(INCOME_FIELDS) else self.balance
         return source.copy()
 
+    def market_state_chunks(self, symbols, start, end, **kwargs):
+        dates = pd.date_range(start, end, freq="B")
+        rows = [(date, symbol) for date in dates for symbol in symbols]
+        paused = pd.DataFrame(rows, columns=["date", "symbol"])
+        paused["paused"] = False
+        is_st = pd.DataFrame(rows, columns=["date", "symbol"])
+        is_st["is_st"] = False
+        yield paused, is_st
+
+    def daily_factor_chunks(self, symbols, fields, start, end, **kwargs):
+        rows = [
+            (date, symbol, field, 1.0)
+            for date in pd.date_range(start, end, freq="B")
+            for symbol in symbols
+            for field in fields
+        ]
+        yield pd.DataFrame(rows, columns=["date", "symbol", "field", "value"])
+
+    def index_components(self, indexes, dates, **kwargs):
+        return pd.DataFrame(
+            [
+                (date, index_symbol, "000001.SZ")
+                for date in dates
+                for index_symbol in indexes
+            ],
+            columns=["date", "index_symbol", "symbol"],
+        )
+
 
 def test_sync_service_builds_runtime_engine_and_records_job(tmp_path) -> None:
     request = SyncRequest(
@@ -213,7 +247,7 @@ def test_etf_template_resolves_only_etfs_and_uses_daily_defaults(tmp_path) -> No
         end="2025-03-31",
         force=True,
     )
-    assert request.datasets == ["instruments", "bars"]
+    assert request.datasets == ["instruments", "bars", "market-state"]
     preview = build_sync_plan(request, root=tmp_path)
     assert preview["scope"] == "etfs"
     assert preview["template"]["instrument_types"] == ("ETF",)
@@ -289,6 +323,103 @@ def test_sync_plan_uses_incremental_bar_and_financial_lookbacks(tmp_path) -> Non
     assert income_step["start_quarter"] == "2023q2"
 
 
+def test_incremental_bars_backfill_new_symbols_from_requested_start(tmp_path) -> None:
+    store = RuntimeStore(tmp_path)
+    _, _, bars = _financial_frames()
+    existing = bars.iloc[[0]].copy()
+    existing["date"] = pd.Timestamp("2025-01-10")
+    store.write("rq.bars", existing)
+
+    class RecordingAcquirer(_FakeAcquirer):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[tuple[list[str], str, str]] = []
+
+        def daily_bar_chunks(self, symbols, start, end, **kwargs):
+            self.calls.append((list(symbols), start, end))
+            yield pd.DataFrame(
+                {
+                    "date": [pd.Timestamp(end)] * len(symbols),
+                    "symbol": symbols,
+                    "open": [10.0] * len(symbols),
+                    "high": [10.5] * len(symbols),
+                    "low": [9.5] * len(symbols),
+                    "close": [10.2] * len(symbols),
+                    "raw_close": [10.0] * len(symbols),
+                    "volume": [1000.0] * len(symbols),
+                    "amount": [10000.0] * len(symbols),
+                }
+            )
+
+    acquirer = RecordingAcquirer()
+    request = SyncRequest(
+        datasets=["bars"],
+        symbols=["000001.SZ", "600000.SH"],
+        start="2025-01-01",
+        end="2025-01-10",
+    )
+    operations = OperationsStore(tmp_path)
+    job_id = operations.create_job(request.model_dump(mode="json"))
+
+    result = RQSyncService(tmp_path, acquirer=acquirer).run(job_id)
+
+    assert result["status"] == "succeeded"
+    assert acquirer.calls == [
+        (["600000.SH"], "2025-01-01", "2025-01-10"),
+        (["000001.SZ"], "2025-01-03", "2025-01-10"),
+    ]
+
+
+def test_new_factor_fields_and_indexes_backfill_independently(tmp_path) -> None:
+    store = RuntimeStore(tmp_path)
+    store.write(
+        "rq.daily_factors",
+        pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2025-01-03")],
+                "symbol": ["000001.SZ"],
+                "field": ["market_cap"],
+                "value": [1.0],
+            }
+        ),
+    )
+    store.write(
+        "rq.index_components",
+        pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2025-01-31")],
+                "index_symbol": ["000300.SH"],
+                "symbol": ["000001.SZ"],
+            }
+        ),
+    )
+
+    plan = build_sync_plan(
+        SyncRequest(
+            datasets=["daily-factors", "index-components"],
+            symbols=["000001.SZ"],
+            start="2020-01-01",
+            end="2025-02-28",
+            daily_factors=["market_cap", "roe"],
+            index_symbols=["000300.SH", "000905.SH"],
+        ),
+        root=tmp_path,
+    )
+    factor_step = next(item for item in plan["steps"] if item["dataset"] == "rq.daily_factors")
+    component_step = next(
+        item for item in plan["steps"] if item["dataset"] == "rq.index_components"
+    )
+
+    assert factor_step["field_starts"] == {
+        "market_cap": "2025-01-02",
+        "roe": "2020-01-01",
+    }
+    assert component_step["index_starts"] == {
+        "000300.SH": "2025-01-31",
+        "000905.SH": "2020-01-01",
+    }
+
+
 class _FakeRQModule:
     def __init__(self) -> None:
         self.price_calls: list[dict] = []
@@ -336,6 +467,39 @@ class _FakeRQModule:
         return pd.DataFrame({"1M": 2.4}, index=index.rename("date"))
 
 
+def test_rq_acquirer_filters_b_shares_without_filtering_etfs() -> None:
+    class InstrumentRQModule(_FakeRQModule):
+        def all_instruments(self, *, type, market):
+            assert market == "cn"
+            symbols = (
+                ["600000.XSHG", "900901.XSHG", "200002.XSHE"]
+                if type == "CS"
+                else ["510300.XSHG"]
+            )
+            return pd.DataFrame(
+                {
+                    "order_book_id": symbols,
+                    "symbol": symbols,
+                    "listed_date": pd.Timestamp("2020-01-01"),
+                }
+            )
+
+    module = InstrumentRQModule()
+    client = RQDataClient(
+        RQDataConfig(user="demo", password="secret", host="example:16011"),
+        module=module,
+    )
+    frame = RQAcquirer(client, retries=1).instruments(
+        "2025-01-02",
+        instrument_types=("CS", "ETF"),
+    )
+
+    assert frame[["symbol", "asset_type"]].to_dict("records") == [
+        {"symbol": "600000.SH", "asset_type": "CS"},
+        {"symbol": "510300.SH", "asset_type": "ETF"},
+    ]
+
+
 def test_rq_acquirer_enforces_stock_and_quarter_batch_limits() -> None:
     module = _FakeRQModule()
     client = RQDataClient(
@@ -360,6 +524,106 @@ def test_rq_acquirer_enforces_stock_and_quarter_batch_limits() -> None:
     assert "prev_close" in bars
     assert "num_trades" in bars
     assert not financials.empty
+
+
+def test_rq_acquirer_rejects_adjusted_and_raw_bar_key_mismatch() -> None:
+    class MismatchedBarsModule(_FakeRQModule):
+        def get_price(self, order_book_ids, **kwargs):
+            frame = super().get_price(order_book_ids, **kwargs)
+            return frame.iloc[:-1] if kwargs["adjust_type"] == "none" else frame
+
+    module = MismatchedBarsModule()
+    client = RQDataClient(
+        RQDataConfig(user="demo", password="secret", host="example:16011"),
+        module=module,
+    )
+
+    with pytest.raises(DataValidationError, match="adjusted/raw bars.*key mismatch"):
+        RQAcquirer(client, retries=1).daily_bars(
+            ["000001.SZ", "600000.SH"],
+            "2025-01-02",
+            "2025-01-02",
+        )
+
+
+def test_rq_acquirer_batches_market_state_and_daily_factors() -> None:
+    class ResearchRQModule(_FakeRQModule):
+        def __init__(self) -> None:
+            super().__init__()
+            self.state_calls: list[tuple[str, list[str]]] = []
+            self.factor_calls: list[list[str]] = []
+
+        def is_suspended(self, order_book_ids, **kwargs):
+            self.state_calls.append(("paused", list(order_book_ids)))
+            index = pd.date_range(kwargs["start_date"], kwargs["end_date"], freq="B")
+            return pd.DataFrame(False, index=index, columns=order_book_ids)
+
+        def is_st_stock(self, order_book_ids, **kwargs):
+            self.state_calls.append(("is_st", list(order_book_ids)))
+            index = pd.date_range(kwargs["start_date"], kwargs["end_date"], freq="B")
+            return pd.DataFrame(False, index=index, columns=order_book_ids)
+
+        def get_factor(self, order_book_ids, field, **kwargs):
+            self.factor_calls.append(list(order_book_ids))
+            index = pd.date_range(kwargs["start_date"], kwargs["end_date"], freq="B")
+            return pd.DataFrame(1.0, index=index, columns=order_book_ids)
+
+        def index_components(self, index_symbol, date=None):
+            return ["000001.XSHE", "600000.XSHG"]
+
+    module = ResearchRQModule()
+    client = RQDataClient(
+        RQDataConfig(user="demo", password="secret", host="example:16011"),
+        module=module,
+    )
+    acquirer = RQAcquirer(client, retries=1)
+    symbols = [f"{value:06d}.SZ" for value in range(201)]
+
+    states = list(acquirer.market_state_chunks(symbols, "2025-01-01", "2025-01-03"))
+    factors = list(
+        acquirer.daily_factor_chunks(
+            symbols,
+            ["market_cap", "roe"],
+            "2025-01-01",
+            "2025-01-03",
+        )
+    )
+    components = acquirer.index_components(["000300.SH"], ["2025-01-03"])
+
+    paused, is_st = states[0]
+    assert {"date", "symbol", "paused"} <= set(paused)
+    assert {"date", "symbol", "is_st"} <= set(is_st)
+    assert len(module.state_calls) == 4
+    assert max(len(symbols) for _kind, symbols in module.state_calls) <= 200
+    assert set(factors[0]["field"]) == {"market_cap", "roe"}
+    assert len(module.factor_calls) == 4
+    assert set(components["symbol"]) == {"000001.SZ", "600000.SH"}
+
+
+def test_rq_acquirer_rejects_paused_and_st_key_mismatch() -> None:
+    class MismatchedStateModule(_FakeRQModule):
+        def is_suspended(self, order_book_ids, **kwargs):
+            index = pd.date_range(kwargs["start_date"], kwargs["end_date"], freq="B")
+            return pd.DataFrame(False, index=index, columns=order_book_ids)
+
+        def is_st_stock(self, order_book_ids, **kwargs):
+            index = pd.date_range(kwargs["start_date"], kwargs["end_date"], freq="B")
+            return pd.DataFrame(False, index=index, columns=order_book_ids[:-1])
+
+    module = MismatchedStateModule()
+    client = RQDataClient(
+        RQDataConfig(user="demo", password="secret", host="example:16011"),
+        module=module,
+    )
+
+    with pytest.raises(DataValidationError, match="paused/ST state.*key mismatch"):
+        list(
+            RQAcquirer(client, retries=1).market_state_chunks(
+                ["000001.SZ", "600000.SH"],
+                "2025-01-02",
+                "2025-01-03",
+            )
+        )
 
 
 def test_rq_acquirer_normalizes_annual_yield_to_monthly_return() -> None:
@@ -417,3 +681,244 @@ def test_data_tool_registry_returns_bounded_structured_rows(tmp_path) -> None:
     )
     assert result["returned_rows"] == 2
     assert result["truncated"] is True
+
+
+def test_extended_rq_datasets_are_materialized_by_the_same_sync_service(tmp_path) -> None:
+    request = SyncRequest(
+        datasets=[
+            "instruments",
+            "bars",
+            "market-state",
+            "daily-factors",
+            "index-components",
+        ],
+        symbols=["000001.SZ"],
+        start="2025-01-01",
+        end="2025-03-31",
+        force=True,
+    )
+    operations = OperationsStore(tmp_path)
+    job_id = operations.create_job(request.model_dump(mode="json"))
+
+    result = RQSyncService(tmp_path, acquirer=_FakeAcquirer()).run(job_id)
+
+    assert result["status"] == "succeeded", result["error"]
+    catalog = DataCatalog(tmp_path)
+    for dataset in (
+        "rq.paused",
+        "rq.is_st",
+        "rq.daily_factors",
+        "rq.index_components",
+    ):
+        assert catalog.status(dataset)["status"] == "ready"
+
+
+def test_completed_date_chunk_survives_a_later_provider_failure(tmp_path) -> None:
+    class PartialAcquirer(_FakeAcquirer):
+        def daily_bar_chunks(self, symbols, start, end, **kwargs):
+            yield self.bars.iloc[:1].copy()
+            raise DataLoadError("later date chunk failed")
+
+    request = SyncRequest(
+        datasets=["bars"],
+        symbols=["000001.SZ"],
+        start="2023-01-01",
+        end="2025-03-31",
+        force=True,
+    )
+    operations = OperationsStore(tmp_path)
+    job_id = operations.create_job(request.model_dump(mode="json"))
+
+    result = RQSyncService(tmp_path, acquirer=PartialAcquirer()).run(job_id)
+
+    assert result["status"] == "failed"
+    assert len(RuntimeStore(tmp_path).read("rq.bars")) == 1
+
+
+def test_gap_validation_detects_incomplete_market_state(tmp_path) -> None:
+    store = RuntimeStore(tmp_path)
+    _, _, bars = _financial_frames()
+    store.write("rq.bars", bars)
+    store.write(
+        "rq.paused",
+        pd.DataFrame(
+            {
+                "date": [bars.iloc[0]["date"]],
+                "symbol": ["000001.SZ"],
+                "paused": [False],
+            }
+        ),
+    )
+
+    report = validate_dataset(
+        "rq.paused",
+        tmp_path,
+        start_date="2023-04-30",
+        as_of_date="2025-03-30",
+        fail_on_gap=True,
+    )
+
+    assert report["status"] == "failed"
+    assert any(issue["code"] == "bar_key_gap" for issue in report["issues"])
+
+
+def _coverage_bars() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "date": pd.to_datetime(
+                ["2025-01-02", "2025-01-02", "2025-01-03", "2025-01-03"]
+            ),
+            "symbol": ["000001.SZ", "600000.SH"] * 2,
+            "open": [10.0, 11.0, 10.1, 11.1],
+            "high": [10.5, 11.5, 10.6, 11.6],
+            "low": [9.5, 10.5, 9.6, 10.6],
+            "close": [10.2, 11.2, 10.3, 11.3],
+            "raw_close": [10.0, 11.0, 10.1, 11.1],
+            "volume": [1000.0] * 4,
+            "amount": [10000.0] * 4,
+        }
+    )
+
+
+def test_gap_validation_checks_each_daily_factor_date_range(tmp_path) -> None:
+    store = RuntimeStore(tmp_path)
+    store.write("rq.bars", _coverage_bars())
+    store.write(
+        "rq.daily_factors",
+        pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2025-01-02", "2025-01-03", "2025-01-03"]),
+                "symbol": ["000001.SZ", "000001.SZ", "000001.SZ"],
+                "field": ["market_cap", "market_cap", "roe"],
+                "value": [1.0, 1.1, 0.1],
+            }
+        ),
+    )
+
+    report = validate_dataset(
+        "rq.daily_factors",
+        tmp_path,
+        start_date="2025-01-02",
+        as_of_date="2025-01-03",
+        fail_on_gap=True,
+    )
+
+    assert report["metrics"]["field_date_coverage"] == {
+        "market_cap": 1.0,
+        "roe": 0.5,
+    }
+    assert {issue["code"] for issue in report["issues"]} == {"factor_date_gap"}
+
+
+def test_recipe_quality_scope_does_not_mix_other_template_symbols(tmp_path) -> None:
+    store = RuntimeStore(tmp_path)
+    bars = _coverage_bars()
+    store.write("rq.bars", bars)
+    store.write(
+        "rq.paused",
+        bars.loc[bars["symbol"].eq("000001.SZ"), ["date", "symbol"]].assign(
+            paused=False
+        ),
+    )
+
+    scoped = validate_dataset(
+        "rq.paused",
+        tmp_path,
+        fail_on_gap=True,
+        symbols=["000001.SZ"],
+    )
+    global_report = validate_dataset("rq.paused", tmp_path, fail_on_gap=True)
+
+    assert scoped["status"] == "passed"
+    assert scoped["metrics"]["bar_key_coverage"] == 1.0
+    assert global_report["status"] == "failed"
+
+
+def test_large_daily_quality_checks_stream_partitions(monkeypatch, tmp_path) -> None:
+    store = RuntimeStore(tmp_path)
+    bars = _coverage_bars()
+    state = bars[["date", "symbol"]].assign(paused=False)
+    factors = pd.concat(
+        [
+            bars[["date", "symbol"]].assign(field=field, value=1.0)
+            for field in ("market_cap", "roe")
+        ],
+        ignore_index=True,
+    )
+    store.write("rq.bars", bars)
+    store.write("rq.paused", state)
+    store.write("rq.daily_factors", factors)
+
+    def reject_full_read(self, dataset):
+        raise AssertionError(f"unexpected full read: {dataset}")
+
+    monkeypatch.setattr(RuntimeStore, "read", reject_full_read)
+
+    for dataset in ("rq.bars", "rq.paused", "rq.daily_factors"):
+        report = validate_dataset(
+            dataset,
+            tmp_path,
+            start_date="2025-01-02",
+            as_of_date="2025-01-03",
+            fail_on_gap=True,
+        )
+        assert report["status"] == "passed"
+
+
+def test_validate_all_can_target_only_selected_datasets(tmp_path) -> None:
+    RuntimeStore(tmp_path).write("rq.bars", _coverage_bars())
+
+    reports = validate_all(tmp_path, datasets=["rq.bars"])
+
+    assert [report["dataset"] for report in reports] == ["rq.bars"]
+    assert reports[0]["status"] == "passed"
+
+
+def test_cancellation_after_state_chunk_keeps_checkpoint_without_completing_step(
+    tmp_path,
+) -> None:
+    operations = OperationsStore(tmp_path)
+
+    class CancellingStateAcquirer(_FakeAcquirer):
+        def market_state_chunks(self, symbols, start, end, **kwargs):
+            yield from super().market_state_chunks(symbols, start, end, **kwargs)
+            operations.request_cancel(job_id)
+
+    request = SyncRequest(
+        datasets=["market-state"],
+        symbols=["000001.SZ", "600000.SH"],
+        start="2025-01-02",
+        end="2025-01-03",
+    )
+    job_id = operations.create_job(request.model_dump(mode="json"))
+
+    result = RQSyncService(tmp_path, acquirer=CancellingStateAcquirer()).run(job_id)
+
+    assert result["status"] == "cancelled"
+    assert result["progress"] == 0
+    assert RuntimeStore(tmp_path).read("rq.paused").shape[0] == 4
+
+
+def test_cancellation_after_factor_chunk_keeps_checkpoint_without_completing_step(
+    tmp_path,
+) -> None:
+    operations = OperationsStore(tmp_path)
+
+    class CancellingFactorAcquirer(_FakeAcquirer):
+        def daily_factor_chunks(self, symbols, fields, start, end, **kwargs):
+            yield from super().daily_factor_chunks(symbols, fields, start, end, **kwargs)
+            operations.request_cancel(job_id)
+
+    request = SyncRequest(
+        datasets=["daily-factors"],
+        symbols=["000001.SZ", "600000.SH"],
+        start="2025-01-02",
+        end="2025-01-03",
+    )
+    job_id = operations.create_job(request.model_dump(mode="json"))
+
+    result = RQSyncService(tmp_path, acquirer=CancellingFactorAcquirer()).run(job_id)
+
+    assert result["status"] == "cancelled"
+    assert result["progress"] == 0
+    assert RuntimeStore(tmp_path).read("rq.daily_factors").shape[0] == 4

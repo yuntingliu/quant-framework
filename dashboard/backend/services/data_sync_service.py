@@ -25,6 +25,7 @@ from alphalab.dataio.recipes import (
     update_recipe_parameters as project_recipe_parameters,
 )
 from alphalab.dataio.rq_templates import (
+    DEFAULT_RQ_SYNC_TEMPLATE_ID,
     get_rq_sync_template,
     list_rq_sync_templates,
 )
@@ -35,6 +36,8 @@ from alphalab.utils.env import load_env_files
 from dashboard.backend.services import strategy_service
 
 _RQ_KEYS = ("RQ_USER", "RQ_PASSWORD", "RQ_HOST")
+_DEFAULT_RECIPE_PROJECT_ID = "sdk-v1-default"
+_PREVIOUS_DEFAULT_RECIPE_ID = "rq.a_share_daily"
 
 
 @lru_cache(maxsize=1)
@@ -110,18 +113,38 @@ def recipe_workspace(project_id: str) -> dict:
     draft = manager.operations.get_recipe_draft(project)
     if draft is None:
         source = render_builtin_recipe(
-            "rq.a_share_daily",
+            DEFAULT_RQ_SYNC_TEMPLATE_ID,
             start=bounds["start"],
             end=bounds["end"],
         )
         draft = manager.operations.save_recipe_draft(
             project,
             source,
-            selected_template_id="rq.a_share_daily",
+            selected_template_id=DEFAULT_RQ_SYNC_TEMPLATE_ID,
         )
     else:
         migrated = migrate_legacy_builtin_recipe(draft["source"])
-        if migrated != draft["source"]:
+        migrated_inspection = inspect_data_recipe_source(migrated)
+        upgrade_default = (
+            project == _DEFAULT_RECIPE_PROJECT_ID
+            and draft.get("selected_template_id") == _PREVIOUS_DEFAULT_RECIPE_ID
+            and migrated_inspection.matched_template_id == _PREVIOUS_DEFAULT_RECIPE_ID
+        )
+        if upgrade_default:
+            parameters = _editable_recipe_parameters(migrated)
+            migrated = render_builtin_recipe(
+                DEFAULT_RQ_SYNC_TEMPLATE_ID,
+                start=str(parameters.get("start") or bounds["start"]),
+                end=str(parameters.get("end") or bounds["end"]),
+                symbols=_symbol_list(parameters.get("symbols")),
+            )
+            draft = manager.operations.save_recipe_draft(
+                project,
+                migrated,
+                expected_source_sha256=draft["source_sha256"],
+                selected_template_id=DEFAULT_RQ_SYNC_TEMPLATE_ID,
+            )
+        elif migrated != draft["source"]:
             draft = manager.operations.save_recipe_draft(
                 project,
                 migrated,
@@ -396,8 +419,29 @@ def cancel(job_id: str) -> dict | None:
     return get_job_manager().cancel(job_id)
 
 
-def validate(dataset: str | None = None) -> dict | list[dict]:
-    return validate_dataset(dataset) if dataset else validate_all()
+def validate(
+    dataset: str | None = None,
+    *,
+    datasets: list[str] | None = None,
+    start: str | None = None,
+    as_of: str | None = None,
+    fail_on_gap: bool = False,
+) -> dict | list[dict]:
+    if dataset and datasets:
+        raise ValueError("dataset and datasets cannot be used together")
+    if dataset:
+        return validate_dataset(
+            dataset,
+            start_date=start,
+            as_of_date=as_of,
+            fail_on_gap=fail_on_gap,
+        )
+    return validate_all(
+        datasets=datasets,
+        start_date=start,
+        as_of_date=as_of,
+        fail_on_gap=fail_on_gap,
+    )
 
 
 def _recipe_bounds() -> dict[str, str]:

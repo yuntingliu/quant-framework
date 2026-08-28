@@ -32,6 +32,8 @@ class PreparedRunData:
     bars: pd.DataFrame
     instruments: pd.DataFrame
     fundamentals: pd.DataFrame
+    daily_factors: pd.DataFrame
+    index_components: pd.DataFrame
     all_symbols: tuple[str, ...]
 
 
@@ -474,10 +476,39 @@ def _prepare_data(
     start: pd.Timestamp,
     end: pd.Timestamp,
 ) -> PreparedRunData:
-    end_instruments = engine.get_instruments(end.strftime("%Y-%m-%d"))
-    if end_instruments.empty or "symbol" not in end_instruments:
+    # RQ ``all_instruments`` is an instrument master stamped with its retrieval
+    # date.  Its listing intervals are still valid for earlier research dates.
+    # Loading it through an end-date view drops instruments that delisted during
+    # the requested period, while treating the retrieval stamp as an effective
+    # date leaves every earlier session with an empty universe.  Keep the master
+    # rows that overlap this prepared range, then make that master available from
+    # the beginning of the range; StrategyContext and _available_symbols apply
+    # the listing intervals at each point in time.
+    instruments = engine.get_instruments(None)
+    if instruments.empty or "symbol" not in instruments:
         raise MissingDataError("point-in-time instrument snapshots are required")
-    symbols = tuple(sorted(end_instruments["symbol"].dropna().astype(str).str.upper().unique()))
+    instruments = instruments.copy()
+    instruments["symbol"] = instruments["symbol"].astype(str).str.upper()
+    listed_field = next(
+        (name for name in ("listed_date", "list_date") if name in instruments), None
+    )
+    delisted_field = next(
+        (name for name in ("de_listed_date", "delisted_date") if name in instruments),
+        None,
+    )
+    if listed_field is not None:
+        listed = pd.to_datetime(instruments[listed_field], errors="coerce")
+        instruments = instruments.loc[listed.isna() | listed.le(end)].copy()
+    if delisted_field is not None:
+        delisted = pd.to_datetime(instruments[delisted_field], errors="coerce")
+        instruments = instruments.loc[delisted.isna() | delisted.gt(start)].copy()
+    if instruments.empty:
+        raise MissingDataError("no instruments overlap the selected research range")
+    if "snapshot_date" in instruments:
+        instruments["source_snapshot_date"] = instruments["snapshot_date"]
+    instruments["snapshot_date"] = pd.Timestamp(start).normalize()
+    instruments = instruments.drop_duplicates("symbol", keep="last").reset_index(drop=True)
+    symbols = tuple(sorted(instruments["symbol"].dropna().unique()))
     fields = list(
         dict.fromkeys(
             package.get("data_requirements", {}).get("bars")
@@ -486,11 +517,21 @@ def _prepare_data(
     )
     required_execution_fields = ["open", "close", "volume", "amount"]
     fields = list(dict.fromkeys([*fields, *required_execution_fields]))
+    state_field_names = {"paused", "is_suspended", "is_st"}
+    requested_state_fields = list(
+        dict.fromkeys(
+            [
+                *(field for field in fields if field in state_field_names),
+                "is_suspended",
+            ]
+        )
+    )
+    market_fields = [field for field in fields if field not in state_field_names]
     bars = engine.get_bars(
         list(symbols),
         start.strftime("%Y-%m-%d"),
         end.strftime("%Y-%m-%d"),
-        fields=fields,
+        fields=market_fields,
         strict=False,
         use_cache=False,
     )
@@ -498,29 +539,31 @@ def _prepare_data(
         raise MissingDataError("no market bars for the selected StrategySourcePackage")
     bars = bars.copy()
     bars["date"] = pd.to_datetime(bars["date"])
+    market_state_loader = getattr(engine, "get_market_state", None)
+    market_state = (
+        market_state_loader(
+            list(symbols),
+            start.strftime("%Y-%m-%d"),
+            end.strftime("%Y-%m-%d"),
+            fields=requested_state_fields,
+            use_cache=False,
+        )
+        if callable(market_state_loader)
+        else pd.DataFrame()
+    )
+    if not market_state.empty:
+        market_state = market_state.copy()
+        market_state["date"] = pd.to_datetime(market_state["date"], errors="coerce")
+        bars = bars.merge(
+            market_state.drop_duplicates(["date", "symbol"], keep="last"),
+            on=["date", "symbol"],
+            how="left",
+        )
     missing = sorted(set(fields) - set(bars.columns))
     if missing:
         raise MissingDataError(f"data profile is missing required bar fields: {missing}")
     sessions = tuple(pd.DatetimeIndex(bars["date"].dropna().unique()).sort_values())
 
-    instrument_frames: list[pd.DataFrame] = []
-    snapshot_keys: set[str] = set()
-    for session in sessions:
-        frame = engine.get_instruments(session.strftime("%Y-%m-%d"))
-        if frame.empty:
-            continue
-        frame = frame.copy()
-        if "snapshot_date" not in frame:
-            frame["snapshot_date"] = session
-        key = str(pd.to_datetime(frame["snapshot_date"], errors="coerce").max())
-        if key not in snapshot_keys:
-            snapshot_keys.add(key)
-            instrument_frames.append(frame)
-    instruments = (
-        pd.concat(instrument_frames, ignore_index=True) if instrument_frames else pd.DataFrame()
-    )
-    if instruments.empty:
-        raise MissingDataError("point-in-time instrument snapshots are required")
     instrument_fields = list(package.get("data_requirements", {}).get("instruments") or ())
     missing_instruments = sorted(set(instrument_fields) - set(instruments.columns))
     if missing_instruments:
@@ -545,11 +588,62 @@ def _prepare_data(
             raise MissingDataError(
                 f"data profile is missing required fundamental fields: {missing_fundamentals}"
             )
+
+    daily_factor_fields = list(
+        package.get("data_requirements", {}).get("daily_factors") or ()
+    )
+    daily_factors = pd.DataFrame()
+    if daily_factor_fields:
+        daily_factors = engine.get_daily_factors(
+            list(symbols),
+            daily_factor_fields,
+            start.strftime("%Y-%m-%d"),
+            end.strftime("%Y-%m-%d"),
+            strict=False,
+            use_cache=False,
+        )
+        available_daily_fields = (
+            set(daily_factors["field"].dropna().astype(str))
+            if "field" in daily_factors
+            else set()
+        )
+        missing_daily_factors = sorted(set(daily_factor_fields) - available_daily_fields)
+        if missing_daily_factors:
+            raise MissingDataError(
+                f"data profile is missing required daily factors: {missing_daily_factors}"
+            )
+
+    requested_indexes = list(
+        package.get("data_requirements", {}).get("index_components") or ()
+    )
+    index_components = pd.DataFrame()
+    if requested_indexes:
+        index_components = engine.get_index_components(
+            requested_indexes,
+            start.strftime("%Y-%m-%d"),
+            end.strftime("%Y-%m-%d"),
+            strict=False,
+            use_cache=False,
+        )
+        available_indexes = (
+            set(index_components["index_symbol"].dropna().astype(str).str.upper())
+            if "index_symbol" in index_components
+            else set()
+        )
+        missing_indexes = sorted(
+            set(str(value).upper() for value in requested_indexes) - available_indexes
+        )
+        if missing_indexes:
+            raise MissingDataError(
+                f"data profile is missing required index components: {missing_indexes}"
+            )
     return PreparedRunData(
         sessions=sessions,
         bars=bars,
         instruments=instruments,
         fundamentals=fundamentals,
+        daily_factors=daily_factors,
+        index_components=index_components,
         all_symbols=symbols,
     )
 
@@ -560,6 +654,8 @@ def _static_payload(prepared: PreparedRunData) -> dict[str, Any]:
         "bars": prepared.bars,
         "instruments": prepared.instruments,
         "fundamentals": prepared.fundamentals,
+        "daily_factors": prepared.daily_factors,
+        "index_components": prepared.index_components,
     }
 
 
@@ -576,31 +672,14 @@ def _available_symbols(
 ) -> list[str]:
     if instruments.empty or "symbol" not in instruments:
         return []
-    frame = instruments.copy()
-    if "snapshot_date" in frame:
-        frame["snapshot_date"] = pd.to_datetime(frame["snapshot_date"], errors="coerce")
-        frame = frame.loc[frame["snapshot_date"].notna() & frame["snapshot_date"].le(as_of)]
-        if frame.empty:
-            return []
-        frame = frame.loc[frame["snapshot_date"].eq(frame["snapshot_date"].max())]
-    for field in ("listed_date", "list_date"):
-        if field in frame:
-            listed = pd.to_datetime(frame[field], errors="coerce")
-            frame = frame.loc[listed.isna() | listed.le(as_of)]
-            break
-    for field in ("delisted_date", "de_listed_date"):
-        if field in frame:
-            delisted = pd.to_datetime(frame[field], errors="coerce")
-            frame = frame.loc[delisted.isna() | delisted.gt(as_of)]
-            break
-    symbols = set(frame["symbol"].dropna().astype(str).str.upper().unique())
+    market_symbols: set[str] | None = None
     if market_rows is not None:
         if market_rows.empty:
             return []
         rows = (
             market_rows.reset_index()
             if "symbol" not in market_rows and market_rows.index.name == "symbol"
-            else market_rows.copy()
+            else market_rows
         )
         if "symbol" not in rows:
             return []
@@ -610,8 +689,41 @@ def _available_symbols(
                 return []
             values = pd.to_numeric(rows[field], errors="coerce")
             valid &= values.notna() & np.isfinite(values) & values.gt(0)
-        market_symbols = set(rows.loc[valid, "symbol"].dropna().astype(str).str.upper().unique())
-        symbols &= market_symbols
+        market_symbols = set(
+            rows.loc[valid, "symbol"].dropna().astype(str).str.upper().unique()
+        )
+        if not market_symbols:
+            return []
+
+    # Market rows reduce a large instrument master to the small set that can
+    # actually trade today before any point-in-time date work is performed.
+    frame = instruments
+    if market_symbols is not None:
+        normalized_symbols = frame["symbol"].astype(str).str.upper()
+        frame = frame.loc[normalized_symbols.isin(market_symbols)]
+    if "snapshot_date" in frame:
+        snapshot = frame["snapshot_date"]
+        if not pd.api.types.is_datetime64_any_dtype(snapshot):
+            snapshot = pd.to_datetime(snapshot, errors="coerce")
+        frame = frame.loc[snapshot.notna() & snapshot.le(as_of)]
+        if frame.empty:
+            return []
+        frame = frame.loc[snapshot.loc[frame.index].eq(snapshot.loc[frame.index].max())]
+    for field in ("listed_date", "list_date"):
+        if field in frame:
+            listed = frame[field]
+            if not pd.api.types.is_datetime64_any_dtype(listed):
+                listed = pd.to_datetime(listed, errors="coerce")
+            frame = frame.loc[listed.isna() | listed.le(as_of)]
+            break
+    for field in ("delisted_date", "de_listed_date"):
+        if field in frame:
+            delisted = frame[field]
+            if not pd.api.types.is_datetime64_any_dtype(delisted):
+                delisted = pd.to_datetime(delisted, errors="coerce")
+            frame = frame.loc[delisted.isna() | delisted.gt(as_of)]
+            break
+    symbols = set(frame["symbol"].dropna().astype(str).str.upper().unique())
     return sorted(symbols)
 
 
@@ -938,7 +1050,8 @@ def _trade_allowed(
         for value in (price, volume, amount)
     ):
         return False
-    if bool(row.get("is_suspended", False)):
+    suspended = row.get("is_suspended", False)
+    if pd.notna(suspended) and bool(suspended):
         return False
     limit_field = "limit_up" if side == "buy" else "limit_down"
     limit_value = pd.to_numeric(pd.Series([row.get(limit_field)]), errors="coerce").iloc[0]
@@ -1089,8 +1202,10 @@ def _apply_execution_constraints(
     available_cash = max(0.0, 1.0 - sum(executed.values()) - sell_cost)
     for symbol in sorted(
         universe,
-        key=lambda value: desired.get(value, 0.0) - current.get(value, 0.0),
-        reverse=True,
+        key=lambda value: (
+            -(desired.get(value, 0.0) - current.get(value, 0.0)),
+            str(value),
+        ),
     ):
         old = float(executed.get(symbol, 0.0))
         wanted = float(desired.get(symbol, 0.0))
