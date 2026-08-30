@@ -1,0 +1,21 @@
+{
+  "toolName": "alphalab_get_research_project",
+  "description": "Read one complete AlphaLab research project across strategy.py, factors/*.py, recipe.py, and validation.py using the same canonical APIs as the six workbenches.",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["project_id"],
+    "properties": {
+      "project_id": { "type": "string", "minLength": 2, "maxLength": 64 },
+      "include_sources": { "type": "boolean", "default": false },
+      "factor_id": { "type": "string", "minLength": 1, "maxLength": 100 }
+    }
+  },
+  "outputSchema": { "type": "object" },
+  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function get(path){const response=await fetch(origin()+path,{headers:{Accept:'application/json'}});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());return response.json()}\nasync function run(input){const id=String(input.project_id||'').trim();if(!id)throw new Error('project_id is required');const base='/api/strategy/projects/'+encodeURIComponent(id);const [strategy,data,validation,factorTemplates]=await Promise.all([get(base),get('/api/data-sync/recipes/'+encodeURIComponent(id)),get('/api/validation/projects/'+encodeURIComponent(id)),get('/api/strategy/factor-templates')]);let factor=null;if(input.factor_id)factor=await get(base+'/entrypoints/'+encodeURIComponent(String(input.factor_id))+'/source');delete strategy.draft_source;if(input.include_sources!==true){delete strategy.strategy_source;if(data.draft)delete data.draft.source;delete validation.source;if(factor)delete factor.source}return{project_id:id,profile:'runtime',files:{strategy:'strategy.py',factors:(strategy.source_units||[]).filter(item=>item.kind==='factor').map(item=>item.path),data:'recipe.py',validation:'validation.py'},strategy,data_recipe:data,validation,factor,factor_templates:factorTemplates.templates||[]}}",
+  "timeoutMs": 30000,
+  "permissions": { "network": "alphalab-api" },
+  "sideEffects": "read"
+}

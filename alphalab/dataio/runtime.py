@@ -16,10 +16,35 @@ from uuid import uuid4
 import pandas as pd
 import pyarrow.parquet as pq
 
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
+
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.errors import DataLoadError, MissingDataError
 from alphalab.dataio.io_utils import atomic_write_parquet
 from alphalab.utils.paths import RUNTIME_DIR
+
+
+def _acquire_file_lock(descriptor: int) -> None:
+    """Acquire a non-blocking OS lock that the kernel releases when a worker dies."""
+
+    if os.name == "nt":
+        if os.fstat(descriptor).st_size == 0:
+            os.write(descriptor, b"\0")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        return
+    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _release_file_lock(descriptor: int) -> None:
+    if os.name == "nt":
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+        return
+    fcntl.flock(descriptor, fcntl.LOCK_UN)
 
 _OPERATIONS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS datasets (
@@ -488,18 +513,31 @@ class RuntimeStore:
         lock_path = self.root / ".locks" / f"{dataset.replace('.', '_')}.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         descriptor: int | None = None
+        file_locked = False
         try:
+            descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR)
             try:
-                descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.write(descriptor, str(os.getpid()).encode("ascii"))
-            except FileExistsError as exc:
+                _acquire_file_lock(descriptor)
+            except OSError as exc:
+                os.close(descriptor)
+                descriptor = None
                 raise DataLoadError(f"Dataset is locked by another process: {dataset}") from exc
+            file_locked = True
+            payload = str(os.getpid()).encode("ascii")
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            os.write(descriptor, payload)
+            os.ftruncate(descriptor, len(payload))
             yield
         finally:
-            if descriptor is not None:
-                os.close(descriptor)
-                lock_path.unlink(missing_ok=True)
-            process_lock.release()
+            try:
+                if descriptor is not None:
+                    try:
+                        if file_locked:
+                            _release_file_lock(descriptor)
+                    finally:
+                        os.close(descriptor)
+            finally:
+                process_lock.release()
 
     def read(self, dataset: str) -> pd.DataFrame:
         files = self.catalog.files(dataset)

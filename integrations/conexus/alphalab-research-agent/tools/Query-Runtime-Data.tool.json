@@ -10,7 +10,7 @@
     "properties": {
       "dataset": {
         "type": "string",
-        "enum": ["rq.instruments", "rq.bars", "rq.financials.income", "rq.financials.balance", "canonical.fundamentals", "runtime.factor_returns"]
+        "enum": ["rq.instruments", "rq.bars", "rq.paused", "rq.is_st", "rq.daily_factors", "rq.index_components", "rq.financials.income", "rq.financials.balance", "canonical.fundamentals", "runtime.factor_returns"]
       },
       "symbols": {
         "type": "array",

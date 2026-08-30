@@ -1,23 +1,29 @@
 # AlphaLab Research Agent Bundle
 
-This bundle publishes a conversational Agent for AlphaLab Strategy SDK v1.
+This bundle publishes the conversational Agent for AlphaLab's current research
+project contract. One project contains:
 
-It reads provider and workspace context, inspects or edits the one canonical
-Python strategy source, evaluates registered factors, previews an immutable
-revision, runs and analyzes frozen event backtests, saves reports, and controls
-the six current workbench modes.
+- `recipe.py` for visible RQData acquisition and resumable publication;
+- one `factors/<factor_id>.py` file per registered factor;
+- `strategy.py` for universe, signal, portfolio, event risk, and execution;
+- `validation.py` for performance, Alpha/Beta, and custom post-run research.
 
-Current strategy tools:
+The Agent can create a project from the system default, inspect and edit those
+canonical files, synchronize and validate runtime data, evaluate factors,
+preview the saved strategy, run and compare pinned event backtests, and persist
+the final report. Strategy saves automatically record the internal immutable
+source package; no separate revision operation is exposed.
 
-- `alphalab_get_strategy_project`
-- `alphalab_edit_strategy_source`
-- `alphalab_preview_strategy`
-- `alphalab_evaluate_strategy_factor`
-- `alphalab_run_backtest`
+Source writes and trusted-local Python execution retain explicit current-user
+confirmation boundaries. The bundle exposes no shell, application source-tree
+mutation, deployment, legacy pipeline, Python Lab, paper execution, or broker
+tool.
 
-Source mutations, deletion, trusted-local Python execution, data mutation,
-report saving, and paper actions retain their explicit confirmation boundaries.
-The bundle exposes no shell, source-tree mutation, deployment, legacy pipeline,
-separate Python Lab, or real-broker tool.
+The anonymous publication receives bounded browser-local dialogue plus a
+structured research checkpoint as untrusted context. It reads the lightweight
+AlphaLab Agent snapshot only when current live facts are needed. Structured
+workspace results return as sanitized transient `workspaceOutputs`, allowing
+the AlphaLab frontend to render reports and commands without claiming an
+account-backed persistent Conexus workspace.
 
 See `docs/04_CONEXUS_AGENT.md` for the full contract.

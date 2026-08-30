@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_preview_strategy",
-  "description": "Run signal, portfolio, or execution preview from one immutable Strategy SDK v1 revision. Verifies the returned source hash against the preflight package.",
+  "description": "Preview the currently saved strategy signal, portfolio decision, or execution policy against the RQ runtime store. The tool internally pins and verifies the current immutable source package.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {
@@ -9,15 +9,13 @@
     "required": ["project_id", "operation", "confirm_python_execution"],
     "properties": {
       "project_id": { "type": "string", "minLength": 2, "maxLength": 64 },
-      "revision": { "type": "integer", "minimum": 1 },
       "operation": { "type": "string", "enum": ["signal", "portfolio", "execution"] },
-      "profile": { "type": "string", "enum": ["demo", "runtime"], "default": "demo" },
-      "as_of_date": { "type": "string", "minLength": 10 },
+      "as_of_date": { "type": "string", "minLength": 10, "maxLength": 10 },
       "confirm_python_execution": { "type": "boolean" }
     }
   },
   "outputSchema": { "type": "object" },
-  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function get(path){const r=await fetch(origin()+path,{headers:{Accept:'application/json'}});if(!r.ok)throw new Error('AlphaLab API '+r.status+': '+await r.text());return r.json()}\nasync function run(input){if(input.confirm_python_execution!==true)throw new Error('Preview requires confirm_python_execution=true');const id=String(input.project_id||'').trim();if(!id)throw new Error('project_id is required');const project=await get('/api/strategy/projects/'+encodeURIComponent(id));const revision=Number(input.revision||project.current_revision);const pkg=await get('/api/strategy/projects/'+encodeURIComponent(id)+'/revisions/'+revision);const response=await fetch(origin()+'/api/strategy/projects/'+encodeURIComponent(id)+'/preview',{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify({operation:input.operation,profile:input.profile||project.profile,revision,...(input.as_of_date?{as_of_date:input.as_of_date}:{}),confirm_python_execution:true})});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());const result=await response.json();if(result.revision!==revision||result.source_sha256!==pkg.source_sha256)throw new Error('Strategy revision changed during preview');return result}",
+  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function get(path){const response=await fetch(origin()+path,{headers:{Accept:'application/json'}});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());return response.json()}\nasync function run(input){if(input.confirm_python_execution!==true)throw new Error('Strategy preview requires explicit Python execution confirmation');const id=String(input.project_id||'').trim();if(!id)throw new Error('project_id is required');const base='/api/strategy/projects/'+encodeURIComponent(id);const project=await get(base);if(project.dirty)throw new Error('Save the project source before previewing it');const revision=Number(project.current_revision);const pkg=await get(base+'/revisions/'+revision);const response=await fetch(origin()+base+'/preview',{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify({operation:input.operation,profile:'runtime',revision,...(input.as_of_date?{as_of_date:String(input.as_of_date)}:{}),confirm_python_execution:true})});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());const result=await response.json();if(result.revision!==revision||result.source_sha256!==pkg.source_sha256)throw new Error('Strategy source package changed during preview');return{...result,strategy_source_package:{project_id:id,revision,source_sha256:pkg.source_sha256}}}",
   "timeoutMs": 240000,
   "permissions": { "network": "alphalab-api" },
   "sideEffects": "write"

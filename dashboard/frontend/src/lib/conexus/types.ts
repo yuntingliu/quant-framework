@@ -62,6 +62,15 @@ export interface LocalAgentConversation {
   createdAt: string
   updatedAt: string
   messages: LocalAgentConversationMessage[]
+  researchCheckpoint?: LocalAgentResearchCheckpoint
+}
+
+export interface LocalAgentResearchCheckpoint {
+  version: 1
+  runId: string
+  updatedAt: string
+  decisionNotebook?: Record<string, unknown>
+  workspaceResult?: Record<string, unknown>
 }
 
 export type PublishedHarnessRunStatus =
@@ -80,14 +89,6 @@ export interface PublishedHarnessInteraction {
   choices?: string[]
 }
 
-export interface PublishedHarnessToolActivity {
-  callId: string
-  name: string
-  ownerNodeId: string
-  success?: boolean
-  message?: string
-}
-
 export interface PublishedHarnessRun {
   id: string
   slug: string
@@ -97,10 +98,34 @@ export interface PublishedHarnessRun {
   startedAt?: string
   completedAt?: string
   summary?: string
-  output?: Record<string, unknown>
-  artifacts?: PublishedHarnessArtifact[]
+  result?: unknown
+  workspaceOutputs?: PublishedHarnessWorkspaceOutput[]
+  workspaceRevision?: number
+  nodeChanges?: { created: string[]; updated: string[]; deleted: string[] }
   error?: { code: string; message: string }
   pendingInteraction?: PublishedHarnessInteraction
+}
+
+export interface PublishedHarnessWorkspaceOutput {
+  id: string
+  type: string
+  label: string
+  description?: string
+  values: Record<string, unknown>
+}
+
+export interface PublishedHarnessToolCall {
+  id: string
+  type: "function"
+  function: { name: string; arguments: string }
+}
+
+export interface PublishedHarnessTranscriptMessage {
+  role: "assistant" | "tool"
+  content: string
+  tool_calls?: PublishedHarnessToolCall[]
+  tool_call_id?: string
+  name?: string
 }
 
 export interface PublishedHarnessRunEvent {
@@ -110,8 +135,7 @@ export interface PublishedHarnessRunEvent {
   type:
     | "run.queued"
     | "run.started"
-    | "run.tool_started"
-    | "run.tool_completed"
+    | "run.message"
     | "run.completed"
     | "run.blocked"
     | "run.failed"
@@ -119,11 +143,17 @@ export interface PublishedHarnessRunEvent {
     | "run.interaction_requested"
     | "run.interaction_resolved"
   status: PublishedHarnessRunStatus
+  ownerNodeId?: string
+  message?: PublishedHarnessTranscriptMessage
   interaction?: PublishedHarnessInteraction
-  tool?: PublishedHarnessToolActivity
 }
 
-export interface AgentToolActivity extends PublishedHarnessToolActivity {
+export interface AgentToolActivity {
+  callId: string
+  name: string
+  ownerNodeId: string
+  success?: boolean
+  message?: string
   state: "running" | "completed"
   at: string
 }

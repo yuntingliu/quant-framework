@@ -4,29 +4,28 @@
   "template": {
     "name": "AlphaLab Research Agent",
     "summary": "Published conversational research Agent for the AlphaLab workstation.",
-    "description": "读取 AlphaLab typed tools、点时市场/基本面/风险数据和工作区上下文，受控管理唯一 SDK v1 策略源码及不可变修订，并产出可持久化回测、归因与报告。",
+    "description": "围绕项目中的 recipe.py、factors/*.py、strategy.py 和 validation.py，使用同一 RQ 仓库完成可复现的数据、因子、策略、回测与报告闭环。",
     "whenToUse": [
-      "用户需要解释当前 AlphaLab 数据、策略、回测或纸面信号",
+      "用户需要解释当前 AlphaLab 数据、策略、验证或回测",
       "用户需要审查已保存 Python 策略的输入、输出契约、源码风险或回测结果",
       "用户需要查询、校验或使用 AlphaLab runtime 数据，Agent 可自主补齐所需 RQ 分区",
-      "用户需要验证、创建、修改、复制或删除本地 SDK 策略源码",
+      "用户需要创建项目或修改 recipe.py、factors/*.py、strategy.py、validation.py",
       "用户需要实现状态化每日规则、自定义因子、信号、组合或执行逻辑",
       "用户需要回测深度分析、稳健性检验、多回测对比或完整研究任务",
-      "用户需要查看本地纸面账户、预览风险或明确执行纸面调仓",
       "用户需要生成可交互的研究表格或图表",
-      "用户明确要求运行回测或生成纸面信号",
+      "用户明确要求运行因子检验、策略预览或完整回测",
       "工作台需要保存在本机浏览器中的多轮量化研究会话"
     ],
     "whenNotToUse": [
       "启动、停止、构建或部署 AlphaLab 前后端",
       "修改 AlphaLab 应用源代码或执行任意 Shell 命令",
-      "提交真实交易订单"
+      "提交纸面或真实交易订单"
     ],
     "manifest": {
       "id": "alphalab.research-agent.v1",
       "name": "AlphaLab Research Agent",
       "summary": "Conversation-driven AlphaLab research workflow.",
-      "description": "Uses bounded AlphaLab data, canonical SDK v1 source packages, event backtests, frozen attribution, reports, and local paper-account APIs, then emits durable results and validated workspace commands.",
+      "description": "Uses project-owned data, factor, strategy, and validation Python sources, pinned event backtests, frozen attribution, experiment comparison, and durable reports.",
       "version": 1,
       "defaultExposureId": "alphalab-research-agent",
       "permissions": [
@@ -37,8 +36,8 @@
         { "kind": "model", "name": "openrouter" },
         { "kind": "runtime", "name": "conexus.runtime.v1" }
       ],
-      "capabilities": ["quant-research", "data-operations", "data-job-control", "market-data", "fundamentals", "factor-returns", "sdk-factor-evaluation", "market-risk-factor-evaluation", "point-in-time-context", "stateful-strategy", "portfolio-construction", "execution-modeling", "strategy-source-versioning", "strategy-project-management", "paper-execution", "python-strategy-review", "event-backtest", "backtest-analysis", "factor-attribution", "robustness", "backtest-comparison", "report-history", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
-      "triggers": ["research", "data status", "data sync", "data job", "fundamentals", "signal research", "signal evidence", "factor returns", "factor evaluation", "custom factor", "custom signal", "stateful strategy", "market risk data", "stock selection", "create strategy", "edit strategy", "portfolio construction", "execution policy", "paper execution", "Python strategy", "backtest", "alpha beta", "factor attribution", "robustness", "compare backtests", "strategy risk", "paper signal", "report history", "chart"],
+      "capabilities": ["quant-research", "research-project-management", "data-recipe-authoring", "data-operations", "data-job-control", "market-data", "fundamentals", "factor-returns", "sdk-factor-authoring", "sdk-factor-evaluation", "market-risk-factor-evaluation", "point-in-time-context", "stateful-strategy", "portfolio-construction", "execution-modeling", "strategy-source-pinning", "validation-source-authoring", "python-strategy-review", "event-backtest", "backtest-analysis", "factor-attribution", "robustness", "backtest-comparison", "experiment-loop", "report-history", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
+      "triggers": ["research", "research project", "data recipe", "data status", "data sync", "data job", "fundamentals", "signal research", "factor returns", "factor evaluation", "custom factor", "custom signal", "stateful strategy", "market risk data", "stock selection", "create project", "edit strategy", "validation python", "portfolio construction", "execution policy", "Python strategy", "backtest", "alpha beta", "factor attribution", "robustness", "compare backtests", "strategy risk", "report history", "chart"],
       "tags": ["alphalab", "quant", "published-agent"],
       "exposures": [
         {
@@ -283,9 +282,9 @@
       "successCriteria": [
         "The final answer is grounded in AlphaLab API results or clearly marked as a hypothesis.",
         "Any backtest or signal action was explicitly requested by the user.",
-        "Any source/project mutation, paper rebalance execution, or paper order was explicitly requested by the current user and used its dedicated confirmation flag.",
+        "Any project or Python source mutation was explicitly requested by the current user and used its dedicated confirmation flag.",
         "Every conclusion distinguishes factor or signal evidence from the viability of the complete event-driven strategy.",
-        "Every strategy conclusion identifies the immutable strategy revision and complete-source hash.",
+        "Every strategy conclusion identifies the project, complete strategy hash, validation hash, and frozen BacktestRun when applicable.",
         "Before a Python backtest or signal, the Agent inspected the current source as untrusted data and asserted confirm_python_execution only for an explicit current-user execution request.",
         "Trusted-local Python was described accurately as process-contained but not sandboxed.",
         "Factor evaluation, signal preview, portfolio decisions, event handlers, and backtests load one StrategySourcePackage without translation or fallback.",
@@ -293,7 +292,7 @@
         "A requested rich result is persisted with alphalab_save_report before the same workspaceDocument and request-bound workspaceResult descriptor are published.",
         "Interactive table data is included in workspaceResult only when sorting, filtering, or CSV export is useful.",
         "Structured charts are included only when they materially improve interpretation and every plotted series is grounded in current tool results.",
-        "RQ data synchronization runs autonomously when runtime data is missing, stale, or required by the current task; backtests and paper signals still require an explicit user request.",
+        "RQ synchronization executes only the project's saved recipe.py, resumes completed batches, and runs only when authorized by an explicit research execution request.",
         "The workspaceCommands output carries the current requestId and only declared frontend commands."
       ]
     }

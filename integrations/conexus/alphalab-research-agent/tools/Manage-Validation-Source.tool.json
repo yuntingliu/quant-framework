@@ -1,0 +1,37 @@
+{
+  "toolName": "alphalab_manage_validation_source",
+  "description": "Read, validate, replace, or parameterize the project's canonical validation.py. Saved validation source is automatically versioned and pinned by subsequent backtests.",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["operation", "project_id"],
+    "properties": {
+      "operation": { "type": "string", "enum": ["get", "validate_source", "replace_source", "update_parameters"] },
+      "project_id": { "type": "string", "minLength": 2, "maxLength": 64 },
+      "source": { "type": "string", "minLength": 1, "maxLength": 300000 },
+      "edits": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entrypoint_id", "parameter", "value"],
+          "properties": {
+            "entrypoint_id": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "parameter": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "value": {}
+          }
+        }
+      },
+      "confirm_write": { "type": "boolean", "default": false }
+    }
+  },
+  "outputSchema": { "type": "object" },
+  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function call(path,options={}){const response=await fetch(origin()+path,{headers:{Accept:'application/json','Content-Type':'application/json'},...options});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());return response.json()}\nasync function run(input){const op=String(input.operation||''),id=String(input.project_id||'').trim();if(!id)throw new Error('project_id is required');const base='/api/validation/projects/'+encodeURIComponent(id);if(op==='get')return call(base);if(op==='validate_source'){if(!input.source)throw new Error('validation.py source is required');return call('/api/validation/validate',{method:'POST',body:JSON.stringify({source:input.source})})}const current=await call(base);if(input.confirm_write!==true)throw new Error('Editing validation.py requires confirm_write=true');if(op==='replace_source'){if(!input.source)throw new Error('complete validation.py source is required');return call(base,{method:'PUT',body:JSON.stringify({source:input.source,expected_source_sha256:current.source_sha256,confirm_write:true})})}if(op==='update_parameters'){if(!Array.isArray(input.edits)||!input.edits.length)throw new Error('edits are required');return call(base+'/parameters',{method:'POST',body:JSON.stringify({edits:input.edits,expected_source_sha256:current.source_sha256,confirm_write:true})})}throw new Error('unsupported validation source operation')} ",
+  "timeoutMs": 180000,
+  "permissions": { "network": "alphalab-api" },
+  "sideEffects": "write"
+}

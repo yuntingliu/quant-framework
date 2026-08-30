@@ -19,6 +19,7 @@ import { useWorkspace } from "@/contexts/WorkspaceContext"
 import { usePublishedAgent } from "@/hooks/usePublishedAgent"
 import type {
   AgentToolActivity,
+  LocalAgentResearchCheckpoint,
   PublishedHarnessArtifact,
 } from "@/lib/conexus/types"
 import { useDataProfile } from "@/lib/data-profile"
@@ -125,7 +126,10 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   commit_harness_outputs: { zh: "原子提交研究结果", en: "Commit research outputs atomically" },
   list_nodes: { zh: "检查工作台节点", en: "Inspect workspace nodes" },
   alphalab_get_workspace_context: { zh: "读取项目与数据目录", en: "Read project and data catalog" },
-  alphalab_get_strategy_project: { zh: "读取策略源码项目", en: "Read strategy source project" },
+  alphalab_get_research_project: { zh: "读取研究项目", en: "Read research project" },
+  alphalab_manage_research_project: { zh: "管理研究项目", en: "Manage research project" },
+  alphalab_manage_data_recipe: { zh: "编辑并运行数据配方", en: "Edit and run data recipe" },
+  alphalab_manage_data_sync_job: { zh: "检查数据同步任务", en: "Inspect data sync job" },
   alphalab_edit_strategy_source: { zh: "编辑策略源码", en: "Edit strategy source" },
   alphalab_preview_strategy: { zh: "预览已保存策略", en: "Preview saved strategy" },
   alphalab_evaluate_strategy_factor: { zh: "检验源码因子", en: "Evaluate source factor" },
@@ -134,14 +138,38 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   alphalab_get_factor_returns: { zh: "读取因子收益", en: "Read factor returns" },
   alphalab_get_backtest: { zh: "读取回测结果", en: "Read backtest result" },
   alphalab_run_backtest: { zh: "运行回测", en: "Run backtest" },
+  alphalab_analyze_backtest: { zh: "分析回测结果", en: "Analyze backtest result" },
+  alphalab_manage_validation_source: { zh: "编辑回测验证源码", en: "Edit validation source" },
   alphalab_get_reports: { zh: "读取报告库", en: "Read report library" },
   alphalab_save_report: { zh: "保存研究报告", en: "Save research report" },
   alphalab_data_catalog: { zh: "读取数据目录", en: "Read data catalog" },
   alphalab_data_status: { zh: "检查数据状态", en: "Check data status" },
-  alphalab_data_plan_sync: { zh: "规划数据同步", en: "Plan data sync" },
-  alphalab_data_run_sync: { zh: "执行数据同步", en: "Run data sync" },
   alphalab_data_validate: { zh: "校验数据质量", en: "Validate data quality" },
   alphalab_data_query: { zh: "查询运行时数据", en: "Query runtime data" },
+}
+
+function decisionNotebookFromCheckpoint(
+  checkpoint: LocalAgentResearchCheckpoint | undefined,
+): AgentDecisionNotebook | null {
+  const notebook = checkpoint?.decisionNotebook
+  if (
+    !notebook
+    || typeof notebook.classification !== "string"
+    || typeof notebook.baseCase !== "string"
+    || typeof notebook.riskCase !== "string"
+    || typeof notebook.nextAction !== "string"
+    || !Array.isArray(notebook.candidateExpressions)
+    || notebook.candidateExpressions.some((item) => typeof item !== "string")
+  ) return null
+  return {
+    classification: notebook.classification,
+    baseCase: notebook.baseCase,
+    riskCase: notebook.riskCase,
+    nextAction: notebook.nextAction,
+    candidateExpressions: notebook.candidateExpressions as string[],
+    runId: checkpoint.runId,
+    updatedAt: checkpoint.updatedAt,
+  }
 }
 
 function ToolActivityList({
@@ -256,8 +284,11 @@ export function ResearchAgentPanel() {
   )
 
   useEffect(() => {
-    setDecisionNotebook(decisionNotebookFromArtifacts(artifacts))
-  }, [artifacts, setDecisionNotebook])
+    setDecisionNotebook(
+      decisionNotebookFromArtifacts(artifacts)
+      ?? decisionNotebookFromCheckpoint(agent.conversation?.researchCheckpoint),
+    )
+  }, [agent.conversation?.researchCheckpoint, artifacts, setDecisionNotebook])
 
   useEffect(() => {
     for (const artifact of [...artifacts].reverse()) {

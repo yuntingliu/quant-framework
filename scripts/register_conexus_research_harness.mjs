@@ -17,10 +17,14 @@ const documentId = "alphalab-research-document-v1"
 
 const toolNodes = [
   ["alphalab-tool-workspace-context-v1", "AlphaLab Workspace Context", "Get-Workspace-Context.tool.json"],
-  ["alphalab-tool-strategy-project-v1", "AlphaLab Strategy Project", "Get-Strategy-Project.tool.json"],
+  ["alphalab-tool-research-project-v1", "AlphaLab Research Project", "Get-Research-Project.tool.json"],
+  ["alphalab-tool-manage-research-project-v1", "Manage AlphaLab Research Project", "Manage-Research-Project.tool.json"],
+  ["alphalab-tool-data-recipe-v1", "Manage AlphaLab Data Recipe", "Manage-Data-Recipe.tool.json"],
+  ["alphalab-tool-data-sync-job-v1", "Manage AlphaLab Data Sync Job", "Manage-Data-Sync-Job.tool.json"],
   ["alphalab-tool-edit-strategy-source-v1", "Edit AlphaLab Strategy Source", "Edit-Strategy-Source.tool.json"],
   ["alphalab-tool-preview-strategy-v1", "Preview AlphaLab Strategy", "Preview-Strategy.tool.json"],
   ["alphalab-tool-evaluate-strategy-factor-v1", "Evaluate AlphaLab Strategy Factor", "Evaluate-Strategy-Factor.tool.json"],
+  ["alphalab-tool-validation-source-v1", "Manage AlphaLab Validation Source", "Manage-Validation-Source.tool.json"],
   ["alphalab-tool-market-bars-v1", "AlphaLab Market Bars", "Get-Market-Bars.tool.json"],
   ["alphalab-tool-fundamentals-v1", "AlphaLab Fundamentals", "Get-Fundamentals.tool.json"],
   ["alphalab-tool-factor-returns-v1", "AlphaLab Factor Returns", "Get-Factor-Returns.tool.json"],
@@ -30,17 +34,10 @@ const toolNodes = [
   ["alphalab-tool-run-backtest-v1", "Run AlphaLab Backtest", "Run-Backtest.tool.json"],
   ["alphalab-tool-reports-v1", "AlphaLab Research Reports", "Get-Reports.tool.json"],
   ["alphalab-tool-save-report-v1", "Save AlphaLab Research Report", "Save-Report.tool.json"],
-  ["alphalab-tool-paper-state-v1", "AlphaLab Paper State", "Get-Paper-State.tool.json"],
-  ["alphalab-tool-preview-paper-rebalance-v1", "Preview AlphaLab Paper Rebalance", "Preview-Paper-Rebalance.tool.json"],
-  ["alphalab-tool-execute-paper-rebalance-v1", "Execute AlphaLab Paper Rebalance", "Execute-Paper-Rebalance.tool.json"],
-  ["alphalab-tool-submit-paper-order-v1", "Submit AlphaLab Paper Order", "Submit-Paper-Order.tool.json"],
   ["alphalab-tool-data-catalog-v1", "AlphaLab Data Catalog", "Data-Catalog.tool.json"],
   ["alphalab-tool-data-status-v1", "AlphaLab Data Status", "Data-Status.tool.json"],
-  ["alphalab-tool-data-plan-sync-v1", "Plan AlphaLab Data Sync", "Plan-Data-Sync.tool.json"],
-  ["alphalab-tool-data-run-sync-v1", "Run AlphaLab Data Sync", "Run-Data-Sync.tool.json"],
   ["alphalab-tool-data-validate-v1", "Validate AlphaLab Data", "Validate-Data.tool.json"],
   ["alphalab-tool-data-query-v1", "Query AlphaLab Runtime Data", "Query-Runtime-Data.tool.json"],
-  ["alphalab-tool-data-sync-job-v1", "Manage AlphaLab Data Sync Job", "Manage-Data-Sync-Job.tool.json"],
 ]
 
 await mkdir(resolve(projectRoot, ".conexus"), { recursive: true })
@@ -88,6 +85,13 @@ const obsoleteNodeIds = new Set([
   "alphalab-tool-promote-python-lab-v1",
   "alphalab-tool-factor-library-v1",
   "alphalab-tool-evaluate-factor-v1",
+  "alphalab-tool-strategy-project-v1",
+  "alphalab-tool-data-plan-sync-v1",
+  "alphalab-tool-data-run-sync-v1",
+  "alphalab-tool-paper-state-v1",
+  "alphalab-tool-preview-paper-rebalance-v1",
+  "alphalab-tool-execute-paper-rebalance-v1",
+  "alphalab-tool-submit-paper-order-v1",
 ])
 const ownedEdgePrefix = "edge-alphalab-research-v1-"
 const canvas = JSON.parse(await readFile(canvasPath, "utf8"))

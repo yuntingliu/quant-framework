@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_evaluate_market_risk_factor",
-  "description": "Evaluate a safe custom market-risk return series as a linear combination of MKT, SMB, HML, MOM, RMW, and rf, with cumulative return and descriptive risk statistics.",
+  "description": "Evaluate a bounded custom market-risk return series as a linear combination of MKT, SMB, HML, MOM, RMW, and rf from the RQ runtime store. This is attribution research, not a strategy expression runtime.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {
@@ -11,12 +11,11 @@
       "name": { "type": "string", "minLength": 1, "maxLength": 80 },
       "expression": { "type": "string", "minLength": 1, "maxLength": 500 },
       "start_date": { "type": "string", "minLength": 10 },
-      "end_date": { "type": "string", "minLength": 10 },
-      "profile": { "type": "string", "enum": ["demo", "runtime"], "default": "demo" }
+      "end_date": { "type": "string", "minLength": 10 }
     }
   },
   "outputSchema": { "type": "object" },
-  "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const profile = input.profile === 'runtime' ? 'runtime' : 'demo'\n  const body = {\n    name: String(input.name || '').trim(),\n    expression: String(input.expression || '').trim(),\n    profile,\n  }\n  if (input.start_date) body.start_date = String(input.start_date).trim()\n  if (input.end_date) body.end_date = String(input.end_date).trim()\n  const response = await fetch(apiOrigin() + '/api/market/custom-risk-factor/evaluate', {\n    method: 'POST',\n    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },\n    body: JSON.stringify(body),\n  })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function run(input){const body={name:String(input.name||'').trim(),expression:String(input.expression||'').trim(),profile:'runtime'};if(input.start_date)body.start_date=String(input.start_date);if(input.end_date)body.end_date=String(input.end_date);const response=await fetch(origin()+'/api/market/custom-risk-factor/evaluate',{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify(body)});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());return response.json()}",
   "timeoutMs": 120000,
   "permissions": { "network": "alphalab-api" },
   "sideEffects": "read"

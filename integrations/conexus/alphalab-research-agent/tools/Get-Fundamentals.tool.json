@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_get_fundamentals",
-  "description": "Read bounded point-in-time AlphaLab fundamentals for one or more symbols from the explicit demo or runtime profile.",
+  "description": "Read bounded point-in-time AlphaLab fundamentals for one or more symbols from the project's RQ runtime store.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {
@@ -25,12 +25,11 @@
       "start_quarter": { "type": "string", "pattern": "^[0-9]{4}[qQ][1-4]$" },
       "end_quarter": { "type": "string", "pattern": "^[0-9]{4}[qQ][1-4]$" },
       "asof_date": { "type": "string" },
-      "profile": { "type": "string", "enum": ["demo", "runtime"], "default": "demo" },
       "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 }
     }
   },
   "outputSchema": { "type": "object" },
-  "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const params = new URLSearchParams({ profile: input.profile === 'runtime' ? 'runtime' : 'demo', limit: String(input.limit || 100) })\n  for (const symbol of input.symbols || []) params.append('symbols', String(symbol))\n  for (const field of input.fields || []) params.append('fields', String(field))\n  if (input.start_quarter) params.set('start_quarter', String(input.start_quarter))\n  if (input.end_quarter) params.set('end_quarter', String(input.end_quarter))\n  if (input.asof_date) params.set('asof_date', String(input.asof_date))\n  const response = await fetch(apiOrigin() + '/api/data/fundamentals?' + params, { headers: { Accept: 'application/json' } })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
+  "code": "function apiOrigin() {\n  return (process.env.ALPHALAB_API_ORIGIN || 'http://127.0.0.1:8000').replace(/\\/+$/, '')\n}\n\nasync function run(input) {\n  const params = new URLSearchParams({ profile: 'runtime', limit: String(input.limit || 100) })\n  for (const symbol of input.symbols || []) params.append('symbols', String(symbol))\n  for (const field of input.fields || []) params.append('fields', String(field))\n  if (input.start_quarter) params.set('start_quarter', String(input.start_quarter))\n  if (input.end_quarter) params.set('end_quarter', String(input.end_quarter))\n  if (input.asof_date) params.set('asof_date', String(input.asof_date))\n  const response = await fetch(apiOrigin() + '/api/data/fundamentals?' + params, { headers: { Accept: 'application/json' } })\n  if (!response.ok) throw new Error('AlphaLab API ' + response.status + ': ' + await response.text())\n  return response.json()\n}",
   "timeoutMs": 30000,
   "permissions": { "network": "alphalab-api" },
   "sideEffects": "read"

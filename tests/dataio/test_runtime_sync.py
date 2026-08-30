@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 import pytest
 
@@ -11,6 +13,7 @@ from alphalab.dataio import (
     RQDataClient,
     RQDataConfig,
 )
+from alphalab.dataio import runtime as runtime_module
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.fundamentals import (
     INCOME_FIELDS,
@@ -97,6 +100,33 @@ def test_runtime_store_deduplicates_and_rejects_empty_overwrite(tmp_path) -> Non
     assert validate_dataset("rq.bars", tmp_path)["status"] == "passed"
     with pytest.raises(MissingDataError, match="empty response"):
         store.write("rq.bars", pd.DataFrame())
+
+
+def test_runtime_store_reuses_lock_file_left_by_dead_worker(tmp_path) -> None:
+    store = RuntimeStore(tmp_path)
+    lock_path = tmp_path / ".locks" / "rq_is_st.lock"
+    lock_path.parent.mkdir(parents=True)
+    lock_path.write_text("999999", encoding="ascii")
+
+    with store.dataset_lock("rq.is_st"):
+        assert lock_path.exists()
+
+    assert lock_path.read_text(encoding="ascii") == str(os.getpid())
+
+
+def test_runtime_store_rejects_an_os_locked_dataset(tmp_path) -> None:
+    store = RuntimeStore(tmp_path)
+    lock_path = tmp_path / ".locks" / "rq_is_st.lock"
+    lock_path.parent.mkdir(parents=True)
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR)
+    runtime_module._acquire_file_lock(descriptor)
+    try:
+        with pytest.raises(DataLoadError, match="locked by another process"):
+            with store.dataset_lock("rq.is_st"):
+                pass
+    finally:
+        runtime_module._release_file_lock(descriptor)
+        os.close(descriptor)
 
 
 def test_first_disclosure_and_canonical_fundamentals_are_point_in_time() -> None:

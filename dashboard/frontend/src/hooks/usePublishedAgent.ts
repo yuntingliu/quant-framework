@@ -18,7 +18,10 @@ import type {
   HostedHarnessManifest,
   LocalAgentConversation,
   LocalAgentConversationMessage,
+  LocalAgentResearchCheckpoint,
+  PublishedHarnessArtifact,
   PublishedHarnessRun,
+  PublishedHarnessWorkspaceOutput,
 } from "@/lib/conexus/types"
 
 interface Options {
@@ -36,9 +39,173 @@ const MAX_LOCAL_MESSAGES = 80
 const MAX_STORED_MESSAGE_CHARACTERS = 40_000
 const MAX_CONTEXT_MESSAGES = 16
 const MAX_CONTEXT_MESSAGE_CHARACTERS = 8_000
+const MAX_LOCAL_CONTEXT_CHARACTERS = 60_000
+const DECISION_NOTEBOOK_NODE_ID = "alphalab-decision-notebook-v1"
+const WORKSPACE_RESULT_NODE_ID = "alphalab-workspace-result-v1"
+const WORKSPACE_DOCUMENT_NODE_ID = "alphalab-research-document-v1"
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function boundedText(value: unknown, limit: number): string | undefined {
+  return typeof value === "string" ? value.slice(0, limit) : undefined
+}
+
+function customOutputData(
+  output: PublishedHarnessWorkspaceOutput,
+  expectedType: string,
+): Record<string, unknown> | null {
+  const outer = record(output.values.data)
+  if (!outer) return null
+  const nested = record(outer.data)
+  return outer.customType === expectedType && nested ? nested : outer
+}
+
+function boundedDecisionNotebook(value: unknown): Record<string, unknown> | undefined {
+  const notebook = record(value)
+  if (!notebook) return undefined
+  const classification = boundedText(notebook.classification, 120)
+  const baseCase = boundedText(notebook.baseCase, 4_000)
+  const riskCase = boundedText(notebook.riskCase, 4_000)
+  const nextAction = boundedText(notebook.nextAction, 4_000)
+  const candidateExpressions = Array.isArray(notebook.candidateExpressions)
+    ? notebook.candidateExpressions
+        .filter((item): item is string => typeof item === "string")
+        .slice(0, 20)
+        .map((item) => item.slice(0, 500))
+    : []
+  if (!classification || baseCase === undefined || riskCase === undefined || nextAction === undefined) {
+    return undefined
+  }
+  return { classification, baseCase, riskCase, nextAction, candidateExpressions }
+}
+
+function boundedWorkspaceResult(value: unknown): Record<string, unknown> | undefined {
+  const result = record(value)
+  if (!result || result.version !== 1 || typeof result.requestId !== "string" || typeof result.kind !== "string") {
+    return undefined
+  }
+  return {
+    version: 1,
+    requestId: result.requestId.slice(0, 200),
+    kind: result.kind.slice(0, 40),
+    ...(boundedText(result.title, 200) ? { title: boundedText(result.title, 200) } : {}),
+    ...(boundedText(result.description, 1_000) ? { description: boundedText(result.description, 1_000) } : {}),
+    ...(Array.isArray(result.sources)
+      ? { sources: result.sources.filter((item): item is string => typeof item === "string").slice(0, 20).map((item) => item.slice(0, 500)) }
+      : {}),
+  }
+}
+
+function researchCheckpoint(value: unknown): LocalAgentResearchCheckpoint | undefined {
+  const checkpoint = record(value)
+  if (
+    !checkpoint
+    || checkpoint.version !== 1
+    || typeof checkpoint.runId !== "string"
+    || typeof checkpoint.updatedAt !== "string"
+  ) return undefined
+  const decisionNotebook = boundedDecisionNotebook(checkpoint.decisionNotebook)
+  const workspaceResult = boundedWorkspaceResult(checkpoint.workspaceResult)
+  if (!decisionNotebook && !workspaceResult) return undefined
+  return {
+    version: 1,
+    runId: checkpoint.runId,
+    updatedAt: checkpoint.updatedAt,
+    ...(decisionNotebook ? { decisionNotebook } : {}),
+    ...(workspaceResult ? { workspaceResult } : {}),
+  }
+}
+
+function checkpointFromRun(run: PublishedHarnessRun): LocalAgentResearchCheckpoint | undefined {
+  let decisionNotebook: Record<string, unknown> | undefined
+  let workspaceResult: Record<string, unknown> | undefined
+  for (const output of run.workspaceOutputs ?? []) {
+    if (output.id === DECISION_NOTEBOOK_NODE_ID) {
+      decisionNotebook = boundedDecisionNotebook(customOutputData(output, "alphalab_decision_notebook"))
+    } else if (output.id === WORKSPACE_RESULT_NODE_ID) {
+      workspaceResult = boundedWorkspaceResult(customOutputData(output, "alphalab_workspace_result"))
+    }
+  }
+  if (!decisionNotebook && !workspaceResult) return undefined
+  return {
+    version: 1,
+    runId: run.id,
+    updatedAt: run.completedAt ?? new Date().toISOString(),
+    ...(decisionNotebook ? { decisionNotebook } : {}),
+    ...(workspaceResult ? { workspaceResult } : {}),
+  }
+}
+
+function workspaceOutputArtifacts(run: PublishedHarnessRun): PublishedHarnessArtifact[] {
+  const createdAt = run.completedAt ?? new Date().toISOString()
+  return (run.workspaceOutputs ?? []).map((output) => {
+    const common = {
+      id: `${run.id}:${output.id}`,
+      runId: run.id,
+      title: output.label,
+      createdAt,
+      producerNodeId: output.id,
+    }
+    if (output.id === WORKSPACE_DOCUMENT_NODE_ID && typeof output.values.content === "string") {
+      return {
+        ...common,
+        kind: "document" as const,
+        outputKey: "workspaceDocument",
+        content: { markdown: output.values.content },
+      }
+    }
+    return {
+      ...common,
+      kind: "node" as const,
+      content: {
+        node: {
+          id: output.id,
+          type: output.type,
+          label: output.label,
+          ...(output.description ? { description: output.description } : {}),
+          values: output.values,
+        },
+      },
+    }
+  })
+}
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function toolResult(content: string): { success?: boolean; message?: string } {
+  try {
+    const value = record(JSON.parse(content))
+    if (!value) return {}
+    const success = typeof value.success === "boolean" ? value.success : undefined
+    const detail = typeof value.message === "string"
+      ? value.message
+      : typeof value.error === "string" ? value.error : undefined
+    return {
+      ...(success === undefined ? {} : { success }),
+      ...(detail ? { message: detail.slice(0, 280) } : {}),
+    }
+  } catch {
+    return {}
+  }
+}
+
+function upsertToolActivities(
+  current: AgentToolActivity[],
+  next: AgentToolActivity[],
+): AgentToolActivity[] {
+  const updated = [...current]
+  for (const activity of next) {
+    const existing = updated.findIndex((item) => item.callId === activity.callId)
+    if (existing < 0) updated.push(activity)
+    else updated[existing] = { ...updated[existing], ...activity }
+  }
+  return updated.slice(-12)
 }
 
 function id(): string {
@@ -85,6 +252,9 @@ function localConversation(value: unknown): LocalAgentConversation | null {
       .map(localMessage)
       .filter((item): item is LocalAgentConversationMessage => item !== null)
       .slice(-MAX_LOCAL_MESSAGES),
+    ...(researchCheckpoint(candidate.researchCheckpoint)
+      ? { researchCheckpoint: researchCheckpoint(candidate.researchCheckpoint) }
+      : {}),
   }
 }
 
@@ -119,6 +289,7 @@ function compactConversation(
       runId: item.runId,
       ...(item.error ? { error: true } : {}),
     })),
+    ...(conversation.researchCheckpoint ? { researchCheckpoint: conversation.researchCheckpoint } : {}),
   }
 }
 
@@ -158,17 +329,28 @@ function withConversation(
 }
 
 function localConversationContext(conversation: LocalAgentConversation | null): Record<string, unknown> {
-  const messages = (conversation?.messages ?? [])
+  const candidates = (conversation?.messages ?? [])
     .filter((item) => !item.error)
     .slice(-MAX_CONTEXT_MESSAGES)
-    .map((item) => ({
-      role: item.role,
-      content: item.content.slice(0, MAX_CONTEXT_MESSAGE_CHARACTERS),
-    }))
+  const checkpoint = conversation?.researchCheckpoint
+  let remaining = Math.max(
+    0,
+    MAX_LOCAL_CONTEXT_CHARACTERS - (checkpoint ? JSON.stringify(checkpoint).length : 0),
+  )
+  const messages: Array<{ role: "user" | "assistant"; content: string }> = []
+  for (let index = candidates.length - 1; index >= 0 && remaining > 0; index -= 1) {
+    const item = candidates[index]!
+    const contentLimit = Math.min(MAX_CONTEXT_MESSAGE_CHARACTERS, Math.max(0, remaining - 64))
+    if (contentLimit <= 0) break
+    const content = item.content.slice(0, contentLimit)
+    messages.unshift({ role: item.role, content })
+    remaining -= content.length + 64
+  }
   return {
     version: 1,
     storage: "browser-local",
     messages,
+    ...(checkpoint ? { researchCheckpoint: checkpoint } : {}),
   }
 }
 
@@ -237,13 +419,15 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
     if (finalizedRunIdsRef.current.has(completed.id)) return
     finalizedRunIdsRef.current.add(completed.id)
     const createdAt = completed.completedAt ?? new Date().toISOString()
+    const artifacts = workspaceOutputArtifacts(completed)
+    const checkpoint = checkpointFromRun(completed)
     const assistantMessage: LocalAgentConversationMessage = {
       id: id(),
       role: "assistant",
       content: terminalContent(completed),
       createdAt,
       runId: completed.id,
-      ...(completed.artifacts?.length ? { artifacts: completed.artifacts } : {}),
+      ...(artifacts.length ? { artifacts } : {}),
       ...(["failed", "cancelled"].includes(completed.status) ? { error: true } : {}),
     }
     setHistory((current) => {
@@ -253,6 +437,7 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
         ...selected,
         updatedAt: createdAt,
         messages: [...selected.messages, assistantMessage].slice(-MAX_LOCAL_MESSAGES),
+        ...(checkpoint ? { researchCheckpoint: checkpoint } : {}),
       }
       return { conversations: withConversation(current.conversations, updated), selectedId: conversationId }
     })
@@ -349,19 +534,33 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
         accessToken: result.accessToken,
         signal: controller.signal,
         onEvent: async (event) => {
-          if (event.tool && (event.type === "run.tool_started" || event.type === "run.tool_completed")) {
-            setToolActivities((current) => {
-              const next: AgentToolActivity = {
-                ...event.tool!,
-                state: event.type === "run.tool_started" ? "running" : "completed",
-                at: event.at,
-              }
-              const existing = current.findIndex((item) => item.callId === next.callId)
-              if (existing < 0) return [...current, next].slice(-12)
-              const updated = [...current]
-              updated[existing] = { ...updated[existing], ...next }
-              return updated
-            })
+          if (event.type === "run.message" && event.message?.role === "assistant") {
+            const activities = (event.message.tool_calls ?? []).map((call): AgentToolActivity => ({
+              callId: call.id,
+              name: call.function.name,
+              ownerNodeId: event.ownerNodeId ?? "",
+              state: "running",
+              at: event.at,
+            }))
+            if (activities.length > 0) {
+              setToolActivities((current) => upsertToolActivities(current, activities))
+            }
+          } else if (
+            event.type === "run.message"
+            && event.message?.role === "tool"
+            && event.message.tool_call_id
+            && event.message.name
+          ) {
+            const result = toolResult(event.message.content)
+            const activity: AgentToolActivity = {
+              callId: event.message.tool_call_id,
+              name: event.message.name,
+              ownerNodeId: event.ownerNodeId ?? "",
+              state: "completed",
+              at: event.at,
+              ...result,
+            }
+            setToolActivities((current) => upsertToolActivities(current, [activity]))
           }
           setRun((current) => current ? {
             ...current,

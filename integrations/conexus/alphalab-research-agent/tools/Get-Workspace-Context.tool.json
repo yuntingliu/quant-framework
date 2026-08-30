@@ -1,20 +1,19 @@
 {
   "toolName": "alphalab_get_workspace_context",
-  "description": "Read current AlphaLab provider status, typed data-tool catalog, symbol and strategy catalogs, and recent backtests through the stable FastAPI contract.",
+  "description": "Read one coherent snapshot of the current RQ runtime status, research projects, recent recipe jobs, recent backtests, and canonical SDK contracts.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "profile": { "type": "string", "enum": ["demo", "runtime"], "default": "demo" },
-      "backtest_limit": { "type": "number", "minimum": 1, "maximum": 20, "default": 5 },
-      "symbol_limit": { "type": "number", "minimum": 1, "maximum": 100, "default": 30 }
+      "backtest_limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
+      "sync_job_limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 5 }
     }
   },
   "outputSchema": { "type": "object" },
-  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function get(path){const r=await fetch(origin()+path,{headers:{Accept:'application/json'}});if(!r.ok)throw new Error('AlphaLab API '+r.status+': '+await r.text());return r.json()}\nasync function run(input){const profile=input.profile==='runtime'?'runtime':'demo',backtestLimit=Math.max(1,Math.min(20,Number(input.backtest_limit||5))),symbolLimit=Math.max(1,Math.min(100,Number(input.symbol_limit||30)));const [providers,dataTools,symbolCatalog,projects,backtests]=await Promise.all([get('/api/data/providers'),get('/api/agent/data-tools'),get('/api/data/market/symbols?profile='+profile),get('/api/strategy/projects'),get('/api/backtests?limit='+backtestLimit)]);const symbols=Array.isArray(symbolCatalog.symbols)?symbolCatalog.symbols:[];return{profile,strategyContract:'alphalab.sdk.v1',providers,dataTools,fundamentalFields:['shares','market_cap','ep','bp','roe','gross_margin','leverage','profit_growth','revenue_growth'],riskFactorNames:['MKT','SMB','HML','MOM','RMW','rf'],symbols:symbols.slice(0,symbolLimit),symbolCount:symbols.length,projects,backtests,observedAt:new Date().toISOString()}}",
-  "timeoutMs": 30000,
+  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function get(path){const response=await fetch(origin()+path,{headers:{Accept:'application/json'}});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());return response.json()}\nasync function run(input){const backtestLimit=Math.max(1,Math.min(20,Number(input.backtest_limit||5))),syncLimit=Math.max(1,Math.min(20,Number(input.sync_job_limit||5)));return get('/api/agent/context?backtest_limit='+backtestLimit+'&sync_job_limit='+syncLimit)}",
+  "timeoutMs": 15000,
   "permissions": { "network": "alphalab-api" },
   "sideEffects": "read"
 }

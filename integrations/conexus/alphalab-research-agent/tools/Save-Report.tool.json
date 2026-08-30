@@ -6,9 +6,8 @@
   "inputSchema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["profile", "workspace_result", "markdown"],
+    "required": ["workspace_result", "markdown"],
     "properties": {
-      "profile": { "type": "string", "enum": ["demo", "runtime"] },
       "workspace_result": {
         "type": "object",
         "additionalProperties": false,
@@ -101,7 +100,7 @@
     }
   },
   "outputSchema": { "type": "object" },
-  "code": "function apiOrigin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function run(input){const result={...input.workspace_result,markdown:input.markdown};const response=await fetch(apiOrigin()+'/api/reports',{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify({profile:input.profile,result})});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());return response.json()}",
+  "code": "function apiOrigin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function run(input){const result={...input.workspace_result,markdown:input.markdown};const response=await fetch(apiOrigin()+'/api/reports',{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify({profile:'runtime',result})});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());return response.json()}",
   "timeoutMs": 30000,
   "permissions": { "network": "alphalab-api" },
   "sideEffects": "write"

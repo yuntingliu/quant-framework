@@ -45,7 +45,7 @@ def get_job_manager() -> SyncJobManager:
     return SyncJobManager()
 
 
-def get_health() -> dict:
+def get_health(*, runtime_summary: dict | None = None) -> dict:
     load_env_files()
     missing = [key for key in _RQ_KEYS if not os.environ.get(key, "").strip()]
     installed = find_spec("rqdatac") is not None
@@ -62,7 +62,7 @@ def get_health() -> dict:
         rq_status = "unavailable"
     return {
         "status": "ok",
-        "runtime": DataCatalog().summary(),
+        "runtime": runtime_summary if runtime_summary is not None else DataCatalog().summary(),
         "rq": {
             "status": rq_status,
             "installed": installed,

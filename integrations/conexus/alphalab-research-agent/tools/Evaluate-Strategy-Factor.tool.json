@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_evaluate_strategy_factor",
-  "description": "Evaluate one registered @factor directly from an immutable Strategy SDK v1 source package as a point-in-time snapshot or historical series. No expression translation is used.",
+  "description": "Evaluate one saved @factor directly from the current immutable Strategy SDK v1 package as a point-in-time snapshot or historical series over RQ runtime data.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {
@@ -10,19 +10,17 @@
     "properties": {
       "project_id": { "type": "string", "minLength": 2, "maxLength": 64 },
       "factor_id": { "type": "string", "minLength": 1, "maxLength": 100 },
-      "revision": { "type": "integer", "minimum": 1 },
       "operation": { "type": "string", "enum": ["snapshot", "history"] },
-      "profile": { "type": "string", "enum": ["demo", "runtime"], "default": "demo" },
-      "as_of_date": { "type": "string", "minLength": 10 },
-      "start_date": { "type": "string", "minLength": 10 },
-      "end_date": { "type": "string", "minLength": 10 },
+      "as_of_date": { "type": "string", "minLength": 10, "maxLength": 10 },
+      "start_date": { "type": "string", "minLength": 10, "maxLength": 10 },
+      "end_date": { "type": "string", "minLength": 10, "maxLength": 10 },
       "frequency": { "type": "string", "enum": ["daily", "weekly", "monthly"], "default": "monthly" },
       "parameters": { "type": "object" },
       "confirm_python_execution": { "type": "boolean" }
     }
   },
   "outputSchema": { "type": "object" },
-  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function get(path){const r=await fetch(origin()+path,{headers:{Accept:'application/json'}});if(!r.ok)throw new Error('AlphaLab API '+r.status+': '+await r.text());return r.json()}\nasync function run(input){if(input.confirm_python_execution!==true)throw new Error('Factor evaluation requires confirm_python_execution=true');const id=String(input.project_id||'').trim(),factor=String(input.factor_id||'').trim();if(!id||!factor)throw new Error('project_id and factor_id are required');const project=await get('/api/strategy/projects/'+encodeURIComponent(id));const revision=Number(input.revision||project.current_revision);const pkg=await get('/api/strategy/projects/'+encodeURIComponent(id)+'/revisions/'+revision);const op=input.operation==='history'?'history':'snapshot';const body=op==='history'?{profile:input.profile||project.profile,start_date:input.start_date,end_date:input.end_date,revision,frequency:input.frequency||'monthly',parameters:input.parameters||{},confirm_python_execution:true}:{profile:input.profile||project.profile,as_of_date:input.as_of_date,revision,parameters:input.parameters||{},confirm_python_execution:true};const response=await fetch(origin()+'/api/strategy/projects/'+encodeURIComponent(id)+'/factors/'+encodeURIComponent(factor)+'/'+op,{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify(body)});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());const result=await response.json();if(result.revision!==revision||result.source_sha256!==pkg.source_sha256)throw new Error('Strategy revision changed during factor evaluation');return result}",
+  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function get(path){const response=await fetch(origin()+path,{headers:{Accept:'application/json'}});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());return response.json()}\nasync function run(input){if(input.confirm_python_execution!==true)throw new Error('Factor evaluation requires explicit Python execution confirmation');const id=String(input.project_id||'').trim(),factor=String(input.factor_id||'').trim();if(!id||!factor)throw new Error('project_id and factor_id are required');const base='/api/strategy/projects/'+encodeURIComponent(id);const project=await get(base);if(project.dirty)throw new Error('Save the project source before evaluating a factor');const revision=Number(project.current_revision);const pkg=await get(base+'/revisions/'+revision);const op=input.operation==='history'?'history':'snapshot';if(op==='history'&&(!input.start_date||!input.end_date))throw new Error('start_date and end_date are required for history');if(op==='snapshot'&&!input.as_of_date)throw new Error('as_of_date is required for snapshot');const body=op==='history'?{profile:'runtime',start_date:String(input.start_date),end_date:String(input.end_date),revision,frequency:input.frequency||'monthly',parameters:input.parameters||{},confirm_python_execution:true}:{profile:'runtime',as_of_date:String(input.as_of_date),revision,parameters:input.parameters||{},confirm_python_execution:true};const response=await fetch(origin()+base+'/factors/'+encodeURIComponent(factor)+'/'+op,{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify(body)});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());const result=await response.json();if(result.revision!==revision||result.source_sha256!==pkg.source_sha256)throw new Error('Strategy source package changed during factor evaluation');return{...result,strategy_source_package:{project_id:id,revision,source_sha256:pkg.source_sha256}}}",
   "timeoutMs": 600000,
   "permissions": { "network": "alphalab-api" },
   "sideEffects": "write"

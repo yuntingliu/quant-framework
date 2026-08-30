@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_analyze_backtest",
-  "description": "Load persisted backtest performance, frozen alpha/beta attribution, robustness diagnostics, or compare two to six BacktestRuns using the same APIs as the Backtest Workbench.",
+  "description": "Load persisted performance and custom validation outputs, frozen alpha/beta attribution, robustness or signal diagnostics, or compare two to six BacktestRuns using the same APIs as the Backtest Workbench.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {
@@ -8,7 +8,7 @@
     "additionalProperties": false,
     "required": ["operation"],
     "properties": {
-      "operation": { "type": "string", "enum": ["analysis", "attribution", "robustness", "compare"] },
+      "operation": { "type": "string", "enum": ["analysis", "attribution", "robustness", "signals", "compare"] },
       "backtest_id": { "type": "string", "minLength": 1, "maxLength": 200 },
       "backtest_ids": {
         "type": "array",
