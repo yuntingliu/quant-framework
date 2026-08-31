@@ -36,10 +36,9 @@ def test_tools_use_the_project_sdk_v1_contract():
         "alphalab_validation_source",
         "alphalab_backtest",
         "alphalab_backtest_analysis",
-        "alphalab_research_report",
     }
     assert set(tools) == required
-    assert len(list(TOOLS.glob("*.tool.json"))) == 12
+    assert len(list(TOOLS.glob("*.tool.json"))) == 11
     for removed in {
         "alphalab_get_research_project",
         "alphalab_manage_research_project",
@@ -113,10 +112,6 @@ def test_tools_use_the_project_sdk_v1_contract():
         "run", "job", "get"
     }
     assert "market_risk" in tools["alphalab_backtest_analysis"]["inputSchema"]["properties"]["action"]["enum"]
-    assert set(tools["alphalab_research_report"]["inputSchema"]["properties"]["action"]["enum"]) == {
-        "list", "get", "save"
-    }
-
     data_limit = tools["alphalab_data_query"]["inputSchema"]["properties"]["limit"]
     assert data_limit["maximum"] == 200
     assert data_limit["default"] == 50
@@ -160,6 +155,12 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "普通说明、只读问答和历史复述直接 complete" in prompt
     assert "项目常量池与 context.universe 的点时有效集合取交集" in prompt
     assert "不得为了恢复被截断的逐行数组反复调用" in prompt
+    assert "所有 AlphaLab 量化报告共同存放在当前 Conexus 持久工作区" in prompt
+    assert "不得因为新对话、新回测或新一轮修改而自动新增报告" in prompt
+    assert "这些只保留在系统结构化 provenance 中" in prompt
+    assert "create_nodes" in agent["toolNames"]
+    assert "update_nodes" in agent["toolNames"]
+    assert "alphalab_research_report" not in agent["toolNames"]
     assert "alphalab_research_project" in agent["toolNames"]
     assert "alphalab_data_recipe" in agent["toolNames"]
     assert "alphalab_validation_source" in agent["toolNames"]
@@ -172,7 +173,12 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "/api/data/market/symbols" not in workspace_context["code"]
     assert "symbol_limit" not in workspace_context["inputSchema"]["properties"]
     harness = _load(BUNDLE / "harness.json")
-    commands = harness["template"]["manifest"]["exposures"][0]["outputSchema"]["properties"][
+    exposure = harness["template"]["manifest"]["exposures"][0]
+    assert "workspaceDocument" not in exposure["outputSchema"]["properties"]
+    document_result = exposure["outputSchema"]["properties"]["workspaceResult"]["oneOf"][1]
+    assert "reportId" in document_result["required"]
+    assert "projectId" not in document_result["properties"]
+    commands = exposure["outputSchema"]["properties"][
         "workspaceCommands"
     ]
     assert commands["properties"]["commands"]["items"]["properties"]["mode"]["enum"] == [
@@ -198,7 +204,6 @@ def test_registration_script_installs_new_tools_and_removes_old_nodes():
         "Validation-Source.tool.json",
         "Backtest.tool.json",
         "Backtest-Analysis.tool.json",
-        "Research-Report.tool.json",
     ):
         assert filename in source
     for filename in (
@@ -220,5 +225,7 @@ def test_registration_script_installs_new_tools_and_removes_old_nodes():
     assert "alphalab-tool-data-plan-sync-v1" in source
     assert "alphalab-tool-paper-state-v1" in source
     assert "alphalab-tool-data-catalog-v1" in source
+    assert "alphalab-tool-reports-v1" in source
+    assert "Research-Report.tool.json" not in source
     assert "alphalab-tool-run-backtest-v1" in source
     assert "obsoleteNodeIds" in source

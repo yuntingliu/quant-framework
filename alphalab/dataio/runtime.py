@@ -168,6 +168,29 @@ class OperationsStore:
             )
             return int(cursor.rowcount)
 
+    def recover_jobs(self) -> list[dict]:
+        """Requeue unfinished work while preserving its persisted checkpoints."""
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT * FROM sync_jobs
+                   WHERE status IN ('queued', 'running') AND cancel_requested=0
+                   ORDER BY created_at, id"""
+            ).fetchall()
+            connection.execute(
+                """UPDATE sync_jobs
+                   SET status='cancelled', finished_at=?, message='Cancelled during restart'
+                   WHERE status IN ('queued', 'running') AND cancel_requested=1""",
+                (_now(),),
+            )
+            connection.execute(
+                """UPDATE sync_jobs
+                   SET status='queued', started_at=NULL, finished_at=NULL,
+                       message='Recovered after service restart', error=NULL
+                   WHERE status IN ('queued', 'running') AND cancel_requested=0"""
+            )
+        return [self._job_dict(row) for row in rows]
+
     def create_job(self, request: dict[str, Any], *, source: str = "rq") -> str:
         job_id = uuid4().hex[:16]
         with self._connect() as connection:

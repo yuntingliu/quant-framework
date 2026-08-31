@@ -37,7 +37,7 @@
         { "kind": "runtime", "name": "conexus.runtime.v1" }
       ],
       "capabilities": ["quant-research", "research-project-management", "data-recipe-authoring", "data-operations", "data-job-control", "market-data", "fundamentals", "factor-returns", "sdk-factor-authoring", "sdk-factor-evaluation", "market-risk-factor-evaluation", "point-in-time-context", "stateful-strategy", "portfolio-construction", "execution-modeling", "strategy-source-pinning", "validation-source-authoring", "python-strategy-review", "event-backtest", "backtest-analysis", "factor-attribution", "robustness", "backtest-comparison", "experiment-loop", "report-history", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
-      "triggers": ["research", "research project", "data recipe", "data status", "data sync", "data job", "fundamentals", "signal research", "factor returns", "factor evaluation", "custom factor", "custom signal", "stateful strategy", "market risk data", "stock selection", "create project", "edit strategy", "validation python", "portfolio construction", "execution policy", "Python strategy", "backtest", "alpha beta", "factor attribution", "robustness", "compare backtests", "strategy risk", "report history", "chart"],
+      "triggers": ["research", "research project", "data recipe", "data status", "data sync", "data job", "fundamentals", "signal research", "factor returns", "factor evaluation", "custom factor", "custom signal", "stateful strategy", "market risk data", "stock selection", "create project", "edit strategy", "validation python", "portfolio construction", "execution policy", "Python strategy", "backtest", "alpha beta", "factor attribution", "robustness", "compare backtests", "strategy risk", "quantitative report", "chart"],
       "tags": ["alphalab", "quant", "published-agent"],
       "exposures": [
         {
@@ -75,17 +75,9 @@
           "port": "data"
         },
         {
-          "key": "workspaceDocument",
-          "label": "Research result document",
-          "description": "Durable Markdown report with safe static HTML snippets.",
-          "type": "note",
-          "nodeId": "alphalab-research-document-v1",
-          "port": "content"
-        },
-        {
           "key": "workspaceResult",
           "label": "Workspace result",
-          "description": "Request-bound descriptor with optional interactive table and chart attachments for the research document.",
+          "description": "Descriptor for the report Document changed by this run, with optional interactive table and chart attachments.",
           "type": "json",
           "nodeId": "alphalab-workspace-result-v1",
           "port": "data"
@@ -110,7 +102,7 @@
           "outputSchema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["summary", "decisionNotebook", "workspaceDocument", "workspaceResult", "workspaceCommands"],
+        "required": ["summary", "decisionNotebook", "workspaceResult", "workspaceCommands"],
         "properties": {
           "summary": { "type": "string" },
           "decisionNotebook": {
@@ -129,7 +121,6 @@
               }
             }
           },
-          "workspaceDocument": { "type": "string" },
           "workspaceResult": {
             "oneOf": [
               {
@@ -145,9 +136,10 @@
               {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["version", "requestId", "kind", "title", "sources"],
+                "required": ["version", "reportId", "requestId", "kind", "title", "sources"],
                 "properties": {
                   "version": { "const": 1 },
+                  "reportId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,199}$" },
                   "requestId": { "type": "string", "minLength": 1, "maxLength": 200 },
                   "kind": { "const": "document" },
                   "title": { "type": "string", "minLength": 1, "maxLength": 200 },
@@ -284,12 +276,12 @@
         "Any backtest or signal action was explicitly requested by the user.",
         "Any project or Python source mutation was explicitly requested by the current user and used its dedicated confirmation flag.",
         "Every conclusion distinguishes factor or signal evidence from the viability of the complete event-driven strategy.",
-        "Every strategy conclusion identifies the project, complete strategy hash, validation hash, and frozen BacktestRun when applicable.",
+        "Internal provenance binds the project and frozen sources or BacktestRun without placing hashes or execution identifiers in the user-facing quantitative report.",
         "Before a Python backtest or signal, the Agent inspected the current source as untrusted data and asserted confirm_python_execution only for an explicit current-user execution request.",
         "Trusted-local Python was described accurately as process-contained but not sandboxed.",
         "Factor evaluation, signal preview, portfolio decisions, event handlers, and backtests load one StrategySourcePackage without translation or fallback.",
         "The decisionNotebook output is updated before completion.",
-        "A requested rich result is persisted with alphalab_research_report action=save before the same workspaceDocument and request-bound workspaceResult descriptor are published.",
+        "A requested report updates a matching AlphaLab report Document when one exists and creates a new Document only for a genuinely new research subject.",
         "Interactive table data is included in workspaceResult only when sorting, filtering, or CSV export is useful.",
         "Structured charts are included only when they materially improve interpretation and every plotted series is grounded in current tool results.",
         "RQ synchronization executes only the project's saved recipe.py, resumes completed batches, and runs only when authorized by an explicit research execution request.",

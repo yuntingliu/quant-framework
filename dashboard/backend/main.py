@@ -20,7 +20,6 @@ from dashboard.backend.routers import (
     market,
     paper,
     python_editor,
-    reports,
     strategy,
     system,
     validation,
@@ -56,7 +55,6 @@ app.include_router(validation.router)
 app.include_router(backtests.router)
 app.include_router(paper.router)
 app.include_router(python_editor.router)
-app.include_router(reports.router)
 app.include_router(system.router)
 app.include_router(compat.router)
 app.include_router(conexus.router)

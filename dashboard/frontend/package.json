@@ -10,6 +10,7 @@
     "build": "tsc -b && vite build",
     "pack": "npm run build && electron-builder --config electron-builder.yml",
     "lint": "eslint .",
+    "test": "node --test tests/*.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

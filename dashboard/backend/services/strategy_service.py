@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from typing import Any, Mapping
 
 import pandas as pd
@@ -11,6 +12,7 @@ from alphalab.analytics import (
     equal_weight_benchmark,
 )
 from alphalab.dataio import MissingDataError
+from alphalab.dataio.runtime import RuntimeStore
 from alphalab.provenance import build_research_provenance
 from alphalab.store import ResultStore
 from alphalab.strategy.engine import (
@@ -539,6 +541,7 @@ def run_project_backtest(
     profile: str,
     revision: int | None = None,
     validation_revision: int | None = None,
+    backtest_id: str | None = None,
 ) -> dict[str, Any]:
     if profile not in {"demo", "runtime"}:
         raise ValueError("profile must be demo or runtime")
@@ -551,62 +554,82 @@ def run_project_backtest(
             )
         finally:
             validation_repo.close()
-        run = run_strategy_backtest(
-            repo,
-            project_id,
-            start_date,
-            end_date,
-            _engine(profile),
-            revision=revision,
-        )
+        package = repo.get_package(project_id, revision)
+        if package is None:
+            raise KeyError(f"{project_id}@{revision}")
+        pinned_revision = int(package["revision"])
+        runtime_datasets = _runtime_datasets_for_backtest(package)
+        engine = _engine(profile)
+        with ExitStack() as data_locks:
+            if profile == "runtime":
+                runtime_store = RuntimeStore()
+                for dataset in runtime_datasets:
+                    data_locks.enter_context(runtime_store.dataset_lock(dataset))
+            provenance = build_research_provenance(
+                profile,
+                strategy_python=package["source"],
+                runtime_datasets=runtime_datasets,
+            )
+            run = run_strategy_backtest(
+                repo,
+                project_id,
+                start_date,
+                end_date,
+                engine,
+                revision=pinned_revision,
+                execution_data_policy="strict" if profile == "runtime" else "illustrative",
+            )
+            returns = run.returns
+            weights = run.weights
+            configured_benchmark = run.project["settings"].get("benchmark_symbols")
+            symbols = list(configured_benchmark or run.benchmark_symbols)
+            benchmark = (
+                equal_weight_benchmark(
+                    engine,
+                    symbols,
+                    start_date,
+                    end_date,
+                    frequency="daily",
+                    execution_price="next_open",
+                ).reindex(returns.index)
+                if symbols
+                else pd.Series(0.0, index=returns.index, name="benchmark")
+            )
+            try:
+                attribution_factors = engine.get_factors(
+                    [*FACTOR_NAMES, "rf"],
+                    start_date,
+                    end_date,
+                    freq="1M",
+                    strict=False,
+                    use_cache=False,
+                )
+            except MissingDataError:
+                attribution_factors = pd.DataFrame()
+            validation_output = execute_validation(
+                validation_package["source"],
+                returns=returns,
+                benchmark_returns=benchmark,
+                weights=weights,
+                factor_returns=attribution_factors,
+                executions=run.executions,
+                settings=dict(run.project["settings"]),
+            )
     finally:
         repo.close()
-    returns = run.returns
-    weights = run.weights
-    engine = _engine(profile)
-    symbols = list(weights.columns)
-    benchmark = (
-        equal_weight_benchmark(
-            engine,
-            symbols,
-            start_date,
-            end_date,
-            frequency="daily",
-            execution_price="next_open",
-        ).reindex(returns.index)
-        if symbols
-        else pd.Series(0.0, index=returns.index, name="benchmark")
-    )
-    try:
-        attribution_factors = engine.get_factors(
-            [*FACTOR_NAMES, "rf"],
-            start_date,
-            end_date,
-            freq="1M",
-            strict=False,
-            use_cache=False,
-        )
-    except MissingDataError:
-        attribution_factors = pd.DataFrame()
-    validation_output = execute_validation(
-        validation_package["source"],
-        returns=returns,
-        benchmark_returns=benchmark,
-        weights=weights,
-        factor_returns=attribution_factors,
-        executions=run.executions,
-        settings=dict(run.project["settings"]),
-    )
     metrics = dict(validation_output["performance"])
     attribution = dict(validation_output["alpha_beta"])
-    provenance = build_research_provenance(
-        profile,
-        strategy_python=run.package["source"],
-    )
     provenance["strategy_source_package"] = run.diagnostics["strategy_source_package"]
     provenance["validation_source_package"] = {
         "revision": validation_package["revision"],
         "source_sha256": validation_package["source_sha256"],
+    }
+    provenance["benchmark"] = {
+        "kind": "equal_weight_universe",
+        "symbols": symbols,
+        "source": "project_settings" if configured_benchmark else "prepared_instrument_master",
+        "frequency": "daily",
+        "execution_price": "next_open",
     }
     store = ResultStore()
     try:
@@ -637,6 +660,7 @@ def run_project_backtest(
             validation_revision=validation_package["revision"],
             validation_source_sha256=validation_package["source_sha256"],
             validation_output=validation_output,
+            backtest_id=backtest_id,
         )
     finally:
         store.close()
@@ -660,6 +684,26 @@ def run_project_backtest(
         "validation_output": validation_output,
         "provenance": provenance,
     }
+
+
+def _runtime_datasets_for_backtest(package: Mapping[str, Any]) -> tuple[str, ...]:
+    requirements = package.get("data_requirements") or {}
+    datasets = {
+        "rq.instruments",
+        "rq.bars",
+        "rq.paused",
+        "runtime.factor_returns",
+    }
+    bar_fields = set(requirements.get("bars") or ())
+    if "is_st" in bar_fields:
+        datasets.add("rq.is_st")
+    if requirements.get("daily_factors"):
+        datasets.add("rq.daily_factors")
+    if requirements.get("index_components"):
+        datasets.add("rq.index_components")
+    if requirements.get("fundamentals"):
+        datasets.add("canonical.fundamentals")
+    return tuple(sorted(datasets))
 
 
 __all__ = [

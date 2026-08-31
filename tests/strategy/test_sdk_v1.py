@@ -2,17 +2,21 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
-from alphalab.dataio import create_default_engine
+from alphalab.dataio import MissingDataError, create_default_engine
 from alphalab.sdk.v1 import Event, FactorContext
 from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
 from alphalab.strategy.config import ExecutionSpec
 from alphalab.strategy.engine import (
     _apply_execution_constraints,
+    _assert_no_unsettled_delistings,
     _prepare_data,
     run_strategy_backtest,
 )
@@ -767,6 +771,53 @@ def test_repository_backfills_default_risk_python_for_clean_legacy_projects(tmp_
         migrated.close()
 
 
+def test_concurrent_revision_saves_are_serialized(tmp_path: Path):
+    database = tmp_path / "revision-race.db"
+    setup = StrategyRepository(database)
+    try:
+        setup.create_project(
+            "revision-race",
+            name="Revision Race",
+            source=DEFAULT_STRATEGY_SOURCE + "\n",
+        )
+        project = setup.get_project("revision-race")
+        assert project is not None
+        setup.update_draft(
+            "revision-race",
+            project["draft_source"] + "\n",
+            expected_source_sha256=project["draft_source_sha256"],
+        )
+    finally:
+        setup.close()
+
+    repositories = [StrategyRepository(database), StrategyRepository(database)]
+    barrier = threading.Barrier(2)
+    for repository in repositories:
+        original_probe = repository._probe_source
+
+        def synchronized_probe(source, inspection, *, _probe=original_probe):
+            _probe(source, inspection)
+            barrier.wait(timeout=10)
+
+        repository._probe_source = synchronized_probe
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            packages = list(
+                executor.map(
+                    lambda repository: repository.save_revision("revision-race"),
+                    repositories,
+                )
+            )
+        assert {package["revision"] for package in packages} == {2}
+        assert [item["revision"] for item in repositories[0].list_packages("revision-race")] == [
+            2,
+            1,
+        ]
+    finally:
+        for repository in repositories:
+            repository.close()
+
+
 def test_event_backtest_runs_the_frozen_source_package(tmp_path: Path):
     repository = StrategyRepository(tmp_path / "backtest.db")
     try:
@@ -776,6 +827,7 @@ def test_event_backtest_runs_the_frozen_source_package(tmp_path: Path):
             "2025-01-01",
             "2025-03-31",
             create_default_engine(),
+            execution_data_policy="illustrative",
         )
     finally:
         repository.close()
@@ -886,6 +938,64 @@ class _SuspensionEngine:
         return self.bars.copy()
 
 
+class _PartialExecutionDataEngine:
+    def __init__(self):
+        self.dates = pd.bdate_range("2024-01-01", periods=4)
+        self.bars = pd.DataFrame(
+            [
+                {
+                    "date": date,
+                    "symbol": symbol,
+                    "open": 10.0,
+                    "high": 10.0,
+                    "low": 10.0,
+                    "close": 10.0,
+                    "volume": 1_000_000.0,
+                    "amount": 100_000_000.0,
+                    "is_suspended": False,
+                    "limit_up": pd.NA if symbol == "A" else 11.0,
+                    "limit_down": 9.0,
+                }
+                for date in self.dates
+                for symbol in ("A", "B")
+            ]
+        )
+
+    def get_instruments(self, as_of_date):
+        return pd.DataFrame(
+            {
+                "snapshot_date": [self.dates[0], self.dates[0]],
+                "symbol": ["A", "B"],
+                "asset_type": ["ETF", "ETF"],
+            }
+        )
+
+    def get_bars(self, symbols, start_date, end_date, **kwargs):
+        return self.bars.copy()
+
+
+def _daily_universe_strategy_source() -> str:
+    return (
+        DEFAULT_STRATEGY_SOURCE.replace(
+            "    ExecutionPolicy,\n",
+            "    Daily,\n    ExecutionPolicy,\n",
+        )
+        .replace(
+            'Monthly.last_trading_day(at="close")',
+            'Daily.at("close")',
+        )
+        .replace(
+            """    scores = context.combine_factors(
+        weights={"momentum_20d": 1.0},
+        normalization="raw",
+        parameters={"momentum_20d": {"window": 20}},
+    ).dropna()
+""",
+            "    scores = __import__('pandas').Series({symbol: 1.0 for symbol in context.universe}, dtype=float)\n",
+        )
+    )
+
+
 def test_rejected_fill_does_not_change_actual_positions(tmp_path: Path):
     source = (
         DEFAULT_STRATEGY_SOURCE.replace(
@@ -915,6 +1025,7 @@ def test_rejected_fill_does_not_change_actual_positions(tmp_path: Path):
             "2024-01-01",
             "2024-01-05",
             _SuspensionEngine(),
+            execution_data_policy="illustrative",
         )
     finally:
         repository.close()
@@ -1058,13 +1169,98 @@ def test_backtest_uses_listing_intervals_when_instrument_snapshot_is_later(
             engine.dates[0].strftime("%Y-%m-%d"),
             engine.dates[-1].strftime("%Y-%m-%d"),
             engine,
+            execution_data_policy="illustrative",
         )
     finally:
         repository.close()
 
     assert len(result.returns) == len(engine.dates)
     assert result.executions
-    assert result.diagnostics["warnings"] == []
+    assert result.diagnostics["research_valid"] is False
+    assert result.diagnostics["warnings"]
+    assert result.benchmark_symbols == ("A", "B")
+
+
+def test_strict_backtest_excludes_candidates_with_missing_execution_data(tmp_path: Path):
+    engine = _PartialExecutionDataEngine()
+    repository = StrategyRepository(tmp_path / "strict-data.db")
+    try:
+        repository.create_project(
+            "strict-data",
+            name="Strict Data",
+            source=_daily_universe_strategy_source(),
+        )
+        result = run_strategy_backtest(
+            repository,
+            "strict-data",
+            engine.dates[0].strftime("%Y-%m-%d"),
+            engine.dates[-1].strftime("%Y-%m-%d"),
+            engine,
+        )
+    finally:
+        repository.close()
+
+    assert any(item["executed_weights"].get("B", 0.0) > 0 for item in result.executions)
+    assert all("A" not in item["target_weights"] for item in result.executions)
+    exclusions = result.diagnostics["execution_data_exclusions"]
+    assert exclusions["symbol_date_count"] == len(engine.dates)
+    assert exclusions["unique_symbol_count"] == 1
+    assert exclusions["symbols_sample"] == ["A"]
+    assert result.diagnostics["research_valid"] is False
+    assert any("excluded" in warning for warning in result.diagnostics["warnings"])
+
+
+def test_strict_missing_execution_data_does_not_delete_an_existing_holding(tmp_path: Path):
+    engine = _PartialExecutionDataEngine()
+    engine.bars["is_suspended"] = engine.bars["is_suspended"].astype("boolean")
+    missing_dates = engine.dates[2:]
+    missing_held_state = engine.bars["symbol"].eq("B") & engine.bars["date"].isin(
+        missing_dates
+    )
+    engine.bars.loc[missing_held_state, "is_suspended"] = pd.NA
+    repository = StrategyRepository(tmp_path / "strict-held-data.db")
+    try:
+        repository.create_project(
+            "strict-held-data",
+            name="Strict Held Data",
+            source=_daily_universe_strategy_source(),
+        )
+        result = run_strategy_backtest(
+            repository,
+            "strict-held-data",
+            engine.dates[0].strftime("%Y-%m-%d"),
+            engine.dates[-1].strftime("%Y-%m-%d"),
+            engine,
+        )
+    finally:
+        repository.close()
+
+    assert result.weights.loc[engine.dates[-1], "B"] > 0.0
+    rejected_exit = next(
+        item
+        for item in result.executions
+        if item["entry_date"] == engine.dates[-1].strftime("%Y-%m-%d")
+    )
+    assert rejected_exit["constrained_symbols"] == ["B"]
+    assert rejected_exit["missing_execution_data"] == [
+        {"symbol": "B", "missing_fields": ["is_suspended"]}
+    ]
+
+
+def test_held_delisting_fails_instead_of_freezing_the_last_value():
+    instruments = pd.DataFrame(
+        {
+            "symbol": ["A"],
+            "de_listed_date": [pd.Timestamp("2024-01-03")],
+        }
+    )
+
+    with pytest.raises(MissingDataError, match="explicit settlement price"):
+        _assert_no_unsettled_delistings(
+            {"A": 0.5},
+            instruments,
+            pd.Timestamp("2024-01-03"),
+        )
 
 
 def test_factor_execution_handles_empty_universe_and_short_history():

@@ -6,6 +6,7 @@ import type {
   HostedHarnessManifest,
   PublishedHarnessRun,
   PublishedHarnessRunEvent,
+  PublishedHarnessWorkspaceSnapshot,
 } from "./types"
 
 export class ConexusClientError extends Error {
@@ -99,6 +100,14 @@ export async function createRun(params: {
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify(params),
   })
+}
+
+export async function readWorkspace(signal?: AbortSignal): Promise<PublishedHarnessWorkspaceSnapshot> {
+  const payload = await json<{ workspace: PublishedHarnessWorkspaceSnapshot }>("/workspace", {
+    headers: { Accept: "application/json" },
+    signal,
+  })
+  return payload.workspace
 }
 
 export async function readRun(runId: string, accessToken: string): Promise<PublishedHarnessRun> {

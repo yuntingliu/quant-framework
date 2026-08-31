@@ -1,6 +1,6 @@
 {
   "customType": "alphalab_workspace_result",
-  "content": "Request-bound descriptor with optional interactive table and structured chart attachments for the AlphaLab research document.",
+  "content": "Descriptor for the AlphaLab report Document created or updated by the current run, with optional interactive attachments.",
   "data": {
     "version": 1,
     "requestId": "",

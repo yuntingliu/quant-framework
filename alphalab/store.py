@@ -44,8 +44,9 @@ class ResultStore:
     def __init__(self, db_path: str | Path | None = None):
         self.path = Path(db_path) if db_path else _DEFAULT_DB
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
+        self._conn = sqlite3.connect(str(self.path), timeout=30, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA busy_timeout = 30000")
         self._lock = threading.Lock()
         self._conn.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
         self._migrate()
@@ -231,8 +232,12 @@ class ResultStore:
 
     def _write(self, fn) -> None:
         with self._lock:
-            fn()
-            self._conn.commit()
+            try:
+                fn()
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
 
     def ensure_backtest_subject(
         self,
@@ -281,14 +286,21 @@ class ResultStore:
         validation_revision: int | None = None,
         validation_source_sha256: str | None = None,
         validation_output: dict | None = None,
+        backtest_id: str | None = None,
     ) -> str:
-        backtest_id = _uuid()
+        backtest_id = str(backtest_id).strip() if backtest_id is not None else _uuid()
+        if not backtest_id:
+            raise ValueError("backtest_id must not be empty")
         if start_date is None and not returns.empty:
             start_date = str(returns.index.min())[:10]
         if end_date is None and not returns.empty:
             end_date = str(returns.index.max())[:10]
 
         def work() -> None:
+            # A background job uses its stable job id here. Replaying an
+            # interrupted job replaces the same result atomically instead of
+            # creating a second, indistinguishable backtest.
+            self._conn.execute("DELETE FROM backtests WHERE id=?", (backtest_id,))
             self._conn.execute(
                 """INSERT INTO backtests
                    (id, strategy_id, config_yaml, code_version, start_date, end_date,
@@ -444,6 +456,28 @@ class ResultStore:
 
         self._write(work)
         return changed
+
+    def requeue_backtest_jobs(self) -> list[dict]:
+        pending = [
+            self._backtest_job_dict(row)
+            for row in self._conn.execute(
+                """SELECT * FROM backtest_jobs
+                   WHERE status IN ('queued', 'running') ORDER BY created_at, id"""
+            ).fetchall()
+        ]
+        if not pending:
+            return []
+
+        def work() -> None:
+            self._conn.execute(
+                """UPDATE backtest_jobs
+                   SET status='queued', started_at=NULL, finished_at=NULL,
+                       message='Recovered after service restart', error=NULL
+                   WHERE status IN ('queued', 'running')"""
+            )
+
+        self._write(work)
+        return pending
 
     @staticmethod
     def _backtest_job_dict(row: sqlite3.Row) -> dict:

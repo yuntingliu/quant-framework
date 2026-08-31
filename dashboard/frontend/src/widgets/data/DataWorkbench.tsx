@@ -97,25 +97,33 @@ export function DataWorkbenchWidget() {
   const [parameterSaving, setParameterSaving] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
+  const projectId = project?.id
 
   useEffect(() => {
-    if (!project) return
+    if (!projectId) return
     let current = true
     setWorkspace(null)
     setError("")
     void Promise.all([
-      api.get<RecipeWorkspace>(`/data-sync/recipes/${project.id}`),
+      api.get<RecipeWorkspace>(`/data-sync/recipes/${projectId}`),
       api.get<DataSyncHealth>("/data-sync/health"),
       api.get<SyncJob[]>("/data-sync/jobs?limit=20"),
     ]).then(([recipeResult, healthResult, jobResult]) => {
       if (!current) return
       setWorkspace(recipeResult)
-      adoptRecipeDraft(recipeResult.draft, recipeResult)
+      setSource(recipeResult.draft.source)
+      const parameters = new Map(
+        recipeResult.draft.inspection.parameters.map((item) => [item.name, item.default]),
+      )
+      setSyncStart(String(parameters.get("start") ?? recipeResult.bounds.start ?? ""))
+      setSyncEnd(String(parameters.get("end") ?? recipeResult.bounds.end ?? ""))
+      const symbols = parameters.get("symbols")
+      setSyncSymbols(Array.isArray(symbols) ? symbols.join(", ") : "")
       setHealth(healthResult)
       setJobs(jobResult)
     }).catch((reason: Error) => { if (current) setError(reason.message) })
     return () => { current = false }
-  }, [project?.id])
+  }, [projectId])
 
   useEffect(() => {
     if (!jobs.some((item) => item.status === "queued" || item.status === "running")) return

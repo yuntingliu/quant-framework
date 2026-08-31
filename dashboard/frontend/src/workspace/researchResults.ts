@@ -37,7 +37,8 @@ export interface ResearchResultChart {
 export interface AgentResearchResult {
   id: string
   version: 1
-  requestId: string
+  reportId: string
+  requestId?: string
   kind: "document"
   title: string
   description?: string
@@ -273,9 +274,11 @@ export function parseAgentResearchResult(
 ): AgentResearchResult | null {
   if (!isRecord(value) || value.version !== 1 || value.kind !== "document") return null
   if (JSON.stringify(value).length > MAX_DESCRIPTOR_LENGTH) return null
-  const requestId = text(value.requestId, 200)
+  const reportId = text(value.reportId ?? value.artifactId ?? value.projectId, 200)
+  const requestId = value.requestId === undefined ? undefined : text(value.requestId, 200)
   const title = text(value.title, 200)
-  if (!requestId || !title) return null
+  if (!reportId || !/^[A-Za-z0-9][A-Za-z0-9._:-]{1,199}$/.test(reportId) || !title) return null
+  if (value.requestId !== undefined && !requestId) return null
 
   if (value.table !== undefined && !isRecord(value.table)) return null
   const table = parseTable(isRecord(value.table) ? value.table : value)
@@ -313,9 +316,10 @@ export function parseAgentResearchResult(
   ) return null
 
   return {
-    id: requestId,
+    id: reportId,
     version: 1,
-    requestId,
+    reportId,
+    ...(requestId ? { requestId } : {}),
     kind: "document",
     title,
     ...(description ? { description } : {}),
@@ -332,6 +336,28 @@ export function parseAgentResearchResult(
     ...(persistedAt ? { persistedAt } : {}),
     ...(backtestId ? { backtestId } : {}),
   }
+}
+
+export const ALPHALAB_REPORT_DESCRIPTION = "AlphaLab quantitative report"
+
+export function parseWorkspaceReportNode(value: unknown): AgentResearchResult | null {
+  if (!isRecord(value) || (value.type !== "note" && value.type !== "document")) return null
+  if (value.description !== ALPHALAB_REPORT_DESCRIPTION) return null
+  const values = isRecord(value.values) ? value.values : null
+  const markdown = values ? text(values.content, MAX_MARKDOWN_LENGTH) : undefined
+  const reportId = text(value.id, 200)
+  const title = text(value.label, 200)
+  const updatedAt = text(value.updatedAt, 100)
+  if (!markdown || !reportId || !title) return null
+  return parseAgentResearchResult({
+    version: 1,
+    reportId,
+    kind: "document",
+    title,
+    markdown,
+    sources: [],
+    ...(updatedAt ? { updatedAt } : {}),
+  })
 }
 
 function csvCell(value: ResearchResultCell): string {

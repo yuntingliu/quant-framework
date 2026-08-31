@@ -52,3 +52,10 @@ On the Conexus server, verify both the shared host and AlphaLab publication:
 curl -fsS http://127.0.0.1:3000/health
 curl -fsS http://127.0.0.1:3000/api/public/harnesses/alphalab-research-agent/descriptor
 ```
+
+The shared Web Host and both AlphaLab API processes must receive the same
+`CONEXUS_PUBLICATION_WORKSPACE_TOKEN`. On the Web Host it is paired with
+`CONEXUS_PUBLICATION_WORKSPACE_SLUG=alphalab-research-agent`; unlike
+`CONEXUS_WEB_TOKEN`, this credential can access only that publication's durable
+run workspace. Keep it in the deployment environment and never expose it to
+the browser bundle.

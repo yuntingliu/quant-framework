@@ -30,9 +30,10 @@ The current tool contract lets the Agent:
 7. read or edit `validation.py`, whose saved package is pinned by the next Run;
 8. preview the saved strategy, run complete event backtests, analyze
    performance, attribution, robustness and signals, compare candidates, and
-   persist a report.
+   create or update a durable report Document.
 
-These capabilities are exposed through twelve intent-level tools rather than
+These capabilities are exposed through eleven AlphaLab intent-level tools plus
+the native Conexus graph tools rather than
 one tool per backend endpoint. Each mutable or executable tool uses a closed
 `action` enum, so consolidation does not weaken write, delete, or trusted-local
 Python confirmation boundaries:
@@ -49,7 +50,8 @@ alphalab_strategy_preview
 alphalab_validation_source
 alphalab_backtest
 alphalab_backtest_analysis
-alphalab_research_report
+
+list_nodes / observe_nodes / describe_node_type / create_nodes / update_nodes / delete_node
 ```
 
 Strategy saves automatically run the existing probes and record an immutable
@@ -100,11 +102,13 @@ The only modes are:
 project data factor strategy validation report
 ```
 
-Rich research results are saved through `alphalab_research_report` with
-`action=save` before the same request-bound document/table/chart descriptor is
-published to the workspace.
-Historical BacktestRuns always use their frozen strategy and validation
-snapshots.
+Rich research reports are native Conexus Document nodes. All AlphaLab reports
+currently share one publication-level history and are not partitioned by
+project. Before writing, the Agent lists the history and observes plausible
+matches. It updates the matching Document and creates a new one only for a
+genuinely new research subject. Request IDs, hashes, job IDs, and other audit
+details are not part of report Markdown. Historical BacktestRuns always use
+their frozen strategy and validation snapshots.
 
 Backtests are asynchronous at the Agent boundary: `action=run` validates and
 pins the current strategy/validation packages, submits one job, and returns its
@@ -112,18 +116,19 @@ ID immediately. The Agent then uses `action=job` until a terminal state before
 reading compact analysis. A long research run therefore cannot be mistaken for
 a failed tool call merely because it exceeds the orchestration request window.
 
-The public AlphaLab publication is anonymous and publisher-funded. Conexus
-returns the sanitized passive-node outputs changed by the current Run as
-`workspaceOutputs`; the frontend converts these into decision-notebook,
-document, result, and command artifacts. They are transient Run outputs, not a
-durable Conexus account workspace. The browser keeps a bounded structured
-research checkpoint alongside recent messages so a reload can restore the
-latest research decision without treating it as trusted authority.
+The public AlphaLab publication remains anonymous and publisher-funded for the
+browser. The AlphaLab backend authenticates to the Conexus Web Host with a
+dedicated server-side publication-workspace token scoped to the AlphaLab
+publication, binding runs and reads to one durable workspace. The token is
+never sent to the browser. Conexus returns
+the passive nodes changed by the current Run as `workspaceOutputs`, while
+`GET /api/public/harnesses/:slug/workspace` supplies the durable report history.
+The browser keeps only bounded conversation context and derived report views.
 
 Ordinary explanations, history restatements, and read-only questions do not
-call `observe_nodes` or `update_nodes`. Structured workspace output is written
-at most once and only when the current request actually produces a notebook,
-document, result, or navigation command.
+modify nodes. Report writes follow the native Document contract and are made
+only when the current request actually produces or revises a quantitative
+report.
 
 ## Registration and publication
 

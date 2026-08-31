@@ -24,12 +24,14 @@ def doctor_report() -> dict[str, Any]:
     """Return bounded readiness checks for the one supported local runtime."""
 
     load_env_files()
+    runtime = DataCatalog().summary()
     checks = {
         "python": _executable_check(sys.executable, ["--version"], minimum=(3, 10)),
         "node": _command_check("node", ["--version"]),
         "demo_data": _demo_data_check(),
         "rq": _rq_check(),
-        "runtime": DataCatalog().summary(),
+        "runtime": runtime,
+        "runtime_execution": _runtime_execution_check(runtime),
         "frontend": _frontend_check(),
         "pyrefly": _command_check("pyrefly", ["--version"]),
         "ruff": _module_check("ruff"),
@@ -38,13 +40,27 @@ def doctor_report() -> dict[str, Any]:
             "5173": _port_status(5173),
         },
     }
-    required = ("python", "node", "demo_data", "frontend")
+    required = ("python", "node", "demo_data", "frontend", "runtime_execution")
     status = (
         "ready"
         if all(checks[name].get("status") == "ready" for name in required)
         else "degraded"
     )
     return {"status": status, "checks": checks}
+
+
+def _runtime_execution_check(runtime: dict[str, Any]) -> dict[str, Any]:
+    required = ("rq.instruments", "rq.bars", "rq.paused")
+    states = {
+        str(item.get("id")): str(item.get("status"))
+        for item in runtime.get("datasets", [])
+    }
+    missing = [dataset for dataset in required if states.get(dataset) != "ready"]
+    return {
+        "status": "ready" if not missing else "missing",
+        "required_datasets": list(required),
+        "missing": missing,
+    }
 
 
 def _executable_check(

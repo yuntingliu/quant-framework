@@ -12,31 +12,8 @@ import { ResearchAgentPanel } from "../research/ResearchAgent"
 import { ReportWorkbenchWidget } from "../research/ReportWorkbench"
 import { ProjectWorkbenchWidget } from "../project/ProjectWorkbench"
 import { StrategyWorkbenchWidget } from "../strategy/StrategyWorkbench"
-import { AdapterDisabledWidget } from "../system/AdapterDisabled"
-
-import { widgetCatalog, widgetCategory, widgetDescription, widgetTitleById } from "./catalog"
-
-function disabled(widgetId: string): ComponentType {
-  function DisabledPanel() {
-    const meta = widgetCatalog.find((item) => item.id === widgetId)
-    return (
-      <AdapterDisabledWidget
-        title={widgetTitleById(widgetId, "zh", widgetId)}
-        category={meta ? widgetCategory(meta, "zh") : undefined}
-        description={meta ? widgetDescription(meta, "zh") : undefined}
-      />
-    )
-  }
-  return DisabledPanel
-}
-
-const disabledComponents = Object.fromEntries(
-  widgetCatalog.map((widget) => [widget.id, disabled(widget.id)]),
-) as Record<string, ComponentType>
 
 export const widgetComponents: Record<string, ComponentType> = {
-  ...disabledComponents,
-
   // Parallel views over one canonical Strategy SDK v1 Python source package.
   "data.workbench": DataWorkbenchWidget,
   "project.workbench": ProjectWorkbenchWidget,

@@ -9,7 +9,6 @@ from dashboard.backend.routers import (
     market,
     paper,
     python_editor,
-    reports,
     strategy,
     system,
 )
@@ -23,7 +22,6 @@ __all__ = [
     "market",
     "paper",
     "python_editor",
-    "reports",
     "strategy",
     "system",
 ]

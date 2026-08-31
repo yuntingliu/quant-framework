@@ -4,7 +4,6 @@ import {
   ArrowUp,
   ArrowUpDown,
   ChartSpline,
-  Database,
   Download,
   FileSpreadsheet,
   FileText,
@@ -56,19 +55,24 @@ function compareCells(left: ResearchResultCell, right: ResearchResultCell): numb
 }
 
 export function ReportWorkbenchWidget() {
-  const panel = usePanel()
   const { language } = useLanguage()
+  const panel = usePanel()
   const { researchResults, refreshResearchResults } = useAgentPrompt()
   useEffect(() => {
     void refreshResearchResults().catch(() => undefined)
   }, [refreshResearchResults])
-  const requestedId = typeof panel?.params.resultId === "string" ? panel.params.resultId : undefined
-  const [selectedId, setSelectedId] = useState<string | undefined>(requestedId)
+  const requestedReportId = typeof panel?.params.resultId === "string" ? panel.params.resultId : undefined
+  const [selectedReportId, setSelectedReportId] = useState<string | undefined>(requestedReportId)
   useEffect(() => {
-    if (requestedId) setSelectedId(requestedId)
-  }, [requestedId])
-  const result = researchResults.find((item) => item.id === selectedId)
-    ?? researchResults[0]
+    if (requestedReportId && researchResults.some((item) => item.id === requestedReportId)) {
+      setSelectedReportId(requestedReportId)
+      return
+    }
+    if (!selectedReportId || !researchResults.some((item) => item.id === selectedReportId)) {
+      setSelectedReportId(researchResults[0]?.id)
+    }
+  }, [researchResults, requestedReportId, selectedReportId])
+  const result = researchResults.find((item) => item.id === selectedReportId)
   const [activeView, setActiveView] = useState<"document" | "table" | "charts">("document")
   const [query, setQuery] = useState("")
   const [sort, setSort] = useState<SortState | null>(null)
@@ -83,11 +87,8 @@ export function ReportWorkbenchWidget() {
     export: "导出 CSV",
     rows: "行",
     shown: "显示",
-    sources: "数据来源",
-    generated: "生成时间",
-    data: "数据",
-    code: "代码",
-    source: "源码",
+    updated: "更新时间",
+    history: "报告历史",
   } : {
     emptyTitle: "No research result",
     emptyDetail: "Ask the Agent to create a research report and open it in the workspace.",
@@ -98,19 +99,12 @@ export function ReportWorkbenchWidget() {
     export: "Export CSV",
     rows: "rows",
     shown: "shown",
-    sources: "Sources",
-    generated: "Generated",
-    data: "data",
-    code: "code",
-    source: "source",
+    updated: "Updated",
+    history: "Report history",
   }
 
   const table = result?.table
   const charts = result?.charts
-  const provenance = result?.provenance as {
-    code?: { commit?: string | null; dirty?: boolean | null; source_sha256?: string }
-    data?: { aggregate_sha256?: string }
-  } | undefined
   const visibleRows = useMemo(() => {
     if (!table) return []
     const normalized = query.trim().toLocaleLowerCase()
@@ -154,38 +148,19 @@ export function ReportWorkbenchWidget() {
   }
 
   return (
-    <div className="flex h-full min-h-0 bg-card">
-      <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-muted/10">
-        <div className="border-b border-border px-3 py-3">
-          <div className="text-xs font-semibold text-foreground">报告库</div>
-          <div className="mt-0.5 text-[10px] text-muted-foreground">{researchResults.length} 份已保存报告</div>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto p-2">
+    <div className="flex h-full min-h-0 flex-col bg-card">
+      <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-2">
+        <span className="shrink-0 text-xs font-medium text-muted-foreground">{copy.history}</span>
+        <select
+          className="h-8 min-w-0 flex-1 rounded border border-border bg-background px-2 text-xs text-foreground outline-none focus:border-primary"
+          value={result.id}
+          onChange={(event) => setSelectedReportId(event.target.value)}
+        >
           {researchResults.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={cn(
-                "mb-1 w-full rounded border px-2.5 py-2 text-left",
-                item.id === result.id
-                  ? "border-primary/35 bg-primary/10"
-                  : "border-transparent hover:border-border hover:bg-muted/60",
-              )}
-              onClick={() => setSelectedId(item.id)}
-            >
-              <span className="block truncate text-xs font-medium text-foreground">{item.title}</span>
-              <span className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                <span>{item.profile === "runtime" ? "本地数据" : "示例数据"}</span>
-                {item.backtestId ? <span className="rounded bg-muted px-1">回测</span> : null}
-              </span>
-              <span className="mt-1 block truncate text-[10px] text-muted-foreground">
-                {item.persistedAt ? new Date(item.persistedAt).toLocaleString() : "已保存"}
-              </span>
-            </button>
+            <option key={item.id} value={item.id}>{item.title}</option>
           ))}
-        </div>
-      </aside>
-      <div className="flex min-w-0 flex-1 flex-col bg-card">
+        </select>
+      </div>
       <div className="shrink-0 border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-primary/25 bg-primary/10 text-primary">
@@ -210,24 +185,8 @@ export function ReportWorkbenchWidget() {
         <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
           {table ? <span className="rounded bg-muted px-2 py-1 font-mono">{table.rows.length} {copy.rows}</span> : null}
           {charts ? <span className="rounded bg-muted px-2 py-1 font-mono">{charts.length} {copy.charts}</span> : null}
-          {result.generatedAt || result.updatedAt ? (
-            <span>{copy.generated}: {new Date(result.generatedAt ?? result.updatedAt ?? "").toLocaleString(language === "zh" ? "zh-CN" : "en-US")}</span>
-          ) : null}
-          {result.sources.length ? (
-            <span className="flex min-w-0 items-center gap-1">
-              <Database className="h-3 w-3 shrink-0" />
-              <span className="truncate">{copy.sources}: {result.sources.join(" · ")}</span>
-            </span>
-          ) : null}
-          {result.profile ? <span className="rounded bg-muted px-2 py-1 font-mono">{result.profile}</span> : null}
-          {provenance?.data?.aggregate_sha256 ? (
-            <span className="font-mono" title={provenance.data.aggregate_sha256}>{copy.data} {provenance.data.aggregate_sha256.slice(0, 12)}</span>
-          ) : null}
-          {provenance?.code?.commit ? (
-            <span className="font-mono" title={provenance.code.commit}>{copy.code} {provenance.code.commit.slice(0, 10)}{provenance.code.dirty ? "-dirty" : ""}</span>
-          ) : null}
-          {provenance?.code?.source_sha256 ? (
-            <span className="font-mono" title={provenance.code.source_sha256}>{copy.source} {provenance.code.source_sha256.slice(0, 12)}</span>
+          {result.persistedAt || result.generatedAt || result.updatedAt ? (
+            <span>{copy.updated}: {new Date(result.persistedAt ?? result.generatedAt ?? result.updatedAt ?? "").toLocaleString(language === "zh" ? "zh-CN" : "en-US")}</span>
           ) : null}
         </div>
       </div>
@@ -327,7 +286,6 @@ export function ReportWorkbenchWidget() {
           </div>
         </>
       ) : null}
-      </div>
     </div>
   )
 }

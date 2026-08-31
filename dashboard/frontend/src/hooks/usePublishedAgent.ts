@@ -23,6 +23,7 @@ import type {
   PublishedHarnessRun,
   PublishedHarnessWorkspaceOutput,
 } from "@/lib/conexus/types"
+import { ALPHALAB_REPORT_DESCRIPTION } from "@/workspace/researchResults"
 
 interface Options {
   onCompleted?: () => void
@@ -42,7 +43,6 @@ const MAX_CONTEXT_MESSAGE_CHARACTERS = 8_000
 const MAX_LOCAL_CONTEXT_CHARACTERS = 60_000
 const DECISION_NOTEBOOK_NODE_ID = "alphalab-decision-notebook-v1"
 const WORKSPACE_RESULT_NODE_ID = "alphalab-workspace-result-v1"
-const WORKSPACE_DOCUMENT_NODE_ID = "alphalab-research-document-v1"
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -92,6 +92,7 @@ function boundedWorkspaceResult(value: unknown): Record<string, unknown> | undef
     version: 1,
     requestId: result.requestId.slice(0, 200),
     kind: result.kind.slice(0, 40),
+    ...(boundedText(result.reportId, 200) ? { reportId: boundedText(result.reportId, 200) } : {}),
     ...(boundedText(result.title, 200) ? { title: boundedText(result.title, 200) } : {}),
     ...(boundedText(result.description, 1_000) ? { description: boundedText(result.description, 1_000) } : {}),
     ...(Array.isArray(result.sources)
@@ -150,11 +151,15 @@ function workspaceOutputArtifacts(run: PublishedHarnessRun): PublishedHarnessArt
       createdAt,
       producerNodeId: output.id,
     }
-    if (output.id === WORKSPACE_DOCUMENT_NODE_ID && typeof output.values.content === "string") {
+    if (
+      (output.type === "note" || output.type === "document")
+      && output.description === ALPHALAB_REPORT_DESCRIPTION
+      && typeof output.values.content === "string"
+    ) {
       return {
         ...common,
         kind: "document" as const,
-        outputKey: "workspaceDocument",
+        outputKey: "reportDocument",
         content: { markdown: output.values.content },
       }
     }

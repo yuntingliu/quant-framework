@@ -58,6 +58,12 @@ def validate_dataset(
             fail_on_gap=fail_on_gap,
             symbols=selected_symbols,
         )
+    elif dataset == "rq.instruments":
+        issues, metrics = _validate_instruments(
+            store,
+            as_of_date=as_of_date,
+            fail_on_gap=fail_on_gap,
+        )
     elif dataset in {"rq.paused", "rq.is_st"}:
         issues, metrics = _validate_market_state(
             store,
@@ -271,7 +277,7 @@ def _validate_daily_factors(
     required = {"date", "symbol", "field", "value"}
     dates: set[pd.Timestamp] = set()
     observed_symbols: set[str] = set()
-    field_dates: dict[str, set[pd.Timestamp]] = {}
+    field_keys: dict[str, set[tuple[pd.Timestamp, str]]] = {}
     missing_columns: set[str] = set()
     duplicate_count = invalid_date_count = invalid_value_count = 0
     for frame in _partitions(store, "rq.daily_factors"):
@@ -285,12 +291,19 @@ def _validate_daily_factors(
         normalized_dates = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
         invalid_date_count += int(normalized_dates.isna().sum())
         dates.update(normalized_dates.dropna().tolist())
-        observed_symbols.update(frame["symbol"].dropna().astype(str).str.upper())
+        normalized_symbols = frame["symbol"].astype(str).str.upper()
+        observed_symbols.update(normalized_symbols.dropna())
         duplicate_count += int(frame.duplicated(["date", "symbol", "field"]).sum())
         values = pd.to_numeric(frame["value"], errors="coerce")
         invalid_value_count += int((values.isna() | ~np.isfinite(values)).sum())
-        for field, field_frame in frame.assign(__date=normalized_dates).groupby("field"):
-            field_dates.setdefault(str(field), set()).update(field_frame["__date"].dropna())
+        normalized = frame.assign(__date=normalized_dates, __symbol=normalized_symbols)
+        for field, field_frame in normalized.groupby("field"):
+            field_keys.setdefault(str(field), set()).update(
+                (date, symbol)
+                for date, symbol in field_frame[["__date", "__symbol"]]
+                .dropna()
+                .itertuples(index=False)
+            )
     issues = _daily_issues(
         missing_columns=missing_columns,
         duplicate_count=duplicate_count,
@@ -300,35 +313,35 @@ def _validate_daily_factors(
         issues.append(
             QualityIssue("invalid_factor_values", f"{invalid_value_count} invalid factor values")
         )
-    required_dates = _bar_dates(
+    required_keys = _bar_keys(
         store,
         start_date=start_date,
         as_of_date=as_of_date,
         symbols=symbols,
     )
     coverage = {
-        field: float(len(values & required_dates) / len(required_dates)) if required_dates else 0.0
-        for field, values in sorted(field_dates.items())
+        field: float(len(values & required_keys) / len(required_keys)) if required_keys else 0.0
+        for field, values in sorted(field_keys.items())
     }
     incomplete = {field: value for field, value in coverage.items() if value < 0.98}
     if fail_on_gap and incomplete:
         details = ", ".join(f"{field}={value:.2%}" for field, value in incomplete.items())
         issues.append(
-            QualityIssue("factor_date_gap", f"Daily factor date coverage is incomplete: {details}")
+            QualityIssue("factor_key_gap", f"Daily factor bar-key coverage is incomplete: {details}")
         )
     metrics = _coverage_metrics(dates, observed_symbols)
     metrics.update(
         {
-            "fields": sorted(field_dates),
-            "field_date_coverage": coverage,
+            "fields": sorted(field_keys),
+            "field_key_coverage": coverage,
             "field_start_dates": {
-                field: min(values).strftime("%Y-%m-%d")
-                for field, values in sorted(field_dates.items())
+                field: min(date for date, _symbol in values).strftime("%Y-%m-%d")
+                for field, values in sorted(field_keys.items())
                 if values
             },
             "field_end_dates": {
-                field: max(values).strftime("%Y-%m-%d")
-                for field, values in sorted(field_dates.items())
+                field: max(date for date, _symbol in values).strftime("%Y-%m-%d")
+                for field, values in sorted(field_keys.items())
                 if values
             },
             "duplicate_rows": duplicate_count,
@@ -337,6 +350,58 @@ def _validate_daily_factors(
         }
     )
     _check_bounds(metrics, issues, start_date, as_of_date, fail_on_gap)
+    return issues, metrics
+
+
+def _validate_instruments(
+    store: RuntimeStore,
+    *,
+    as_of_date: str | None,
+    fail_on_gap: bool,
+) -> tuple[list[QualityIssue], dict]:
+    frame = store.read("rq.instruments")
+    required = {"snapshot_date", "symbol", "listed_date", "de_listed_date"}
+    issues: list[QualityIssue] = []
+    missing = sorted(required - set(frame))
+    if missing:
+        issues.append(QualityIssue("missing_columns", f"Missing instrument columns: {missing}"))
+        return issues, _coverage_metrics(set(), set())
+    snapshot_dates = pd.to_datetime(frame["snapshot_date"], errors="coerce").dt.normalize()
+    listed_dates = pd.to_datetime(frame["listed_date"], errors="coerce").dt.normalize()
+    delisted_dates = pd.to_datetime(frame["de_listed_date"], errors="coerce").dt.normalize()
+    invalid_snapshots = int(snapshot_dates.isna().sum())
+    duplicate_count = int(frame.duplicated(["snapshot_date", "symbol"]).sum())
+    invalid_intervals = int(
+        (listed_dates.notna() & delisted_dates.notna() & listed_dates.gt(delisted_dates)).sum()
+    )
+    if invalid_snapshots:
+        issues.append(
+            QualityIssue("invalid_dates", f"Dataset contains {invalid_snapshots} invalid snapshots")
+        )
+    if duplicate_count:
+        issues.append(
+            QualityIssue("duplicate_keys", f"Dataset contains {duplicate_count} duplicate keys")
+        )
+    if invalid_intervals:
+        issues.append(
+            QualityIssue(
+                "invalid_listing_interval",
+                f"Dataset contains {invalid_intervals} reversed listing intervals",
+            )
+        )
+    symbols = set(frame["symbol"].dropna().astype(str).str.upper())
+    metrics = _coverage_metrics(set(snapshot_dates.dropna()), symbols)
+    metrics.update(
+        {
+            "duplicate_rows": duplicate_count,
+            "invalid_dates": invalid_snapshots,
+            "invalid_listing_intervals": invalid_intervals,
+        }
+    )
+    # Instrument masters are retrieval snapshots whose listing intervals describe
+    # historical eligibility. They must be fresh at the end of a requested run,
+    # but are not expected to contain one snapshot at its historical start date.
+    _check_bounds(metrics, issues, None, as_of_date, fail_on_gap)
     return issues, metrics
 
 
@@ -447,24 +512,6 @@ def _bar_keys(
             for date, symbol in frame[["date", "symbol"]].dropna().itertuples(index=False)
         )
     return keys
-
-
-def _bar_dates(
-    store: RuntimeStore,
-    *,
-    start_date: str | None,
-    as_of_date: str | None,
-    symbols: set[str] | None,
-) -> set[pd.Timestamp]:
-    return {
-        date
-        for date, _symbol in _bar_keys(
-            store,
-            start_date=start_date,
-            as_of_date=as_of_date,
-            symbols=symbols,
-        )
-    }
 
 
 def _filter_symbols(frame: pd.DataFrame, symbols: set[str] | None) -> pd.DataFrame:

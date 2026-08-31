@@ -15,7 +15,6 @@ const agentId = "alphalab-research-agent-v1"
 const notebookId = "alphalab-decision-notebook-v1"
 const commandsId = "alphalab-workspace-commands-v1"
 const resultId = "alphalab-workspace-result-v1"
-const documentId = "alphalab-research-document-v1"
 
 const toolNodes = [
   ["alphalab-tool-workspace-context-v1", "AlphaLab Workspace Context", "Get-Workspace-Context.tool.json"],
@@ -29,7 +28,6 @@ const toolNodes = [
   ["alphalab-tool-validation-source-v1", "AlphaLab Validation Source", "Validation-Source.tool.json"],
   ["alphalab-tool-backtest-v1", "AlphaLab Backtest", "Backtest.tool.json"],
   ["alphalab-tool-analyze-backtest-v1", "AlphaLab Backtest Analysis", "Backtest-Analysis.tool.json"],
-  ["alphalab-tool-reports-v1", "AlphaLab Research Report", "Research-Report.tool.json"],
 ]
 
 await mkdir(resolve(projectRoot, ".conexus"), { recursive: true })
@@ -60,7 +58,6 @@ const ownedNodeIds = new Set([
   notebookId,
   commandsId,
   resultId,
-  documentId,
   ...toolNodes.map(([id]) => id),
 ])
 const obsoleteNodeIds = new Set([
@@ -91,6 +88,8 @@ const obsoleteNodeIds = new Set([
   "alphalab-tool-evaluate-market-risk-factor-v1",
   "alphalab-tool-run-backtest-v1",
   "alphalab-tool-save-report-v1",
+  "alphalab-tool-reports-v1",
+  "alphalab-research-document-v1",
   "alphalab-tool-data-catalog-v1",
   "alphalab-tool-data-status-v1",
   "alphalab-tool-data-validate-v1",
@@ -141,7 +140,7 @@ const nodes = [
   }),
   child(resultId, "custom", { x: 1208, y: 72 }, {
     label: "Workspace Result",
-    description: "Request-bound descriptor and optional table attachment.",
+    description: "Descriptor for the report Document changed by the current run and optional attachments.",
     backingPath: `${stagedBundlePath}/data/Workspace-Result.custom.json`,
   }),
   child(commandsId, "custom", { x: 1208, y: 280 }, {
@@ -149,12 +148,6 @@ const nodes = [
     description: "Allowlisted commands consumed by the AlphaLab frontend.",
     backingPath: `${stagedBundlePath}/data/Workspace-Commands.custom.json`,
   }, { width: 344, height: 104 }),
-  child(documentId, "note", { x: 1208, y: 416 }, {
-    label: "Research Result Document",
-    description: "Durable Markdown report rendered by the AlphaLab workspace.",
-    format: "markdown",
-    backingPath: `${stagedBundlePath}/documents/Research-Result.md`,
-  }, { width: 344, height: 320 }),
   ...toolNodes.map(([id, label, file], index) => child(id, "tool", {
     x: 32 + (index % 3) * 392,
     y: 400 + Math.floor(index / 3) * 232,
@@ -168,7 +161,6 @@ const targets = [
   notebookId,
   resultId,
   commandsId,
-  documentId,
   ...toolNodes.map(([id]) => id),
 ]
 const edges = targets.map((target, index) => ({

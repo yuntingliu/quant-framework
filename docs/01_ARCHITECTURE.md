@@ -32,6 +32,14 @@ The six workbench modes are `project`, `data`, `factor`, `strategy`,
 `validation`, and `report`. They are views over shared `StrategySdkContext`
 state, not independent strategy pipelines.
 
+Quantitative reports are durable Conexus Document nodes in one AlphaLab
+publication workspace. They currently form one global report history rather
+than being partitioned by research project. The Agent updates a matching
+Document and creates one only for a genuinely new research subject; a new chat
+turn or backtest does not imply a new report. Frozen BacktestRuns and source
+packages remain the immutable evidence underneath it. Hashes and execution
+identifiers are not rendered in the quantitative Markdown.
+
 ## Shared Python editor
 
 Every Python input is rendered by the shared Monaco-based `PythonEditor`.
@@ -230,6 +238,7 @@ and cannot create a second authoritative result.
 | `dashboard/backend/routers/strategy.py` | Current source/project/evaluation API |
 | `dashboard/backend/routers/validation.py` | Validation source and no-code parameter API |
 | `dashboard/backend/routers/backtests.py` | Confirmed background backtest jobs and frozen results |
+| `dashboard/backend/routers/conexus.py` | Same-origin proxy for durable published-Harness runs and workspace Documents |
 | `dashboard/backend/routers/python_editor.py` | Fixed Pyrefly/Ruff WebSocket bridge and editor document endpoints |
 | `dashboard/backend/services/python_editor_service.py` | Local server discovery, ignored source mirrors, framing, and SDK diagnostics |
 | `dashboard/frontend/src/contexts/StrategySdkContext.tsx` | Shared project, draft, revision, and hash state |

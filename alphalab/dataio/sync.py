@@ -737,19 +737,17 @@ class SyncJobManager:
     def __init__(self, root: str | Path | None = None):
         self.root = Path(root) if root is not None else RUNTIME_DIR
         self.operations = OperationsStore(self.root)
-        self.operations.mark_interrupted()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rq-sync")
         self._futures: dict[str, Future] = {}
         self._lock = threading.Lock()
+        for job in self.operations.recover_jobs():
+            self._schedule(job["id"], job["request"])
 
     def submit(self, request: SyncRequest) -> dict:
         self._ensure_idle()
-        job_id = self.operations.create_job(request.model_dump(mode="json"))
-        with self._lock:
-            self._futures[job_id] = self._executor.submit(
-                RQSyncService(self.root).run,
-                job_id,
-            )
+        payload = request.model_dump(mode="json")
+        job_id = self.operations.create_job(payload)
+        self._schedule(job_id, payload)
         result = self.operations.get_job(job_id)
         assert result is not None
         return result
@@ -766,12 +764,7 @@ class SyncJobManager:
                 "recipe_source_sha256": inspection.source_sha256,
             }
         )
-        with self._lock:
-            self._futures[job_id] = self._executor.submit(
-                _run_recipe_job,
-                self.root,
-                job_id,
-            )
+        self._schedule(job_id, {"kind": "python_recipe"})
         result = self.operations.get_job(job_id)
         assert result is not None
         return result
@@ -806,6 +799,9 @@ class SyncJobManager:
                 )
         return self.operations.get_job(job_id)
 
+    def shutdown(self, *, wait: bool = True) -> None:
+        self._executor.shutdown(wait=wait, cancel_futures=False)
+
     def _ensure_idle(self) -> None:
         active = [
             item
@@ -814,6 +810,21 @@ class SyncJobManager:
         ]
         if active:
             raise DataLoadError(f"An RQ sync job is already active: {active[0]['id']}")
+
+    def _schedule(self, job_id: str, request: dict) -> None:
+        target = (
+            (_run_recipe_job, self.root, job_id)
+            if request.get("kind") == "python_recipe"
+            else (RQSyncService(self.root).run, job_id)
+        )
+        with self._lock:
+            future = self._executor.submit(target[0], *target[1:])
+            self._futures[job_id] = future
+        future.add_done_callback(lambda _: self._forget(job_id))
+
+    def _forget(self, job_id: str) -> None:
+        with self._lock:
+            self._futures.pop(job_id, None)
 
 
 def _run_recipe_job(root: Path, job_id: str) -> dict:

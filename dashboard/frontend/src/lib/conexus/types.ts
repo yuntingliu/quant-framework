@@ -114,6 +114,22 @@ export interface PublishedHarnessWorkspaceOutput {
   values: Record<string, unknown>
 }
 
+export interface PublishedHarnessWorkspaceNode extends PublishedHarnessWorkspaceOutput {
+  createdAt: string
+  updatedAt: string
+  createdByRunId: string
+  updatedByRunId: string
+}
+
+export interface PublishedHarnessWorkspaceSnapshot {
+  workspaceId: string
+  slug: string
+  releaseChecksum?: string
+  revision: number
+  updatedAt?: string
+  nodes: PublishedHarnessWorkspaceNode[]
+}
+
 export interface PublishedHarnessToolCall {
   id: string
   type: "function"

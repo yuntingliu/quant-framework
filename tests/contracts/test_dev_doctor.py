@@ -20,6 +20,11 @@ def test_dev_doctor_reports_readiness_without_secret_values(monkeypatch) -> None
         "configured": True,
         "missing": [],
     }
+    assert report["checks"]["runtime_execution"]["required_datasets"] == [
+        "rq.instruments",
+        "rq.bars",
+        "rq.paused",
+    ]
     serialized = json.dumps(report)
     assert "doctor-secret" not in serialized
     assert "doctor-user" not in serialized

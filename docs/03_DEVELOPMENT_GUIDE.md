@@ -177,6 +177,14 @@ strategy package ID; users do not choose or freeze revisions. The backend also
 pins the current validation package before queueing, and historical result
 endpoints never read later source.
 
+Reports are Conexus Document nodes, read through `/api/conexus/workspace` and
+mutated by the published Agent through `create_nodes` and `update_nodes`.
+AlphaLab does not keep a second Markdown copy in SQLite. Report IDs are stable
+Document node IDs; the Agent updates an existing matching report and creates a
+new one only for a new research subject. The current report history is global
+to the AlphaLab publication and is not partitioned by project. Report Markdown
+must remain domain-facing and omit hashes and execution identifiers.
+
 Validation source routes are under `/api/validation`. `validation.py` must
 declare `VALIDATION_SDK_VERSION = 1` and provide `performance` and `alpha_beta`
 `@analysis` functions. Each receives one `ValidationContext`; keyword-only

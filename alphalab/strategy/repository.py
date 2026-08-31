@@ -55,8 +55,9 @@ class StrategyRepository:
     def __init__(self, db_path: str | Path | None = None) -> None:
         self.path = Path(db_path) if db_path else _DEFAULT_DB
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
+        self._conn = sqlite3.connect(str(self.path), timeout=30, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA busy_timeout = 30000")
         self._lock = threading.RLock()
         self._conn.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
         self._seed_default()
@@ -336,27 +337,49 @@ class StrategyRepository:
         *,
         expected_source_sha256: str | None = None,
     ) -> dict[str, Any]:
-        row = self._editable_row(project_id)
-        if expected_source_sha256 and row["draft_source_sha256"] != expected_source_sha256:
+        observed = self._editable_row(project_id)
+        if (
+            expected_source_sha256
+            and observed["draft_source_sha256"] != expected_source_sha256
+        ):
             raise RuntimeError("draft changed since it was inspected")
-        source = str(row["draft_source"])
+        source = str(observed["draft_source"])
         inspection = inspect_strategy_source(source)
         self._probe_source(source, inspection)
-        current = self.get_package(row["id"], int(row["current_revision"]))
-        if current and current["source_sha256"] == inspection.source_sha256:
-            return current
-        revision = int(row["current_revision"]) + 1
-        parent = int(row["current_revision"]) or None
         with self._lock:
-            self._insert_package(row["id"], revision, parent, source, inspection)
-            self._conn.execute(
-                """UPDATE strategy_projects
-                   SET current_revision = ?, draft_parent_revision = ?, updated_at = datetime('now')
-                   WHERE id = ?""",
-                (revision, revision, row["id"]),
-            )
-            self._conn.commit()
-        return self.get_package(row["id"], revision) or {}
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                row = self._conn.execute(
+                    "SELECT * FROM strategy_projects WHERE id = ?",
+                    (observed["id"],),
+                ).fetchone()
+                if row is None:
+                    raise KeyError(str(observed["id"]))
+                compare_hash = expected_source_sha256 or str(observed["draft_source_sha256"])
+                if row["draft_source_sha256"] != compare_hash or row["draft_source"] != source:
+                    raise RuntimeError("draft changed while the revision was being saved")
+                current = self._conn.execute(
+                    """SELECT * FROM strategy_source_packages
+                       WHERE project_id = ? AND revision = ?""",
+                    (row["id"], int(row["current_revision"])),
+                ).fetchone()
+                if current is not None and current["source_sha256"] == inspection.source_sha256:
+                    revision = int(row["current_revision"])
+                else:
+                    revision = int(row["current_revision"]) + 1
+                    parent = int(row["current_revision"]) or None
+                    self._insert_package(row["id"], revision, parent, source, inspection)
+                    self._conn.execute(
+                        """UPDATE strategy_projects
+                           SET current_revision = ?, draft_parent_revision = ?,
+                               updated_at = datetime('now') WHERE id = ?""",
+                        (revision, revision, row["id"]),
+                    )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+        return self.get_package(str(observed["id"]), revision) or {}
 
     def list_packages(self, project_id: str) -> list[dict[str, Any]]:
         normalized = normalize_project_id(project_id)
@@ -510,16 +533,24 @@ class StrategyRepository:
                 "factor public IDs cannot contain path separators", phase="register"
             )
         with self._lock:
-            self._conn.execute(
-                """UPDATE strategy_projects
-                   SET draft_source = ?, draft_source_sha256 = ?, updated_at = datetime('now')
-                   WHERE id = ?""",
-                (bundled, inspection.source_sha256, row["id"]),
-            )
-            self._write_source_units(
-                str(row["id"]), strategy_source, factor_sources, factor_ids
-            )
-            self._conn.commit()
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                compare_hash = expected_source_sha256 or str(row["draft_source_sha256"])
+                cursor = self._conn.execute(
+                    """UPDATE strategy_projects
+                       SET draft_source = ?, draft_source_sha256 = ?, updated_at = datetime('now')
+                       WHERE id = ? AND draft_source_sha256 = ?""",
+                    (bundled, inspection.source_sha256, row["id"], compare_hash),
+                )
+                if cursor.rowcount != 1:
+                    raise RuntimeError("draft changed while the update was being prepared")
+                self._write_source_units(
+                    str(row["id"]), strategy_source, factor_sources, factor_ids
+                )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
         return self.get_project(str(row["id"])) or {}
 
     def _insert_package_units(

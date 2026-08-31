@@ -103,31 +103,41 @@ export function ValidationWorkbenchWidget() {
   const [error, setError] = useState("")
   const authoringSplit = useRef<HTMLDivElement>(null)
   const resultsSection = useRef<HTMLElement>(null)
+  const projectId = project?.id
+  const projectProfile = project?.profile
 
   useEffect(() => {
     setValidation(null); setSource(""); setValidationParameters({})
     setAnalysis(null); setSignals(null); setAttribution(null); setRobustness(null)
-    if (!project) return
+    if (!projectId || !projectProfile) return
     void Promise.all([
-      api.get<ValidationWorkspace>(`/validation/projects/${project.id}`),
-      api.get<ProfileFields>(`/strategy/fields?profile=${project.profile}`),
+      api.get<ValidationWorkspace>(`/validation/projects/${projectId}`),
+      api.get<ProfileFields>(`/strategy/fields?profile=${projectProfile}`),
       api.get<BacktestRecord[]>("/backtests?limit=50"),
       api.get<BacktestJob[]>("/backtests/jobs?limit=20"),
     ]).then(([validationWorkspace, profile, runRows, jobRows]) => {
-      const projectRuns = runRows.filter((item) => item.strategy_id === project.id)
+      const projectRuns = runRows.filter((item) => item.strategy_id === projectId)
       setValidation(validationWorkspace)
       setSource(validationWorkspace.source)
       setValidationParameters(parameterValues(validationWorkspace))
       setProfileBounds(profile)
       setStartDate(profile.start_date); setEndDate(profile.end_date)
       setRuns(projectRuns); setJobs(jobRows)
-      const active = jobRows.find((item) => item.request?.project_id === project.id && (item.status === "queued" || item.status === "running"))
+      const active = jobRows.find((item) => item.request?.project_id === projectId && (item.status === "queued" || item.status === "running"))
       setActiveJobId(active?.id ?? null)
       if (!selectedBacktest || !projectRuns.some((item) => item.id === selectedBacktest)) {
         setSelectedBacktest(projectRuns[0]?.id ?? null)
       }
     }).catch((reason: Error) => setError(reason.message))
-  }, [project?.id, project?.profile, project?.current_revision, project?.draft_source_sha256, project?.strategy_source])
+  }, [
+    projectId,
+    projectProfile,
+    project?.current_revision,
+    project?.draft_source_sha256,
+    project?.strategy_source,
+    selectedBacktest,
+    setSelectedBacktest,
+  ])
 
   useEffect(() => {
     if (!activeJobId) return

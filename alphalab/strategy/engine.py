@@ -22,6 +22,7 @@ class StrategyBacktestResult:
     package: dict[str, Any]
     returns: pd.Series
     weights: pd.DataFrame
+    benchmark_symbols: tuple[str, ...]
     executions: tuple[dict[str, Any], ...]
     diagnostics: dict[str, Any]
 
@@ -207,7 +208,10 @@ def run_strategy_backtest(
     *,
     revision: int | None = None,
     seed: int = 0,
+    execution_data_policy: str = "strict",
 ) -> StrategyBacktestResult:
+    if execution_data_policy not in {"strict", "illustrative"}:
+        raise ValueError("execution_data_policy must be strict or illustrative")
     project, package = _project_package(repository, project_id, revision)
     start, end = pd.Timestamp(start_date), pd.Timestamp(end_date)
     if start >= end:
@@ -218,6 +222,7 @@ def run_strategy_backtest(
         package,
         start - pd.Timedelta(days=max(lookback * 2, 365)),
         end,
+        execution_data_policy=execution_data_policy,
     )
     sessions = tuple(value for value in prepared.sessions if start <= value <= end)
     if len(sessions) < 2:
@@ -226,12 +231,21 @@ def run_strategy_backtest(
             package=package,
             returns=pd.Series(dtype=float, name=project_id),
             weights=pd.DataFrame(),
+            benchmark_symbols=prepared.all_symbols,
             executions=(),
             diagnostics={
                 "sdk_version": 1,
                 "source_sha256": package["source_sha256"],
                 "revision": package["revision"],
                 "warnings": ["insufficient sessions"],
+                "execution_data_policy": execution_data_policy,
+                "research_valid": execution_data_policy == "strict",
+                "execution_data_exclusions": {
+                    "symbol_date_count": 0,
+                    "unique_symbol_count": 0,
+                    "symbols_sample": [],
+                    "samples": [],
+                },
             },
         )
 
@@ -253,6 +267,13 @@ def run_strategy_backtest(
     executions: list[dict[str, Any]] = []
     event_diagnostics: list[dict[str, Any]] = []
     warnings: set[str] = set()
+    execution_exclusion_count = 0
+    execution_exclusion_symbols: set[str] = set()
+    execution_exclusion_samples: list[dict[str, Any]] = []
+    if execution_data_policy == "illustrative":
+        warnings.add(
+            "illustrative execution data: suspension and price-limit coverage is not guaranteed"
+        )
     run_manifest = list(package.get("manifest") or [])
 
     with SdkExecutionSession(package["source"], timeout_seconds=30.0) as session:
@@ -260,6 +281,30 @@ def run_strategy_backtest(
         for session_index, current_date in enumerate(sessions):
             rows = bars_by_date.get(current_date, pd.DataFrame())
             available = _available_symbols(prepared.instruments, current_date, rows)
+            if execution_data_policy == "strict":
+                missing_execution_data = _execution_data_gaps(rows, available)
+                if missing_execution_data:
+                    unavailable = set(missing_execution_data)
+                    available = [symbol for symbol in available if symbol not in unavailable]
+                    execution_exclusion_count += len(missing_execution_data)
+                    execution_exclusion_symbols.update(missing_execution_data)
+                    remaining_sample_slots = max(0, 50 - len(execution_exclusion_samples))
+                    execution_exclusion_samples.extend(
+                        {
+                            "date": str(current_date)[:10],
+                            "symbol": symbol,
+                            "missing_fields": list(fields),
+                        }
+                        for symbol, fields in list(missing_execution_data.items())[
+                            :remaining_sample_slots
+                        ]
+                    )
+
+            _assert_no_unsettled_delistings(
+                asset_values,
+                prepared.instruments,
+                current_date,
+            )
 
             open_prices = _prices(rows, "open")
             close_prices = _prices(rows, "close")
@@ -286,6 +331,7 @@ def run_strategy_backtest(
                     open_nav,
                     field="open",
                     project=project,
+                    strict_execution_data=execution_data_policy == "strict",
                 )
                 executions.append(
                     {
@@ -354,6 +400,7 @@ def run_strategy_backtest(
                     close_nav,
                     field="close",
                     project=project,
+                    strict_execution_data=execution_data_policy == "strict",
                 )
                 executions.append(
                     {
@@ -430,11 +477,18 @@ def run_strategy_backtest(
     weights_frame = (
         pd.DataFrame.from_dict(weights, orient="index").reindex(returns_series.index).fillna(0.0)
     )
+    if execution_exclusion_count:
+        warnings.add(
+            "strict execution excluded "
+            f"{execution_exclusion_count} symbol-date candidates with missing "
+            "suspension or price-limit data"
+        )
     return StrategyBacktestResult(
         project=project,
         package=package,
         returns=returns_series,
         weights=weights_frame,
+        benchmark_symbols=prepared.all_symbols,
         executions=tuple(executions),
         diagnostics={
             "sdk_version": 1,
@@ -452,6 +506,16 @@ def run_strategy_backtest(
             "events": event_diagnostics,
             "final_state": state,
             "warnings": sorted(warnings),
+            "execution_data_policy": execution_data_policy,
+            "research_valid": (
+                execution_data_policy == "strict" and execution_exclusion_count == 0
+            ),
+            "execution_data_exclusions": {
+                "symbol_date_count": execution_exclusion_count,
+                "unique_symbol_count": len(execution_exclusion_symbols),
+                "symbols_sample": sorted(execution_exclusion_symbols)[:50],
+                "samples": execution_exclusion_samples,
+            },
         },
     )
 
@@ -475,7 +539,11 @@ def _prepare_data(
     package: Mapping[str, Any],
     start: pd.Timestamp,
     end: pd.Timestamp,
+    *,
+    execution_data_policy: str = "none",
 ) -> PreparedRunData:
+    if execution_data_policy not in {"none", "strict", "illustrative"}:
+        raise ValueError("execution_data_policy must be none, strict, or illustrative")
     # RQ ``all_instruments`` is an instrument master stamped with its retrieval
     # date.  Its listing intervals are still valid for earlier research dates.
     # Loading it through an end-date view drops instruments that delisted during
@@ -512,20 +580,26 @@ def _prepare_data(
     instruments["snapshot_date"] = pd.Timestamp(start).normalize()
     instruments = instruments.drop_duplicates("symbol", keep="last").reset_index(drop=True)
     symbols = tuple(sorted(instruments["symbol"].dropna().unique()))
-    fields = list(
+    declared_bar_fields = list(
         dict.fromkeys(
             package.get("data_requirements", {}).get("bars")
             or ["open", "high", "low", "close", "volume", "amount"]
         )
     )
     required_execution_fields = ["open", "close", "volume", "amount"]
-    fields = list(dict.fromkeys([*fields, *required_execution_fields]))
+    supplemental_execution_fields = (
+        ["limit_up", "limit_down"] if execution_data_policy == "strict" else []
+    )
+    required_bar_fields = list(
+        dict.fromkeys([*declared_bar_fields, *required_execution_fields])
+    )
+    fields = list(dict.fromkeys([*required_bar_fields, *supplemental_execution_fields]))
     state_field_names = {"paused", "is_suspended", "is_st"}
     requested_state_fields = list(
         dict.fromkeys(
             [
                 *(field for field in fields if field in state_field_names),
-                "is_suspended",
+                *(["is_suspended"] if execution_data_policy != "none" else []),
             ]
         )
     )
@@ -562,9 +636,16 @@ def _prepare_data(
             on=["date", "symbol"],
             how="left",
         )
-    missing = sorted(set(fields) - set(bars.columns))
+    missing = sorted(set(required_bar_fields) - set(bars.columns))
     if missing:
         raise MissingDataError(f"data profile is missing required bar fields: {missing}")
+    if execution_data_policy == "strict":
+        # These fields are execution safeguards rather than strategy inputs.
+        # Missing values make only that symbol/date ineligible; they must not
+        # abort unrelated symbols or fabricate a sale of an existing holding.
+        for field in ("is_suspended", "limit_up", "limit_down"):
+            if field not in bars:
+                bars[field] = pd.NA
     sessions = tuple(pd.DatetimeIndex(bars["date"].dropna().unique()).sort_values())
 
     instrument_fields = list(package.get("data_requirements", {}).get("instruments") or ())
@@ -728,6 +809,40 @@ def _available_symbols(
             break
     symbols = set(frame["symbol"].dropna().astype(str).str.upper().unique())
     return sorted(symbols)
+
+
+def _execution_data_gaps(
+    rows: pd.DataFrame,
+    symbols: Sequence[str],
+) -> dict[str, tuple[str, ...]]:
+    """Return missing strict-execution fields for otherwise valid candidates."""
+
+    if not symbols:
+        return {}
+    if rows.empty:
+        return {str(symbol).upper(): ("market_row",) for symbol in symbols}
+    frame = rows.reset_index() if rows.index.name == "symbol" else rows.copy()
+    if "symbol" not in frame:
+        return {str(symbol).upper(): ("market_row",) for symbol in symbols}
+    frame["symbol"] = frame["symbol"].astype(str).str.upper()
+    indexed = frame.drop_duplicates("symbol", keep="last").set_index("symbol")
+    gaps: dict[str, tuple[str, ...]] = {}
+    for raw_symbol in symbols:
+        symbol = str(raw_symbol).upper()
+        if symbol not in indexed.index:
+            gaps[symbol] = ("market_row",)
+            continue
+        row = indexed.loc[symbol]
+        missing_fields: list[str] = []
+        if pd.isna(row.get("is_suspended", pd.NA)):
+            missing_fields.append("is_suspended")
+        for field in ("limit_up", "limit_down"):
+            value = pd.to_numeric(pd.Series([row.get(field)]), errors="coerce").iloc[0]
+            if pd.isna(value) or not math.isfinite(float(value)) or float(value) <= 0:
+                missing_fields.append(field)
+        if missing_fields:
+            gaps[symbol] = tuple(missing_fields)
+    return gaps
 
 
 def _limits(project: Mapping[str, Any]) -> dict[str, float]:
@@ -912,6 +1027,7 @@ def _execute_target(
     *,
     field: str,
     project: Mapping[str, Any],
+    strict_execution_data: bool,
 ) -> tuple[dict[str, float], float, dict[str, float], dict[str, Any]]:
     decision = pending["decision"]
     policy = pending["policy"]
@@ -938,14 +1054,24 @@ def _execute_target(
         indexed_rows,
         field,
         policy.get("fallback_candidates") or (),
+        strict_execution_data=strict_execution_data,
     )
     trade_rows = indexed_rows.set_index("symbol") if "symbol" in indexed_rows else indexed_rows
+    missing_execution_data: dict[str, tuple[str, ...]] = {}
     for symbol in set(target) | set(current):
         delta = float(target.get(symbol, 0.0)) - float(current.get(symbol, 0.0))
         if abs(delta) <= 1e-12:
             continue
         side = "buy" if delta > 0 else "sell"
-        if not _trade_allowed(trade_rows, symbol, field, side=side):
+        if strict_execution_data:
+            missing_execution_data.update(_execution_data_gaps(trade_rows, [symbol]))
+        if not _trade_allowed(
+            trade_rows,
+            symbol,
+            field,
+            side=side,
+            strict_execution_data=strict_execution_data,
+        ):
             indexed_rows.loc[
                 indexed_rows["symbol"].astype(str).str.upper().eq(symbol), "volume"
             ] = 0.0
@@ -989,6 +1115,10 @@ def _execute_target(
             "routed_target_weights": target,
             "fallback_routes": fallback_routes,
             "executed_weights": executed,
+            "missing_execution_data": [
+                {"symbol": symbol, "missing_fields": list(fields)}
+                for symbol, fields in sorted(missing_execution_data.items())
+            ],
             "decision_reason": decision.get("reason"),
             "state_committed": True,
         },
@@ -1001,6 +1131,8 @@ def _route_fallbacks(
     rows: pd.DataFrame,
     field: str,
     fallbacks: Sequence[str],
+    *,
+    strict_execution_data: bool,
 ) -> tuple[dict[str, float], list[dict[str, Any]]]:
     routed = dict(target)
     routes: list[dict[str, Any]] = []
@@ -1009,7 +1141,13 @@ def _route_fallbacks(
     for symbol, wanted in list(target.items()):
         old = float(current.get(symbol, 0.0))
         increase = float(wanted) - old
-        if increase <= 1e-12 or _trade_allowed(indexed, symbol, field, side="buy"):
+        if increase <= 1e-12 or _trade_allowed(
+            indexed,
+            symbol,
+            field,
+            side="buy",
+            strict_execution_data=strict_execution_data,
+        ):
             continue
         routed[symbol] = old
         if routed[symbol] <= 1e-12:
@@ -1019,7 +1157,13 @@ def _route_fallbacks(
                 str(candidate).upper()
                 for candidate in fallbacks
                 if str(candidate).upper() not in used
-                and _trade_allowed(indexed, str(candidate).upper(), field, side="buy")
+                and _trade_allowed(
+                    indexed,
+                    str(candidate).upper(),
+                    field,
+                    side="buy",
+                    strict_execution_data=strict_execution_data,
+                )
             ),
             None,
         )
@@ -1039,6 +1183,7 @@ def _trade_allowed(
     field: str,
     *,
     side: str,
+    strict_execution_data: bool = False,
 ) -> bool:
     if symbol not in rows.index:
         return False
@@ -1053,17 +1198,57 @@ def _trade_allowed(
         for value in (price, volume, amount)
     ):
         return False
-    suspended = row.get("is_suspended", False)
+    suspended = row.get("is_suspended", pd.NA)
+    if strict_execution_data and pd.isna(suspended):
+        return False
     if pd.notna(suspended) and bool(suspended):
         return False
     limit_field = "limit_up" if side == "buy" else "limit_down"
     limit_value = pd.to_numeric(pd.Series([row.get(limit_field)]), errors="coerce").iloc[0]
+    if strict_execution_data and (
+        pd.isna(limit_value)
+        or not math.isfinite(float(limit_value))
+        or float(limit_value) <= 0
+    ):
+        return False
     if pd.notna(limit_value) and float(limit_value) > 0:
         if side == "buy" and float(price) >= float(limit_value) - 1e-12:
             return False
         if side == "sell" and float(price) <= float(limit_value) + 1e-12:
             return False
     return True
+
+
+def _assert_no_unsettled_delistings(
+    asset_values: Mapping[str, float],
+    instruments: pd.DataFrame,
+    as_of: pd.Timestamp,
+) -> None:
+    held = {str(symbol).upper() for symbol, value in asset_values.items() if value > 1e-12}
+    if not held or instruments.empty or "symbol" not in instruments:
+        return
+    delisted_field = next(
+        (field for field in ("de_listed_date", "delisted_date") if field in instruments),
+        None,
+    )
+    if delisted_field is None:
+        return
+    frame = instruments.loc[
+        instruments["symbol"].astype(str).str.upper().isin(held),
+        ["symbol", delisted_field],
+    ].copy()
+    delisted = pd.to_datetime(frame[delisted_field], errors="coerce")
+    affected = sorted(
+        frame.loc[delisted.notna() & delisted.le(pd.Timestamp(as_of)), "symbol"]
+        .astype(str)
+        .str.upper()
+        .unique()
+    )
+    if affected:
+        raise MissingDataError(
+            "held instruments reached delisting without an explicit settlement price: "
+            + ", ".join(affected)
+        )
 
 
 def _prices(rows: pd.DataFrame, field: str) -> dict[str, float]:

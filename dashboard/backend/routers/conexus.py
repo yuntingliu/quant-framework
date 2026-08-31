@@ -25,16 +25,29 @@ def _publication_slug() -> str:
     return value if _SLUG.fullmatch(value) else _DEFAULT_PUBLICATION_SLUG
 
 
+def _workspace_token() -> str:
+    return os.getenv("CONEXUS_PUBLICATION_WORKSPACE_TOKEN", "").strip()
+
+
 def _path_segment(value: str) -> str:
     return quote(value, safe="")
 
 
-def _upstream_headers(request: Request, *, accept: str = "application/json") -> dict[str, str]:
+def _upstream_headers(
+    request: Request,
+    *,
+    accept: str = "application/json",
+    service_authorization: bool = False,
+) -> dict[str, str]:
     headers = {"Accept": accept}
-    for name in ("authorization", "content-type"):
+    for name in ("content-type",):
         value = request.headers.get(name)
         if value:
             headers[name] = value
+    token = _workspace_token() if service_authorization else ""
+    authorization = f"Bearer {token}" if token else request.headers.get("authorization")
+    if authorization:
+        headers["authorization"] = authorization
     return headers
 
 
@@ -65,14 +78,31 @@ async def _fetch_json(path: str) -> dict:
         return value if isinstance(value, dict) else {}
 
 
-async def _forward(request: Request, method: str, path: str) -> Response:
+async def _forward(
+    request: Request,
+    method: str,
+    path: str,
+    *,
+    service_authorization: bool = False,
+) -> Response:
+    if service_authorization and not _workspace_token():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": "Conexus durable workspace access is not configured.",
+                "code": "workspace_not_configured",
+            },
+        )
     body = await request.body() if method not in {"GET", "HEAD"} else None
     try:
         async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
             upstream = await client.request(
                 method,
                 f"{_web_origin()}{path}",
-                headers=_upstream_headers(request),
+                headers=_upstream_headers(
+                    request,
+                    service_authorization=service_authorization,
+                ),
                 params=list(request.query_params.multi_items()),
                 content=body,
             )
@@ -84,6 +114,13 @@ async def _forward(request: Request, method: str, path: str) -> Response:
 @router.get("/status")
 async def conexus_status() -> dict:
     slug = _publication_slug()
+    if not _workspace_token():
+        return {
+            "available": False,
+            "mode": "not_configured",
+            "publication": slug,
+            "error": "workspace_not_configured",
+        }
     try:
         await _fetch_json(f"/api/public/harnesses/{_path_segment(slug)}/descriptor")
         return {
@@ -115,6 +152,17 @@ async def create_run(request: Request) -> Response:
         request,
         "POST",
         f"/api/public/harnesses/{_path_segment(_publication_slug())}/runs",
+        service_authorization=True,
+    )
+
+
+@router.get("/workspace")
+async def publication_workspace(request: Request) -> Response:
+    return await _forward(
+        request,
+        "GET",
+        f"/api/public/harnesses/{_path_segment(_publication_slug())}/workspace",
+        service_authorization=True,
     )
 
 

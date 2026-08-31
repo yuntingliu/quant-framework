@@ -566,6 +566,8 @@ def test_complete_sdk_backtest_persists_revision_hash_and_manifest(tmp_path, mon
     )
     assert result["revision"] == 1
     assert result["source_sha256"]
+    assert result["provenance"]["benchmark"]["source"] == "prepared_instrument_master"
+    assert len(result["provenance"]["benchmark"]["symbols"]) == 300
     store = ResultStore(database)
     try:
         record = store.get_backtest_record(result["id"])

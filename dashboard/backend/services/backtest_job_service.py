@@ -35,7 +35,9 @@ class BacktestJobManager:
         self._futures: dict[str, Future[None]] = {}
         self._lock = Lock()
         with self._store() as store:
-            store.mark_backtest_jobs_interrupted()
+            recovered = store.requeue_backtest_jobs()
+        for job in recovered:
+            self._schedule(job["id"], job["request"])
 
     @contextmanager
     def _store(self) -> Iterator[ResultStore]:
@@ -53,11 +55,14 @@ class BacktestJobManager:
             job_id = store.create_backtest_job(request)
             job = store.get_backtest_job(job_id)
         assert job is not None
+        self._schedule(job_id, request)
+        return job
+
+    def _schedule(self, job_id: str, request: dict) -> None:
         future = self._executor.submit(self._run, job_id, request)
         with self._lock:
             self._futures[job_id] = future
         future.add_done_callback(lambda _: self._forget(job_id))
-        return job
 
     def get(self, job_id: str) -> dict | None:
         with self._store() as store:
@@ -86,9 +91,16 @@ class BacktestJobManager:
                 request["project_id"], request["start_date"], request["end_date"],
                 request["profile"], request.get("revision"),
             )
-            if "validation_revision" in inspect.signature(self._runner).parameters:
+            parameters = inspect.signature(self._runner).parameters
+            keyword_arguments = {}
+            if "validation_revision" in parameters:
+                keyword_arguments["validation_revision"] = request.get("validation_revision")
+            if "backtest_id" in parameters:
+                keyword_arguments["backtest_id"] = job_id
+            if keyword_arguments:
                 result = self._runner(
-                    *arguments, validation_revision=request.get("validation_revision")
+                    *arguments,
+                    **keyword_arguments,
                 )
             else:
                 result = self._runner(*arguments)

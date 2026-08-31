@@ -35,7 +35,6 @@ import { agentWorkspaceWidgetIds } from "@/widgets/registry/catalog"
 const DECISION_NOTEBOOK_NODE_ID = "alphalab-decision-notebook-v1"
 const WORKSPACE_COMMANDS_NODE_ID = "alphalab-workspace-commands-v1"
 const WORKSPACE_RESULT_NODE_ID = "alphalab-workspace-result-v1"
-const WORKSPACE_DOCUMENT_NODE_ID = "alphalab-research-document-v1"
 
 function customNodePayload(value: unknown, expectedType: string): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value
@@ -115,14 +114,15 @@ function workspaceResultValueFromArtifact(artifact: PublishedHarnessArtifact): u
 
 function workspaceDocumentFromArtifact(artifact: PublishedHarnessArtifact): string | null {
   if (artifact.kind !== "document") return null
-  return artifact.outputKey === "workspaceDocument" || artifact.producerNodeId === WORKSPACE_DOCUMENT_NODE_ID
-    ? artifact.content.markdown
-    : null
+  return artifact.outputKey === "reportDocument" ? artifact.content.markdown : null
 }
 
 const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   observe_nodes: { zh: "读取工作台上下文", en: "Read workspace context" },
-  update_nodes: { zh: "更新决策笔记", en: "Update decision notebook" },
+  describe_node_type: { zh: "读取文档接口", en: "Read Document contract" },
+  create_nodes: { zh: "新建研究报告", en: "Create research report" },
+  update_nodes: { zh: "更新研究结果", en: "Update research result" },
+  delete_node: { zh: "删除研究报告", en: "Delete research report" },
   commit_harness_outputs: { zh: "原子提交研究结果", en: "Commit research outputs atomically" },
   list_nodes: { zh: "检查工作台节点", en: "Inspect workspace nodes" },
   alphalab_get_workspace_context: { zh: "读取项目与数据目录", en: "Read project and data catalog" },
@@ -136,7 +136,6 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   alphalab_validation_source: { zh: "验证源码", en: "Validation source" },
   alphalab_backtest: { zh: "完整策略回测", en: "Strategy backtest" },
   alphalab_backtest_analysis: { zh: "回测分析", en: "Backtest analysis" },
-  alphalab_research_report: { zh: "研究报告", en: "Research report" },
 }
 
 function decisionNotebookFromCheckpoint(
@@ -211,8 +210,6 @@ function Artifact({ artifact }: { artifact: PublishedHarnessArtifact }) {
     || artifact.producerNodeId === WORKSPACE_COMMANDS_NODE_ID
     || artifact.outputKey === "workspaceResult"
     || artifact.producerNodeId === WORKSPACE_RESULT_NODE_ID
-    || artifact.outputKey === "workspaceDocument"
-    || artifact.producerNodeId === WORKSPACE_DOCUMENT_NODE_ID
     || artifact.outputKey === "decisionNotebook"
     || artifact.producerNodeId === DECISION_NOTEBOOK_NODE_ID
   ) return null
@@ -290,8 +287,14 @@ export function ResearchAgentPanel() {
       if (!batch || !pendingWorkspaceRequestIdsRef.current.has(batch.requestId)) continue
       const runArtifacts = [...artifacts].reverse().filter((candidate) => candidate.runId === artifact.runId)
       const descriptorArtifact = runArtifacts.find((candidate) => workspaceResultValueFromArtifact(candidate) !== undefined)
-      const documentArtifact = runArtifacts.find((candidate) => workspaceDocumentFromArtifact(candidate) !== null)
       const descriptor = descriptorArtifact ? workspaceResultValueFromArtifact(descriptorArtifact) : undefined
+      const descriptorRecord = descriptor && typeof descriptor === "object" && !Array.isArray(descriptor)
+        ? descriptor as Record<string, unknown>
+        : undefined
+      const reportId = typeof descriptorRecord?.reportId === "string" ? descriptorRecord.reportId : undefined
+      const documentArtifact = runArtifacts.find((candidate) => (
+        candidate.producerNodeId === reportId && workspaceDocumentFromArtifact(candidate) !== null
+      ))
       const markdown = documentArtifact ? workspaceDocumentFromArtifact(documentArtifact) : null
       const parsedResult = descriptorArtifact
         ? parseAgentResearchResult(descriptor, {

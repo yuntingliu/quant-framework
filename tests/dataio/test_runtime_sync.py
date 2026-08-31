@@ -23,7 +23,7 @@ from alphalab.dataio.fundamentals import (
 from alphalab.dataio.quality import validate_all, validate_dataset
 from alphalab.dataio.rq_sync import RQAcquirer
 from alphalab.dataio.runtime import OperationsStore, RuntimeStore
-from alphalab.dataio.sync import RQSyncService, SyncRequest, build_sync_plan
+from alphalab.dataio.sync import RQSyncService, SyncJobManager, SyncRequest, build_sync_plan
 from alphalab.tools import create_data_tool_registry
 
 
@@ -127,6 +127,43 @@ def test_runtime_store_rejects_an_os_locked_dataset(tmp_path) -> None:
     finally:
         runtime_module._release_file_lock(descriptor)
         os.close(descriptor)
+
+
+def test_operations_store_requeues_unfinished_jobs_and_honors_cancellation(tmp_path) -> None:
+    operations = OperationsStore(tmp_path)
+    resumable_id = operations.create_job({"source": "rq"})
+    cancelled_id = operations.create_job({"source": "rq"})
+    operations.update_job(resumable_id, status="running", progress=2, total=5)
+    operations.update_job(cancelled_id, status="running", progress=1, total=5)
+    assert operations.request_cancel(cancelled_id)
+
+    recovered = operations.recover_jobs()
+
+    assert [job["id"] for job in recovered] == [resumable_id]
+    assert operations.get_job(resumable_id)["status"] == "queued"
+    assert operations.get_job(resumable_id)["progress"] == 2
+    assert operations.get_job(cancelled_id)["status"] == "cancelled"
+
+
+def test_sync_manager_resumes_a_persisted_job_on_startup(monkeypatch, tmp_path) -> None:
+    operations = OperationsStore(tmp_path)
+    job_id = operations.create_job({"source": "rq"})
+    operations.update_job(job_id, status="running", progress=2, total=5)
+
+    def finish_recovered_job(service, recovered_job_id):
+        service.operations.update_job(recovered_job_id, status="succeeded", progress=5, total=5)
+        return service.operations.get_job(recovered_job_id)
+
+    monkeypatch.setattr(RQSyncService, "run", finish_recovered_job)
+    manager = SyncJobManager(tmp_path)
+    try:
+        manager.shutdown()
+    finally:
+        recovered = operations.get_job(job_id)
+
+    assert recovered is not None
+    assert recovered["status"] == "succeeded"
+    assert recovered["progress"] == 5
 
 
 def test_first_disclosure_and_canonical_fundamentals_are_point_in_time() -> None:
@@ -833,11 +870,38 @@ def test_gap_validation_checks_each_daily_factor_date_range(tmp_path) -> None:
         fail_on_gap=True,
     )
 
-    assert report["metrics"]["field_date_coverage"] == {
-        "market_cap": 1.0,
-        "roe": 0.5,
+    assert report["metrics"]["field_key_coverage"] == {
+        "market_cap": 0.5,
+        "roe": 0.25,
     }
-    assert {issue["code"] for issue in report["issues"]} == {"factor_date_gap"}
+    assert {issue["code"] for issue in report["issues"]} == {"factor_key_gap"}
+
+
+def test_instrument_snapshot_is_not_required_at_historical_start_bound(tmp_path) -> None:
+    store = RuntimeStore(tmp_path)
+    store.write(
+        "rq.instruments",
+        pd.DataFrame(
+            {
+                "snapshot_date": pd.to_datetime(["2025-01-03"]),
+                "symbol": ["000001.SZ"],
+                "asset_type": ["CS"],
+                "listed_date": pd.to_datetime(["1991-04-03"]),
+                "de_listed_date": [pd.NaT],
+            }
+        ),
+    )
+
+    report = validate_dataset(
+        "rq.instruments",
+        tmp_path,
+        start_date="2020-01-01",
+        as_of_date="2025-01-03",
+        fail_on_gap=True,
+    )
+
+    assert report["status"] == "passed"
+    assert not any(issue["code"] == "stale_start_date" for issue in report["issues"])
 
 
 def test_recipe_quality_scope_does_not_mix_other_template_symbols(tmp_path) -> None:

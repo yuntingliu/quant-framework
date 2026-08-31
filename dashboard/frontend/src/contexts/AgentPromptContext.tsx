@@ -1,7 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 
-import { parseAgentResearchResult, type AgentResearchResult } from "@/workspace/researchResults"
-import { api } from "@/lib/api"
+import {
+  parseAgentResearchResult,
+  parseWorkspaceReportNode,
+  type AgentResearchResult,
+} from "@/workspace/researchResults"
+import { readWorkspace } from "@/lib/conexus/publishedHarnessClient"
 
 export interface AgentDecisionNotebook {
   runId?: string
@@ -45,6 +49,9 @@ function migrateSavedResearchResult(value: unknown): unknown {
   return {
     ...saved,
     kind: "document",
+    reportId: typeof saved.reportId === "string"
+      ? saved.reportId
+      : typeof saved.projectId === "string" ? saved.projectId : saved.artifactId,
     markdown: `# ${title}\n\n${description}`,
   }
 }
@@ -84,18 +91,16 @@ export function AgentPromptProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshResearchResults = useCallback(async () => {
-    const { items } = await api.get<{ items: unknown[] }>("/reports?limit=100")
-    const persisted = items
-      .map((item) => parseAgentResearchResult(item, {
-        markdown: typeof (item as Record<string, unknown>)?.markdown === "string"
-          ? (item as Record<string, unknown>).markdown as string
-          : undefined,
-      }))
+    const workspace = await readWorkspace()
+    const persisted = workspace.nodes
+      .map(parseWorkspaceReportNode)
       .filter((item): item is AgentResearchResult => item !== null)
-    setResearchResults((current) => [
-      ...persisted,
-      ...current.filter((item) => !persisted.some((saved) => saved.id === item.id)),
-    ].slice(0, MAX_SAVED_RESULTS))
+      .sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""))
+      .slice(0, MAX_SAVED_RESULTS)
+    setResearchResults((current) => persisted.map((saved) => {
+      const cached = current.find((item) => item.id === saved.id)
+      return cached ? { ...cached, ...saved } : saved
+    }))
   }, [])
 
   useEffect(() => {

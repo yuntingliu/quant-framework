@@ -6,6 +6,7 @@ import importlib.metadata
 import json
 import platform
 import subprocess
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,6 +21,7 @@ def build_research_provenance(
     strategy_python: str | None = None,
     data_root: str | Path | None = None,
     runtime_root: str | Path | None = None,
+    runtime_datasets: Iterable[str] | None = None,
 ) -> dict:
     if profile not in {"demo", "runtime"}:
         raise ValueError("profile must be demo or runtime")
@@ -34,7 +36,7 @@ def build_research_provenance(
         else None
     )
     return {
-        "version": 1,
+        "version": 2,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "profile": profile,
         "strategy_source_sha256": strategy_hash,
@@ -53,7 +55,8 @@ def build_research_provenance(
             _demo_snapshot(Path(data_root) if data_root is not None else DATA_DIR)
             if profile == "demo"
             else _runtime_snapshot(
-                Path(runtime_root) if runtime_root is not None else RUNTIME_DIR
+                Path(runtime_root) if runtime_root is not None else RUNTIME_DIR,
+                runtime_datasets,
             )
         ),
     }
@@ -87,14 +90,23 @@ def _demo_snapshot(root: Path) -> dict:
     }
 
 
-def _runtime_snapshot(root: Path) -> dict:
+def _runtime_snapshot(root: Path, datasets: Iterable[str] | None = None) -> dict:
     catalog = DataCatalog(root)
-    dataset_ids = [
-        "rq.instruments",
-        "rq.bars",
-        "canonical.fundamentals",
-        "runtime.factor_returns",
-    ]
+    dataset_ids = sorted(
+        set(
+            datasets
+            or (
+                "rq.instruments",
+                "rq.bars",
+                "rq.paused",
+                "rq.is_st",
+                "rq.daily_factors",
+                "rq.index_components",
+                "canonical.fundamentals",
+                "runtime.factor_returns",
+            )
+        )
+    )
     paths = [path for dataset in dataset_ids for path in catalog.files(dataset)]
     files = _fingerprint_files(paths, root)
     return {
