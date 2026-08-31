@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from alphalab.dataio import create_default_engine
+from alphalab.dataio import DataEngine, LocalParquetInstrumentProvider, create_default_engine
 
 
 def test_default_engine_reads_generic_local_parquet(tmp_path):
@@ -56,3 +56,22 @@ def test_default_engine_reads_generic_local_parquet(tmp_path):
     )
     assert after_release.iloc[-1]["ep"] == 0.10
     assert list(engine.get_factors(["MKT"], "2024-01-01", "2024-12-31").columns) == ["MKT"]
+
+
+def test_instrument_master_keeps_asset_slices_from_different_snapshots(tmp_path):
+    path = tmp_path / "instruments.parquet"
+    pd.DataFrame(
+        {
+            "snapshot_date": pd.to_datetime(["2026-08-12", "2026-08-25"]),
+            "symbol": ["510300.SH", "000001.SZ"],
+            "asset_type": ["ETF", "CS"],
+            "listed_date": pd.to_datetime(["2012-05-28", "1991-04-03"]),
+            "de_listed_date": [pd.NaT, pd.NaT],
+        }
+    ).to_parquet(path)
+    engine = DataEngine().register_instrument(
+        "runtime", LocalParquetInstrumentProvider(tmp_path), default=True
+    )
+
+    assert engine.get_instruments(None)["symbol"].tolist() == ["000001.SZ"]
+    assert set(engine.get_instrument_master()["symbol"]) == {"510300.SH", "000001.SZ"}

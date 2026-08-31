@@ -484,7 +484,10 @@ def _prepare_data(
     # rows that overlap this prepared range, then make that master available from
     # the beginning of the range; StrategyContext and _available_symbols apply
     # the listing intervals at each point in time.
-    instruments = engine.get_instruments(None)
+    master_loader = getattr(engine, "get_instrument_master", None)
+    instruments = (
+        master_loader() if callable(master_loader) else engine.get_instruments(None)
+    )
     if instruments.empty or "symbol" not in instruments:
         raise MissingDataError("point-in-time instrument snapshots are required")
     instruments = instruments.copy()

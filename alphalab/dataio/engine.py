@@ -214,6 +214,18 @@ class DataEngine:
             return pd.DataFrame()
         return self._instrument[source].get_instruments(asof_date)
 
+    def get_instrument_master(self, source: Optional[str] = None) -> pd.DataFrame:
+        """Return all persisted instrument snapshots when the provider supports it."""
+
+        source = source or self._default_instrument
+        if source is None or source not in self._instrument:
+            return pd.DataFrame()
+        provider = self._instrument[source]
+        loader = getattr(provider, "get_instrument_master", None)
+        if callable(loader):
+            return loader()
+        return provider.get_instruments(None)
+
     def get_fundamentals(
         self,
         symbols: list[str],

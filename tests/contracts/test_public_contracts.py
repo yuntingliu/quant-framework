@@ -151,7 +151,7 @@ def test_strategy_authoring_units_assemble_into_one_runtime_package():
     source = (ROOT / "alphalab/strategy/source.py").read_text(encoding="utf-8")
     edit_tool = (
         ROOT
-        / "integrations/conexus/alphalab-research-agent/tools/Edit-Strategy-Source.tool.json"
+        / "integrations/conexus/alphalab-research-agent/tools/Strategy-Source.tool.json"
     ).read_text(encoding="utf-8")
 
     assert "strategy_source_units" in schema

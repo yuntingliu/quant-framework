@@ -197,6 +197,17 @@ class LocalParquetInstrumentProvider:
                 ]
         return selected.drop_duplicates("symbol", keep="last").reset_index(drop=True)
 
+    def get_instrument_master(self) -> pd.DataFrame:
+        """Return every persisted snapshot row for historical range preparation.
+
+        Runtime recipes may publish different asset-type slices on different
+        snapshot dates. Selecting only the globally latest snapshot would drop
+        an ETF slice when a later stock recipe ran, so the strategy engine uses
+        this explicit master view and resolves listing intervals itself.
+        """
+
+        return self._load().copy()
+
 
 class LocalParquetFundamentalProvider:
     """Fundamental provider backed by one long-table parquet file."""

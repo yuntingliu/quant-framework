@@ -289,7 +289,7 @@
         "Trusted-local Python was described accurately as process-contained but not sandboxed.",
         "Factor evaluation, signal preview, portfolio decisions, event handlers, and backtests load one StrategySourcePackage without translation or fallback.",
         "The decisionNotebook output is updated before completion.",
-        "A requested rich result is persisted with alphalab_save_report before the same workspaceDocument and request-bound workspaceResult descriptor are published.",
+        "A requested rich result is persisted with alphalab_research_report action=save before the same workspaceDocument and request-bound workspaceResult descriptor are published.",
         "Interactive table data is included in workspaceResult only when sorting, filtering, or CSV export is useful.",
         "Structured charts are included only when they materially improve interpretation and every plotted series is grounded in current tool results.",
         "RQ synchronization executes only the project's saved recipe.py, resumes completed batches, and runs only when authorized by an explicit research execution request.",

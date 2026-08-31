@@ -1,0 +1,23 @@
+{
+  "toolName": "alphalab_data_sync_job",
+  "description": "List, inspect, or explicitly cancel data synchronization jobs submitted from a project's saved recipe.py.",
+  "runtime": "node",
+  "exposeAsTool": true,
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["action"],
+    "properties": {
+      "action": { "type": "string", "enum": ["list", "get", "cancel"] },
+      "project_id": { "type": "string", "minLength": 2, "maxLength": 64 },
+      "job_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 20 },
+      "confirm_cancel": { "type": "boolean", "default": false }
+    }
+  },
+  "outputSchema": { "type": ["object", "array"] },
+  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function call(path,options={}){const response=await fetch(origin()+path,{headers:{Accept:'application/json','Content-Type':'application/json'},...options});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());return response.json()}\nasync function run(input){const action=String(input.action||''),base='/api/data-sync/jobs';if(action==='list'){let jobs=await call(base+'?limit='+Math.max(1,Math.min(200,Number(input.limit||20))));if(input.project_id)jobs=jobs.filter(job=>String(job.request?.project_id||'')===String(input.project_id));return jobs}const id=String(input.job_id||'').trim();if(!id)throw new Error('job_id is required');if(action==='get')return call(base+'/'+encodeURIComponent(id));if(action==='cancel'){if(input.confirm_cancel!==true)throw new Error('Cancelling a data sync job requires explicit confirmation');return call(base+'/'+encodeURIComponent(id)+'/cancel',{method:'POST',body:'{}'})}throw new Error('unsupported data sync job action')}",
+  "timeoutMs": 60000,
+  "permissions": { "network": "alphalab-api" },
+  "sideEffects": "write"
+}

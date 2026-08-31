@@ -2,11 +2,13 @@ import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
-const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)))
+const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)))
+const sourceRoot = resolve(process.env.ALPHALAB_SOURCE_ROOT || repositoryRoot)
+const projectRoot = resolve(process.env.CONEXUS_PROJECT_ROOT || sourceRoot)
 const canvasPath = resolve(projectRoot, ".conexus", "canvas.json")
 const bundlePath = "integrations/conexus/alphalab-research-agent"
 const stagedBundlePath = "workspace/harnesses/AlphaLab-Research-Agent-v1"
-const sourceBundlePath = resolve(projectRoot, bundlePath)
+const sourceBundlePath = resolve(sourceRoot, bundlePath)
 const stagedBundleAbsolutePath = resolve(projectRoot, stagedBundlePath)
 const harnessId = "alphalab-research-harness-v1"
 const agentId = "alphalab-research-agent-v1"
@@ -17,27 +19,17 @@ const documentId = "alphalab-research-document-v1"
 
 const toolNodes = [
   ["alphalab-tool-workspace-context-v1", "AlphaLab Workspace Context", "Get-Workspace-Context.tool.json"],
-  ["alphalab-tool-research-project-v1", "AlphaLab Research Project", "Get-Research-Project.tool.json"],
-  ["alphalab-tool-manage-research-project-v1", "Manage AlphaLab Research Project", "Manage-Research-Project.tool.json"],
-  ["alphalab-tool-data-recipe-v1", "Manage AlphaLab Data Recipe", "Manage-Data-Recipe.tool.json"],
-  ["alphalab-tool-data-sync-job-v1", "Manage AlphaLab Data Sync Job", "Manage-Data-Sync-Job.tool.json"],
-  ["alphalab-tool-edit-strategy-source-v1", "Edit AlphaLab Strategy Source", "Edit-Strategy-Source.tool.json"],
-  ["alphalab-tool-preview-strategy-v1", "Preview AlphaLab Strategy", "Preview-Strategy.tool.json"],
-  ["alphalab-tool-evaluate-strategy-factor-v1", "Evaluate AlphaLab Strategy Factor", "Evaluate-Strategy-Factor.tool.json"],
-  ["alphalab-tool-validation-source-v1", "Manage AlphaLab Validation Source", "Manage-Validation-Source.tool.json"],
-  ["alphalab-tool-market-bars-v1", "AlphaLab Market Bars", "Get-Market-Bars.tool.json"],
-  ["alphalab-tool-fundamentals-v1", "AlphaLab Fundamentals", "Get-Fundamentals.tool.json"],
-  ["alphalab-tool-factor-returns-v1", "AlphaLab Factor Returns", "Get-Factor-Returns.tool.json"],
-  ["alphalab-tool-evaluate-market-risk-factor-v1", "Evaluate AlphaLab Market Risk Factor", "Evaluate-Market-Risk-Factor.tool.json"],
-  ["alphalab-tool-backtest-v1", "AlphaLab Backtest", "Get-Backtest.tool.json"],
-  ["alphalab-tool-analyze-backtest-v1", "Analyze AlphaLab Backtest", "Analyze-Backtest.tool.json"],
-  ["alphalab-tool-run-backtest-v1", "Run AlphaLab Backtest", "Run-Backtest.tool.json"],
-  ["alphalab-tool-reports-v1", "AlphaLab Research Reports", "Get-Reports.tool.json"],
-  ["alphalab-tool-save-report-v1", "Save AlphaLab Research Report", "Save-Report.tool.json"],
-  ["alphalab-tool-data-catalog-v1", "AlphaLab Data Catalog", "Data-Catalog.tool.json"],
-  ["alphalab-tool-data-status-v1", "AlphaLab Data Status", "Data-Status.tool.json"],
-  ["alphalab-tool-data-validate-v1", "Validate AlphaLab Data", "Validate-Data.tool.json"],
-  ["alphalab-tool-data-query-v1", "Query AlphaLab Runtime Data", "Query-Runtime-Data.tool.json"],
+  ["alphalab-tool-research-project-v1", "AlphaLab Research Project", "Research-Project.tool.json"],
+  ["alphalab-tool-data-recipe-v1", "AlphaLab Data Recipe", "Data-Recipe.tool.json"],
+  ["alphalab-tool-data-sync-job-v1", "AlphaLab Data Sync Job", "Data-Sync-Job.tool.json"],
+  ["alphalab-tool-data-query-v1", "AlphaLab Data Query", "Data-Query.tool.json"],
+  ["alphalab-tool-edit-strategy-source-v1", "AlphaLab Strategy Source", "Strategy-Source.tool.json"],
+  ["alphalab-tool-evaluate-strategy-factor-v1", "AlphaLab Factor Evaluation", "Factor-Evaluation.tool.json"],
+  ["alphalab-tool-preview-strategy-v1", "AlphaLab Strategy Preview", "Strategy-Preview.tool.json"],
+  ["alphalab-tool-validation-source-v1", "AlphaLab Validation Source", "Validation-Source.tool.json"],
+  ["alphalab-tool-backtest-v1", "AlphaLab Backtest", "Backtest.tool.json"],
+  ["alphalab-tool-analyze-backtest-v1", "AlphaLab Backtest Analysis", "Backtest-Analysis.tool.json"],
+  ["alphalab-tool-reports-v1", "AlphaLab Research Report", "Research-Report.tool.json"],
 ]
 
 await mkdir(resolve(projectRoot, ".conexus"), { recursive: true })
@@ -48,7 +40,7 @@ await access(canvasPath).catch(async () => {
     "utf8",
   )
 })
-await access(resolve(projectRoot, bundlePath, "harness.json"))
+await access(resolve(sourceRoot, bundlePath, "harness.json"))
 const workspaceRoot = resolve(projectRoot, "workspace")
 const stagedRelative = relative(workspaceRoot, stagedBundleAbsolutePath)
 if (
@@ -92,6 +84,16 @@ const obsoleteNodeIds = new Set([
   "alphalab-tool-preview-paper-rebalance-v1",
   "alphalab-tool-execute-paper-rebalance-v1",
   "alphalab-tool-submit-paper-order-v1",
+  "alphalab-tool-manage-research-project-v1",
+  "alphalab-tool-market-bars-v1",
+  "alphalab-tool-fundamentals-v1",
+  "alphalab-tool-factor-returns-v1",
+  "alphalab-tool-evaluate-market-risk-factor-v1",
+  "alphalab-tool-run-backtest-v1",
+  "alphalab-tool-save-report-v1",
+  "alphalab-tool-data-catalog-v1",
+  "alphalab-tool-data-status-v1",
+  "alphalab-tool-data-validate-v1",
 ])
 const ownedEdgePrefix = "edge-alphalab-research-v1-"
 const canvas = JSON.parse(await readFile(canvasPath, "utf8"))
@@ -123,8 +125,8 @@ const nodes = [
       backingPath: `${stagedBundlePath}/harness.json`,
     },
     width: 1600,
-    height: 2600,
-    style: { width: 1600, height: 2600 },
+    height: 1450,
+    style: { width: 1600, height: 1450 },
   },
   child(agentId, "agent", { x: 32, y: 72 }, {
     label: "AlphaLab Research Agent",

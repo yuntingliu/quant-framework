@@ -32,11 +32,45 @@ The current tool contract lets the Agent:
    performance, attribution, robustness and signals, compare candidates, and
    persist a report.
 
+These capabilities are exposed through twelve intent-level tools rather than
+one tool per backend endpoint. Each mutable or executable tool uses a closed
+`action` enum, so consolidation does not weaken write, delete, or trusted-local
+Python confirmation boundaries:
+
+```text
+alphalab_get_workspace_context
+alphalab_research_project
+alphalab_data_recipe
+alphalab_data_sync_job
+alphalab_data_query
+alphalab_strategy_source
+alphalab_factor_evaluation
+alphalab_strategy_preview
+alphalab_validation_source
+alphalab_backtest
+alphalab_backtest_analysis
+alphalab_research_report
+```
+
 Strategy saves automatically run the existing probes and record an immutable
 internal source package. The Agent never exposes a separate save-revision
 operation. Factor evaluation, strategy preview, and backtests internally pin
 and verify the current strategy hash; backtests also pin and verify the current
 validation hash.
+
+Agent-facing read results are deliberately bounded. Market-data queries return
+the full row count with head/tail samples, factor evaluations return coverage,
+distribution statistics, and ranked symbol samples for each observation date,
+and strategy/backtest analysis returns metrics plus compact time-series and
+execution summaries. The canonical runtime store and frozen BacktestRun retain
+all rows; only the model context is compacted. This prevents a multi-year,
+cross-sectional study from exhausting the model context while preserving the
+hashes, counts, dates, failures, and evidence required for an auditable report.
+
+For a recipe-owned fixed universe, strategy source intersects that constant
+pool with `context.universe` at each point in time. It must not return the whole
+runtime instrument master or emit not-yet-listed symbols merely because they
+appear in the recipe's end-date snapshot.
 
 ## Confirmation boundary
 
@@ -66,10 +100,17 @@ The only modes are:
 project data factor strategy validation report
 ```
 
-Rich research results are saved through `alphalab_save_report` before the same
-request-bound document/table/chart descriptor is published to the workspace.
+Rich research results are saved through `alphalab_research_report` with
+`action=save` before the same request-bound document/table/chart descriptor is
+published to the workspace.
 Historical BacktestRuns always use their frozen strategy and validation
 snapshots.
+
+Backtests are asynchronous at the Agent boundary: `action=run` validates and
+pins the current strategy/validation packages, submits one job, and returns its
+ID immediately. The Agent then uses `action=job` until a terminal state before
+reading compact analysis. A long research run therefore cannot be mistaken for
+a failed tool call merely because it exceeds the orchestration request window.
 
 The public AlphaLab publication is anonymous and publisher-funded. Conexus
 returns the sanitized passive-node outputs changed by the current Run as
@@ -99,4 +140,5 @@ node scripts\host_conexus_research_harness.mjs
 ```
 
 Registration removes obsolete pipeline, Lab, request-template sync, paper, and
-manual-revision Agent nodes rather than keeping compatibility aliases.
+manual-revision Agent nodes. It also removes the former endpoint-shaped
+AlphaLab tool nodes rather than keeping compatibility aliases.

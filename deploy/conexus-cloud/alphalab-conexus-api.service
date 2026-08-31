@@ -1,7 +1,8 @@
 [Unit]
 Description=AlphaLab private API for Conexus tools
-After=network-online.target
+After=network-online.target alphalab-dev.service
 Wants=network-online.target
+PartOf=alphalab-dev.service
 
 [Service]
 Type=simple

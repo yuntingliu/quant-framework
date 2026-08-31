@@ -1,59 +1,54 @@
-# AlphaLab Conexus cloud deployment
+# AlphaLab on the shared Conexus host
 
-This deployment runs beside the existing server workspace and does not share
-its container, project directory, volume, port, or administrator session.
+AlphaLab is published as an independent Harness inside the canonical Conexus
+root Canvas. It does not own a second Web Host, Compose project, project volume,
+administrator session, or deployment timer.
 
+- Shared Web Host: `conexus-digui-web-1`
+- Shared loopback port: `127.0.0.1:3000`
+- AlphaLab Harness: `alphalab-research-harness-v1`
+- AlphaLab publication slug: `alphalab-research-agent`
 - Public origin: `https://alphalab.43.154.239.41.nip.io`
-- Compose project: `conexus-alphalab`
-- Server directory: `/opt/conexus/alphalab`
-- Loopback Web Host port: `3100`
-- Loopback AlphaLab tunnel port: `18000`
-- Local tunnel key: `%USERPROFILE%\.ssh\alphalab_conexus_ed25519`
+- Private AlphaLab API tunnel endpoint: `127.0.0.1:18000`
 
-The public Harness is anonymous and publisher-funded. AlphaLab's FastAPI
-backend remains local because it owns the local database and RiceQuant data
-connection. Start the restricted reverse SSH tunnel explicitly when the cloud
-Tool runtime needs to call that API without exposing port 8000 publicly.
-Publisher-funded model calls use the server-side OpenRouter key and are pinned
-to `openai/gpt-5.6-sol`; the key is never packaged in the Harness or frontend.
-The Agent has no host-imposed iteration, output-token, or Harness deadline
-ceiling; it runs until it calls `complete` or the user cancels the run.
+The root Canvas may contain other product Harnesses. Harness graphs, Hosting
+slugs, exposure policies, billing policies, release histories, and workspaces
+remain namespaced even though one Web Host owns the Canvas and serves all
+publications. Do not create a `conexus-alphalab` Compose project for this
+integration.
 
-Cloud-connected workstation startup (use two terminals):
+The canonical shared-host Compose and deployment files live in the Conexus
+repository under `infra/enterprise/`. `Caddyfile.alphalab` only adds the
+AlphaLab hostname to that existing listener; it must proxy port `3000`.
 
-```powershell
-cd E:\quant-framework
-powershell -ExecutionPolicy Bypass -File .\scripts\start_alphalab_conexus_tunnel.ps1
-```
+## Private AlphaLab API
 
-```powershell
-cd E:\quant-framework
-powershell -ExecutionPolicy Bypass -File .\dashboard\start.ps1
-```
+AlphaLab data, project, strategy, and backtest operations remain on the hosted
+research workstation. Conexus tools reach them through a restricted reverse
+SSH tunnel:
 
-Server status and logs:
-
-```bash
-sudo docker compose \
-  --env-file /opt/conexus/alphalab/.env \
-  -f /opt/conexus/alphalab/docker-compose.yml ps
-sudo docker logs --tail 100 conexus-alphalab-web-1
-```
-
-Secrets remain in the server-side mode-600 `.env` and are not part of this
-directory. The existing `conexus-digui` Compose project is not a dependency of
-this deployment.
-
-## Hosted Linux workstation
-
-The hosted AlphaLab workstation keeps browser access and Conexus tool access on
-separate loopback listeners:
-
-- `127.0.0.1:8100`: browser-facing deployment app with Basic authentication.
-- `127.0.0.1:8101`: private FastAPI listener for Conexus tools.
-- Hong Kong `127.0.0.1:18000`: reverse-tunnel endpoint forwarded to local port
-  `8101` over the authenticated SSH connection.
+- workstation `127.0.0.1:8101`: private FastAPI listener;
+- cloud `127.0.0.1:18000`: reverse-tunnel endpoint forwarded to port `8101`.
 
 Install `alphalab-conexus-api.service` and `alphalab-hk-tunnel.service` as user
-services. Never point the tool tunnel at port `8100`; doing so sends internal
-tool requests through the browser authentication boundary and returns HTTP 401.
+services. The API unit is `PartOf=alphalab-dev.service`, so switching the
+AlphaLab release and restarting the browser service also restarts the private
+API against the same release. The SSH tunnel can remain connected while the
+loopback API restarts.
+
+Never point the tunnel at browser port `8100`; that route is protected by the
+browser authentication boundary and is not the private Agent API.
+
+Verify the local API before testing the public Harness:
+
+```bash
+curl -fsS 'http://127.0.0.1:8101/api/agent/context?backtest_limit=1&sync_job_limit=1'
+systemctl --user is-active alphalab-conexus-api.service alphalab-hk-tunnel.service
+```
+
+On the Conexus server, verify both the shared host and AlphaLab publication:
+
+```bash
+curl -fsS http://127.0.0.1:3000/health
+curl -fsS http://127.0.0.1:3000/api/public/harnesses/alphalab-research-agent/descriptor
+```

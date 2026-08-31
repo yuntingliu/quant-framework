@@ -11,7 +11,11 @@ from alphalab.dataio import create_default_engine
 from alphalab.sdk.v1 import Event, FactorContext
 from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
 from alphalab.strategy.config import ExecutionSpec
-from alphalab.strategy.engine import _apply_execution_constraints, run_strategy_backtest
+from alphalab.strategy.engine import (
+    _apply_execution_constraints,
+    _prepare_data,
+    run_strategy_backtest,
+)
 from alphalab.strategy.factor_templates import (
     install_factor_template,
     list_factor_templates,
@@ -991,6 +995,52 @@ class _FutureInstrumentSnapshotEngine:
             self.bars["symbol"].isin(requested)
             & self.bars["date"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))
         ].copy()
+
+
+class _SplitInstrumentSnapshotEngine(_FutureInstrumentSnapshotEngine):
+    """Latest snapshot is stocks, while an earlier slice owns the ETFs."""
+
+    def get_instruments(self, as_of_date=None):
+        return pd.DataFrame(
+            {
+                "snapshot_date": [pd.Timestamp("2026-08-25")],
+                "symbol": ["B"],
+                "asset_type": ["CS"],
+                "listed_date": [self.dates[0]],
+                "de_listed_date": [pd.NaT],
+            }
+        )
+
+    def get_instrument_master(self):
+        return pd.DataFrame(
+            {
+                "snapshot_date": [
+                    pd.Timestamp("2026-08-12"),
+                    pd.Timestamp("2026-08-25"),
+                ],
+                "symbol": ["A", "B"],
+                "asset_type": ["ETF", "CS"],
+                "listed_date": [self.dates[0], self.dates[0]],
+                "de_listed_date": [pd.NaT, pd.NaT],
+            }
+        )
+
+
+def test_prepared_run_keeps_instruments_from_partial_snapshot_slices():
+    engine = _SplitInstrumentSnapshotEngine()
+
+    prepared = _prepare_data(
+        engine,
+        {"data_requirements": {"bars": ["open", "close", "volume", "amount"]}},
+        engine.dates[0],
+        engine.dates[-1],
+    )
+
+    assert prepared.all_symbols == ("A", "B")
+    assert set(prepared.instruments["source_snapshot_date"]) == {
+        pd.Timestamp("2026-08-12"),
+        pd.Timestamp("2026-08-25"),
+    }
 
 
 def test_backtest_uses_listing_intervals_when_instrument_snapshot_is_later(

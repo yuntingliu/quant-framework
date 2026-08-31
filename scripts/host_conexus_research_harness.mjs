@@ -2,8 +2,9 @@ import { access, readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-const projectRoot = resolve(process.env.ALPHALAB_PROJECT_ROOT || process.cwd())
-const conexusRoot = resolve(process.env.CONEXUS_ROOT || resolve(projectRoot, "..", "Conexus"))
+const alphalabRoot = resolve(process.env.ALPHALAB_SOURCE_ROOT || process.env.ALPHALAB_PROJECT_ROOT || process.cwd())
+const projectRoot = resolve(process.env.CONEXUS_PROJECT_ROOT || alphalabRoot)
+const conexusRoot = resolve(process.env.CONEXUS_ROOT || resolve(alphalabRoot, "..", "Conexus"))
 const hostingModule = resolve(
   conexusRoot,
   "apps",

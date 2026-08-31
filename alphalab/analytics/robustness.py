@@ -81,7 +81,10 @@ def equal_weight_benchmark(
         index="date", columns="symbol", values=field, aggfunc="last"
     ).reindex(index=sessions, columns=close_asof.columns)
     prices = execution_prices.combine_first(close_asof)
-    instruments = engine.get_instruments(None)
+    master_loader = getattr(engine, "get_instrument_master", None)
+    instruments = (
+        master_loader() if callable(master_loader) else engine.get_instruments(None)
+    )
     if not instruments.empty and "symbol" in instruments:
         instruments = instruments.copy()
         instruments["symbol"] = instruments["symbol"].astype(str).str.upper()
