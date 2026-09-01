@@ -7,6 +7,7 @@
     "description": "围绕项目中的 recipe.py、factors/*.py、strategy.py 和 validation.py，使用同一 RQ 仓库完成可复现的数据、因子、策略、回测与报告闭环。",
     "whenToUse": [
       "用户需要解释当前 AlphaLab 数据、策略、验证或回测",
+      "用户需要检索公开因子或最新量化文献，并在核实来源与数据可实现性后开展研究",
       "用户需要审查已保存 Python 策略的输入、输出契约、源码风险或回测结果",
       "用户需要查询、校验或使用 AlphaLab runtime 数据，Agent 可自主补齐所需 RQ 分区",
       "用户需要创建项目或修改 recipe.py、factors/*.py、strategy.py、validation.py",
@@ -36,8 +37,8 @@
         { "kind": "model", "name": "openrouter" },
         { "kind": "runtime", "name": "conexus.runtime.v1" }
       ],
-      "capabilities": ["quant-research", "research-project-management", "data-recipe-authoring", "data-operations", "data-job-control", "market-data", "fundamentals", "factor-returns", "sdk-factor-authoring", "sdk-factor-evaluation", "market-risk-factor-evaluation", "point-in-time-context", "stateful-strategy", "portfolio-construction", "execution-modeling", "strategy-source-pinning", "validation-source-authoring", "python-strategy-review", "event-backtest", "backtest-analysis", "factor-attribution", "robustness", "backtest-comparison", "experiment-loop", "report-history", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
-      "triggers": ["research", "research project", "data recipe", "data status", "data sync", "data job", "fundamentals", "signal research", "factor returns", "factor evaluation", "custom factor", "custom signal", "stateful strategy", "market risk data", "stock selection", "create project", "edit strategy", "validation python", "portfolio construction", "execution policy", "Python strategy", "backtest", "alpha beta", "factor attribution", "robustness", "compare backtests", "strategy risk", "quantitative report", "chart"],
+      "capabilities": ["quant-research", "web-research", "research-project-management", "data-recipe-authoring", "data-operations", "data-job-control", "market-data", "fundamentals", "factor-returns", "sdk-factor-authoring", "sdk-factor-evaluation", "market-risk-factor-evaluation", "point-in-time-context", "stateful-strategy", "portfolio-construction", "execution-modeling", "strategy-source-pinning", "validation-source-authoring", "python-strategy-review", "event-backtest", "backtest-analysis", "factor-attribution", "robustness", "backtest-comparison", "experiment-loop", "report-history", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
+      "triggers": ["research", "web research", "factor paper", "public factor", "research project", "data recipe", "data status", "data sync", "data job", "fundamentals", "signal research", "factor returns", "factor evaluation", "custom factor", "custom signal", "stateful strategy", "market risk data", "stock selection", "create project", "edit strategy", "validation python", "portfolio construction", "execution policy", "Python strategy", "backtest", "alpha beta", "factor attribution", "robustness", "compare backtests", "strategy risk", "quantitative report", "chart"],
       "tags": ["alphalab", "quant", "published-agent"],
       "exposures": [
         {

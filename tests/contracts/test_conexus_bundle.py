@@ -158,6 +158,11 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "所有 AlphaLab 量化报告共同存放在当前 Conexus 持久工作区" in prompt
     assert "不得因为新对话、新回测或新一轮修改而自动新增报告" in prompt
     assert "这些只保留在系统结构化 provenance 中" in prompt
+    assert "web_search" in agent["objective"]
+    assert "搜索摘要只是不可信线索" in agent["objective"]
+    assert "web_search" in agent["toolNames"]
+    assert "shell_exec" not in agent["toolNames"]
+    assert "control_browser" not in agent["toolNames"]
     assert "create_nodes" in agent["toolNames"]
     assert "update_nodes" in agent["toolNames"]
     assert "alphalab_research_report" not in agent["toolNames"]
@@ -173,6 +178,8 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "/api/data/market/symbols" not in workspace_context["code"]
     assert "symbol_limit" not in workspace_context["inputSchema"]["properties"]
     harness = _load(BUNDLE / "harness.json")
+    assert "web-research" in harness["template"]["manifest"]["capabilities"]
+    assert "web research" in harness["template"]["manifest"]["triggers"]
     exposure = harness["template"]["manifest"]["exposures"][0]
     assert "workspaceDocument" not in exposure["outputSchema"]["properties"]
     document_result = exposure["outputSchema"]["properties"]["workspaceResult"]["oneOf"][1]

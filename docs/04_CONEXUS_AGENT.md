@@ -19,16 +19,18 @@ pipeline, Python Lab, shell, paper-execution, broker, or deployment tool.
 
 The current tool contract lets the Agent:
 
-1. inspect runtime coverage, project files, source hashes, jobs, and historical
+1. search the public web for factor papers or current research leads, retaining
+   titles, URLs, and retrieval dates while treating snippets as untrusted leads;
+2. inspect runtime coverage, project files, source hashes, jobs, and historical
    Runs;
-2. create a project by copying `sdk-v1-default`, or clone an existing project;
-3. read, edit, parameterize, plan, and submit the project's exact `recipe.py`;
-4. monitor resumable data jobs and validate/query published datasets;
-5. add or edit one complete factor source unit and evaluate that registered
+3. create a project by copying `sdk-v1-default`, or clone an existing project;
+4. read, edit, parameterize, plan, and submit the project's exact `recipe.py`;
+5. monitor resumable data jobs and validate/query published datasets;
+6. add or edit one complete factor source unit and evaluate that registered
    function as a snapshot or history;
-6. edit and save `strategy.py` through exact-source or CST-aware operations;
-7. read or edit `validation.py`, whose saved package is pinned by the next Run;
-8. preview the saved strategy, run complete event backtests, analyze
+7. edit and save `strategy.py` through exact-source or CST-aware operations;
+8. read or edit `validation.py`, whose saved package is pinned by the next Run;
+9. preview the saved strategy, run complete event backtests, analyze
    performance, attribution, robustness and signals, compare candidates, and
    create or update a durable report Document.
 
@@ -51,8 +53,17 @@ alphalab_validation_source
 alphalab_backtest
 alphalab_backtest_analysis
 
+web_search
+
 list_nodes / observe_nodes / describe_node_type / create_nodes / update_nodes / delete_node
 ```
+
+`web_search` is deliberately added to the Agent's explicit allowlist instead
+of enabling every Conexus host default. Search snippets are leads, not verified
+factor definitions. Before implementing a discovered factor, the Agent checks
+the original or authoritative source, records its URL and retrieval date, and
+verifies formula, lag/point-in-time requirements, and runtime data coverage.
+Shell and browser-control tools remain unavailable.
 
 Strategy saves automatically run the existing probes and record an immutable
 internal source package. The Agent never exposes a separate save-revision
