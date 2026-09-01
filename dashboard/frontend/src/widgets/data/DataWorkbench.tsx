@@ -398,7 +398,6 @@ export function DataWorkbenchWidget() {
             documentId={project.id}
             value={source}
             version={workspace.draft.source_sha256}
-            baselineValue={workspace.draft.source}
             disabled={busy}
             height={560}
             onChange={setSource}

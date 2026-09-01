@@ -17,6 +17,7 @@ import {
   KLineTerminalChart,
   type KLineTerminalChartHandle,
   type MarketChartType,
+  type MarketFieldSeries,
 } from "./KLineTerminalChart"
 
 export type MarketRange = "3m" | "6m" | "1y" | "all"
@@ -34,6 +35,8 @@ interface MarketResearchTerminalProps {
   onReload?: () => void
   watchlist: string[]
   onToggleWatchlist: (symbol: string) => void
+  fieldSeries?: MarketFieldSeries[]
+  onCrosshairBarChange?: (bar: MarketBar | null) => void
   contextPanel?: ReactNode
   contextPanelLabel?: string
   dataLabel?: string
@@ -68,6 +71,8 @@ export function MarketResearchTerminal({
   onReload,
   watchlist,
   onToggleWatchlist,
+  fieldSeries = [],
+  onCrosshairBarChange,
   contextPanel,
   contextPanelLabel = "研究字段",
   dataLabel = "日线 · 前复权",
@@ -124,6 +129,11 @@ export function MarketResearchTerminal({
       }
       return [...current, name]
     })
+  }
+
+  function handleCrosshairChange(bar: MarketBar | null) {
+    setCrosshairBar(bar)
+    onCrosshairBarChange?.(bar)
   }
 
   return (
@@ -217,7 +227,7 @@ export function MarketResearchTerminal({
 
         <div className="market-terminal-chart">
           {rows.length ? (
-            <KLineTerminalChart ref={chartRef} rows={rows} symbol={symbol} chartType={chartType} indicators={indicators} compact={density === "compact"} onCrosshairChange={setCrosshairBar} />
+            <KLineTerminalChart ref={chartRef} rows={rows} symbol={symbol} chartType={chartType} indicators={indicators} fieldSeries={fieldSeries} compact={density === "compact"} onCrosshairChange={handleCrosshairChange} />
           ) : (
             <div className={`market-terminal-empty ${error ? "error" : ""}`}>
               {error || (loading ? "正在加载行情…" : emptyLabel)}

@@ -617,8 +617,7 @@ a[href*="TradingView"] {
 }
 
 .python-editor-toolbar button,
-.python-editor-language,
-.python-editor-server {
+.python-editor-language {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -641,22 +640,6 @@ a[href*="TradingView"] {
   margin-right: 2px;
   color: hsl(var(--foreground));
   font-weight: 650;
-}
-
-.python-editor-server {
-  border: 1px solid hsl(var(--border));
-  border-radius: 999px;
-  padding: 2px 6px;
-}
-
-.python-editor-server.ready {
-  border-color: hsl(var(--positive) / 0.35);
-  color: hsl(var(--positive));
-}
-
-.python-editor-server.error,
-.python-editor-server.missing {
-  color: hsl(var(--warning));
 }
 
 .python-editor-position {

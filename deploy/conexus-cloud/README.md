@@ -8,7 +8,8 @@ administrator session, or deployment timer.
 - Shared loopback port: `127.0.0.1:3000`
 - AlphaLab Harness: `alphalab-research-harness-v1`
 - AlphaLab publication slug: `alphalab-research-agent`
-- Public origin: `https://alphalab.43.154.239.41.nip.io`
+- Conexus origin: `https://adminer.cloud`
+- AlphaLab Web origin: `https://dev.acetoken.net`
 - Private AlphaLab API tunnel endpoint: `127.0.0.1:18000`
 
 The root Canvas may contain other product Harnesses. Harness graphs, Hosting
@@ -18,8 +19,8 @@ publications. Do not create a `conexus-alphalab` Compose project for this
 integration.
 
 The canonical shared-host Compose and deployment files live in the Conexus
-repository under `infra/enterprise/`. `Caddyfile.alphalab` only adds the
-AlphaLab hostname to that existing listener; it must proxy port `3000`.
+repository under `infra/enterprise/`. AlphaLab uses `adminer.cloud` as its
+server-side Conexus origin; it does not own a second Conexus hostname.
 
 ## Private AlphaLab API
 
@@ -49,8 +50,8 @@ systemctl --user is-active alphalab-conexus-api.service alphalab-hk-tunnel.servi
 On the Conexus server, verify both the shared host and AlphaLab publication:
 
 ```bash
-curl -fsS http://127.0.0.1:3000/health
-curl -fsS http://127.0.0.1:3000/api/public/harnesses/alphalab-research-agent/descriptor
+curl -fsS https://adminer.cloud/health
+curl -fsS https://adminer.cloud/api/public/harnesses/alphalab-research-agent/descriptor
 ```
 
 The shared Web Host and both AlphaLab API processes must receive the same

@@ -299,8 +299,14 @@ def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, mo
     catalog = client.get("/api/strategy/factor-templates")
     assert catalog.status_code == 200, catalog.text
     templates = catalog.json()["templates"]
-    assert len(templates) == 16
-    assert {item["id"] for item in templates} >= {"momentum_60d", "roe", "rsi_14"}
+    assert len(templates) == 18
+    assert {item["id"] for item in templates} >= {
+        "liquidity_20d",
+        "momentum_60d",
+        "range_volatility_20d",
+        "roe",
+        "rsi_14",
+    }
     assert all(item["source"].startswith("@factor(") for item in templates)
 
     cloned = client.post(

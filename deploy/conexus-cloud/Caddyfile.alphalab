@@ -1,8 +1,0 @@
-alphalab.43.154.239.41.nip.io {
-	reverse_proxy 127.0.0.1:3000 {
-		flush_interval -1
-		transport http {
-			response_header_timeout 300s
-		}
-	}
-}

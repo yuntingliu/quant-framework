@@ -242,7 +242,7 @@ and cannot create a second authoritative result.
 | `dashboard/backend/routers/python_editor.py` | Fixed Pyrefly/Ruff WebSocket bridge and editor document endpoints |
 | `dashboard/backend/services/python_editor_service.py` | Local server discovery, ignored source mirrors, framing, and SDK diagnostics |
 | `dashboard/frontend/src/contexts/StrategySdkContext.tsx` | Shared project, draft, revision, and hash state |
-| `dashboard/frontend/src/components/python/` | Lazy shared Monaco model, LSP runtime, AlphaLab completion, Problems, and Diff UI |
+| `dashboard/frontend/src/components/python/` | Lazy shared Monaco model, LSP runtime, AlphaLab completion, and Problems UI |
 | `integrations/conexus/alphalab-research-agent/` | SDK-aware bounded Agent tools and prompt |
 
 The package facade in `alphalab/__init__.py` intentionally exports only data,

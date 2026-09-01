@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   ArrowDown,
   ArrowUp,
@@ -7,6 +7,7 @@ import {
   Download,
   FileSpreadsheet,
   FileText,
+  RefreshCw,
   Search,
 } from "lucide-react"
 
@@ -58,9 +59,18 @@ export function ReportWorkbenchWidget() {
   const { language } = useLanguage()
   const panel = usePanel()
   const { researchResults, refreshResearchResults } = useAgentPrompt()
-  useEffect(() => {
-    void refreshResearchResults().catch(() => undefined)
+  const [refreshing, setRefreshing] = useState(false)
+  const refreshReports = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      await refreshResearchResults()
+    } finally {
+      setRefreshing(false)
+    }
   }, [refreshResearchResults])
+  useEffect(() => {
+    void refreshReports().catch(() => undefined)
+  }, [refreshReports])
   const requestedReportId = typeof panel?.params.resultId === "string" ? panel.params.resultId : undefined
   const [selectedReportId, setSelectedReportId] = useState<string | undefined>(requestedReportId)
   useEffect(() => {
@@ -89,6 +99,8 @@ export function ReportWorkbenchWidget() {
     shown: "显示",
     updated: "更新时间",
     history: "报告历史",
+    count: "份工作区报告",
+    refresh: "刷新报告历史",
   } : {
     emptyTitle: "No research result",
     emptyDetail: "Ask the Agent to create a research report and open it in the workspace.",
@@ -101,6 +113,8 @@ export function ReportWorkbenchWidget() {
     shown: "shown",
     updated: "Updated",
     history: "Report history",
+    count: "workspace reports",
+    refresh: "Refresh report history",
   }
 
   const table = result?.table
@@ -118,13 +132,63 @@ export function ReportWorkbenchWidget() {
     })
   }, [language, query, sort, table])
 
+  const historySidebar = (
+    <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-muted/10">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-3">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-foreground">{copy.history}</div>
+          <div className="mt-0.5 text-[10px] text-muted-foreground">
+            {researchResults.length} {copy.count}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground disabled:opacity-50"
+          onClick={() => { void refreshReports().catch(() => undefined) }}
+          disabled={refreshing}
+          title={copy.refresh}
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-2">
+        {researchResults.map((item) => {
+          const timestamp = item.persistedAt ?? item.generatedAt ?? item.updatedAt
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={cn(
+                "mb-1 w-full rounded border px-2.5 py-2 text-left",
+                item.id === result?.id
+                  ? "border-primary/35 bg-primary/10"
+                  : "border-transparent hover:border-border hover:bg-muted/60",
+              )}
+              onClick={() => setSelectedReportId(item.id)}
+            >
+              <span className="block truncate text-xs font-medium text-foreground">{item.title}</span>
+              {timestamp ? (
+                <span className="mt-1 block truncate text-[10px] text-muted-foreground">
+                  {new Date(timestamp).toLocaleString(language === "zh" ? "zh-CN" : "en-US")}
+                </span>
+              ) : null}
+            </button>
+          )
+        })}
+      </div>
+    </aside>
+  )
+
   if (!result) {
     return (
-      <div className="flex h-full min-h-0 items-center justify-center bg-card p-6 text-center">
-        <div className="max-w-sm">
-          <FileText className="mx-auto h-9 w-9 text-primary/70" />
-          <div className="mt-3 text-sm font-semibold text-foreground">{copy.emptyTitle}</div>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{copy.emptyDetail}</p>
+      <div className="flex h-full min-h-0 bg-card">
+        {historySidebar}
+        <div className="flex min-w-0 flex-1 items-center justify-center p-6 text-center">
+          <div className="max-w-sm">
+            <FileText className="mx-auto h-9 w-9 text-primary/70" />
+            <div className="mt-3 text-sm font-semibold text-foreground">{copy.emptyTitle}</div>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{copy.emptyDetail}</p>
+          </div>
         </div>
       </div>
     )
@@ -148,20 +212,10 @@ export function ReportWorkbenchWidget() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-card">
-      <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-2">
-        <span className="shrink-0 text-xs font-medium text-muted-foreground">{copy.history}</span>
-        <select
-          className="h-8 min-w-0 flex-1 rounded border border-border bg-background px-2 text-xs text-foreground outline-none focus:border-primary"
-          value={result.id}
-          onChange={(event) => setSelectedReportId(event.target.value)}
-        >
-          {researchResults.map((item) => (
-            <option key={item.id} value={item.id}>{item.title}</option>
-          ))}
-        </select>
-      </div>
-      <div className="shrink-0 border-b border-border px-4 py-3">
+    <div className="flex h-full min-h-0 bg-card">
+      {historySidebar}
+      <div className="flex min-w-0 flex-1 flex-col bg-card">
+        <div className="shrink-0 border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-primary/25 bg-primary/10 text-primary">
             <FileText className="h-4 w-4" />
@@ -189,10 +243,10 @@ export function ReportWorkbenchWidget() {
             <span>{copy.updated}: {new Date(result.persistedAt ?? result.generatedAt ?? result.updatedAt ?? "").toLocaleString(language === "zh" ? "zh-CN" : "en-US")}</span>
           ) : null}
         </div>
-      </div>
+        </div>
 
-      {table || charts ? (
-        <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-2">
+        {table || charts ? (
+          <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-2">
           <button
             type="button"
             className={cn("flex h-7 items-center gap-1.5 rounded px-2 text-xs", activeView === "document" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")}
@@ -221,20 +275,20 @@ export function ReportWorkbenchWidget() {
               {copy.charts}
             </button>
           ) : null}
-        </div>
-      ) : null}
+          </div>
+        ) : null}
 
-      {activeView === "document" || (activeView === "table" && !table) || (activeView === "charts" && !charts) ? (
-        <div className="min-h-0 flex-1 overflow-auto p-5">
-          <SafeMarkdown className="mx-auto max-w-5xl">{result.markdown}</SafeMarkdown>
-        </div>
-      ) : activeView === "charts" && charts ? (
-        <div className="min-h-0 flex-1 overflow-auto p-4">
-          <ResearchResultCharts charts={charts} />
-        </div>
-      ) : table ? (
-        <>
-          <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+        {activeView === "document" || (activeView === "table" && !table) || (activeView === "charts" && !charts) ? (
+          <div className="min-h-0 flex-1 overflow-auto p-5">
+            <SafeMarkdown className="mx-auto max-w-5xl">{result.markdown}</SafeMarkdown>
+          </div>
+        ) : activeView === "charts" && charts ? (
+          <div className="min-h-0 flex-1 overflow-auto p-4">
+            <ResearchResultCharts charts={charts} />
+          </div>
+        ) : table ? (
+          <>
+            <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <input
@@ -245,8 +299,8 @@ export function ReportWorkbenchWidget() {
               />
             </div>
             <span className="shrink-0 text-[10px] text-muted-foreground">{copy.shown} {visibleRows.length}/{table.rows.length}</span>
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto">
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
             <table className="min-w-full border-separate border-spacing-0 text-xs">
               <thead className="sticky top-0 z-10 bg-card">
                 <tr>
@@ -283,9 +337,10 @@ export function ReportWorkbenchWidget() {
                 ))}
               </tbody>
             </table>
-          </div>
-        </>
-      ) : null}
+            </div>
+          </>
+        ) : null}
+      </div>
     </div>
   )
 }

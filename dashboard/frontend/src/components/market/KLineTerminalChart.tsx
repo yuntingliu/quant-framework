@@ -8,9 +8,11 @@ import {
 import {
   dispose,
   init,
+  registerIndicator,
   type Chart,
   type Crosshair,
   type DeepPartial,
+  type Indicator,
   type KLineData,
   type Styles,
 } from "klinecharts"
@@ -19,6 +21,49 @@ import { useTheme } from "@/contexts/ThemeContext"
 import type { MarketBar } from "@/lib/api"
 
 export type MarketChartType = "candle_solid" | "area"
+
+export interface MarketFieldSeries {
+  id: string
+  label: string
+  placement: "main" | "sub"
+  values: Array<{ date: string; value: number | null }>
+}
+
+interface ResearchFieldIndicatorValue {
+  value?: number
+}
+
+interface ResearchFieldIndicatorExtension {
+  color: string
+  values: Array<[number, number | null]>
+}
+
+const RESEARCH_FIELD_INDICATOR = "ALPHALAB_RESEARCH_FIELD"
+const RESEARCH_FIELD_COLORS = ["#7c8cff", "#f59e0b"]
+
+registerIndicator<ResearchFieldIndicatorValue, never, ResearchFieldIndicatorExtension>({
+  name: RESEARCH_FIELD_INDICATOR,
+  shortName: "研究字段",
+  precision: 4,
+  shouldFormatBigNumber: true,
+  extendData: { color: RESEARCH_FIELD_COLORS[0], values: [] },
+  figures: [{
+    key: "value",
+    title: "值: ",
+    type: "line",
+    styles: ({ indicator }) => ({
+      color: (indicator.extendData as ResearchFieldIndicatorExtension).color,
+      size: 1.4,
+    }),
+  }],
+  calc: (dataList, indicator: Indicator<ResearchFieldIndicatorValue, never, ResearchFieldIndicatorExtension>) => {
+    const values = new Map(indicator.extendData.values)
+    return dataList.map((row) => {
+      const value = values.get(row.timestamp)
+      return typeof value === "number" && Number.isFinite(value) ? { value } : {}
+    })
+  },
+})
 
 export interface KLineTerminalChartHandle {
   createOverlay: (name: "segment" | "horizontalStraightLine") => void
@@ -31,6 +76,7 @@ interface KLineTerminalChartProps {
   symbol: string
   chartType: MarketChartType
   indicators: string[]
+  fieldSeries?: MarketFieldSeries[]
   compact?: boolean
   onCrosshairChange?: (bar: MarketBar | null) => void
 }
@@ -147,7 +193,7 @@ function asMarketBar(data: KLineData | undefined): MarketBar | null {
 }
 
 export const KLineTerminalChart = forwardRef<KLineTerminalChartHandle, KLineTerminalChartProps>(
-  function KLineTerminalChart({ rows, symbol, chartType, indicators, compact = false, onCrosshairChange }, forwardedRef) {
+  function KLineTerminalChart({ rows, symbol, chartType, indicators, fieldSeries = [], compact = false, onCrosshairChange }, forwardedRef) {
     const { theme } = useTheme()
     const containerRef = useRef<HTMLDivElement>(null)
     const chartRef = useRef<Chart | null>(null)
@@ -234,7 +280,35 @@ export const KLineTerminalChart = forwardRef<KLineTerminalChartHandle, KLineTerm
           }
         }
       })
-    }, [indicators])
+      fieldSeries.forEach((series, index) => {
+        const color = RESEARCH_FIELD_COLORS[index % RESEARCH_FIELD_COLORS.length]
+        const paneId = series.placement === "main" ? "candle_pane" : undefined
+        const indicatorId = `alphalab-field-${series.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+        const createdPaneId = chart.createIndicator({
+          name: RESEARCH_FIELD_INDICATOR,
+          id: indicatorId,
+          ...(paneId ? { paneId } : {}),
+          shortName: series.label,
+          series: series.placement === "main" ? "price" : "normal",
+          precision: 4,
+          shouldFormatBigNumber: true,
+          extendData: {
+            color,
+            values: series.values.map((item) => [timestampFor(item.date), item.value]),
+          },
+          figures: [{
+            key: "value",
+            title: `${series.label}: `,
+            type: "line",
+            styles: () => ({ color, size: 1.4 }),
+          }],
+        }, series.placement === "main")
+        if (series.placement === "sub" && createdPaneId) {
+          const indicator = chart.getIndicators({ id: indicatorId })[0]
+          if (indicator) chart.setPaneOptions({ id: indicator.paneId, minHeight: 72, height: 104 })
+        }
+      })
+    }, [fieldSeries, indicators])
 
     useImperativeHandle(forwardedRef, () => ({
       createOverlay(name) {

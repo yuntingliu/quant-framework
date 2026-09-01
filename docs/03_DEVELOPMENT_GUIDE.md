@@ -204,11 +204,17 @@ All six workbenches use the selected project from `StrategySdkContext`. A strate
 save or structured edit automatically validates and records the internal source
 package through the shared context. Do not expose revision numbers, hashes,
 draft/freeze states, or a second freeze action in normal workbench UI. Factor
-field and dependency buttons insert valid Python into the active factor
-function. Factor tests and backtests are disabled only while editor changes are
+data-field controls select point-in-time series for the shared market chart and
+must not mutate Python; factor dependency buttons may insert a dependency into
+the active factor function. Factor tests and backtests are disabled only while editor changes are
 unsaved. The factor template catalog may add only to a clean editable project
 and must then refresh the shared project context so Factor and Strategy views
 see the same registered factors immediately.
+
+The default factor catalog contains complete, financially meaningful factor
+implementations rather than one template per raw dataset column. Identifiers
+and execution-state fields such as suspension, ST, and price-limit status remain
+data or core trading constraints; they are not promoted to selection factors.
 
 The Data Workbench is the acquisition exception: it edits the project's one
 data-recipe module, not the strategy module. Built-in and user-saved template

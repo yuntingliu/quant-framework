@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Braces, FlaskConical, Library, Play, Plus, Save, Search, Trash2 } from "lucide-react"
+import { Braces, FlaskConical, Library, LineChart, Play, Plus, Save, Search, Trash2 } from "lucide-react"
 
-import { MarketResearchTerminal, type MarketRange, useMarketWatchlist } from "@/components/market"
+import { MarketResearchTerminal, type MarketFieldSeries, type MarketRange, useMarketWatchlist } from "@/components/market"
 import { PythonEditor, type PythonEditorHandle } from "@/components/python"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -25,6 +25,11 @@ interface FundamentalPayload {
   fields: string[]
   asof_date: string
   rows: Array<Record<string, string | number | null>>
+}
+
+interface SelectedResearchField {
+  dataset: string
+  name: string
 }
 
 interface FactorValue { symbol: string; value: number | null }
@@ -83,6 +88,11 @@ function dateBefore(endDate: string, range: MarketRange): string | null {
   return start.toISOString().slice(0, 10)
 }
 
+function quarterForDate(date: string): string {
+  const [year, month] = date.split("-").map(Number)
+  return `${year}q${Math.ceil(month / 3)}`
+}
+
 function displayValue(value: unknown): string {
   if (typeof value === "string") return value || "—"
   if (typeof value !== "number" || !Number.isFinite(value)) return "—"
@@ -95,15 +105,27 @@ function displayValue(value: unknown): string {
   })
 }
 
-function FactorMarketBrowser({ fields, onInsertField }: {
-  fields: FieldCatalog | null
-  onInsertField: (field: string, dataset: string) => void
-}) {
+function numericFieldValue(row: Record<string, unknown> | undefined, field: string): number | null {
+  const value = row?.[field]
+  if (typeof value === "boolean") return value ? 1 : 0
+  return typeof value === "number" && Number.isFinite(value) ? value : null
+}
+
+function fundamentalAtDate(rows: Array<Record<string, string | number | null>>, date: string) {
+  return rows
+    .filter((row) => typeof row.available_date === "string" && row.available_date <= date)
+    .sort((left, right) => String(left.available_date).localeCompare(String(right.available_date)))
+    .at(-1)
+}
+
+function FactorMarketBrowser({ fields }: { fields: FieldCatalog | null }) {
   const sdk = useStrategySdk()
   const { activeMode, selectedSymbol, setSelectedSymbol } = useWorkspace()
   const project = sdk.project
   const [range, setRange] = useState<MarketRange>("6m")
   const [reloadRevision, setReloadRevision] = useState(0)
+  const [selectedFields, setSelectedFields] = useState<SelectedResearchField[]>([])
+  const [crosshairDate, setCrosshairDate] = useState("")
   const { watchlist, toggleWatchlist } = useMarketWatchlist()
   const endDate = fields?.end_date || new Date().toISOString().slice(0, 10)
   const symbolQuery = useQuery({
@@ -132,23 +154,61 @@ function FactorMarketBrowser({ fields, onInsertField }: {
     staleTime: 30_000,
   })
   const fundamentalsQuery = useQuery({
-    queryKey: ["sdk-factor", "fundamentals", project?.profile, symbol, endDate],
+    queryKey: ["sdk-factor", "fundamentals", project?.profile, symbol, fields?.start_date, endDate, range],
     queryFn: () => {
-      const params = new URLSearchParams({ profile: project?.profile ?? "runtime", asof_date: endDate, limit: "40" })
+      const startDate = dateBefore(endDate, range) ?? fields?.start_date ?? endDate
+      const params = new URLSearchParams({
+        profile: project?.profile ?? "runtime",
+        asof_date: endDate,
+        start_quarter: quarterForDate(startDate),
+        end_quarter: quarterForDate(endDate),
+        limit: "1000",
+      })
       params.append("symbols", symbol)
       return api.get<FundamentalPayload>(`/data/fundamentals?${params.toString()}`)
     },
     enabled: activeMode === "factor" && Boolean(project && symbol),
     staleTime: 30_000,
   })
-  const bars = barsQuery.data?.rows ?? []
+  const bars = useMemo(() => barsQuery.data?.rows ?? [], [barsQuery.data?.rows])
   const latestBar = bars.at(-1)
-  const latestFundamental = useMemo(
-    () => [...(fundamentalsQuery.data?.rows ?? [])]
-      .sort((left, right) => String(left.quarter ?? "").localeCompare(String(right.quarter ?? ""))).at(-1),
+  const displayedDate = crosshairDate || latestBar?.date || endDate
+  const displayedBar = bars.find((row) => row.date === displayedDate) ?? latestBar
+  const fundamentalRows = useMemo(
+    () => fundamentalsQuery.data?.rows ?? [],
     [fundamentalsQuery.data?.rows],
   )
+  const displayedFundamental = useMemo(
+    () => fundamentalAtDate(fundamentalRows, displayedDate),
+    [displayedDate, fundamentalRows],
+  )
+  const fieldSeries = useMemo<MarketFieldSeries[]>(() => selectedFields.map((selected) => {
+    const values = selected.dataset === "fundamentals"
+      ? bars.map((bar) => ({
+        date: bar.date,
+        value: numericFieldValue(fundamentalAtDate(fundamentalRows, bar.date), selected.name),
+      }))
+      : bars.map((bar) => ({
+        date: bar.date,
+        value: numericFieldValue(bar as unknown as Record<string, unknown>, selected.name),
+      }))
+    return {
+      id: `${selected.dataset}-${selected.name}`,
+      label: `${selected.dataset === "fundamentals" ? "基本面" : "行情"} · ${selected.name}`,
+      placement: selected.dataset === "market_bars" && ["open", "high", "low", "close"].includes(selected.name) ? "main" : "sub",
+      values,
+    }
+  }), [bars, fundamentalRows, selectedFields])
   const fieldCount = Object.values(fields?.datasets ?? {}).reduce((count, rows) => count + rows.length, 0)
+
+  function toggleField(dataset: string, name: string) {
+    setSelectedFields((current) => {
+      const active = current.some((item) => item.dataset === dataset && item.name === name)
+      if (active) return current.filter((item) => item.dataset !== dataset || item.name !== name)
+      const next = { dataset, name }
+      return current.length >= 2 ? [current[1], next] : [...current, next]
+    })
+  }
 
   return (
     <section className="factor-source-browser" aria-label="因子研究数据">
@@ -158,24 +218,28 @@ function FactorMarketBrowser({ fields, onInsertField }: {
         error={barsQuery.error instanceof Error ? barsQuery.error.message : ""}
         onReload={() => setReloadRevision((value) => value + 1)} watchlist={watchlist}
         onToggleWatchlist={toggleWatchlist} dataLabel={`日线 · 截至 ${endDate}`}
-        emptyLabel="当前证券没有可用 K 线。" density="compact"
+        emptyLabel="当前证券没有可用 K 线。" density="compact" fieldSeries={fieldSeries}
+        onCrosshairBarChange={(bar) => setCrosshairDate(bar?.date ?? "")}
       />
       <div className="factor-source-fields">
         <div className="factor-source-fields-heading">
-          <div><strong>当前数据全部字段</strong><small>点击即插入 Python</small></div>
-          <span>{fieldCount} 个字段</span>
+          <div><strong>数据字段</strong><small>点击字段，在上方图表展示；最多同时比较 2 项</small></div>
+          <span>{selectedFields.length ? `已展示 ${selectedFields.length}/2` : `${fieldCount} 个字段`}</span>
         </div>
         <div className="factor-source-field-groups">
           {Object.entries(fields?.datasets ?? {}).map(([dataset, rows]) => (
             <section className="factor-source-field-group" key={dataset}>
-              <header><strong>{dataset}</strong><code>context</code><span>{rows.length}</span></header>
+              <header><strong>{dataset}</strong><code>{dataset === "fundamentals" ? "点时基本面" : "行情序列"}</code><span>{rows.length}</span></header>
               <div className="factor-source-field-grid">
                 {rows.map((field) => {
-                  const value = dataset === "fundamentals" ? latestFundamental?.[field.name] : latestBar?.[field.name as keyof MarketBar]
+                  const active = selectedFields.some((item) => item.dataset === dataset && item.name === field.name)
+                  const value = dataset === "fundamentals"
+                    ? displayedFundamental?.[field.name]
+                    : (displayedBar as unknown as Record<string, unknown> | undefined)?.[field.name]
                   return (
-                    <button className="factor-source-field" type="button" key={`${dataset}-${field.name}`} title={`把 ${field.name} 插入当前 @factor`} onClick={() => onInsertField(field.name, dataset)}>
+                    <button className={`factor-source-field ${active ? "active" : ""}`} type="button" key={`${dataset}-${field.name}`} aria-pressed={active} title={`${active ? "隐藏" : "展示"} ${field.name} 数据序列`} onClick={() => toggleField(dataset, field.name)}>
                       <span><code>{field.name}</code><small>{field.data_type}</small></span>
-                      <strong>{displayValue(value)}</strong><Plus size={11} />
+                      <strong>{displayValue(value)}</strong><LineChart size={11} />
                     </button>
                   )
                 })}
@@ -315,11 +379,6 @@ export function FactorWorkbenchWidget() {
     if (factorEditor.current) insert()
     else window.setTimeout(insert, 0)
   }
-  function insertField(field: string, dataset: string) {
-    insertAtFactorCursor(dataset === "fundamentals"
-      ? `context.fundamental("${field}")`
-      : `context.current("${field}")`)
-  }
   function insertFactorDependency(factor: SdkEntrypoint) {
     insertAtFactorCursor(`context.factor("${factor.id}")`)
   }
@@ -453,7 +512,7 @@ export function FactorWorkbenchWidget() {
   return (
     <Widget headerless>
       <div className="factor-workbench-shell">
-        <FactorMarketBrowser fields={fields} onInsertField={insertField} />
+        <FactorMarketBrowser fields={fields} />
         <Tabs className="factor-workbench-tabs" value={workspaceView} onValueChange={(value) => setWorkspaceView(value as "build" | "results")}>
           <div className="factor-workbench-toolbar">
             <TabsList><TabsTrigger value="build">因子库与编辑</TabsTrigger><TabsTrigger value="results">因子检验{hasUnsavedChanges ? <span className="factor-tab-warning">尚未保存</span> : null}</TabsTrigger></TabsList>
@@ -466,14 +525,14 @@ export function FactorWorkbenchWidget() {
           <TabsContent className="factor-workbench-content" value="build"><div className="factor-build-grid">
             <section className="factor-lab-panel embedded">
               <header className="factor-panel-header"><span><strong><Library size={14} /> 因子库</strong></span><Button size="sm" variant="outline" disabled={!project.editable || busy || factorDirty} onClick={() => void addFactor()}><Plus />新因子</Button></header>
-              <div className="factor-template-controls"><label><Search size={12} /><input value={templateQuery} onChange={(event) => setTemplateQuery(event.target.value)} placeholder="搜索 16 个内置因子" /></label><div>{(["all", "technical", "fundamental"] as const).map((category) => <button type="button" key={category} className={templateCategory === category ? "active" : ""} onClick={() => setTemplateCategory(category)}>{category === "all" ? "全部" : category === "technical" ? "技术" : "基本面"}</button>)}</div></div>
+              <div className="factor-template-controls"><label><Search size={12} /><input value={templateQuery} onChange={(event) => setTemplateQuery(event.target.value)} placeholder={`搜索 ${templatesQuery.data?.templates.length ?? 0} 个默认因子`} /></label><div>{(["all", "technical", "fundamental"] as const).map((category) => <button type="button" key={category} className={templateCategory === category ? "active" : ""} onClick={() => setTemplateCategory(category)}>{category === "all" ? "全部" : category === "technical" ? "技术" : "基本面"}</button>)}</div></div>
               <div className="factor-panel-scroll">
                 <div className="factor-section-heading"><span>项目因子</span><strong>{factors.length}</strong></div>
                 <div className="factor-project-list">{factors.map((factor) => <button type="button" key={factor.id} className={activeFactor?.id === factor.id ? "active" : ""} onClick={() => selectProjectFactor(factor.id)}><span><strong>{factor.id}</strong><small>{factor.label ? `${factor.label} · ` : ""}{factor.function}</small></span></button>)}</div>
-                <div className="factor-section-heading mt-4"><span>可用 Python 模板</span><strong>{templates.length}</strong></div>
+                <div className="factor-section-heading mt-4"><span>默认因子库</span><strong>{templates.length}</strong></div>
                 {templatesQuery.isLoading ? <div className="analytics-empty">正在读取因子模板…</div> : null}
                 {templatesQuery.error instanceof Error ? <div className="workbench-message error">{templatesQuery.error.message}</div> : null}
-                <div className="factor-template-list">{templates.map((template) => <article key={template.id}><div><span><strong>{template.label}</strong><small>{template.description}</small></span><em>{template.category === "technical" ? "技术" : "基本面"} · {template.recommended_direction === "higher" ? "高值优先" : "低值优先"}</em></div><footer><code>{template.id}</code><button type="button" disabled={!project.editable || localDirty || Boolean(installingTemplate)} onClick={() => void installTemplate(template)}><Plus size={11} />{installingTemplate === template.id ? "加入中" : "加入项目"}</button></footer></article>)}</div>
+                <div className="factor-template-list">{templates.map((template) => <article key={template.id}><div><span><strong>{template.label}</strong><small>{template.description}</small><small>数据：{template.inputs.join("、")}</small></span><em>{template.category === "technical" ? "技术" : "基本面"} · {template.recommended_direction === "higher" ? "高值优先" : "低值优先"}</em></div><footer><code>{template.id}</code><button type="button" disabled={!project.editable || localDirty || Boolean(installingTemplate)} onClick={() => void installTemplate(template)}><Plus size={11} />{installingTemplate === template.id ? "加入中" : "加入项目"}</button></footer></article>)}</div>
                 <div className="factor-section-heading mt-4">可复用因子依赖</div>
                 <div className="factor-catalog-list">{factors.filter((factor) => factor.id !== activeFactor?.id).map((factor) => <button type="button" key={factor.id} onClick={() => insertFactorDependency(factor)}><span><strong>{factor.label || factor.id}</strong><small>插入 context.factor("{factor.id}")</small></span><Plus size={13} /></button>)}</div>
               </div>
@@ -486,7 +545,6 @@ export function FactorWorkbenchWidget() {
                 documentId={`${project.id}.factor.${factors.indexOf(activeFactor)}`}
                 value={factorSource}
                 version={`${project.draft_source_sha256}:${activeFactor.id}`}
-                baselineValue={savedFactorSource}
                 disabled={!project.editable}
                 height={640}
                 fields={Object.entries(fields?.datasets ?? {}).flatMap(([dataset, items]) => items.map((item) => ({ name: item.name, dataset, detail: `${item.data_type}${item.nullable ? " · 可空" : ""}` })))}

@@ -367,7 +367,6 @@ export function ValidationWorkbenchWidget() {
                 documentId={`${project.id}.validation`}
                 value={source}
                 version={validation.source_sha256}
-                baselineValue={validation.source}
                 disabled={!validation.editable}
                 height="100%"
                 fields={[]}

@@ -504,7 +504,6 @@ export function StrategyWorkbenchWidget() {
                       documentId={visualDirty ? `${project.id}.visual.strategy` : `${project.id}.strategy`}
                       value={moduleDisplaySource}
                       version={visualDirty ? sourcePreview?.source_sha256 ?? `${projectHash}:visual-pending` : projectHash}
-                      baselineValue={project.strategy_source}
                       disabled={codeReadOnly}
                       height="100%"
                       factors={factorEntrypoints.map((factor) => ({ id: factor.id, label: factor.label }))}

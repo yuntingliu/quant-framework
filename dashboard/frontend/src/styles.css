@@ -6415,6 +6415,11 @@ button {
 .factor-source-field { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.04rem 0.2rem; border: 1px solid hsl(var(--border)); border-radius: 0.32rem; background: hsl(var(--background) / 0.6); color: hsl(var(--foreground)); padding: 0.22rem 0.3rem; text-align: left; }
 button.factor-source-field { cursor: pointer; }
 button.factor-source-field:hover { border-color: hsl(var(--primary) / 0.45); background: hsl(var(--primary) / 0.06); }
+button.factor-source-field.active {
+  border-color: hsl(var(--primary) / 0.65);
+  background: hsl(var(--primary) / 0.1);
+  box-shadow: inset 2px 0 hsl(var(--primary));
+}
 .factor-source-field.index { opacity: 0.62; }
 .factor-source-field > span { display: flex; min-width: 0; align-items: baseline; gap: 0.18rem; }
 .factor-source-field-grid code { overflow: hidden; color: hsl(var(--primary)); font-size: 0.49rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
@@ -6422,6 +6427,7 @@ button.factor-source-field:hover { border-color: hsl(var(--primary) / 0.45); bac
 .factor-source-field-grid small { overflow: hidden; min-width: 0; color: hsl(var(--muted-foreground)); font-size: 0.45rem; text-overflow: ellipsis; white-space: nowrap; }
 .factor-source-field-grid strong { overflow: hidden; grid-column: 1 / -1; color: hsl(var(--muted-foreground)); font: 550 0.49rem/1.2 "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .factor-source-field-grid svg { grid-column: 2; grid-row: 1; color: hsl(var(--primary)); }
+button.factor-source-field:not(.active) svg { color: hsl(var(--muted-foreground) / 0.55); }
 .factor-source-field-grid em { grid-column: 2; grid-row: 1; color: hsl(var(--muted-foreground)); font-size: 0.41rem; font-style: normal; }
 .factor-workbench-tabs {
   display: flex;

@@ -146,6 +146,33 @@ def turnover_20d(context, *, window: int = 20):
 """,
     ),
     _technical(
+        "liquidity_20d",
+        "20 日平均成交额",
+        "最近 20 日平均成交额，用于刻画可交易容量与流动性。",
+        ("amount",),
+        """
+@factor(id="liquidity_20d", label="20 日平均成交额")
+def liquidity_20d(context, *, window: int = 20):
+    amount = context.history("amount", window=window)
+    return amount.mean()
+""",
+    ),
+    _technical(
+        "range_volatility_20d",
+        "20 日日内振幅",
+        "最近 20 日高低价差相对收盘价的均值，通常以低值优先使用。",
+        ("high", "low", "close"),
+        """
+@factor(id="range_volatility_20d", label="20 日日内振幅")
+def range_volatility_20d(context, *, window: int = 20):
+    high = context.history("high", window=window)
+    low = context.history("low", window=window)
+    close = context.history("close", window=window).replace(0.0, float("nan"))
+    return ((high - low) / close).mean()
+""",
+        direction="lower",
+    ),
+    _technical(
         "volume_ratio",
         "成交量比率",
         "近 5 日平均成交量与近 20 日平均成交量之比。",

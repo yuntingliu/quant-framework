@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
   type CSSProperties,
 } from "react"
-import { AlertCircle, CheckCircle2, Code2, GitCompare, Sparkles, Wand2 } from "lucide-react"
+import { AlertCircle, Code2, Wand2 } from "lucide-react"
 
 import { useTheme } from "@/contexts/ThemeContext"
 import { api } from "@/lib/api"
@@ -19,7 +19,6 @@ import {
   preparePythonDocument,
   startPythonEditorRuntime,
   subscribePythonEditorRuntime,
-  type EditorServerStatus,
 } from "./pythonEditorRuntime"
 
 type MonacoEditor = monaco.editor.IStandaloneCodeEditor
@@ -71,7 +70,6 @@ export interface PythonEditorProps {
   documentId: string
   value: string
   version?: string
-  baselineValue?: string
   disabled?: boolean
   height?: number | string
   className?: string
@@ -299,10 +297,6 @@ function installSdkProviders() {
   })
 }
 
-function serverLabel(status: EditorServerStatus) {
-  return ({ starting: "连接中", ready: "就绪", missing: "未安装", error: "连接失败" } as const)[status]
-}
-
 function markerSeverity(severity: Diagnostic["severity"]) {
   if (severity === "error") return monaco.MarkerSeverity.Error
   if (severity === "warning") return monaco.MarkerSeverity.Warning
@@ -314,7 +308,6 @@ export const PythonEditor = forwardRef<PythonEditorHandle, PythonEditorProps>(fu
   documentId,
   value,
   version,
-  baselineValue,
   disabled = false,
   height = 620,
   className,
@@ -340,7 +333,6 @@ export const PythonEditor = forwardRef<PythonEditorHandle, PythonEditorProps>(fu
   const [documentUri, setDocumentUri] = useState("")
   const [problems, setProblems] = useState<monaco.editor.IMarker[]>([])
   const [showProblems, setShowProblems] = useState(false)
-  const [showDiff, setShowDiff] = useState(false)
   const [cursor, setCursor] = useState({ line: 1, column: 1 })
   const [discoveredFields, setDiscoveredFields] = useState<PythonSdkField[]>([])
   const effectiveFields = fields.length ? fields : discoveredFields
@@ -536,20 +528,15 @@ export const PythonEditor = forwardRef<PythonEditorHandle, PythonEditorProps>(fu
     <div className="python-editor-toolbar">
       <span className="python-editor-language"><Code2 size={13} />Python</span>
       <button type="button" onClick={format} title="Shift+Alt+F"><Wand2 size={13} />格式化</button>
-      {baselineValue !== undefined ? <button type="button" className={showDiff ? "active" : ""} onClick={() => setShowDiff((current) => !current)}><GitCompare size={13} />Diff</button> : null}
-      <span className={`python-editor-server ${runtime.pyrefly}`}><Sparkles size={12} />Pyrefly {serverLabel(runtime.pyrefly)}</span>
-      <span className={`python-editor-server ${runtime.ruff}`}><CheckCircle2 size={12} />Ruff {serverLabel(runtime.ruff)}</span>
       <span className="python-editor-position">Ln {cursor.line}, Col {cursor.column}</span>
     </div>
     {runtime.error ? <div className="python-editor-runtime-error">编辑器初始化失败：{runtime.error}</div> : null}
-    <div ref={container} className="python-editor-canvas" style={{ ...editorStyle, display: showDiff ? "none" : undefined }} />
-    {showDiff && baselineValue !== undefined && documentUri ? <PythonDiffEditor original={baselineValue} modified={value} uri={documentUri} height={height} /> : null}
+    <div ref={container} className="python-editor-canvas" style={editorStyle} />
     <button type="button" className={cn("python-editor-problems-toggle", problems.some((item) => item.severity === monaco.MarkerSeverity.Error) && "error")} onClick={() => setShowProblems((current) => !current)}>
       <AlertCircle size={12} />问题 {problems.length}
     </button>
     {showProblems ? <div className="python-editor-problems">
       {problems.length ? problems.map((problem, index) => <button key={`${problem.owner}-${problem.startLineNumber}-${index}`} type="button" onClick={() => {
-        setShowDiff(false)
         editorRef.current?.setPosition({ lineNumber: problem.startLineNumber, column: problem.startColumn })
         editorRef.current?.revealLineInCenter(problem.startLineNumber)
         editorRef.current?.focus()
@@ -557,26 +544,3 @@ export const PythonEditor = forwardRef<PythonEditorHandle, PythonEditorProps>(fu
     </div> : null}
   </section>
 })
-
-function PythonDiffEditor({ original, modified, uri, height }: { original: string; modified: string; uri: string; height: number | string }) {
-  const container = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!container.current) return
-    const originalUri = monaco.Uri.parse(`${uri}.baseline.py`)
-    const modifiedUri = monaco.Uri.parse(uri)
-    const originalModel = monaco.editor.getModel(originalUri) ?? monaco.editor.createModel(original, "python", originalUri)
-    const modifiedModel = monaco.editor.getModel(modifiedUri) ?? monaco.editor.createModel(modified, "python", modifiedUri)
-    if (originalModel.getValue() !== original) originalModel.setValue(original)
-    const editor = monaco.editor.createDiffEditor(container.current, {
-      automaticLayout: true,
-      readOnly: true,
-      renderSideBySide: true,
-      minimap: { enabled: false },
-      fontSize: 12,
-      lineHeight: 20,
-    })
-    editor.setModel({ original: originalModel, modified: modifiedModel })
-    return () => editor.dispose()
-  }, [modified, original, uri])
-  return <div className="python-editor-canvas" ref={container} style={{ height }} />
-}
