@@ -3,6 +3,7 @@ import { Code2, Database, History, Play, RefreshCw, Save, ShieldCheck } from "lu
 
 import { CumulativeReturnsChart, DrawdownChart } from "@/components/charts"
 import { PythonEditor } from "@/components/python"
+import { SdkDocumentation } from "@/components/shared/SdkDocumentation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useStrategySdk } from "@/contexts/StrategySdkContext"
@@ -359,7 +360,7 @@ export function ValidationWorkbenchWidget() {
           />
 
           <section className="backtest-python-pane">
-            <header className="backtest-authoring-pane-header"><div><Code2 size={15} /><strong>验证 Python</strong></div></header>
+            <header className="backtest-authoring-pane-header"><div><Code2 size={15} /><strong>验证 Python</strong></div><SdkDocumentation topic="validation" /></header>
             <div className="backtest-python-pane-body">
               {validation ? <PythonEditor
                 className="backtest-python-editor"

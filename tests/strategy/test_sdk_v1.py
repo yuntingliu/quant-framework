@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import sqlite3
 import threading
@@ -12,7 +13,11 @@ import pytest
 
 from alphalab.dataio import MissingDataError, create_default_engine
 from alphalab.sdk.v1 import Event, FactorContext
-from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
+from alphalab.strategy import repository as strategy_repository_module
+from alphalab.strategy.builtins import (
+    DEFAULT_STRATEGY_SOURCE,
+    ETF_ROTATION_EVENT_EXAMPLE_SOURCE,
+)
 from alphalab.strategy.config import ExecutionSpec
 from alphalab.strategy.engine import (
     _apply_execution_constraints,
@@ -99,6 +104,17 @@ def test_builtin_factor_catalog_is_native_sdk_python_and_all_templates_install(t
         "volume_ratio",
     }
     assert all(item.source.startswith("@factor(") for item in templates)
+    assert all("# " in item.source for item in templates)
+    assert all(
+        ast.get_docstring(
+            next(
+                node
+                for node in ast.parse(item.source).body
+                if isinstance(node, ast.FunctionDef)
+            )
+        )
+        for item in templates
+    )
 
     source = DEFAULT_STRATEGY_SOURCE
     for template in templates:
@@ -128,6 +144,51 @@ def test_builtin_factor_catalog_is_native_sdk_python_and_all_templates_install(t
         assert created["current_package"]["revision"] == 1
     finally:
         repository.close()
+
+
+def test_official_strategy_templates_explain_every_registered_function() -> None:
+    for source in (DEFAULT_STRATEGY_SOURCE, ETF_ROTATION_EVENT_EXAMPLE_SOURCE):
+        tree = ast.parse(source)
+        functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
+
+        assert ast.get_docstring(tree)
+        assert functions
+        assert all(ast.get_docstring(function) for function in functions)
+        assert source.count("# ") >= len(functions)
+
+
+def test_immutable_builtin_project_advances_when_official_source_changes(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    database = tmp_path / "builtin-template-refresh.db"
+    legacy_source = DEFAULT_STRATEGY_SOURCE.replace(
+        '"""SDK v1 教学策略：月末选择动量最高的标的并在下一交易日开盘成交。"""\n\n',
+        "",
+        1,
+    )
+    monkeypatch.setattr(
+        strategy_repository_module,
+        "DEFAULT_STRATEGY_SOURCE",
+        legacy_source,
+    )
+    seeded = StrategyRepository(database)
+    seeded.close()
+
+    monkeypatch.setattr(
+        strategy_repository_module,
+        "DEFAULT_STRATEGY_SOURCE",
+        DEFAULT_STRATEGY_SOURCE,
+    )
+    refreshed = StrategyRepository(database)
+    try:
+        project = refreshed.get_project("sdk-v1-default")
+        assert project is not None
+        assert project["current_revision"] == 2
+        assert project["draft_source"] == DEFAULT_STRATEGY_SOURCE
+        assert refreshed.get_package("sdk-v1-default", 1)["source"] == legacy_source
+        assert refreshed.get_package("sdk-v1-default", 2)["source"] == DEFAULT_STRATEGY_SOURCE
+    finally:
+        refreshed.close()
 
 
 def test_factor_template_repeat_install_creates_independent_copies():

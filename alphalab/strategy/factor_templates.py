@@ -70,6 +70,10 @@ def _fundamental(
         source=(
             f'@factor(id="{factor_id}", label="{label}")\n'
             f"def {factor_id}(context):\n"
+            f'    """读取截至评估日可见的“{label}”横截面。\n\n'
+            f"    返回值以证券代码为索引；缺失披露保留为 NaN，由策略决定是否剔除。\n"
+            f'    """\n'
+            f"    # fundamental() 使用点时可见数据，不会用回测结束日数值回填历史。\n"
             f'    return context.fundamental("{factor_id}")\n'
         ),
     )
@@ -84,8 +88,11 @@ FACTOR_TEMPLATES = (
         """
 @factor(id="momentum_20d", label="20 日动量")
 def momentum_20d(context, *, window: int = 20):
+    '''计算最近 window 个交易日的累计收益率，返回证券横截面。'''
+    # 多读取一个收盘价，才能形成完整的 window 段收益。
     close = context.history("close", window=window + 1)
     if len(close.index) < window + 1:
+        # 历史不足时保留 NaN，避免用不完整窗口制造动量信号。
         return close.mean(axis=0) * float("nan")
     return close.iloc[-1] / close.iloc[0] - 1.0
 """,
@@ -98,8 +105,11 @@ def momentum_20d(context, *, window: int = 20):
         """
 @factor(id="momentum_60d", label="60 日动量")
 def momentum_60d(context, *, window: int = 60):
+    '''计算中期累计收益率；window 可在因子编辑器中调整。'''
+    # 历史矩阵以日期为索引、证券代码为列，且不会越过当前评估日。
     close = context.history("close", window=window + 1)
     if len(close.index) < window + 1:
+        # 用同列结构的 NaN Series 表达“当前不可计算”。
         return close.mean(axis=0) * float("nan")
     return close.iloc[-1] / close.iloc[0] - 1.0
 """,
@@ -112,8 +122,11 @@ def momentum_60d(context, *, window: int = 60):
         """
 @factor(id="reversal_5d", label="5 日反转")
 def reversal_5d(context, *, window: int = 5):
+    '''返回短期累计收益率；作为反转因子时通常按低值优先排序。'''
+    # 多取一个价格观察值，以获得完整的 window 日涨跌幅。
     close = context.history("close", window=window + 1)
     if len(close.index) < window + 1:
+        # 新上市标的历史不足时不进入本期有效排序。
         return close.mean(axis=0) * float("nan")
     return close.iloc[-1] / close.iloc[0] - 1.0
 """,
@@ -127,8 +140,11 @@ def reversal_5d(context, *, window: int = 5):
         """
 @factor(id="volatility_20d", label="20 日波动率")
 def volatility_20d(context, *, window: int = 20, annualization_days: int = 252):
+    '''用日收益标准差估计年化波动率，通常按低值优先使用。'''
+    # window+1 个价格产生 window 个简单收益率。
     close = context.history("close", window=window + 1)
     returns = close.pct_change().tail(window)
+    # ddof=0 让短窗口定义稳定；年化周期由显式参数控制。
     return returns.std(ddof=0) * (annualization_days ** 0.5)
 """,
         direction="lower",
@@ -141,6 +157,8 @@ def volatility_20d(context, *, window: int = 20, annualization_days: int = 252):
         """
 @factor(id="turnover_20d", label="20 日平均成交量")
 def turnover_20d(context, *, window: int = 20):
+    '''返回最近 window 日平均成交量，作为相对流动性代理。'''
+    # 成交量适合在同类资产内比较；跨资产类型时应先统一单位口径。
     volume = context.history("volume", window=window)
     return volume.mean()
 """,
@@ -153,6 +171,8 @@ def turnover_20d(context, *, window: int = 20):
         """
 @factor(id="liquidity_20d", label="20 日平均成交额")
 def liquidity_20d(context, *, window: int = 20):
+    '''返回最近 window 日平均成交额，用于衡量流动性和可交易容量。'''
+    # amount 比单纯 volume 更适合比较价格水平不同的证券。
     amount = context.history("amount", window=window)
     return amount.mean()
 """,
@@ -165,8 +185,10 @@ def liquidity_20d(context, *, window: int = 20):
         """
 @factor(id="range_volatility_20d", label="20 日日内振幅")
 def range_volatility_20d(context, *, window: int = 20):
+    '''计算高低价差相对收盘价的均值，通常按低值优先使用。'''
     high = context.history("high", window=window)
     low = context.history("low", window=window)
+    # 零收盘价先转为 NaN，避免产生无穷值污染横截面。
     close = context.history("close", window=window).replace(0.0, float("nan"))
     return ((high - low) / close).mean()
 """,
@@ -180,7 +202,10 @@ def range_volatility_20d(context, *, window: int = 20):
         """
 @factor(id="volume_ratio", label="成交量比率")
 def volume_ratio(context, *, short_window: int = 5, long_window: int = 20):
+    '''比较短期与长期平均成交量，识别近期放量或缩量。'''
+    # 一次读取最长窗口，保证短、长统计使用相同的评估时点和标的列。
     volume = context.history("volume", window=long_window)
+    # 长期均量为零时不应给出可排序的比率。
     baseline = volume.mean().replace(0.0, float("nan"))
     return volume.tail(short_window).mean() / baseline
 """,
@@ -193,10 +218,12 @@ def volume_ratio(context, *, short_window: int = 5, long_window: int = 20):
         """
 @factor(id="rsi_14", label="14 日 RSI")
 def rsi_14(context, *, window: int = 14):
+    '''按 Wilder RSI 的涨跌均值形式返回 0 到 100 的强弱指标。'''
     close = context.history("close", window=window + 1)
     delta = close.diff().tail(window)
     gains = delta.clip(lower=0.0).mean()
     losses = (-delta.clip(upper=0.0)).mean()
+    # 无下跌样本时先使用安全分母，最后明确映射为 RSI=100。
     safe_losses = losses.where(losses > 0.0, 1.0)
     score = 100.0 - 100.0 / (1.0 + gains / safe_losses)
     return score.where(losses > 0.0, 100.0)
@@ -210,9 +237,12 @@ def rsi_14(context, *, window: int = 14):
         """
 @factor(id="ma_deviation", label="均线偏离")
 def ma_deviation(context, *, window: int = 20):
+    '''返回最新收盘价相对 window 日简单移动平均线的偏离比例。'''
     close = context.history("close", window=window)
     if len(close.index) < window:
+        # 不用短窗口代替完整均线，避免新上市标的获得不可比数值。
         return close.mean(axis=0) * float("nan")
+    # 零均线没有经济意义，显式转换为缺失值。
     moving_average = close.mean().replace(0.0, float("nan"))
     return close.iloc[-1] / moving_average - 1.0
 """,

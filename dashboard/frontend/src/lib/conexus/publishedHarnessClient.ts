@@ -1,6 +1,7 @@
 import { getApiBase } from "@/lib/api"
 
 import type {
+  AgentConversation,
   ConexusStatus,
   HostedHarnessExposure,
   HostedHarnessManifest,
@@ -100,6 +101,30 @@ export async function createRun(params: {
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify(params),
   })
+}
+
+export async function readSharedAgentConversations(
+  signal?: AbortSignal,
+): Promise<AgentConversation[]> {
+  const payload = await json<{ conversations: AgentConversation[] }>("/conversations", {
+    headers: { Accept: "application/json" },
+    signal,
+  })
+  return payload.conversations
+}
+
+export async function upsertSharedAgentConversation(
+  conversation: AgentConversation,
+): Promise<AgentConversation> {
+  const payload = await json<{ conversation: AgentConversation }>(
+    `/conversations/${encodeURIComponent(conversation.id)}`,
+    {
+      method: "PUT",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(conversation),
+    },
+  )
+  return payload.conversation
 }
 
 export async function readWorkspace(signal?: AbortSignal): Promise<PublishedHarnessWorkspaceSnapshot> {

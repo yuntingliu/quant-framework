@@ -98,9 +98,11 @@ The child processes are timeout/crash contained but are not security sandboxes.
 Source, metadata, logs, market data, and workspace context are untrusted data,
 not Agent instructions.
 
-Browser-local conversation history and its bounded research checkpoint may be
+Server-shared conversation history and its bounded research checkpoint may be
 used to resolve conversational references, but they never authorize writes,
-deletion, or Python execution. Live project, data, job, and Run facts are
+deletion, or Python execution. The AlphaLab backend merges stale browser
+snapshots by conversation and message ID; browser storage is only a bounded
+fallback cache and migration source. Live project, data, job, and Run facts are
 rechecked only when the current request depends on them. The dedicated
 `/api/agent/context` snapshot scans the runtime catalog once and briefly caches
 that result instead of issuing overlapping full-catalog and symbol requests.
@@ -127,14 +129,17 @@ ID immediately. The Agent then uses `action=job` until a terminal state before
 reading compact analysis. A long research run therefore cannot be mistaken for
 a failed tool call merely because it exceeds the orchestration request window.
 
-The public AlphaLab publication remains anonymous and publisher-funded for the
-browser. The AlphaLab backend authenticates to the Conexus Web Host with a
-dedicated server-side publication-workspace token scoped to the AlphaLab
-publication, binding runs and reads to one durable workspace. The token is
-never sent to the browser. Conexus returns
+The hosted AlphaLab publication uses Conexus enterprise service identity with
+publisher-funded billing. The workstation browser never authenticates to
+Conexus directly: the AlphaLab backend uses a dedicated server-side
+publication-workspace token scoped to the AlphaLab publication for the
+manifest, Run creation, and durable workspace. This also prevents the
+workstation's Basic Authorization header from being mistaken for a Conexus
+enterprise credential. The token is never sent to the browser. Conexus returns
 the passive nodes changed by the current Run as `workspaceOutputs`, while
 `GET /api/public/harnesses/:slug/workspace` supplies the durable report history.
-The browser keeps only bounded conversation context and derived report views.
+AlphaLab stores the shared conversation transcript separately on its server;
+only bounded context is sent into an individual Harness Run.
 
 Ordinary explanations, history restatements, and read-only questions do not
 modify nodes. Report writes follow the native Document contract and are made

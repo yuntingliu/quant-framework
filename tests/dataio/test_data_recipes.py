@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import sqlite3
 
 import pandas as pd
@@ -42,7 +43,14 @@ def test_builtin_recipe_is_real_python_and_parameters_are_cst_projected() -> Non
     assert "RQSyncRequest" not in source
     assert "# 1. 直接调用 rq.all_instruments" in source
     assert "# 3. 分批查询日线" in source
+    assert "停牌与 ST 状态" in source
     assert "template 参数只用于界面识别" in source
+    function = next(
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.FunctionDef) and node.name == "research_data"
+    )
+    assert ast.get_docstring(function)
     assert {item.name: item.default for item in inspection.parameters} == {
         "start": "2021-08-25",
         "end": "2026-08-25",
@@ -64,6 +72,24 @@ def test_builtin_recipe_is_real_python_and_parameters_are_cst_projected() -> Non
         "rq.get_price",
         "rq.is_suspended",
     ]
+
+
+def test_builtin_recipe_comment_upgrade_preserves_custom_logic() -> None:
+    source = render_builtin_recipe(
+        "rq.etf_daily",
+        start="2021-08-25",
+        end="2026-08-25",
+    )
+    old_commented_source = source.replace(
+        '    """预览同步计划，并在运行模式下发布规范化研究数据。"""\n',
+        "",
+        1,
+    )
+
+    assert migrate_legacy_builtin_recipe(old_commented_source) == source
+
+    custom = old_commented_source.replace("CHUNK_DAYS = 366", "CHUNK_DAYS = 180", 1)
+    assert migrate_legacy_builtin_recipe(custom) == custom
 
 
 def test_visible_recipe_instrument_normalizer_keeps_only_a_shares_for_cs() -> None:

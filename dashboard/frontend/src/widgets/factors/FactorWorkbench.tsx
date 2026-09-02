@@ -4,6 +4,7 @@ import { Braces, FlaskConical, Library, LineChart, Play, Plus, Save, Search, Tra
 
 import { MarketResearchTerminal, type MarketFieldSeries, type MarketRange, useMarketWatchlist } from "@/components/market"
 import { PythonEditor, type PythonEditorHandle } from "@/components/python"
+import { SdkDocumentation } from "@/components/shared/SdkDocumentation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -74,7 +75,12 @@ interface EntrypointSource {
 function factorSnippet(id = "new_factor") {
   return `\n\n@factor(id="${id}", label="自定义因子")
 def ${id}(context, *, window: int = 20):
-    close = context.history("close", window=window)
+    """返回每个标的最近 window 个交易日的累计收益率。"""
+    # 多读取一个收盘价，才能形成完整的 window 段收益。
+    close = context.history("close", window=window + 1)
+    if len(close.index) < window + 1:
+        # 历史不足的标的保留为 NaN，不用不完整窗口制造信号。
+        return close.mean(axis=0) * float("nan")
     return close.iloc[-1] / close.iloc[0] - 1.0
 `
 }
@@ -518,6 +524,7 @@ export function FactorWorkbenchWidget() {
             <TabsList><TabsTrigger value="build">因子库与编辑</TabsTrigger><TabsTrigger value="results">因子检验{hasUnsavedChanges ? <span className="factor-tab-warning">尚未保存</span> : null}</TabsTrigger></TabsList>
             <div className="factor-workbench-actions">
               <span className={hasUnsavedChanges ? "factor-build-hint" : "factor-validation-ready"}>{hasUnsavedChanges ? "当前因子尚未保存" : "已保存"}</span>
+              <SdkDocumentation topic="factor" />
             </div>
           </div>
           {error ? <div className="workbench-message error factor-workbench-error">{error}</div> : null}

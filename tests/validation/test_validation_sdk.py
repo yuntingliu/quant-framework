@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import ast
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from alphalab.strategy.repository import StrategyRepository
+from alphalab.validation import repository as validation_repository_module
 from alphalab.validation.builtins import DEFAULT_VALIDATION_SOURCE
 from alphalab.validation.repository import ValidationRepository
 from alphalab.validation.runtime import ValidationRuntimeError, execute_validation
@@ -21,6 +24,13 @@ def test_default_validation_source_exposes_visible_metrics_and_alpha_beta() -> N
     assert [item.id for item in inspection.entrypoints] == ["performance", "alpha_beta"]
     assert "np.linalg.lstsq" in DEFAULT_VALIDATION_SOURCE
     assert "_newey_west_covariance" in DEFAULT_VALIDATION_SOURCE
+    tree = ast.parse(DEFAULT_VALIDATION_SOURCE)
+    assert ast.get_docstring(tree)
+    assert all(
+        ast.get_docstring(node)
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+    )
     assert [item.name for item in inspection.entrypoints[0].parameters] == [
         "periods_per_year",
         "risk_free_rate",
@@ -37,6 +47,42 @@ def test_validation_parameter_edit_changes_only_the_python_default() -> None:
     assert "coefficients, _, rank, _ = np.linalg.lstsq" in updated
     entrypoint = next(item for item in inspection.entrypoints if item.id == "alpha_beta")
     assert next(item.default for item in entrypoint.parameters if item.name == "newey_west_lags") == 5
+
+
+def test_immutable_builtin_validation_advances_with_official_template(
+    tmp_path, monkeypatch,
+) -> None:
+    database = tmp_path / "builtin-validation-refresh.db"
+    strategy = StrategyRepository(database)
+    strategy.close()
+    legacy_source = DEFAULT_VALIDATION_SOURCE.replace(
+        '    """计算回测编辑器下方展示的收益、风险与样本数指标。"""\n',
+        "",
+        1,
+    )
+    monkeypatch.setattr(
+        validation_repository_module,
+        "DEFAULT_VALIDATION_SOURCE",
+        legacy_source,
+    )
+    seeded = ValidationRepository(database)
+    seeded.get_or_create("sdk-v1-default")
+    seeded.close()
+
+    monkeypatch.setattr(
+        validation_repository_module,
+        "DEFAULT_VALIDATION_SOURCE",
+        DEFAULT_VALIDATION_SOURCE,
+    )
+    refreshed = ValidationRepository(database)
+    try:
+        current = refreshed.get_or_create("sdk-v1-default")
+        assert current["current_revision"] == 2
+        assert current["source"] == DEFAULT_VALIDATION_SOURCE
+        assert refreshed.get_package("sdk-v1-default", 1)["source"] == legacy_source
+        assert refreshed.get_package("sdk-v1-default", 2)["source"] == DEFAULT_VALIDATION_SOURCE
+    finally:
+        refreshed.close()
 
 
 def test_validation_repository_clones_and_pins_independent_source(tmp_path) -> None:

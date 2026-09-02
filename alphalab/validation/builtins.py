@@ -11,6 +11,7 @@ from scipy.stats import t as student_t
 from alphalab.validation_sdk import ValidationContext, analysis
 
 VALIDATION_SDK_VERSION = 1
+# 回归会按这个稳定顺序选择数据中实际存在的因子列。
 FACTOR_NAMES = ("MKT", "SMB", "HML", "MOM", "RMW")
 
 
@@ -21,9 +22,11 @@ def performance(
     periods_per_year: int = 252,
     risk_free_rate: float = 0.0,
 ) -> dict:
-    """Calculate the headline metrics shown below the backtest editor."""
+    """计算回测编辑器下方展示的收益、风险与样本数指标。"""
+    # 先统一转成有限的浮点收益；无法解析的输入不会被当作零收益。
     returns = pd.to_numeric(context.returns, errors="coerce").dropna().astype(float)
     if returns.empty:
+        # 空样本仍返回完整字段，保持工作台展示契约稳定。
         return {
             "total_return": 0.0,
             "annual_return": 0.0,
@@ -32,6 +35,7 @@ def performance(
             "max_drawdown": 0.0,
             "n_periods": 0,
         }
+    # 净值使用简单收益连乘，回撤相对历史净值最高点计算。
     equity = (1.0 + returns).cumprod()
     total_return = float(equity.iloc[-1] - 1.0)
     years = len(returns) / periods_per_year
@@ -39,6 +43,7 @@ def performance(
     annual_vol = float(returns.std(ddof=1) * np.sqrt(periods_per_year)) if len(returns) > 1 else 0.0
     period_rf = (1.0 + risk_free_rate) ** (1.0 / periods_per_year) - 1.0
     excess = returns - period_rf
+    # 单点样本或零波动没有可解释的 Sharpe，明确返回 0。
     sharpe = float(excess.mean() / excess.std(ddof=1) * np.sqrt(periods_per_year)) if len(excess) > 1 and excess.std(ddof=1) > 0 else 0.0
     drawdown = equity / equity.cummax() - 1.0
     return {
@@ -58,7 +63,8 @@ def alpha_beta(
     minimum_observations: int = 6,
     newey_west_lags: int = 3,
 ) -> dict:
-    """Run CAPM and five-factor OLS with Newey-West standard errors."""
+    """运行 CAPM 和五因子 OLS，并使用 Newey-West 标准误。"""
+    # 策略日收益先按月复合；因子表按月取最后一条供应商快照。
     strategy = _monthly_returns(context.returns).rename("strategy")
     factors = _monthly_factors(context.factor_returns)
     aligned = pd.concat([strategy, factors], axis=1, join="inner").replace([np.inf, -np.inf], np.nan)
@@ -66,6 +72,7 @@ def alpha_beta(
     factor_names = tuple(name for name in FACTOR_NAMES if name in complete.columns)
     multi_frame = complete.dropna(subset=list(factor_names)) if factor_names else pd.DataFrame()
     warnings = []
+    # 覆盖不足只降低结论可信度，不用补零制造虚假的完整样本。
     if complete.empty:
         warnings.append("MKT/rf factor coverage is insufficient for alpha/beta attribution")
     elif len(complete) < 24:
@@ -77,6 +84,7 @@ def alpha_beta(
             warnings.append(result["warning"])
     correlation = factors[[name for name in FACTOR_NAMES if name in factors.columns]].dropna(how="all")
     snapshot = [
+        # 保存进入回归的月度输入，报告可据此复核数据对齐。
         {
             "date": period.to_timestamp("M").strftime("%Y-%m-%d"),
             **{name: _finite(value) for name, value in row.items()},
@@ -103,6 +111,7 @@ def alpha_beta(
 
 
 def _monthly_returns(values: pd.Series) -> pd.Series:
+    """把任意日期索引的周期收益按自然月复合。"""
     series = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
     if series.empty:
         return pd.Series(dtype=float, index=pd.PeriodIndex([], freq="M"))
@@ -113,6 +122,7 @@ def _monthly_returns(values: pd.Series) -> pd.Series:
 
 
 def _monthly_factors(values: pd.DataFrame) -> pd.DataFrame:
+    """规范化因子日期，并为每个自然月保留最后一条可用快照。"""
     if values.empty:
         return pd.DataFrame(index=pd.PeriodIndex([], freq="M"))
     frame = values.copy()
@@ -128,6 +138,7 @@ def _monthly_factors(values: pd.DataFrame) -> pd.DataFrame:
 
 
 def _regression(frame: pd.DataFrame, factor_names: tuple[str, ...], minimum_observations: int, nw_lags: int) -> dict:
+    """拟合带截距的多元回归并返回可 JSON 序列化的诊断。"""
     empty = {
         "observations": 0, "alpha_monthly": None, "alpha_annualized": None,
         "betas": {name: None for name in factor_names}, "r_squared": None,
@@ -138,6 +149,7 @@ def _regression(frame: pd.DataFrame, factor_names: tuple[str, ...], minimum_obse
     clean = frame.dropna(subset=["strategy", "rf", *factor_names]).copy()
     required = max(int(minimum_observations), len(factor_names) + 3)
     if len(clean) < required:
+        # 参数越多，需要的最小完整月份也越多，避免欠定回归被误读。
         empty["observations"] = int(len(clean))
         empty["warning"] = f"At least {required} complete monthly observations are required"
         return empty
@@ -146,6 +158,7 @@ def _regression(frame: pd.DataFrame, factor_names: tuple[str, ...], minimum_obse
     x = np.column_stack([np.ones(len(clean)), *columns])
     coefficients, _, rank, _ = np.linalg.lstsq(x, y, rcond=None)
     residuals = y - x @ coefficients
+    # 异方差与自相关稳健协方差用于置信区间和 t 统计量。
     covariance = _newey_west_covariance(x, residuals, nw_lags)
     standard_errors = np.sqrt(np.maximum(0.0, np.diag(covariance)))
     t_stats = np.divide(coefficients, standard_errors, out=np.zeros_like(coefficients), where=standard_errors > 0)
@@ -180,6 +193,7 @@ def _regression(frame: pd.DataFrame, factor_names: tuple[str, ...], minimum_obse
 
 
 def _newey_west_covariance(x: np.ndarray, residuals: np.ndarray, requested_lags: int) -> np.ndarray:
+    """计算带 Bartlett 权重和有限样本修正的 Newey-West 协方差。"""
     observations, parameters = x.shape
     bread = np.linalg.pinv(x.T @ x)
     scores = x * residuals[:, None]
@@ -194,10 +208,12 @@ def _newey_west_covariance(x: np.ndarray, residuals: np.ndarray, requested_lags:
 
 
 def _matrix(values: pd.DataFrame) -> list[list[float | None]]:
+    """把相关矩阵转换为前端可安全解析的二维列表。"""
     return [[_finite(value) for value in values.loc[row, values.columns].tolist()] for row in values.index]
 
 
 def _finite(value) -> float | None:
+    """把 NumPy 标量转为有限 Python float；无效值返回 None。"""
     try:
         numeric = float(value)
     except (TypeError, ValueError):

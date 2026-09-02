@@ -9,16 +9,18 @@ import {
   readConexusStatus,
   readManifest,
   readRun,
+  readSharedAgentConversations,
   selectRunExposure,
   streamRunEvents,
+  upsertSharedAgentConversation,
 } from "@/lib/conexus/publishedHarnessClient"
 import type {
+  AgentConversation,
+  AgentConversationMessage,
+  AgentResearchCheckpoint,
   AgentToolActivity,
   ConexusStatus,
   HostedHarnessManifest,
-  LocalAgentConversation,
-  LocalAgentConversationMessage,
-  LocalAgentResearchCheckpoint,
   PublishedHarnessArtifact,
   PublishedHarnessRun,
   PublishedHarnessWorkspaceOutput,
@@ -29,14 +31,15 @@ interface Options {
   onCompleted?: () => void
 }
 
-interface LocalHistoryState {
-  conversations: LocalAgentConversation[]
+interface ConversationHistoryState {
+  conversations: AgentConversation[]
   selectedId: string | null
 }
 
-const LOCAL_CONVERSATIONS_KEY = "alphalab.anonymous-agent-conversations.v1"
-const MAX_LOCAL_CONVERSATIONS = 20
-const MAX_LOCAL_MESSAGES = 80
+// Keep the original key so existing browser-only history can migrate to the server.
+const CONVERSATIONS_CACHE_KEY = "alphalab.anonymous-agent-conversations.v1"
+const MAX_SHARED_CONVERSATIONS = 100
+const MAX_MESSAGES = 80
 const MAX_STORED_MESSAGE_CHARACTERS = 40_000
 const MAX_CONTEXT_MESSAGES = 16
 const MAX_CONTEXT_MESSAGE_CHARACTERS = 8_000
@@ -101,7 +104,7 @@ function boundedWorkspaceResult(value: unknown): Record<string, unknown> | undef
   }
 }
 
-function researchCheckpoint(value: unknown): LocalAgentResearchCheckpoint | undefined {
+function researchCheckpoint(value: unknown): AgentResearchCheckpoint | undefined {
   const checkpoint = record(value)
   if (
     !checkpoint
@@ -121,7 +124,7 @@ function researchCheckpoint(value: unknown): LocalAgentResearchCheckpoint | unde
   }
 }
 
-function checkpointFromRun(run: PublishedHarnessRun): LocalAgentResearchCheckpoint | undefined {
+function checkpointFromRun(run: PublishedHarnessRun): AgentResearchCheckpoint | undefined {
   let decisionNotebook: Record<string, unknown> | undefined
   let workspaceResult: Record<string, unknown> | undefined
   for (const output of run.workspaceOutputs ?? []) {
@@ -218,61 +221,91 @@ function id(): string {
     ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function localMessage(value: unknown): LocalAgentConversationMessage | null {
+function storedArtifacts(value: unknown): PublishedHarnessArtifact[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const artifacts = value
+    .filter((item) => {
+      const candidate = record(item)
+      return Boolean(
+        candidate
+        && typeof candidate.id === "string"
+        && typeof candidate.runId === "string"
+        && typeof candidate.title === "string"
+        && typeof candidate.createdAt === "string"
+        && ["document", "image", "file", "json", "node"].includes(String(candidate.kind))
+        && record(candidate.content),
+      )
+    })
+    .slice(0, 40) as PublishedHarnessArtifact[]
+  return artifacts.length ? artifacts : undefined
+}
+
+function storedMessage(value: unknown): AgentConversationMessage | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const candidate = value as Record<string, unknown>
   if (
     typeof candidate.id !== "string"
+    || candidate.id.length === 0
+    || candidate.id.length > 200
     || (candidate.role !== "user" && candidate.role !== "assistant")
     || typeof candidate.content !== "string"
     || typeof candidate.createdAt !== "string"
+    || Number.isNaN(Date.parse(candidate.createdAt))
     || typeof candidate.runId !== "string"
+    || candidate.runId.length === 0
+    || candidate.runId.length > 200
   ) return null
+  const artifacts = storedArtifacts(candidate.artifacts)
   return {
     id: candidate.id,
     role: candidate.role,
     content: candidate.content.slice(0, MAX_STORED_MESSAGE_CHARACTERS),
     createdAt: candidate.createdAt,
     runId: candidate.runId,
+    ...(artifacts ? { artifacts } : {}),
     ...(candidate.error === true ? { error: true } : {}),
   }
 }
 
-function localConversation(value: unknown): LocalAgentConversation | null {
+function storedConversation(value: unknown): AgentConversation | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const candidate = value as Record<string, unknown>
   if (
     typeof candidate.id !== "string"
+    || candidate.id.length === 0
+    || candidate.id.length > 200
     || typeof candidate.title !== "string"
     || typeof candidate.createdAt !== "string"
+    || Number.isNaN(Date.parse(candidate.createdAt))
     || typeof candidate.updatedAt !== "string"
+    || Number.isNaN(Date.parse(candidate.updatedAt))
     || !Array.isArray(candidate.messages)
   ) return null
   return {
     id: candidate.id,
-    title: candidate.title.slice(0, 120),
+    title: candidate.title.slice(0, 120) || "New conversation",
     createdAt: candidate.createdAt,
     updatedAt: candidate.updatedAt,
     messages: candidate.messages
-      .map(localMessage)
-      .filter((item): item is LocalAgentConversationMessage => item !== null)
-      .slice(-MAX_LOCAL_MESSAGES),
+      .map(storedMessage)
+      .filter((item): item is AgentConversationMessage => item !== null)
+      .slice(-MAX_MESSAGES),
     ...(researchCheckpoint(candidate.researchCheckpoint)
       ? { researchCheckpoint: researchCheckpoint(candidate.researchCheckpoint) }
       : {}),
   }
 }
 
-function loadLocalHistory(): LocalHistoryState {
+function loadCachedHistory(): ConversationHistoryState {
   try {
-    const raw = localStorage.getItem(LOCAL_CONVERSATIONS_KEY)
+    const raw = localStorage.getItem(CONVERSATIONS_CACHE_KEY)
     const parsed = raw ? JSON.parse(raw) : []
     const conversations = Array.isArray(parsed)
       ? parsed
-          .map(localConversation)
-          .filter((item): item is LocalAgentConversation => item !== null)
+          .map(storedConversation)
+          .filter((item): item is AgentConversation => item !== null)
           .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-          .slice(0, MAX_LOCAL_CONVERSATIONS)
+          .slice(0, MAX_SHARED_CONVERSATIONS)
       : []
     return { conversations, selectedId: conversations[0]?.id ?? null }
   } catch {
@@ -281,9 +314,9 @@ function loadLocalHistory(): LocalHistoryState {
 }
 
 function compactConversation(
-  conversation: LocalAgentConversation,
+  conversation: AgentConversation,
   messageLimit: number,
-): LocalAgentConversation {
+): AgentConversation {
   return {
     ...conversation,
     messages: conversation.messages.slice(-messageLimit).map((item) => ({
@@ -298,15 +331,15 @@ function compactConversation(
   }
 }
 
-function persistLocalConversations(conversations: LocalAgentConversation[]): void {
+function persistConversationCache(conversations: AgentConversation[]): void {
   const ordered = [...conversations]
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .slice(0, MAX_LOCAL_CONVERSATIONS)
-  for (const messageLimit of [MAX_LOCAL_MESSAGES, 40, 20, 10]) {
+    .slice(0, MAX_SHARED_CONVERSATIONS)
+  for (const messageLimit of [MAX_MESSAGES, 40, 20, 10]) {
     for (let count = ordered.length; count > 0; count -= 1) {
       try {
         localStorage.setItem(
-          LOCAL_CONVERSATIONS_KEY,
+          CONVERSATIONS_CACHE_KEY,
           JSON.stringify(ordered.slice(0, count).map((item) => compactConversation(item, messageLimit))),
         )
         return
@@ -315,7 +348,7 @@ function persistLocalConversations(conversations: LocalAgentConversation[]): voi
       }
     }
   }
-  try { localStorage.removeItem(LOCAL_CONVERSATIONS_KEY) } catch { /* ignore */ }
+  try { localStorage.removeItem(CONVERSATIONS_CACHE_KEY) } catch { /* ignore */ }
 }
 
 function conversationTitle(content: string): string {
@@ -324,16 +357,75 @@ function conversationTitle(content: string): string {
 }
 
 function withConversation(
-  conversations: LocalAgentConversation[],
-  conversation: LocalAgentConversation,
-): LocalAgentConversation[] {
+  conversations: AgentConversation[],
+  conversation: AgentConversation,
+): AgentConversation[] {
   return [
     conversation,
     ...conversations.filter((item) => item.id !== conversation.id),
-  ].slice(0, MAX_LOCAL_CONVERSATIONS)
+  ].slice(0, MAX_SHARED_CONVERSATIONS)
 }
 
-function localConversationContext(conversation: LocalAgentConversation | null): Record<string, unknown> {
+function mergeMessages(
+  left: AgentConversationMessage[],
+  right: AgentConversationMessage[],
+): AgentConversationMessage[] {
+  const messages = new Map<string, AgentConversationMessage>()
+  for (const message of [...left, ...right]) {
+    const previous = messages.get(message.id)
+    messages.set(message.id, previous ? {
+      ...previous,
+      ...message,
+      ...(message.artifacts?.length
+        ? { artifacts: message.artifacts }
+        : previous.artifacts?.length ? { artifacts: previous.artifacts } : {}),
+      ...(previous.error || message.error ? { error: true } : {}),
+    } : message)
+  }
+  return [...messages.values()]
+    .sort((first, second) => first.createdAt.localeCompare(second.createdAt) || first.id.localeCompare(second.id))
+    .slice(-MAX_MESSAGES)
+}
+
+function mergeConversation(left: AgentConversation, right: AgentConversation): AgentConversation {
+  const newer = right.updatedAt >= left.updatedAt ? right : left
+  const messages = mergeMessages(left.messages, right.messages)
+  const checkpoints = [left.researchCheckpoint, right.researchCheckpoint]
+    .filter((item): item is AgentResearchCheckpoint => Boolean(item))
+    .sort((first, second) => second.updatedAt.localeCompare(first.updatedAt))
+  const updateTimes = [left.updatedAt, right.updatedAt, ...messages.map((item) => item.createdAt)].sort()
+  return {
+    id: left.id,
+    title: newer.title,
+    createdAt: left.createdAt <= right.createdAt ? left.createdAt : right.createdAt,
+    updatedAt: updateTimes[updateTimes.length - 1] ?? newer.updatedAt,
+    messages,
+    ...(checkpoints[0] ? { researchCheckpoint: checkpoints[0] } : {}),
+  }
+}
+
+function mergeConversationLists(
+  left: AgentConversation[],
+  right: AgentConversation[],
+): AgentConversation[] {
+  const conversations = new Map(left.map((item) => [item.id, item]))
+  for (const conversation of right) {
+    const previous = conversations.get(conversation.id)
+    conversations.set(
+      conversation.id,
+      previous ? mergeConversation(previous, conversation) : conversation,
+    )
+  }
+  return [...conversations.values()]
+    .sort((first, second) => second.updatedAt.localeCompare(first.updatedAt) || first.id.localeCompare(second.id))
+    .slice(0, MAX_SHARED_CONVERSATIONS)
+}
+
+function conversationFingerprint(conversation: AgentConversation): string {
+  return JSON.stringify(conversation)
+}
+
+function conversationContext(conversation: AgentConversation | null): Record<string, unknown> {
   const candidates = (conversation?.messages ?? [])
     .filter((item) => !item.error)
     .slice(-MAX_CONTEXT_MESSAGES)
@@ -353,7 +445,7 @@ function localConversationContext(conversation: LocalAgentConversation | null): 
   }
   return {
     version: 1,
-    storage: "browser-local",
+    storage: "server-shared",
     messages,
     ...(checkpoint ? { researchCheckpoint: checkpoint } : {}),
   }
@@ -370,7 +462,7 @@ function terminalContent(run: PublishedHarnessRun): string {
 export function usePublishedAgent({ onCompleted }: Options = {}) {
   const [status, setStatus] = useState<ConexusStatus | null>(null)
   const [manifest, setManifest] = useState<HostedHarnessManifest | null>(null)
-  const [history, setHistory] = useState<LocalHistoryState>(loadLocalHistory)
+  const [history, setHistory] = useState<ConversationHistoryState>(loadCachedHistory)
   const [run, setRun] = useState<PublishedHarnessRun | null>(null)
   const [toolActivities, setToolActivities] = useState<AgentToolActivity[]>([])
   const [loading, setLoading] = useState(true)
@@ -378,16 +470,91 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
   const runAccessTokenRef = useRef("")
   const streamRef = useRef<AbortController | null>(null)
   const finalizedRunIdsRef = useRef(new Set<string>())
+  const cachedHistoryRef = useRef(history.conversations)
+  const sharedHistoryReadyRef = useRef(false)
+  const sharedFingerprintsRef = useRef(new Map<string, string>())
 
   const conversation = history.conversations.find((item) => item.id === history.selectedId) ?? null
-
-  useEffect(() => {
-    persistLocalConversations(history.conversations)
-  }, [history.conversations])
 
   const acceptError = useCallback((reason: unknown) => {
     setError(message(reason))
   }, [])
+
+  const refreshSharedHistory = useCallback(async (
+    signal?: AbortSignal,
+    selectNewest = false,
+  ) => {
+    const shared = (await readSharedAgentConversations(signal))
+      .map(storedConversation)
+      .filter((item): item is AgentConversation => item !== null)
+    for (const item of shared) {
+      sharedFingerprintsRef.current.set(item.id, conversationFingerprint(item))
+    }
+    sharedHistoryReadyRef.current = true
+    setHistory((current) => {
+      const conversations = mergeConversationLists(shared, current.conversations)
+      const selectedId = current.selectedId && conversations.some((item) => item.id === current.selectedId)
+        ? current.selectedId
+        : selectNewest ? conversations[0]?.id ?? null : null
+      return { conversations, selectedId }
+    })
+  }, [])
+
+  useEffect(() => {
+    persistConversationCache(history.conversations)
+    if (!sharedHistoryReadyRef.current) return
+    for (const item of history.conversations) {
+      const fingerprint = conversationFingerprint(item)
+      if (sharedFingerprintsRef.current.get(item.id) === fingerprint) continue
+      sharedFingerprintsRef.current.set(item.id, fingerprint)
+      void upsertSharedAgentConversation(item).then((savedValue) => {
+        const saved = storedConversation(savedValue)
+        if (!saved) throw new Error("Shared Agent history returned an invalid conversation.")
+        sharedFingerprintsRef.current.set(saved.id, conversationFingerprint(saved))
+        setHistory((current) => ({
+          conversations: mergeConversationLists(current.conversations, [saved]),
+          selectedId: current.selectedId,
+        }))
+      }).catch((reason) => {
+        if (sharedFingerprintsRef.current.get(item.id) === fingerprint) {
+          sharedFingerprintsRef.current.delete(item.id)
+        }
+        acceptError(reason)
+      })
+    }
+  }, [acceptError, history.conversations])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const initialize = async () => {
+      try {
+        for (const cached of cachedHistoryRef.current) {
+          try {
+            const savedValue = await upsertSharedAgentConversation(cached)
+            const saved = storedConversation(savedValue)
+            if (saved) {
+              sharedFingerprintsRef.current.set(saved.id, conversationFingerprint(saved))
+            }
+          } catch {
+            // A malformed legacy cache entry must not block loading server history.
+          }
+        }
+        await refreshSharedHistory(controller.signal, true)
+      } catch (reason) {
+        if (!controller.signal.aborted) acceptError(reason)
+      }
+    }
+    void initialize()
+    const timer = globalThis.setInterval(() => {
+      void refreshSharedHistory(controller.signal).catch((reason) => {
+        if (!controller.signal.aborted && !sharedHistoryReadyRef.current) acceptError(reason)
+      })
+    }, 10_000)
+    return () => {
+      controller.abort()
+      globalThis.clearInterval(timer)
+    }
+  }, [acceptError, refreshSharedHistory])
 
   const reloadStatus = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
@@ -400,8 +567,8 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
         return
       }
       const nextManifest = await readManifest(signal)
-      if (nextManifest.accessPolicy !== "anonymous" || nextManifest.billingPolicy !== "publisher") {
-        throw new Error("Hosted AlphaLab Agent must use anonymous access with publisher billing.")
+      if (nextManifest.identityPolicy !== "enterprise" || nextManifest.billingPolicy !== "publisher") {
+        throw new Error("Hosted AlphaLab Agent must use enterprise service identity with publisher billing.")
       }
       selectRunExposure(nextManifest)
       setManifest(nextManifest)
@@ -426,7 +593,7 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
     const createdAt = completed.completedAt ?? new Date().toISOString()
     const artifacts = workspaceOutputArtifacts(completed)
     const checkpoint = checkpointFromRun(completed)
-    const assistantMessage: LocalAgentConversationMessage = {
+    const assistantMessage: AgentConversationMessage = {
       id: id(),
       role: "assistant",
       content: terminalContent(completed),
@@ -441,7 +608,7 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
       const updated = {
         ...selected,
         updatedAt: createdAt,
-        messages: [...selected.messages, assistantMessage].slice(-MAX_LOCAL_MESSAGES),
+        messages: [...selected.messages, assistantMessage].slice(-MAX_MESSAGES),
         ...(checkpoint ? { researchCheckpoint: checkpoint } : {}),
       }
       return { conversations: withConversation(current.conversations, updated), selectedId: conversationId }
@@ -500,12 +667,12 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
         exposureId: exposure.id,
         input: buildRunInput(userMessage, {
           ...context,
-          localConversationHistory: localConversationContext(conversation),
+          localConversationHistory: conversationContext(conversation),
         }),
       })
       const now = new Date().toISOString()
       const conversationId = conversation?.id ?? id()
-      const userEntry: LocalAgentConversationMessage = {
+      const userEntry: AgentConversationMessage = {
         id: id(),
         role: "user",
         content: userMessage,
@@ -514,11 +681,11 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
       }
       setHistory((current) => {
         const existing = current.conversations.find((item) => item.id === conversationId)
-        const updated: LocalAgentConversation = existing
+        const updated: AgentConversation = existing
           ? {
               ...existing,
               updatedAt: now,
-              messages: [...existing.messages, userEntry].slice(-MAX_LOCAL_MESSAGES),
+              messages: [...existing.messages, userEntry].slice(-MAX_MESSAGES),
             }
           : {
               id: conversationId,

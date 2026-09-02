@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { PythonEditor } from "@/components/python"
+import { SdkDocumentation } from "@/components/shared/SdkDocumentation"
 import { useStrategySdk, type SdkEntrypoint, type SdkParameter } from "@/contexts/StrategySdkContext"
 import { useConfirm } from "@/hooks/useConfirm"
 import { api } from "@/lib/api"
@@ -453,6 +454,7 @@ export function StrategyWorkbenchWidget() {
         <main className="strategy-authoring-main strategy-authoring-main-single">
           <header className="strategy-authoring-header">
             <nav aria-label="策略工作区"><button type="button" className={view === "author" ? "active" : ""} onClick={() => chooseView("author")}><Settings2 size={14} />策略编辑</button><button type="button" className={view === "preview" ? "active" : ""} onClick={() => chooseView("preview")}><Play size={14} />可视化预览</button></nav>
+            <SdkDocumentation topic="strategy" />
           </header>
 
           <div className={`strategy-authoring-content ${view === "author" ? "strategy-authoring-content-split" : ""}`}>

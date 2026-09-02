@@ -40,6 +40,11 @@ turn or backtest does not imply a new report. Frozen BacktestRuns and source
 packages remain the immutable evidence underneath it. Hashes and execution
 identifiers are not rendered in the quantitative Markdown.
 
+Agent conversations also form one server-persisted history for the AlphaLab
+publication. Browsers merge messages by conversation and message ID so stale
+tabs cannot replace another browser's turns. Browser storage is only a bounded
+fallback cache and a one-time migration source for older local-only history.
+
 ## Shared Python editor
 
 Every Python input is rendered by the shared Monaco-based `PythonEditor`.
@@ -235,14 +240,18 @@ and cannot create a second authoritative result.
 | `alphalab/strategy/engine.py` | Preview, factor evaluation, daily events, fills, accounting |
 | `alphalab/validation_sdk/` | Small public `ValidationContext` and `@analysis` facade |
 | `alphalab/validation/` | Default validation.py, AST/CST contract, persistence, and bounded local runner |
+| `docs/06_ALPHALAB_SDK_GUIDE.md` | Canonical versioned user guide for every AlphaLab SDK workbench |
 | `dashboard/backend/routers/strategy.py` | Current source/project/evaluation API |
 | `dashboard/backend/routers/validation.py` | Validation source and no-code parameter API |
 | `dashboard/backend/routers/backtests.py` | Confirmed background backtest jobs and frozen results |
 | `dashboard/backend/routers/conexus.py` | Same-origin proxy for durable published-Harness runs and workspace Documents |
+| `dashboard/backend/services/agent_conversation_service.py` | Server-side shared Agent conversation history and concurrent snapshot merging |
 | `dashboard/backend/routers/python_editor.py` | Fixed Pyrefly/Ruff WebSocket bridge and editor document endpoints |
+| `dashboard/backend/routers/sdk_docs.py` | Read-only topic API backed by the canonical SDK guide |
 | `dashboard/backend/services/python_editor_service.py` | Local server discovery, ignored source mirrors, framing, and SDK diagnostics |
 | `dashboard/frontend/src/contexts/StrategySdkContext.tsx` | Shared project, draft, revision, and hash state |
 | `dashboard/frontend/src/components/python/` | Lazy shared Monaco model, LSP runtime, AlphaLab completion, and Problems UI |
+| `dashboard/frontend/src/components/shared/SdkDocumentation.tsx` | Shared factor/strategy/data/validation/report documentation drawer |
 | `integrations/conexus/alphalab-research-agent/` | SDK-aware bounded Agent tools and prompt |
 
 The package facade in `alphalab/__init__.py` intentionally exports only data,

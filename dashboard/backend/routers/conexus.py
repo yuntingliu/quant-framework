@@ -1,19 +1,74 @@
 """Narrow same-origin proxy for the published AlphaLab Research Agent."""
 from __future__ import annotations
 
+import json
 import os
 import re
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Literal
 from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from alphalab.utils.paths import RUNTIME_DIR
+from dashboard.backend.services.agent_conversation_service import (
+    MAX_CONVERSATION_BYTES,
+    AgentConversationStore,
+)
 
 router = APIRouter(prefix="/api/conexus", tags=["conexus"])
 
 _DEFAULT_WEB_ORIGIN = "http://127.0.0.1:3000"
 _DEFAULT_PUBLICATION_SLUG = "alphalab-research-agent"
 _SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+class AgentConversationMessageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    id: str = Field(min_length=1, max_length=200)
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=40_000)
+    created_at: datetime = Field(alias="createdAt")
+    run_id: str = Field(alias="runId", min_length=1, max_length=200)
+    artifacts: list[dict[str, Any]] | None = Field(default=None, max_length=40)
+    error: Literal[True] | None = None
+
+
+class AgentResearchCheckpointRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    version: Literal[1]
+    run_id: str = Field(alias="runId", min_length=1, max_length=200)
+    updated_at: datetime = Field(alias="updatedAt")
+    decision_notebook: dict[str, Any] | None = Field(default=None, alias="decisionNotebook")
+    workspace_result: dict[str, Any] | None = Field(default=None, alias="workspaceResult")
+
+
+class AgentConversationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    id: str = Field(min_length=1, max_length=200)
+    title: str = Field(min_length=1, max_length=120)
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+    messages: list[AgentConversationMessageRequest] = Field(max_length=80)
+    research_checkpoint: AgentResearchCheckpointRequest | None = Field(
+        default=None,
+        alias="researchCheckpoint",
+    )
+
+    @model_validator(mode="after")
+    def validate_encoded_size(self) -> AgentConversationRequest:
+        payload = self.model_dump(mode="json", by_alias=True, exclude_none=True)
+        encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        if len(encoded) > MAX_CONVERSATION_BYTES:
+            raise ValueError("Agent conversation exceeds the shared storage limit")
+        return self
 
 
 def _web_origin() -> str:
@@ -29,6 +84,12 @@ def _workspace_token() -> str:
     return os.getenv("CONEXUS_PUBLICATION_WORKSPACE_TOKEN", "").strip()
 
 
+def _conversation_store() -> AgentConversationStore:
+    configured = os.getenv("ALPHALAB_RUNTIME_DIR", "").strip()
+    runtime_dir = Path(configured).expanduser() if configured else RUNTIME_DIR
+    return AgentConversationStore(runtime_dir / "app" / "agent-conversations.sqlite3")
+
+
 def _path_segment(value: str) -> str:
     return quote(value, safe="")
 
@@ -37,17 +98,19 @@ def _upstream_headers(
     request: Request,
     *,
     accept: str = "application/json",
-    service_authorization: bool = False,
+    authorization: Literal["request", "workspace"] = "request",
 ) -> dict[str, str]:
     headers = {"Accept": accept}
     for name in ("content-type",):
         value = request.headers.get(name)
         if value:
             headers[name] = value
-    token = _workspace_token() if service_authorization else ""
-    authorization = f"Bearer {token}" if token else request.headers.get("authorization")
-    if authorization:
-        headers["authorization"] = authorization
+    credential = request.headers.get("authorization") if authorization == "request" else None
+    if authorization == "workspace":
+        token = _workspace_token()
+        credential = f"Bearer {token}" if token else None
+    if credential:
+        headers["authorization"] = credential
     return headers
 
 
@@ -83,9 +146,9 @@ async def _forward(
     method: str,
     path: str,
     *,
-    service_authorization: bool = False,
+    authorization: Literal["request", "workspace"] = "request",
 ) -> Response:
-    if service_authorization and not _workspace_token():
+    if authorization == "workspace" and not _workspace_token():
         return JSONResponse(
             status_code=503,
             content={
@@ -101,7 +164,7 @@ async def _forward(
                 f"{_web_origin()}{path}",
                 headers=_upstream_headers(
                     request,
-                    service_authorization=service_authorization,
+                    authorization=authorization,
                 ),
                 params=list(request.query_params.multi_items()),
                 content=body,
@@ -137,12 +200,33 @@ async def conexus_status() -> dict:
         }
 
 
+@router.get("/conversations")
+def list_agent_conversations() -> dict[str, list[dict[str, Any]]]:
+    return {"conversations": _conversation_store().list_conversations()}
+
+
+@router.put("/conversations/{conversation_id}")
+def upsert_agent_conversation(
+    conversation_id: str,
+    request: AgentConversationRequest,
+) -> dict[str, dict[str, Any]]:
+    if conversation_id != request.id:
+        raise HTTPException(status_code=409, detail="Conversation path and payload IDs differ")
+    payload = request.model_dump(mode="json", by_alias=True, exclude_none=True)
+    try:
+        conversation = _conversation_store().upsert(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {"conversation": conversation}
+
+
 @router.get("/manifest")
 async def publication_manifest(request: Request) -> Response:
     return await _forward(
         request,
         "GET",
         f"/api/public/harnesses/{_path_segment(_publication_slug())}",
+        authorization="workspace",
     )
 
 
@@ -152,7 +236,7 @@ async def create_run(request: Request) -> Response:
         request,
         "POST",
         f"/api/public/harnesses/{_path_segment(_publication_slug())}/runs",
-        service_authorization=True,
+        authorization="workspace",
     )
 
 
@@ -162,7 +246,7 @@ async def publication_workspace(request: Request) -> Response:
         request,
         "GET",
         f"/api/public/harnesses/{_path_segment(_publication_slug())}/workspace",
-        service_authorization=True,
+        authorization="workspace",
     )
 
 

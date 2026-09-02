@@ -66,6 +66,7 @@ class StrategyRepository:
         self._migrate_projects_to_rq_profile()
         self._remove_factor_inputs_from_drafts()
         self._ensure_default_risk_in_drafts()
+        self._refresh_builtin_default()
         self._ensure_source_units()
 
     def close(self) -> None:
@@ -102,6 +103,69 @@ class StrategyRepository:
                 inspection,
             )
             self._conn.commit()
+
+    def _refresh_builtin_default(self) -> None:
+        """Advance the immutable built-in project when its shipped source changes."""
+
+        inspection = inspect_strategy_source(DEFAULT_STRATEGY_SOURCE)
+        row = self._conn.execute(
+            "SELECT * FROM strategy_projects WHERE id = ? AND built_in = 1",
+            (_DEFAULT_PROJECT_ID,),
+        ).fetchone()
+        if row is None or (
+            row["draft_source"] == DEFAULT_STRATEGY_SOURCE
+            and row["draft_source_sha256"] == inspection.source_sha256
+        ):
+            return
+
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                locked = self._conn.execute(
+                    "SELECT * FROM strategy_projects WHERE id = ? AND built_in = 1",
+                    (_DEFAULT_PROJECT_ID,),
+                ).fetchone()
+                if locked is None or (
+                    locked["draft_source"] == DEFAULT_STRATEGY_SOURCE
+                    and locked["draft_source_sha256"] == inspection.source_sha256
+                ):
+                    self._conn.commit()
+                    return
+                existing = self._conn.execute(
+                    """SELECT revision FROM strategy_source_packages
+                       WHERE project_id = ? AND source_sha256 = ?""",
+                    (_DEFAULT_PROJECT_ID, inspection.source_sha256),
+                ).fetchone()
+                if existing is not None:
+                    revision = int(existing["revision"])
+                else:
+                    revision = int(locked["current_revision"]) + 1
+                    self._insert_package(
+                        _DEFAULT_PROJECT_ID,
+                        revision,
+                        int(locked["current_revision"]) or None,
+                        DEFAULT_STRATEGY_SOURCE,
+                        inspection,
+                    )
+                self._conn.execute(
+                    """UPDATE strategy_projects
+                       SET current_revision = ?, draft_parent_revision = ?,
+                           draft_source = ?, draft_source_sha256 = ?,
+                           updated_at = datetime('now')
+                       WHERE id = ? AND built_in = 1""",
+                    (
+                        revision,
+                        revision,
+                        DEFAULT_STRATEGY_SOURCE,
+                        inspection.source_sha256,
+                        _DEFAULT_PROJECT_ID,
+                    ),
+                )
+                self._replace_source_units(_DEFAULT_PROJECT_ID, DEFAULT_STRATEGY_SOURCE)
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
 
     def list_projects(self) -> list[dict[str, Any]]:
         rows = self._conn.execute(

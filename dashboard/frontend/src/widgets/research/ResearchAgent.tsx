@@ -19,7 +19,7 @@ import { useWorkspace } from "@/contexts/WorkspaceContext"
 import { usePublishedAgent } from "@/hooks/usePublishedAgent"
 import type {
   AgentToolActivity,
-  LocalAgentResearchCheckpoint,
+  AgentResearchCheckpoint,
   PublishedHarnessArtifact,
 } from "@/lib/conexus/types"
 import { useDataProfile } from "@/lib/data-profile"
@@ -139,7 +139,7 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
 }
 
 function decisionNotebookFromCheckpoint(
-  checkpoint: LocalAgentResearchCheckpoint | undefined,
+  checkpoint: AgentResearchCheckpoint | undefined,
 ): AgentDecisionNotebook | null {
   const notebook = checkpoint?.decisionNotebook
   if (

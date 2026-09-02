@@ -64,6 +64,52 @@ class ValidationRepository:
             row = self._conn.execute(
                 "SELECT * FROM validation_sources WHERE project_id = ?", (normalized,)
             ).fetchone()
+        elif bool(project["built_in"]):
+            inspection = inspect_validation_source(DEFAULT_VALIDATION_SOURCE)
+            if row["source_sha256"] != inspection.source_sha256:
+                with self._lock:
+                    try:
+                        self._conn.execute("BEGIN IMMEDIATE")
+                        locked = self._conn.execute(
+                            "SELECT * FROM validation_sources WHERE project_id = ?",
+                            (normalized,),
+                        ).fetchone()
+                        if (
+                            locked is not None
+                            and locked["source_sha256"] != inspection.source_sha256
+                        ):
+                            revision = int(locked["current_revision"]) + 1
+                            self._conn.execute(
+                                """INSERT INTO validation_source_packages
+                                   (project_id, revision, source, source_sha256, inspection_json)
+                                   VALUES (?, ?, ?, ?, ?)""",
+                                (
+                                    normalized,
+                                    revision,
+                                    DEFAULT_VALIDATION_SOURCE,
+                                    inspection.source_sha256,
+                                    json.dumps(inspection.to_dict(), sort_keys=True),
+                                ),
+                            )
+                            self._conn.execute(
+                                """UPDATE validation_sources
+                                   SET source = ?, source_sha256 = ?, current_revision = ?,
+                                       updated_at = datetime('now')
+                                   WHERE project_id = ?""",
+                                (
+                                    DEFAULT_VALIDATION_SOURCE,
+                                    inspection.source_sha256,
+                                    revision,
+                                    normalized,
+                                ),
+                            )
+                        self._conn.commit()
+                    except Exception:
+                        self._conn.rollback()
+                        raise
+                row = self._conn.execute(
+                    "SELECT * FROM validation_sources WHERE project_id = ?", (normalized,)
+                ).fetchone()
         assert row is not None
         return self._payload(row, project)
 

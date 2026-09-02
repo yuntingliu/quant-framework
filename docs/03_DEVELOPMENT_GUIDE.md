@@ -54,6 +54,9 @@ second Lab execution path.
   execution belong in `alphalab/dataio/recipes.py`.
 - API and workbench changes must preserve one deterministically assembled
   revision/hash across frontend, backend, Agent tools, Runs, and reports.
+- User-facing SDK documentation belongs only in
+  `docs/06_ALPHALAB_SDK_GUIDE.md`. The read-only `/api/sdk-docs` endpoint and
+  every workbench documentation drawer must read that same file.
 
 Do not add an expression evaluator, generated stage source, hidden fallback to
 demo/default logic, or a parallel backtest path. Pre-SDK database tables are
@@ -68,6 +71,16 @@ constants, helpers, and non-factor registrations belong in `strategy.py`;
 factor units contain exactly one registered function. Factor units are not
 executed alone: the repository assembles them into the runtime module first.
 User source imports only the public authoring API from `alphalab.sdk.v1`.
+
+Every built-in source template must be instructional as well as executable.
+Each registered function needs a useful docstring describing its return
+contract, and comments must explain time alignment, missing-data behavior, or
+another non-obvious choice. Keep comments semantic rather than narrating
+ordinary Python syntax. Template tests enforce this coverage.
+When the shipped default source changes, repositories advance only the
+immutable built-in strategy and validation projects and retain the prior
+package revision. Never rewrite editable clones. Data-recipe comment upgrades
+likewise apply only when the executable AST is unchanged.
 
 ```python
 from alphalab.sdk.v1 import (
@@ -210,6 +223,12 @@ the active factor function. Factor tests and backtests are disabled only while e
 unsaved. The factor template catalog may add only to a clean editable project
 and must then refresh the shared project context so Factor and Strategy views
 see the same registered factors immediately.
+
+Factor, Strategy, Data, Validation, and Report workbenches open the matching
+chapter of `docs/06_ALPHALAB_SDK_GUIDE.md` through the shared
+`SdkDocumentation` drawer. The chapter selector must retain access to the
+complete guide. Do not copy SDK prose into frontend constants or maintain
+separate per-workbench help documents.
 
 The default factor catalog contains complete, financially meaningful factor
 implementations rather than one template per raw dataset column. Identifiers

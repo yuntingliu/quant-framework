@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { PythonEditor } from "@/components/python"
+import { SdkDocumentation } from "@/components/shared/SdkDocumentation"
 import { useStrategySdk } from "@/contexts/StrategySdkContext"
 import { useConfirm } from "@/hooks/useConfirm"
 import { api } from "@/lib/api"
@@ -384,7 +385,7 @@ export function DataWorkbenchWidget() {
             <div>
               <div className="flex items-center gap-2"><Braces className="h-4 w-4" /><strong className="text-sm">Python 数据配方</strong>{dirty ? <Badge variant="outline">未保存</Badge> : <Badge variant="outline">已保存</Badge>}</div>
             </div>
-            <Button size="sm" variant="outline" disabled={busy || (!dirty && !saveAsRequired)} onClick={() => { if (saveAsRequired) openCustomSave(); else void saveSource() }}><Save />{saveAsRequired ? "另存为模板" : "保存代码"}</Button>
+            <div className="flex items-center gap-2"><SdkDocumentation topic="data" /><Button size="sm" variant="outline" disabled={busy || (!dirty && !saveAsRequired)} onClick={() => { if (saveAsRequired) openCustomSave(); else void saveSource() }}><Save />{saveAsRequired ? "另存为模板" : "保存代码"}</Button></div>
           </div>
           {showCustomSave && (
             <div className="grid gap-2 rounded border border-border p-3 md:grid-cols-[220px_minmax(260px,1fr)_auto]">

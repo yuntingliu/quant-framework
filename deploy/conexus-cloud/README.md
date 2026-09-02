@@ -58,5 +58,7 @@ The shared Web Host and both AlphaLab API processes must receive the same
 `CONEXUS_PUBLICATION_WORKSPACE_TOKEN`. On the Web Host it is paired with
 `CONEXUS_PUBLICATION_WORKSPACE_SLUG=alphalab-research-agent`; unlike
 `CONEXUS_WEB_TOKEN`, this credential can access only that publication's durable
-run workspace. Keep it in the deployment environment and never expose it to
-the browser bundle.
+run workspace. The hosted publication uses enterprise identity and publisher
+billing, so the AlphaLab backend also uses this credential when reading the
+full Harness manifest and creating Runs. Keep it in the deployment environment
+and never expose it to the browser bundle.

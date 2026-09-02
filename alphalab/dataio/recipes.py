@@ -443,6 +443,7 @@ def _add_builtin_recipe_comments(source: str) -> str:
         ),
         (
             '    if context.mode == "plan":\n',
+            '    """预览同步计划，并在运行模式下发布规范化研究数据。"""\n'
             "    # 预览只声明将执行的步骤，不访问 RQData，也不会写入数据。\n"
             '    if context.mode == "plan":\n',
         ),
@@ -487,8 +488,18 @@ def _add_builtin_recipe_comments(source: str) -> str:
             "        bars = normalize_rq_bars(adjusted_raw, raw_close)\n",
         ),
         (
+            "    published_state_batches = 0\n",
+            "    # 4. 停牌与 ST 状态按同一标的、日期批次查询，供严格执行校验。\n"
+            "    published_state_batches = 0\n",
+        ),
+        (
+            '    context.require_coverage(\n        "rq.bars"',
+            "    # 完成前严格检查日线和市场状态覆盖，避免把数据缺口误当成可交易。\n"
+            '    context.require_coverage(\n        "rq.bars"',
+        ),
+        (
             "    start_quarter = _quarter(start)\n",
-            "    # 4. 完整研究模板继续直接查询 PIT 财务报表。\n"
+            "    # 5. 完整研究模板继续直接查询 PIT 财务报表。\n"
             "    start_quarter = _quarter(start)\n",
         ),
         (
@@ -503,12 +514,12 @@ def _add_builtin_recipe_comments(source: str) -> str:
         ),
         (
             '    bars = context.read("rq.bars")\n',
-            "    # 5. 从已经落库的原始数据构建无未来函数的标准基本面。\n"
+            "    # 6. 从已经落库的原始数据构建无未来函数的标准基本面。\n"
             '    bars = context.read("rq.bars")\n',
         ),
         (
             "    raw_yield_curve = rq.get_yield_curve(\n",
-            "    # 6. 直接查询无风险利率并生成统一的月度因子收益。\n"
+            "    # 7. 直接查询无风险利率并生成统一的月度因子收益。\n"
             "    raw_yield_curve = rq.get_yield_curve(\n",
         ),
     )
@@ -570,6 +581,7 @@ def migrate_legacy_builtin_recipe(source: str) -> str:
         end=end,
         symbols=symbol_values,
     )
+    normalized_visible: str | None
     try:
         normalized_visible, _ = update_recipe_parameters(
             source,
@@ -579,11 +591,22 @@ def migrate_legacy_builtin_recipe(source: str) -> str:
             normalized_visible.replace("\r\n", "\n").encode("utf-8")
         ).hexdigest()
     except DataRecipeError:
+        normalized_visible = None
         normalized_visible_hash = None
     known_visible_hash = _LEGACY_VISIBLE_NORMALIZED_HASHES.get(inspection.template_id)
+    current_visible, _ = update_recipe_parameters(
+        render_builtin_recipe(
+            inspection.template_id,
+            start=start,
+            end=end,
+            symbols=symbol_values,
+        ),
+        _LEGACY_NORMALIZED_PARAMETERS,
+    )
     if (
         source not in {*legacy_versions, uncommented}
         and normalized_visible_hash != known_visible_hash
+        and _executable_recipe_ast(normalized_visible) != _executable_recipe_ast(current_visible)
     ):
         return source
     return render_builtin_recipe(
@@ -592,6 +615,28 @@ def migrate_legacy_builtin_recipe(source: str) -> str:
         end=end,
         symbols=symbol_values,
     )
+
+
+def _executable_recipe_ast(source: str | None) -> str | None:
+    """Fingerprint executable recipe logic while ignoring comments and docstrings."""
+
+    if source is None:
+        return None
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = node.body
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                node.body = body[1:]
+    return ast.dump(tree, annotate_fields=True, include_attributes=False)
 
 
 def _render_legacy_builtin_recipe(

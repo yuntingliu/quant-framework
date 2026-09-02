@@ -19,11 +19,11 @@ confirmation boundaries. The bundle exposes no shell, application source-tree
 mutation, deployment, legacy pipeline, Python Lab, paper execution, or broker
 tool.
 
-The anonymous publication receives bounded browser-local dialogue plus a
-structured research checkpoint as untrusted context. It reads the lightweight
-AlphaLab Agent snapshot only when current live facts are needed. Structured
-workspace results return as sanitized transient `workspaceOutputs`, allowing
-the AlphaLab frontend to render reports and commands without claiming an
-account-backed persistent Conexus workspace.
+The enterprise publication receives bounded dialogue from AlphaLab's shared
+server-side conversation history plus a structured research checkpoint as
+untrusted context. It reads the lightweight AlphaLab Agent snapshot only when
+current live facts are needed. Structured workspace results return as
+sanitized `workspaceOutputs`; durable quantitative reports remain native
+Document nodes in the publication workspace.
 
 See `docs/04_CONEXUS_AGENT.md` for the full contract.

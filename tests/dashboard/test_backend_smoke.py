@@ -50,6 +50,32 @@ def test_data_and_strategy_sdk_read_contracts(tmp_path, monkeypatch):
     assert entrypoint.json()["source"].startswith("@signal(")
 
 
+def test_sdk_documentation_uses_one_versioned_guide() -> None:
+    client = TestClient(app)
+
+    catalog = client.get("/api/sdk-docs")
+    assert catalog.status_code == 200
+    assert catalog.json() == {
+        "sdk_version": 1,
+        "document": "docs/06_ALPHALAB_SDK_GUIDE.md",
+        "topics": [
+            {"id": "overview", "title": "SDK 总览"},
+            {"id": "factor", "title": "因子 SDK"},
+            {"id": "strategy", "title": "策略 SDK"},
+            {"id": "data", "title": "数据配方 SDK"},
+            {"id": "validation", "title": "验证 SDK"},
+            {"id": "report", "title": "报告结果协议"},
+        ],
+    }
+
+    factor = client.get("/api/sdk-docs/factor")
+    assert factor.status_code == 200
+    assert factor.json()["title"] == "因子 SDK"
+    assert "context.history" in factor.json()["markdown"]
+    assert "alphalab-sdk-topic" not in factor.json()["markdown"]
+    assert client.get("/api/sdk-docs/unknown").status_code == 404
+
+
 def test_data_sync_templates_expose_rq_and_python_sdk_contracts() -> None:
     response = TestClient(app).get("/api/data-sync/templates")
 

@@ -14,7 +14,7 @@ export interface HostedHarnessExposure {
 }
 
 export interface HostedHarnessManifest {
-  accessPolicy: "anonymous" | "conexus_account"
+  identityPolicy: "enterprise"
   billingPolicy: "publisher" | "consumer"
   exposures: HostedHarnessExposure[]
   defaultExposureId?: string
@@ -46,7 +46,7 @@ export type PublishedHarnessArtifact = {
     }
 )
 
-export interface LocalAgentConversationMessage {
+export interface AgentConversationMessage {
   id: string
   role: "user" | "assistant"
   content: string
@@ -56,16 +56,16 @@ export interface LocalAgentConversationMessage {
   error?: boolean
 }
 
-export interface LocalAgentConversation {
+export interface AgentConversation {
   id: string
   title: string
   createdAt: string
   updatedAt: string
-  messages: LocalAgentConversationMessage[]
-  researchCheckpoint?: LocalAgentResearchCheckpoint
+  messages: AgentConversationMessage[]
+  researchCheckpoint?: AgentResearchCheckpoint
 }
 
-export interface LocalAgentResearchCheckpoint {
+export interface AgentResearchCheckpoint {
   version: 1
   runId: string
   updatedAt: string
