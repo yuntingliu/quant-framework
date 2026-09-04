@@ -133,6 +133,43 @@ def normalize_rq_market_state(raw: Any, *, field: str) -> pd.DataFrame:
     )
 
 
+def normalize_rq_suspension(
+    filled_raw: Any,
+    tradable_raw: Any,
+) -> pd.DataFrame:
+    """Infer suspension state from RQ prices with and without suspended rows.
+
+    ``rq.is_suspended`` only accepts common stocks.  ``rq.get_price`` supports
+    exchange-traded funds and other listed products: with ``skip_suspended``
+    disabled it fills suspended sessions, while enabling it omits those rows.
+    The key difference therefore provides the same daily state without treating
+    an empty non-stock universe as a stock-status request.
+    """
+
+    filled = _normalize_selected_bars(filled_raw, ("close",))
+    if filled.empty:
+        return pd.DataFrame(columns=["date", "symbol", "paused"])
+    tradable = _normalize_selected_bars(tradable_raw, ("close",))
+    key_columns = ["date", "symbol"]
+    filled_keys = filled[key_columns].drop_duplicates()
+    if tradable.empty:
+        filled_keys["paused"] = pd.Series(True, index=filled_keys.index, dtype="boolean")
+        return filled_keys.sort_values(key_columns).reset_index(drop=True)
+    tradable_keys = tradable[key_columns].drop_duplicates()
+    unexpected = tradable_keys.merge(filled_keys, on=key_columns, how="left", indicator=True)
+    if unexpected["_merge"].eq("left_only").any():
+        raise DataValidationError(
+            "RQData tradable-price response contains keys absent from filled prices"
+        )
+    merged = filled_keys.merge(
+        tradable_keys.assign(_tradable=True),
+        on=key_columns,
+        how="left",
+    )
+    merged["paused"] = merged.pop("_tradable").isna().astype("boolean")
+    return merged.sort_values(key_columns).reset_index(drop=True)
+
+
 def normalize_rq_daily_factor(raw: Any, *, field: str) -> pd.DataFrame:
     """Normalize one RQ daily factor into the canonical long factor contract."""
 
@@ -433,6 +470,7 @@ __all__ = [
     "normalize_rq_index_components",
     "normalize_rq_instruments",
     "normalize_rq_market_state",
+    "normalize_rq_suspension",
     "normalize_rq_yield_curve",
     "require_same_keys",
     "rq_order_book_ids",

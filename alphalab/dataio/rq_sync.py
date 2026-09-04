@@ -16,6 +16,7 @@ from alphalab.dataio.rq_frames import (
     normalize_rq_index_components,
     normalize_rq_instruments,
     normalize_rq_market_state,
+    normalize_rq_suspension,
 )
 from alphalab.dataio.symbols import to_framework_symbol, to_rq_symbol
 
@@ -222,18 +223,18 @@ class RQAcquirer:
                 if cancelled and cancelled():
                     return
                 rq_batch = [to_rq_symbol(symbol) for symbol in batch]
-                paused_raw = self._retry(
-                    lambda rq_batch=rq_batch, chunk_start=chunk_start, chunk_end=chunk_end: (
-                        rq.is_suspended(
-                            rq_batch,
-                            start_date=chunk_start,
-                            end_date=chunk_end,
-                            market=market,
+                if include_st:
+                    paused_raw = self._retry(
+                        lambda rq_batch=rq_batch, chunk_start=chunk_start, chunk_end=chunk_end: (
+                            rq.is_suspended(
+                                rq_batch,
+                                start_date=chunk_start,
+                                end_date=chunk_end,
+                                market=market,
+                            )
                         )
                     )
-                )
-                paused = normalize_rq_market_state(paused_raw, field="paused")
-                if include_st:
+                    paused = normalize_rq_market_state(paused_raw, field="paused")
                     st_raw = self._retry(
                         lambda rq_batch=rq_batch, chunk_start=chunk_start, chunk_end=chunk_end: (
                             rq.is_st_stock(
@@ -252,6 +253,37 @@ class RQAcquirer:
                         label=f"paused/ST state {chunk_start}..{chunk_end}",
                     )
                 else:
+                    filled_raw = self._retry(
+                        lambda rq_batch=rq_batch, chunk_start=chunk_start, chunk_end=chunk_end: (
+                            rq.get_price(
+                                rq_batch,
+                                start_date=chunk_start,
+                                end_date=chunk_end,
+                                frequency="1d",
+                                fields=["close"],
+                                adjust_type="none",
+                                skip_suspended=False,
+                                expect_df=True,
+                                market=market,
+                            )
+                        )
+                    )
+                    tradable_raw = self._retry(
+                        lambda rq_batch=rq_batch, chunk_start=chunk_start, chunk_end=chunk_end: (
+                            rq.get_price(
+                                rq_batch,
+                                start_date=chunk_start,
+                                end_date=chunk_end,
+                                frequency="1d",
+                                fields=["close"],
+                                adjust_type="none",
+                                skip_suspended=True,
+                                expect_df=True,
+                                market=market,
+                            )
+                        )
+                    )
+                    paused = normalize_rq_suspension(filled_raw, tradable_raw)
                     is_st = pd.DataFrame(columns=["date", "symbol", "is_st"])
                 if not paused.empty:
                     paused_parts.append(paused)

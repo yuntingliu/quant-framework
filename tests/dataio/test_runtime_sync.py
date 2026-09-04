@@ -691,6 +691,48 @@ def test_rq_acquirer_batches_market_state_and_daily_factors() -> None:
     assert set(components["symbol"]) == {"000001.SZ", "600000.SH"}
 
 
+def test_rq_acquirer_infers_non_stock_suspension_from_price_key_difference() -> None:
+    class FundRQModule(_FakeRQModule):
+        def __init__(self) -> None:
+            super().__init__()
+            self.suspension_price_calls: list[bool] = []
+
+        def get_price(self, order_book_ids, **kwargs):
+            self.suspension_price_calls.append(bool(kwargs.get("skip_suspended")))
+            index = pd.MultiIndex.from_tuples(
+                [
+                    (order_book_ids[0], pd.Timestamp("2025-01-02")),
+                    (order_book_ids[0], pd.Timestamp("2025-01-03")),
+                ],
+                names=["order_book_id", "date"],
+            )
+            frame = pd.DataFrame({"close": [4.0, 4.0]}, index=index)
+            return frame.iloc[:1] if kwargs.get("skip_suspended") else frame
+
+        def is_suspended(self, order_book_ids, **kwargs):
+            raise AssertionError("non-stock state must not use rq.is_suspended")
+
+    module = FundRQModule()
+    client = RQDataClient(
+        RQDataConfig(user="demo", password="secret", host="example:16011"),
+        module=module,
+    )
+
+    states = list(
+        RQAcquirer(client, retries=1).market_state_chunks(
+            ["510300.SH"],
+            "2025-01-02",
+            "2025-01-03",
+            include_st=False,
+        )
+    )
+
+    paused, is_st = states[0]
+    assert module.suspension_price_calls == [False, True]
+    assert paused["paused"].tolist() == [False, True]
+    assert is_st.empty
+
+
 def test_rq_acquirer_rejects_paused_and_st_key_mismatch() -> None:
     class MismatchedStateModule(_FakeRQModule):
         def is_suspended(self, order_book_ids, **kwargs):

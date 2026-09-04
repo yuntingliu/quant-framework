@@ -58,7 +58,7 @@ DATASET_SPECS: tuple[DatasetSpec, ...] = (
         ("date", "symbol"),
         "date",
         "rq",
-        ("is_suspended",),
+        ("is_suspended", "get_price"),
         "execution_input",
         "boolean_daily_state",
     ),

@@ -35,11 +35,20 @@ across stocks and ETFs before publication. Numeric market and canonical PIT
 fields are discovered from Parquet metadata and become safe factor-expression
 inputs without a frontend whitelist update.
 
+RQ's `is_suspended` endpoint accepts common stocks only. Stock recipes use that
+endpoint directly; ETF, LOF, and index recipes compare `get_price` keys with
+`skip_suspended=False` and `True`, marking only provider-filled sessions as
+suspended. They never send an empty or non-stock batch to the stock-status API.
+
 The built-in bar recipe declares unadjusted OHLC as required persisted columns.
 If an older `rq.bars` partition only contains `raw_close`, its date watermark is
 not reused: the next normal synchronization replays the configured interval and
 atomically upgrades those partitions. Operators do not need to set `force=true`
 for this schema migration.
+
+Submitting a saved built-in recipe also applies known, narrow template
+migrations before Python starts. The migration preserves its editable date and
+symbol parameters; custom recipe logic is never overwritten.
 
 ## RQData templates
 

@@ -5,8 +5,8 @@ custom sources. The primary Data Workbench contract is a code-backed recipe:
 
 ```python
 from alphalab.data_sdk.v1 import (
-    data_recipe, normalize_rq_bars, normalize_rq_instruments, rq,
-    rq_order_book_ids,
+    data_recipe, normalize_rq_bars, normalize_rq_instruments,
+    normalize_rq_suspension, rq, rq_order_book_ids,
 )
 
 @data_recipe(id="research_data", label="ETF 日线", template="rq.etf_daily")
@@ -34,6 +34,16 @@ def research_data(
         adjust_type="none", expect_df=True,
     )
     context.publish("rq.bars", normalize_rq_bars(adjusted, unadjusted))
+
+    filled = rq.get_price(
+        order_book_ids, start_date=start, end_date=end, fields=["close"],
+        adjust_type="none", skip_suspended=False, expect_df=True,
+    )
+    tradable = rq.get_price(
+        order_book_ids, start_date=start, end_date=end, fields=["close"],
+        adjust_type="none", skip_suspended=True, expect_df=True,
+    )
+    context.publish("rq.paused", normalize_rq_suspension(filled, tradable))
 ```
 
 The normalizer preserves the adjusted provider schema and adds unadjusted
@@ -46,6 +56,13 @@ cross-asset representation. In particular, `board_type` is a nullable string
 for both stocks and ETFs even when RQData returns an integer ETF code. A dated
 `rq.instruments` partition can therefore merge different asset types without
 creating an object column that Parquet cannot encode consistently.
+
+`normalize_rq_suspension` is the non-stock suspension boundary. RQData's
+stock-only `is_suspended` function remains the direct source for common stocks;
+for ETFs and other exchange products, the helper compares the daily keys from
+filled and `skip_suspended=True` price queries. Missing vendor rows remain
+missing and are caught by coverage validation instead of being guessed as a
+normal trading session.
 
 Production recipes place those visible RQ calls inside
 `context.sync_batches(...)`. The helper uses persisted per-symbol watermarks,

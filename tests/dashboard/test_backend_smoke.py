@@ -152,9 +152,7 @@ def monthly_momentum(context, state, *, top_n: int = 7):
         json={
             "project_id": "arbitrary-factor-project",
             "name": "Arbitrary Factor Project",
-            "factor_sources": [
-                '@factor(id="quality")\ndef quality(context):\n    return 1.0\n'
-            ],
+            "factor_sources": ['@factor(id="quality")\ndef quality(context):\n    return 1.0\n'],
             "confirm_save": True,
             "confirm_python_execution": True,
         },
@@ -162,9 +160,7 @@ def monthly_momentum(context, state, *, top_n: int = 7):
     assert arbitrary_factor.status_code == 422
 
 
-def test_project_create_removes_strategy_when_recipe_persistence_fails(
-    tmp_path, monkeypatch
-):
+def test_project_create_removes_strategy_when_recipe_persistence_fails(tmp_path, monkeypatch):
     database = tmp_path / "failed-project-bundle.db"
     operations = OperationsStore(tmp_path)
     monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
@@ -238,16 +234,15 @@ def test_project_create_migrates_the_default_recipe_before_copying_it(
     project_recipe = operations.get_recipe_draft("etf-from-migrated-default")
     assert default_recipe is not None
     assert project_recipe is not None
-    assert "required_columns=(\"raw_open\", \"raw_high\", \"raw_low\", \"raw_close\")" in (
-        default_recipe["source"]
+    assert (
+        'required_columns=("raw_open", "raw_high", "raw_low", "raw_close")'
+        in (default_recipe["source"])
     )
     assert "EXPLICIT_SYMBOL_ASSET_TYPES = ('CS', 'ETF')" in project_recipe["source"]
     assert "symbols: tuple[str, ...] | None = ('510300.SH',)" in project_recipe["source"]
 
 
-def test_explicit_default_project_migration_creates_a_new_revision(
-    tmp_path, monkeypatch
-):
+def test_explicit_default_project_migration_creates_a_new_revision(tmp_path, monkeypatch):
     database = tmp_path / "project-template-migration.db"
     repository = StrategyRepository(database)
     try:
@@ -258,10 +253,10 @@ def test_explicit_default_project_migration_creates_a_new_revision(
         source, _ = replace_registered_function(
             source,
             entrypoint_id="research_universe",
-            function_source='''@universe(id="legacy_universe")
+            function_source="""@universe(id="legacy_universe")
 def legacy_universe(context):
     return UniverseResult(symbols=context.universe)
-''',
+""",
         )
         legacy = repository.update_draft(
             project["id"],
@@ -287,15 +282,15 @@ def legacy_universe(context):
     migrated = response.json()
     assert migrated["current_revision"] == old_revision + 1
     assert any(
-        item["kind"] == "execution_data_fill"
-        for item in migrated["inspection"]["entrypoints"]
+        item["kind"] == "execution_data_fill" for item in migrated["inspection"]["entrypoints"]
     )
     assert 'eq("CS")' in migrated["strategy_source"]
     repository = StrategyRepository(database)
     try:
-        assert repository.get_package(
-            "legacy-stock-project", old_revision
-        )["source_sha256"] == old_hash
+        assert (
+            repository.get_package("legacy-stock-project", old_revision)["source_sha256"]
+            == old_hash
+        )
     finally:
         repository.close()
 
@@ -349,9 +344,7 @@ def test_backtest_wait_endpoint_uses_a_bounded_server_wait(monkeypatch):
         }
 
     monkeypatch.setattr(backtests_router, "wait_backtest_job", wait)
-    response = TestClient(app).get(
-        "/api/backtests/jobs/job-1/wait?timeout_seconds=120"
-    )
+    response = TestClient(app).get("/api/backtests/jobs/job-1/wait?timeout_seconds=120")
 
     assert response.status_code == 200
     assert response.json()["status"] == "running"
@@ -583,6 +576,53 @@ def test_data_recipe_workspace_uses_python_as_the_template_and_parameter_source(
     assert switched_back.status_code == 200, switched_back.text
     assert switched_back.json()["selected_template_id"] == custom_id
     assert switched_back.json()["source_sha256"] == custom.json()["source_sha256"]
+
+
+def test_data_recipe_submission_applies_known_migration_before_queueing(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    operations = OperationsStore(tmp_path)
+    source = render_builtin_recipe(
+        "rq.etf_daily",
+        start="2021-08-25",
+        end="2026-08-25",
+        symbols=["510300.SH"],
+    )
+    operations.save_recipe_draft(
+        "sample-project",
+        source,
+        selected_template_id="rq.etf_daily",
+    )
+    submitted: list[str] = []
+
+    def queue_recipe(value: str, *, project_id: str) -> dict:
+        submitted.append(value)
+        return {
+            "status": "queued",
+            "id": "job-1",
+            "request": {"project_id": project_id, "kind": "python_recipe"},
+        }
+
+    manager = SimpleNamespace(operations=operations, submit_recipe=queue_recipe)
+    monkeypatch.setattr(data_sync_service, "get_job_manager", lambda: manager)
+    monkeypatch.setattr(strategy_service, "get_project", lambda project_id: {"id": project_id})
+    monkeypatch.setattr(
+        data_sync_service,
+        "_recipe_bounds",
+        lambda: {"start": "2021-08-25", "end": "2026-08-25"},
+    )
+    monkeypatch.setattr(
+        data_sync_service,
+        "migrate_legacy_builtin_recipe",
+        lambda value: value.replace("CHUNK_DAYS = 366", "CHUNK_DAYS = 365", 1),
+    )
+
+    job = data_sync_service.submit_recipe("sample-project")
+
+    assert job["status"] == "queued"
+    assert submitted and "CHUNK_DAYS = 365" in submitted[0]
+    assert operations.get_recipe_draft("sample-project")["source"] == submitted[0]
 
 
 def test_system_default_recipe_upgrades_only_an_untouched_previous_default(
@@ -1004,10 +1044,7 @@ def test_complete_sdk_backtest_persists_revision_hash_and_manifest(tmp_path, mon
     assert "events" not in detail["run_diagnostics"]
     assert "execution_summary" in detail["run_diagnostics"]
     assert "signal_evidence" in detail["run_diagnostics"]
-    assert all(
-        "scores" not in row
-        for row in detail["run_diagnostics"]["signal_evidence"]["rows"]
-    )
+    assert all("scores" not in row for row in detail["run_diagnostics"]["signal_evidence"]["rows"])
     frozen_portfolio = next(
         item for item in detail["strategy_manifest"] if item["kind"] == "portfolio"
     )

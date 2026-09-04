@@ -181,6 +181,7 @@ def recipe_workspace(project_id: str) -> dict:
         }
         for item in manager.operations.list_recipe_templates()
     ]
+    migration_applied = False
     draft = manager.operations.get_recipe_draft(project)
     if draft is None:
         source = render_builtin_recipe(
@@ -215,12 +216,14 @@ def recipe_workspace(project_id: str) -> dict:
                 expected_source_sha256=draft["source_sha256"],
                 selected_template_id=DEFAULT_RQ_SYNC_TEMPLATE_ID,
             )
+            migration_applied = True
         elif migrated != draft["source"]:
             draft = manager.operations.save_recipe_draft(
                 project,
                 migrated,
                 expected_source_sha256=draft["source_sha256"],
             )
+            migration_applied = True
     selected_template_id = _selected_recipe_template_id(
         draft,
         built_in_templates=built_in_templates,
@@ -237,6 +240,10 @@ def recipe_workspace(project_id: str) -> dict:
         "draft": _recipe_draft(draft),
         "templates": [*built_in_templates, *custom_templates],
         "bounds": bounds,
+        "migration": {
+            "applied": migration_applied,
+            "kind": "built_in_recipe" if migration_applied else None,
+        },
         "docs_url": RQDATA_PYTHON_DOCS_URL,
         "execution": "trusted_local_python",
     }
@@ -435,6 +442,9 @@ def plan_recipe(project_id: str) -> dict:
 
 def submit_recipe(project_id: str) -> dict:
     project = _project_id(project_id)
+    # Apply narrow, known built-in migrations at the submission boundary too.
+    # API clients that submit directly should not execute a stale provider call.
+    recipe_workspace(project)
     draft = get_job_manager().operations.get_recipe_draft(project)
     if draft is None:
         raise KeyError(project)

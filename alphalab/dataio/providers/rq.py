@@ -18,6 +18,7 @@ from alphalab.dataio.rq_frames import (
     normalize_rq_index_components,
     normalize_rq_instruments,
     normalize_rq_market_state,
+    normalize_rq_suspension,
     require_same_keys,
 )
 from alphalab.utils.env import load_env_files
@@ -326,24 +327,49 @@ class RQDataProvider:
         end: str,
         fields: list[str] | None = None,
     ) -> pd.DataFrame:
-        default_fields = ["paused", *(["is_st"] if "CS" in self.instrument_types else [])]
+        stock_only = set(self.instrument_types) == {"CS"}
+        default_fields = ["paused", *(["is_st"] if stock_only else [])]
         requested = list(dict.fromkeys(fields or default_fields))
         unknown = sorted(set(requested) - {"paused", "is_st", "is_suspended"})
         if unknown:
             raise DataValidationError(f"Unsupported RQ market-state fields: {unknown}")
+        if "is_st" in requested and not stock_only:
+            raise DataValidationError("RQ is_st requires a stock-only provider scope")
         rq = self.client.connect()
         rq_symbols = [_to_rq_symbol(symbol) for symbol in symbols]
         try:
-            paused = normalize_rq_market_state(
-                rq.is_suspended(
-                    rq_symbols,
-                    start_date=start,
-                    end_date=end,
-                    market=self.market,
-                ),
-                field="paused",
-            )
             wants_st = "is_st" in requested
+            if stock_only:
+                paused = normalize_rq_market_state(
+                    rq.is_suspended(
+                        rq_symbols,
+                        start_date=start,
+                        end_date=end,
+                        market=self.market,
+                    ),
+                    field="paused",
+                )
+            else:
+                price_kwargs = {
+                    "start_date": start,
+                    "end_date": end,
+                    "frequency": "1d",
+                    "fields": ["close"],
+                    "adjust_type": "none",
+                    "expect_df": True,
+                    "market": self.market,
+                }
+                filled_raw = rq.get_price(
+                    rq_symbols,
+                    skip_suspended=False,
+                    **price_kwargs,
+                )
+                tradable_raw = rq.get_price(
+                    rq_symbols,
+                    skip_suspended=True,
+                    **price_kwargs,
+                )
+                paused = normalize_rq_suspension(filled_raw, tradable_raw)
             is_st = (
                 normalize_rq_market_state(
                     rq.is_st_stock(

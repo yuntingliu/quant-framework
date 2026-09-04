@@ -30,13 +30,16 @@ MAX_RECIPE_SOURCE_BYTES = 300_000
 MAX_RECIPE_LOG_CHARS = 20_000
 _LEGACY_VISIBLE_NORMALIZED_HASHES = {
     "rq.a_share_daily": {
-        "6cc97280b1486761da9abd396c12372f0c682e798ab5a112fd0853b34dfe549f"
+        "6cc97280b1486761da9abd396c12372f0c682e798ab5a112fd0853b34dfe549f",
+        "5d3965bc9095afe93bb09779157ec516482e074bc4dd535c191677f59ff4ec19",
     },
     "rq.etf_daily": {
-        "7bec1dd2f454463118478317e48e49adafa088c06c508a98212c607cd1839048"
+        "7bec1dd2f454463118478317e48e49adafa088c06c508a98212c607cd1839048",
+        "935f30403a5127d9ab2ff95d19291d5164db50ca7b5d776ef02417cecc742bc6",
     },
     "rq.exchange_fund_daily": {
-        "2653532b307aba8a80045c438164092260880fb5669be76b76e489b207c564b0"
+        "2653532b307aba8a80045c438164092260880fb5669be76b76e489b207c564b0",
+        "eb67808cbdb5e93534487b2ac8187db3ca37936f38bf41ba76efd36e7c09d103",
     },
     "rq.a_share_research": {
         "0d595f152b81707cb0e7ed424c5b39c4164765b43bdc4a5077d88a09150890de",
@@ -44,6 +47,8 @@ _LEGACY_VISIBLE_NORMALIZED_HASHES = {
         "240dd582663fde077838d7a346febc49b028e95ab3adce74802bb81e3a53a781",
         # The first raw-OHLC release, before explicit ETF symbols were supported.
         "9946e7ccfa1ddf4a9b61c848bd5f8a41e15c6d27c58a0786a8c85aee98cbab8f",
+        # The mixed stock/ETF release before non-stock suspension discovery.
+        "ac1ff39ebfc9093b9fb598fe25bfcc5ce746b2a84b0f35ae3b2c172c39bc0b1c",
     },
 }
 _LEGACY_NORMALIZED_PARAMETERS = {
@@ -269,6 +274,7 @@ from alphalab.data_sdk.v1 import (
     normalize_rq_bars,
     normalize_rq_instruments,
     normalize_rq_market_state,
+    normalize_rq_suspension,
     rq,
     rq_order_book_ids,
 )
@@ -314,7 +320,14 @@ def research_data(
     if context.mode == "plan":
         context.expect("rq.instruments", "rq.all_instruments", asset_types=asset_types)
         context.expect("rq.bars", "rq.get_price", start=start, end=end)
-        context.expect("rq.paused", "rq.is_suspended", start=start, end=end)
+        state_operation = (
+            "rq.is_suspended"
+            if set(asset_types) == {{"CS"}}
+            else "rq.is_suspended + rq.get_price(skip_suspended)"
+            if "CS" in asset_types
+            else "rq.get_price(skip_suspended)"
+        )
+        context.expect("rq.paused", state_operation, start=start, end=end)
         if INCLUDE_ST:
             context.expect("rq.is_st", "rq.is_st_stock", start=start, end=end)
 {research_plan}        return
@@ -354,6 +367,7 @@ def research_data(
         zip(stock_active["symbol"], stock_active["listed_date"], strict=False)
     )
     stock_order_book_ids = rq_order_book_ids(stock_symbols)
+    stock_symbol_set = set(stock_symbols)
     context.output("symbol_count", len(order_book_ids))
 
     published_bar_batches = 0
@@ -410,17 +424,47 @@ def research_data(
         force=FORCE,
         available_from=available_from,
     ):
-        batch = rq_order_book_ids(request.symbols)
-        paused_raw = rq.is_suspended(
-            batch,
-            start_date=request.start,
-            end_date=request.end,
-            market=MARKET,
-        )
-        paused = normalize_rq_market_state(paused_raw, field="paused")
-        if not paused.empty:
-            context.publish("rq.paused", paused)
-            published_state_batches += 1
+        stock_batch = [symbol for symbol in request.symbols if symbol in stock_symbol_set]
+        non_stock_batch = [symbol for symbol in request.symbols if symbol not in stock_symbol_set]
+        if stock_batch:
+            paused_raw = rq.is_suspended(
+                rq_order_book_ids(stock_batch),
+                start_date=request.start,
+                end_date=request.end,
+                market=MARKET,
+            )
+            paused = normalize_rq_market_state(paused_raw, field="paused")
+            if not paused.empty:
+                context.publish("rq.paused", paused)
+                published_state_batches += 1
+        if non_stock_batch:
+            non_stock_order_book_ids = rq_order_book_ids(non_stock_batch)
+            filled_prices = rq.get_price(
+                non_stock_order_book_ids,
+                start_date=request.start,
+                end_date=request.end,
+                frequency="1d",
+                fields=["close"],
+                adjust_type="none",
+                skip_suspended=False,
+                expect_df=True,
+                market=MARKET,
+            )
+            tradable_prices = rq.get_price(
+                non_stock_order_book_ids,
+                start_date=request.start,
+                end_date=request.end,
+                frequency="1d",
+                fields=["close"],
+                adjust_type="none",
+                skip_suspended=True,
+                expect_df=True,
+                market=MARKET,
+            )
+            paused = normalize_rq_suspension(filled_prices, tradable_prices)
+            if not paused.empty:
+                context.publish("rq.paused", paused)
+                published_state_batches += 1
     if published_state_batches == 0 and context.watermark("rq.paused") is None:
         raise ValueError("RQData returned no historical market state")
 
@@ -685,9 +729,7 @@ def migrate_legacy_builtin_recipe(source: str) -> str:
     except DataRecipeError:
         normalized_visible = None
         normalized_visible_hash = None
-    known_visible_hashes = _LEGACY_VISIBLE_NORMALIZED_HASHES.get(
-        inspection.template_id, set()
-    )
+    known_visible_hashes = _LEGACY_VISIBLE_NORMALIZED_HASHES.get(inspection.template_id, set())
     current_visible, _ = update_recipe_parameters(
         render_builtin_recipe(
             inspection.template_id,

@@ -11,6 +11,7 @@ from alphalab.data_sdk.v1 import (
     RQDataAPI,
     normalize_rq_bars,
     normalize_rq_instruments,
+    normalize_rq_suspension,
 )
 from alphalab.dataio import DataValidationError
 from alphalab.dataio.catalog import DataCatalog
@@ -73,7 +74,7 @@ def test_builtin_recipe_is_real_python_and_parameters_are_cst_projected() -> Non
     assert [item["operation"] for item in preview["planned"]] == [
         "rq.all_instruments",
         "rq.get_price",
-        "rq.is_suspended",
+        "rq.get_price(skip_suspended)",
     ]
 
 
@@ -164,6 +165,29 @@ def test_instrument_normalizer_stabilizes_board_type_across_stocks_and_etfs(
 
     assert persisted.loc["600000.SH", "board_type"] == "MainBoard"
     assert persisted.loc["510300.SH", "board_type"] == "1"
+
+
+def test_price_suspension_normalizer_marks_rows_omitted_from_tradable_prices() -> None:
+    index = pd.MultiIndex.from_tuples(
+        [
+            ("510300.XSHG", pd.Timestamp("2025-01-02")),
+            ("510300.XSHG", pd.Timestamp("2025-01-03")),
+        ],
+        names=["order_book_id", "date"],
+    )
+    filled = pd.DataFrame({"close": [4.0, 4.0]}, index=index)
+    tradable = filled.iloc[:1]
+
+    paused = normalize_rq_suspension(filled, tradable)
+
+    assert paused.to_dict("records") == [
+        {"date": pd.Timestamp("2025-01-02"), "symbol": "510300.SH", "paused": False},
+        {"date": pd.Timestamp("2025-01-03"), "symbol": "510300.SH", "paused": True},
+    ]
+    assert normalize_rq_suspension(filled, pd.DataFrame())["paused"].tolist() == [
+        True,
+        True,
+    ]
 
 
 def test_manual_recipe_logic_is_custom_and_static_errors_have_a_phase() -> None:
@@ -335,11 +359,7 @@ def test_builtin_recipe_executes_visible_rq_commands_and_publishes_results(
             return pd.DataFrame(values)
 
         def is_suspended(self, order_book_ids, **kwargs):
-            self.calls.append(("is_suspended", kwargs.get("start_date")))
-            return pd.DataFrame(
-                {order_book_ids[0]: [False]},
-                index=pd.DatetimeIndex(["2025-01-02"], name="date"),
-            )
+            raise AssertionError("ETF suspension must not use the stock-only RQ API")
 
     fake = FakeRQ()
     monkeypatch.setattr(RQDataAPI, "_module", lambda _self: fake)
@@ -357,7 +377,8 @@ def test_builtin_recipe_executes_visible_rq_commands_and_publishes_results(
         "all_instruments",
         "get_price",
         "get_price",
-        "is_suspended",
+        "get_price",
+        "get_price",
     ]
     assert {item["dataset"] for item in result["published"]} == {
         "rq.instruments",
@@ -418,11 +439,7 @@ def test_default_research_recipe_resolves_an_explicit_etf_without_stock_research
             return pd.DataFrame(values)
 
         def is_suspended(self, order_book_ids, **kwargs):
-            self.calls.append(("is_suspended", kwargs.get("start_date")))
-            return pd.DataFrame(
-                {order_book_ids[0]: [False]},
-                index=pd.DatetimeIndex(["2025-01-02"], name="date"),
-            )
+            raise AssertionError("ETF suspension must not use the stock-only RQ API")
 
     fake = FakeRQ()
     monkeypatch.setattr(RQDataAPI, "_module", lambda _self: fake)
@@ -440,7 +457,8 @@ def test_default_research_recipe_resolves_an_explicit_etf_without_stock_research
         "all_instruments",
         "get_price",
         "get_price",
-        "is_suspended",
+        "get_price",
+        "get_price",
     ]
     assert [value for name, value in fake.calls if name == "all_instruments"] == [
         "CS",

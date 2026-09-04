@@ -169,6 +169,46 @@ def test_rq_provider_supports_etf_and_lof_instrument_scopes() -> None:
     assert instruments["board_type"].tolist() == ["1", "Fund"]
 
 
+def test_rq_provider_uses_price_keys_for_etf_suspension() -> None:
+    class FundRQData(FakeRQData):
+        def get_price(self, order_book_ids, **kwargs):
+            self.price_calls.append({"order_book_ids": order_book_ids, **kwargs})
+            index = pd.MultiIndex.from_tuples(
+                [
+                    (order_book_ids[0], pd.Timestamp("2025-01-02")),
+                    (order_book_ids[0], pd.Timestamp("2025-01-03")),
+                ],
+                names=["order_book_id", "date"],
+            )
+            frame = pd.DataFrame({"close": [4.0, 4.0]}, index=index)
+            return frame.iloc[:1] if kwargs.get("skip_suspended") else frame
+
+        def is_suspended(self, order_book_ids, **kwargs):
+            raise AssertionError("ETF state must not use the stock-only RQ API")
+
+    module = FundRQData()
+    provider = RQDataProvider(
+        RQDataClient(
+            RQDataConfig(user="demo", password="secret", host="rq.example:16011"),
+            module=module,
+        ),
+        instrument_types=("ETF",),
+    )
+
+    state = provider.get_market_state(
+        ["510300.SH"],
+        "2025-01-02",
+        "2025-01-03",
+        fields=["paused", "is_suspended"],
+    )
+
+    assert [call["skip_suspended"] for call in module.price_calls] == [False, True]
+    assert state[["paused", "is_suspended"]].to_dict("records") == [
+        {"paused": False, "is_suspended": False},
+        {"paused": True, "is_suspended": True},
+    ]
+
+
 def test_rq_fundamentals_are_point_in_time_and_batched() -> None:
     provider, module = _provider()
     provider.fundamental_batch_size = 1
