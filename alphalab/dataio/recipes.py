@@ -19,16 +19,32 @@ from typing import Any, Callable, Mapping
 import libcst as cst
 
 from alphalab.data_sdk.v1.recipe import DataRecipeContext, RQSyncRequest
-from alphalab.dataio.rq_templates import get_rq_sync_template, list_rq_sync_templates
+from alphalab.dataio.rq_templates import (
+    DEFAULT_RQ_SYNC_TEMPLATE_ID,
+    get_rq_sync_template,
+    list_rq_sync_templates,
+)
 
 RQDATA_PYTHON_DOCS_URL = "https://www.ricequant.com/doc/rqdata/python/index-rqdatac"
 MAX_RECIPE_SOURCE_BYTES = 300_000
 MAX_RECIPE_LOG_CHARS = 20_000
 _LEGACY_VISIBLE_NORMALIZED_HASHES = {
-    "rq.a_share_daily": "6cc97280b1486761da9abd396c12372f0c682e798ab5a112fd0853b34dfe549f",
-    "rq.etf_daily": "7bec1dd2f454463118478317e48e49adafa088c06c508a98212c607cd1839048",
-    "rq.exchange_fund_daily": "2653532b307aba8a80045c438164092260880fb5669be76b76e489b207c564b0",
-    "rq.a_share_research": "0d595f152b81707cb0e7ed424c5b39c4164765b43bdc4a5077d88a09150890de",
+    "rq.a_share_daily": {
+        "6cc97280b1486761da9abd396c12372f0c682e798ab5a112fd0853b34dfe549f"
+    },
+    "rq.etf_daily": {
+        "7bec1dd2f454463118478317e48e49adafa088c06c508a98212c607cd1839048"
+    },
+    "rq.exchange_fund_daily": {
+        "2653532b307aba8a80045c438164092260880fb5669be76b76e489b207c564b0"
+    },
+    "rq.a_share_research": {
+        "0d595f152b81707cb0e7ed424c5b39c4164765b43bdc4a5077d88a09150890de",
+        # Visible built-in revisions released before raw OHLC became mandatory.
+        "240dd582663fde077838d7a346febc49b028e95ab3adce74802bb81e3a53a781",
+        # The first raw-OHLC release, before explicit ETF symbols were supported.
+        "9946e7ccfa1ddf4a9b61c848bd5f8a41e15c6d27c58a0786a8c85aee98cbab8f",
+    },
 }
 _LEGACY_NORMALIZED_PARAMETERS = {
     "start": "2001-02-03",
@@ -98,6 +114,11 @@ def _render_builtin_recipe_base(
     template = get_rq_sync_template(template_id)
     symbol_literal = repr(tuple(symbols)) if symbols else "None"
     research = "fundamentals" in template.datasets
+    explicit_symbol_asset_types = (
+        tuple(dict.fromkeys((*template.instrument_types, "ETF")))
+        if template.id == DEFAULT_RQ_SYNC_TEMPLATE_ID
+        else template.instrument_types
+    )
     research_imports = (
         "    BALANCE_FIELDS,\n"
         "    INCOME_FIELDS,\n"
@@ -132,17 +153,21 @@ def _quarter(value):
     )
     research_run = (
         """
+    # ETF-only projects need bars and execution state, but no stock fundamentals.
+    if stock_active.empty:
+        return
+
     for field in DAILY_FACTORS:
         for request in context.sync_batches(
             "rq.daily_factors",
-            active["symbol"].tolist(),
+            stock_symbols,
             start=start,
             end=end,
             batch_size=200,
             chunk_days=CHUNK_DAYS,
             overlap_days=1,
             force=FORCE,
-            available_from=available_from,
+            available_from=stock_available_from,
             dimension=("field", field),
         ):
             raw_factor = rq.get_factor(
@@ -177,7 +202,7 @@ def _quarter(value):
 
     start_quarter = _quarter(start)
     end_quarter = _quarter(end)
-    for batch in _batches(order_book_ids, 200):
+    for batch in _batches(stock_order_book_ids, 200):
         raw_income = rq.get_pit_financials_ex(
             order_book_ids=batch,
             fields=list(INCOME_FIELDS),
@@ -203,10 +228,11 @@ def _quarter(value):
             context.publish("rq.financials.balance", balance)
 
     bars = context.read("rq.bars")
+    stock_bars = bars.loc[bars["symbol"].isin(stock_symbols)].copy()
     fundamentals = build_canonical_fundamentals(
         context.read("rq.financials.income"),
         context.read("rq.financials.balance"),
-        bars,
+        stock_bars,
         asof_date=end,
     )
     context.publish("canonical.fundamentals", fundamentals)
@@ -218,7 +244,7 @@ def _quarter(value):
         market=MARKET,
     )
     risk_free = normalize_rq_yield_curve(raw_yield_curve, tenor="1M")
-    factor_returns = build_factor_returns(bars, fundamentals, risk_free)
+    factor_returns = build_factor_returns(stock_bars, fundamentals, risk_free)
     context.publish("runtime.factor_returns", factor_returns)
 
     context.require_coverage(
@@ -226,7 +252,7 @@ def _quarter(value):
         start=start,
         end=end,
         fail_on_gap=True,
-        symbols=active["symbol"].tolist(),
+        symbols=stock_symbols,
     )
     context.require_coverage(
         "rq.index_components", start=start, end=end, fail_on_gap=True
@@ -245,11 +271,11 @@ from alphalab.data_sdk.v1 import (
     normalize_rq_market_state,
     rq,
     rq_order_book_ids,
-    require_same_keys,
 )
 
 
 ASSET_TYPES = {template.instrument_types!r}
+EXPLICIT_SYMBOL_ASSET_TYPES = {explicit_symbol_asset_types!r}
 MARKET = {template.market!r}
 CHUNK_DAYS = 366
 FORCE = False
@@ -281,8 +307,12 @@ def research_data(
     end: str = {end!r},
     symbols: tuple[str, ...] | None = {symbol_literal},
 ):
+    '''Preview the sync plan and publish normalized research data in run mode.'''
+    # The default project remains all-CS when symbols is empty. Explicit symbols
+    # are resolved across stocks and ETFs so a copied project can narrow either.
+    asset_types = EXPLICIT_SYMBOL_ASSET_TYPES if symbols else ASSET_TYPES
     if context.mode == "plan":
-        context.expect("rq.instruments", "rq.all_instruments", asset_types=ASSET_TYPES)
+        context.expect("rq.instruments", "rq.all_instruments", asset_types=asset_types)
         context.expect("rq.bars", "rq.get_price", start=start, end=end)
         context.expect("rq.paused", "rq.is_suspended", start=start, end=end)
         if INCLUDE_ST:
@@ -290,7 +320,7 @@ def research_data(
 {research_plan}        return
 
     instrument_frames = []
-    for asset_type in ASSET_TYPES:
+    for asset_type in asset_types:
         raw_instruments = rq.all_instruments(type=asset_type, market=MARKET)
         normalized = normalize_rq_instruments(
             raw_instruments,
@@ -318,6 +348,12 @@ def research_data(
     context.publish("rq.instruments", active)
     available_from = dict(zip(active["symbol"], active["listed_date"], strict=False))
     order_book_ids = rq_order_book_ids(active["symbol"].tolist())
+    stock_active = active.loc[active["asset_type"].astype(str).str.upper().eq("CS")].copy()
+    stock_symbols = stock_active["symbol"].tolist()
+    stock_available_from = dict(
+        zip(stock_active["symbol"], stock_active["listed_date"], strict=False)
+    )
+    stock_order_book_ids = rq_order_book_ids(stock_symbols)
     context.output("symbol_count", len(order_book_ids))
 
     published_bar_batches = 0
@@ -373,7 +409,6 @@ def research_data(
         overlap_days=1,
         force=FORCE,
         available_from=available_from,
-        companions=(("rq.is_st",) if INCLUDE_ST else ()),
     ):
         batch = rq_order_book_ids(request.symbols)
         paused_raw = rq.is_suspended(
@@ -383,7 +418,26 @@ def research_data(
             market=MARKET,
         )
         paused = normalize_rq_market_state(paused_raw, field="paused")
-        if INCLUDE_ST:
+        if not paused.empty:
+            context.publish("rq.paused", paused)
+            published_state_batches += 1
+    if published_state_batches == 0 and context.watermark("rq.paused") is None:
+        raise ValueError("RQData returned no historical market state")
+
+    published_st_batches = 0
+    if INCLUDE_ST and stock_symbols:
+        for request in context.sync_batches(
+            "rq.is_st",
+            stock_symbols,
+            start=start,
+            end=end,
+            batch_size=200,
+            chunk_days=CHUNK_DAYS,
+            overlap_days=1,
+            force=FORCE,
+            available_from=stock_available_from,
+        ):
+            batch = rq_order_book_ids(request.symbols)
             is_st_raw = rq.is_st_stock(
                 batch,
                 start_date=request.start,
@@ -391,19 +445,11 @@ def research_data(
                 market=MARKET,
             )
             is_st = normalize_rq_market_state(is_st_raw, field="is_st")
-            require_same_keys(
-                paused,
-                is_st,
-                ("date", "symbol"),
-                label=f"paused/ST state {{request.start}}..{{request.end}}",
-            )
-        if not paused.empty:
-            context.publish("rq.paused", paused)
-            if INCLUDE_ST:
+            if not is_st.empty:
                 context.publish("rq.is_st", is_st)
-            published_state_batches += 1
-    if published_state_batches == 0 and context.watermark("rq.paused") is None:
-        raise ValueError("RQData returned no historical market state")
+                published_st_batches += 1
+        if published_st_batches == 0 and context.watermark("rq.is_st") is None:
+            raise ValueError("RQData returned no historical ST state")
 
     context.require_coverage(
         "rq.bars", start=start, end=end, fail_on_gap=True, symbols=active["symbol"].tolist()
@@ -411,10 +457,10 @@ def research_data(
     context.require_coverage(
         "rq.paused", start=start, end=end, fail_on_gap=True, symbols=active["symbol"].tolist()
     )
-    if INCLUDE_ST:
+    if INCLUDE_ST and stock_symbols:
         context.require_coverage(
             "rq.is_st", start=start, end=end, fail_on_gap=True,
-            symbols=active["symbol"].tolist(),
+            symbols=stock_symbols,
         )
 {research_run}"""
 
@@ -444,7 +490,6 @@ def _add_builtin_recipe_comments(source: str) -> str:
         ),
         (
             '    if context.mode == "plan":\n',
-            '    """预览同步计划，并在运行模式下发布规范化研究数据。"""\n'
             "    # 预览只声明将执行的步骤，不访问 RQData，也不会写入数据。\n"
             '    if context.mode == "plan":\n',
         ),
@@ -490,8 +535,13 @@ def _add_builtin_recipe_comments(source: str) -> str:
         ),
         (
             "    published_state_batches = 0\n",
-            "    # 4. 停牌与 ST 状态按同一标的、日期批次查询，供严格执行校验。\n"
+            "    # 4. 停牌状态按实际研究标的查询，供严格执行校验。\n"
             "    published_state_batches = 0\n",
+        ),
+        (
+            "    published_st_batches = 0\n",
+            "    # ST 只适用于普通股票；ETF 不会被送入股票状态接口。\n"
+            "    published_st_batches = 0\n",
         ),
         (
             '    context.require_coverage(\n        "rq.bars"',
@@ -635,7 +685,9 @@ def migrate_legacy_builtin_recipe(source: str) -> str:
     except DataRecipeError:
         normalized_visible = None
         normalized_visible_hash = None
-    known_visible_hash = _LEGACY_VISIBLE_NORMALIZED_HASHES.get(inspection.template_id)
+    known_visible_hashes = _LEGACY_VISIBLE_NORMALIZED_HASHES.get(
+        inspection.template_id, set()
+    )
     current_visible, _ = update_recipe_parameters(
         render_builtin_recipe(
             inspection.template_id,
@@ -647,7 +699,7 @@ def migrate_legacy_builtin_recipe(source: str) -> str:
     )
     if (
         source not in {*legacy_versions, uncommented}
-        and normalized_visible_hash != known_visible_hash
+        and normalized_visible_hash not in known_visible_hashes
         and _executable_recipe_ast(normalized_visible) != _executable_recipe_ast(current_visible)
     ):
         return source
@@ -668,7 +720,9 @@ def _executable_recipe_ast(source: str | None) -> str | None:
         tree = ast.parse(source)
     except SyntaxError:
         return None
-    for node in ast.walk(tree):
+    # Materialize the walk before removing docstrings. Mutating ``body`` while
+    # ast.walk is still traversing can otherwise skip a nested function node.
+    for node in list(ast.walk(tree)):
         if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef)):
             body = node.body
             if (

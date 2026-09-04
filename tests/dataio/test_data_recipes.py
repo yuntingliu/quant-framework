@@ -45,7 +45,8 @@ def test_builtin_recipe_is_real_python_and_parameters_are_cst_projected() -> Non
     assert "RQSyncRequest" not in source
     assert "# 1. 直接调用 rq.all_instruments" in source
     assert "# 3. 分批查询日线" in source
-    assert "停牌与 ST 状态" in source
+    assert "停牌状态按实际研究标的查询" in source
+    assert "ST 只适用于普通股票" in source
     assert "template 参数只用于界面识别" in source
     function = next(
         node
@@ -99,7 +100,7 @@ def test_builtin_recipe_comment_upgrade_preserves_custom_logic() -> None:
         .replace('["open", "high", "low", "close"]', '["close"]')
     )
     old_commented_source = source.replace(
-        '    """预览同步计划，并在运行模式下发布规范化研究数据。"""\n',
+        "    '''Preview the sync plan and publish normalized research data in run mode.'''\n",
         "",
         1,
     )
@@ -325,6 +326,94 @@ def test_builtin_recipe_executes_visible_rq_commands_and_publishes_results(
         "rq.paused",
     }
     assert DataCatalog(tmp_path).status("rq.bars")["rows"] == 1
+
+
+def test_default_research_recipe_resolves_an_explicit_etf_without_stock_research(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class FakeRQ:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, object]] = []
+
+        def all_instruments(self, **kwargs):
+            asset_type = kwargs["type"]
+            self.calls.append(("all_instruments", asset_type))
+            if asset_type != "ETF":
+                return pd.DataFrame()
+            return pd.DataFrame(
+                {
+                    "order_book_id": ["510300.XSHG"],
+                    "symbol": ["510300"],
+                    "listed_date": ["2012-05-28"],
+                    "de_listed_date": [None],
+                }
+            )
+
+        def get_price(self, order_book_ids, **kwargs):
+            self.calls.append(("get_price", kwargs.get("adjust_type")))
+            values = {
+                "order_book_id": [order_book_ids[0]],
+                "date": ["2025-01-02"],
+            }
+            if kwargs.get("fields") is None:
+                values.update(
+                    {
+                        "open": [4.0],
+                        "high": [4.2],
+                        "low": [3.9],
+                        "close": [4.1],
+                        "volume": [100_000.0],
+                        "total_turnover": [410_000.0],
+                    }
+                )
+            else:
+                values.update(
+                    {
+                        "open": [4.0],
+                        "high": [4.2],
+                        "low": [3.9],
+                        "close": [4.1],
+                    }
+                )
+            return pd.DataFrame(values)
+
+        def is_suspended(self, order_book_ids, **kwargs):
+            self.calls.append(("is_suspended", kwargs.get("start_date")))
+            return pd.DataFrame(
+                {order_book_ids[0]: [False]},
+                index=pd.DatetimeIndex(["2025-01-02"], name="date"),
+            )
+
+    fake = FakeRQ()
+    monkeypatch.setattr(RQDataAPI, "_module", lambda _self: fake)
+    source = render_builtin_recipe(
+        "rq.a_share_research",
+        start="2025-01-01",
+        end="2025-01-03",
+        symbols=["510300.XSHG"],
+    )
+
+    result = probe_data_recipe(source, mode="run", root=tmp_path)
+
+    assert [name for name, _ in fake.calls] == [
+        "all_instruments",
+        "all_instruments",
+        "get_price",
+        "get_price",
+        "is_suspended",
+    ]
+    assert [value for name, value in fake.calls if name == "all_instruments"] == [
+        "CS",
+        "ETF",
+    ]
+    assert {item["dataset"] for item in result["published"]} == {
+        "rq.instruments",
+        "rq.bars",
+        "rq.paused",
+    }
+    bars = DataRecipeContext(mode="run", root=str(tmp_path)).read("rq.bars")
+    assert {"raw_open", "raw_high", "raw_low", "raw_close"}.issubset(bars.columns)
 
 
 def test_untouched_request_only_template_migrates_to_visible_rq_commands() -> None:

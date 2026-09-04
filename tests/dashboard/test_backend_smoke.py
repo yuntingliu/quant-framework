@@ -5,7 +5,10 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from alphalab import ResultStore
-from alphalab.dataio.recipes import render_builtin_recipe
+from alphalab.dataio.recipes import (
+    _previous_raw_close_builtin_recipe,
+    render_builtin_recipe,
+)
 from alphalab.dataio.runtime import OperationsStore
 from alphalab.strategy.repository import StrategyRepository
 from alphalab.strategy.source import registered_function_source, replace_registered_function
@@ -193,6 +196,53 @@ def test_project_create_removes_strategy_when_recipe_persistence_fails(
     finally:
         repository.close()
     assert operations.get_recipe_draft("failed-project-bundle") is None
+
+
+def test_project_create_migrates_the_default_recipe_before_copying_it(
+    tmp_path, monkeypatch
+) -> None:
+    database = tmp_path / "migrated-default-recipe.db"
+    operations = OperationsStore(tmp_path)
+    repository = StrategyRepository(database)
+    try:
+        repository.get_project("sdk-v1-default")
+    finally:
+        repository.close()
+    legacy = _previous_raw_close_builtin_recipe(
+        "rq.a_share_research",
+        start="2021-01-01",
+        end="2025-12-31",
+        symbols=None,
+    )
+    operations.save_recipe_draft(
+        "sdk-v1-default",
+        legacy,
+        selected_template_id="rq.a_share_research",
+    )
+    monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
+    monkeypatch.setattr(strategy_service, "operations_store", lambda: operations)
+
+    response = TestClient(app).post(
+        "/api/strategy/projects",
+        json={
+            "project_id": "etf-from-migrated-default",
+            "name": "ETF from migrated default",
+            "recipe_parameters": {"symbols": ["510300.SH"]},
+            "confirm_save": True,
+            "confirm_python_execution": True,
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    default_recipe = operations.get_recipe_draft("sdk-v1-default")
+    project_recipe = operations.get_recipe_draft("etf-from-migrated-default")
+    assert default_recipe is not None
+    assert project_recipe is not None
+    assert "required_columns=(\"raw_open\", \"raw_high\", \"raw_low\", \"raw_close\")" in (
+        default_recipe["source"]
+    )
+    assert "EXPLICIT_SYMBOL_ASSET_TYPES = ('CS', 'ETF')" in project_recipe["source"]
+    assert "symbols: tuple[str, ...] | None = ('510300.SH',)" in project_recipe["source"]
 
 
 def test_explicit_default_project_migration_creates_a_new_revision(

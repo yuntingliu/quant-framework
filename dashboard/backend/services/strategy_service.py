@@ -16,6 +16,7 @@ from alphalab.dataio import MissingDataError
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.recipes import (
     inspect_data_recipe_source,
+    migrate_legacy_builtin_recipe,
     render_builtin_recipe,
     update_recipe_parameters,
 )
@@ -177,8 +178,15 @@ def create_project(payload: Mapping[str, Any]) -> dict[str, Any]:
             )
             selected_recipe_template_id = "rq.a_share_research"
         else:
-            recipe_source = str(source_recipe["source"])
+            recipe_source = migrate_legacy_builtin_recipe(str(source_recipe["source"]))
             selected_recipe_template_id = source_recipe.get("selected_template_id")
+            if recipe_source != source_recipe["source"]:
+                source_recipe = operations.save_recipe_draft(
+                    DEFAULT_PROJECT_ID,
+                    recipe_source,
+                    expected_source_sha256=source_recipe["source_sha256"],
+                    selected_template_id=selected_recipe_template_id,
+                )
         parameter_values = {
             key: (tuple(value) if key == "symbols" and value else value)
             for key, value in recipe_parameters.items()
