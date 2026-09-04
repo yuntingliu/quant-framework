@@ -7,12 +7,11 @@ import { useCumulativeReturns } from "@/hooks"
 import { useDataProfile } from "@/lib/data-profile"
 import { Widget } from "@/widgets/Widget"
 
-import { AnalyticsFilters } from "./AnalyticsControls"
 import { analyticsError } from "./analytics-utils"
 
 export function CumulativeReturnsWidget() {
   const { language } = useLanguage()
-  const [profile, setProfile] = useDataProfile()
+  const [profile] = useDataProfile()
   const { startDate, endDate, selectedFactors } = useGlobalFilter()
   const query = useCumulativeReturns(profile, startDate, endDate, selectedFactors)
   const chartData = useMemo(
@@ -33,7 +32,6 @@ export function CumulativeReturnsWidget() {
       loading={query.isLoading}
       error={analyticsError(query.error)}
       onRetry={() => query.refetch()}
-      actions={<AnalyticsFilters profile={profile} onProfileChange={setProfile} />}
       bodyPadding="compact"
     >
       <CumulativeReturnsChart

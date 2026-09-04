@@ -7,6 +7,7 @@ import json
 import os
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,16 +28,18 @@ from alphalab.dataio.io_utils import atomic_write_parquet
 from alphalab.utils.paths import RUNTIME_DIR
 
 
-def _acquire_file_lock(descriptor: int) -> None:
+def _acquire_file_lock(descriptor: int, *, shared: bool = False) -> None:
     """Acquire a non-blocking OS lock that the kernel releases when a worker dies."""
 
     if os.name == "nt":
         if os.fstat(descriptor).st_size == 0:
             os.write(descriptor, b"\0")
         os.lseek(descriptor, 0, os.SEEK_SET)
-        msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        mode = msvcrt.LK_NBRLCK if shared else msvcrt.LK_NBLCK
+        msvcrt.locking(descriptor, mode, 1)
         return
-    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+    fcntl.flock(descriptor, mode | fcntl.LOCK_NB)
 
 
 def _release_file_lock(descriptor: int) -> None:
@@ -112,7 +115,49 @@ CREATE TABLE IF NOT EXISTS data_recipe_templates (
 );
 """
 
-_PROCESS_LOCKS: dict[str, threading.Lock] = {}
+class _ProcessReadWriteLock:
+    """Coordinate shared readers and one writer before taking the OS lock."""
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._readers = 0
+        self._writer = False
+        self._waiting_writers = 0
+
+    def acquire(self, *, shared: bool, timeout_seconds: float) -> bool:
+        deadline = time.monotonic() + timeout_seconds
+        with self._condition:
+            if not shared:
+                self._waiting_writers += 1
+            try:
+                while self._writer or (
+                    shared and self._waiting_writers > 0
+                ) or (
+                    not shared and self._readers > 0
+                ):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return False
+                    self._condition.wait(timeout=remaining)
+                if shared:
+                    self._readers += 1
+                else:
+                    self._writer = True
+                return True
+            finally:
+                if not shared:
+                    self._waiting_writers -= 1
+
+    def release(self, *, shared: bool) -> None:
+        with self._condition:
+            if shared:
+                self._readers -= 1
+            else:
+                self._writer = False
+            self._condition.notify_all()
+
+
+_PROCESS_LOCKS: dict[str, _ProcessReadWriteLock] = {}
 _PROCESS_LOCKS_GUARD = threading.Lock()
 _UNCHANGED_TEMPLATE_ID = object()
 
@@ -527,11 +572,24 @@ class RuntimeStore:
         self.operations = OperationsStore(self.root)
 
     @contextmanager
-    def dataset_lock(self, dataset: str) -> Iterator[None]:
+    def _dataset_lock(
+        self,
+        dataset: str,
+        *,
+        shared: bool,
+        timeout_seconds: float,
+    ) -> Iterator[None]:
+        if timeout_seconds < 0:
+            raise ValueError("timeout_seconds must not be negative")
+        # POSIX flock provides real shared locks. The Windows fallback remains
+        # exclusive because msvcrt byte-range read locks do not compose across
+        # multiple descriptors in one process.
+        lock_shared = shared and os.name != "nt"
         key = f"{self.root.resolve()}::{dataset}"
         with _PROCESS_LOCKS_GUARD:
-            process_lock = _PROCESS_LOCKS.setdefault(key, threading.Lock())
-        if not process_lock.acquire(blocking=False):
+            process_lock = _PROCESS_LOCKS.setdefault(key, _ProcessReadWriteLock())
+        deadline = time.monotonic() + timeout_seconds
+        if not process_lock.acquire(shared=lock_shared, timeout_seconds=timeout_seconds):
             raise DataLoadError(f"Dataset is already being written: {dataset}")
         lock_path = self.root / ".locks" / f"{dataset.replace('.', '_')}.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -539,17 +597,24 @@ class RuntimeStore:
         file_locked = False
         try:
             descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR)
-            try:
-                _acquire_file_lock(descriptor)
-            except OSError as exc:
-                os.close(descriptor)
-                descriptor = None
-                raise DataLoadError(f"Dataset is locked by another process: {dataset}") from exc
+            while True:
+                try:
+                    _acquire_file_lock(descriptor, shared=lock_shared)
+                    break
+                except OSError as exc:
+                    if time.monotonic() >= deadline:
+                        os.close(descriptor)
+                        descriptor = None
+                        raise DataLoadError(
+                            f"Dataset is locked by another process: {dataset}"
+                        ) from exc
+                    time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
             file_locked = True
-            payload = str(os.getpid()).encode("ascii")
-            os.lseek(descriptor, 0, os.SEEK_SET)
-            os.write(descriptor, payload)
-            os.ftruncate(descriptor, len(payload))
+            if not shared:
+                payload = str(os.getpid()).encode("ascii")
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                os.write(descriptor, payload)
+                os.ftruncate(descriptor, len(payload))
             yield
         finally:
             try:
@@ -560,7 +625,39 @@ class RuntimeStore:
                     finally:
                         os.close(descriptor)
             finally:
-                process_lock.release()
+                process_lock.release(shared=lock_shared)
+
+    @contextmanager
+    def dataset_lock(
+        self,
+        dataset: str,
+        *,
+        timeout_seconds: float = 0.0,
+    ) -> Iterator[None]:
+        """Take an exclusive dataset lock for an atomic write."""
+
+        with self._dataset_lock(
+            dataset,
+            shared=False,
+            timeout_seconds=timeout_seconds,
+        ):
+            yield
+
+    @contextmanager
+    def dataset_read_lock(
+        self,
+        dataset: str,
+        *,
+        timeout_seconds: float = 30.0,
+    ) -> Iterator[None]:
+        """Keep a dataset stable while allowing concurrent backtest readers."""
+
+        with self._dataset_lock(
+            dataset,
+            shared=True,
+            timeout_seconds=timeout_seconds,
+        ):
+            yield
 
     def read(self, dataset: str) -> pd.DataFrame:
         files = self.catalog.files(dataset)

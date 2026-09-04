@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from datetime import date
 from functools import lru_cache
@@ -40,6 +41,60 @@ _DEFAULT_RECIPE_PROJECT_ID = "sdk-v1-default"
 _PREVIOUS_DEFAULT_RECIPE_ID = "rq.a_share_daily"
 
 
+def _safe_error_summary(value: object) -> str | None:
+    if value in (None, ""):
+        return None
+    summary = str(value).splitlines()[0]
+    summary = re.sub(r"[A-Za-z]:\\[^\s\"']+", "<internal-path>", summary)
+    summary = re.sub(
+        r"(?<![:/\w])/(?!/)(?:[^/\s]+/)+[^\s\"']+",
+        "<internal-path>",
+        summary,
+    )
+    summary = re.sub(r"\b[a-fA-F0-9]{40,64}\b", "<internal-id>", summary)
+    return summary[:500]
+
+
+def _public_job(value: dict) -> dict:
+    request = value.get("request") if isinstance(value.get("request"), dict) else {}
+    symbols = request.get("symbols") if isinstance(request.get("symbols"), list) else []
+    request_summary = {
+        key: request.get(key)
+        for key in (
+            "source",
+            "kind",
+            "project_id",
+            "template_id",
+            "datasets",
+            "start",
+            "end",
+            "force",
+        )
+        if key in request
+    }
+    if symbols:
+        request_summary["symbol_count"] = len(symbols)
+        request_summary["symbols_sample"] = symbols[:5]
+    error_summary = _safe_error_summary(value.get("error_summary") or value.get("error"))
+    return {
+        "status": value.get("status"),
+        "id": value.get("id"),
+        "error_code": value.get("error_code")
+        or ("DATA_SYNC_FAILED" if value.get("status") == "failed" else None),
+        "error_summary": error_summary,
+        "log_reference": value.get("log_reference")
+        or (f"data-sync:{value.get('id')}" if value.get("status") == "failed" else None),
+        "message": value.get("message"),
+        "progress": value.get("progress"),
+        "total": value.get("total"),
+        "cancel_requested": bool(value.get("cancel_requested")),
+        "request": request_summary,
+        "created_at": value.get("created_at"),
+        "started_at": value.get("started_at"),
+        "finished_at": value.get("finished_at"),
+    }
+
+
 @lru_cache(maxsize=1)
 def get_job_manager() -> SyncJobManager:
     return SyncJobManager()
@@ -56,7 +111,9 @@ def get_health(*, runtime_summary: dict | None = None) -> dict:
     rq_status = (
         "not_installed"
         if not installed
-        else "not_configured" if not credentials_configured else "configured"
+        else "not_configured"
+        if not credentials_configured
+        else "configured"
     )
     if ready and latest and latest["status"] == "failed":
         rq_status = "unavailable"
@@ -71,7 +128,11 @@ def get_health(*, runtime_summary: dict | None = None) -> dict:
             "missing": missing,
             "connected": False,
             "connection_test_required": ready,
-            "last_error": latest.get("error") if latest and latest["status"] == "failed" else None,
+            "last_error": (
+                _safe_error_summary(latest.get("error"))
+                if latest and latest["status"] == "failed"
+                else None
+            ),
         },
         "realtime": {"status": "not_configured"},
         "tools": {
@@ -367,7 +428,7 @@ def submit_recipe(project_id: str) -> dict:
     draft = get_job_manager().operations.get_recipe_draft(project)
     if draft is None:
         raise KeyError(project)
-    return get_job_manager().submit_recipe(draft["source"], project_id=project)
+    return _public_job(get_job_manager().submit_recipe(draft["source"], project_id=project))
 
 
 def test_connection(template_id: str) -> dict:
@@ -404,19 +465,21 @@ def plan(request: SyncRequest) -> dict:
 
 
 def submit(request: SyncRequest) -> dict:
-    return get_job_manager().submit(request)
+    return _public_job(get_job_manager().submit(request))
 
 
 def jobs(limit: int = 50) -> list[dict]:
-    return get_job_manager().operations.list_jobs(limit=limit)
+    return [_public_job(item) for item in get_job_manager().operations.list_jobs(limit=limit)]
 
 
 def job(job_id: str) -> dict | None:
-    return get_job_manager().operations.get_job(job_id)
+    item = get_job_manager().operations.get_job(job_id)
+    return _public_job(item) if item is not None else None
 
 
 def cancel(job_id: str) -> dict | None:
-    return get_job_manager().cancel(job_id)
+    item = get_job_manager().cancel(job_id)
+    return _public_job(item) if item is not None else None
 
 
 def validate(

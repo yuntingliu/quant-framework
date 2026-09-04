@@ -129,6 +129,26 @@ def test_runtime_store_rejects_an_os_locked_dataset(tmp_path) -> None:
         os.close(descriptor)
 
 
+def test_runtime_store_allows_concurrent_readers_and_excludes_a_writer(tmp_path) -> None:
+    first = RuntimeStore(tmp_path)
+    second = RuntimeStore(tmp_path)
+
+    with first.dataset_read_lock("rq.bars"):
+        if os.name == "nt":
+            with pytest.raises(DataLoadError, match="already being written"):
+                with second.dataset_read_lock("rq.bars", timeout_seconds=0):
+                    pass
+        else:
+            with second.dataset_read_lock("rq.bars"):
+                pass
+        with pytest.raises(DataLoadError, match="already being written"):
+            with second.dataset_lock("rq.bars"):
+                pass
+
+    with second.dataset_lock("rq.bars"):
+        pass
+
+
 def test_operations_store_requeues_unfinished_jobs_and_honors_cancellation(tmp_path) -> None:
     operations = OperationsStore(tmp_path)
     resumable_id = operations.create_job({"source": "rq"})

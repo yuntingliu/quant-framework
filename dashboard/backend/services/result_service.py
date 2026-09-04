@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 
 import pandas as pd
 
@@ -71,14 +72,151 @@ def get_backtest(backtest_id: str) -> dict | None:
     record["profile"] = _backtest_profile(record.get("tags"))
     record["provenance"] = _json_payload(record.pop("provenance_json", None), {})
     record["executions"] = _json_payload(record.pop("execution_json", None), [])
+    record["events"] = _json_payload(record.pop("event_json", None), [])
     record["attribution"] = _json_payload(record.pop("attribution_json", None), {})
-    record["validation_output"] = _json_payload(
-        record.pop("validation_output_json", None), {}
-    )
+    record["validation_output"] = _json_payload(record.pop("validation_output_json", None), {})
     record["component_manifest"] = _json_payload(record.pop("component_manifest_json", None), [])
     record["strategy_manifest"] = _json_payload(record.pop("strategy_manifest_json", None), [])
     record["settings"] = _json_payload(record.pop("settings_json", None), {})
     return record
+
+
+def _head_tail(rows: list[dict], sample_size: int = 3) -> dict:
+    return {
+        "count": len(rows),
+        "head": rows[:sample_size],
+        "tail": rows[-sample_size:] if len(rows) > sample_size else [],
+        "truncated": len(rows) > sample_size * 2,
+    }
+
+
+def _execution_sample(row: dict) -> dict:
+    executed = row.get("executed_weights")
+    executed_symbols = list(executed) if isinstance(executed, dict) else []
+    constrained = row.get("constrained_symbols")
+    constrained_symbols = list(constrained) if isinstance(constrained, list) else []
+    return {
+        key: row.get(key)
+        for key in (
+            "decision_date",
+            "entry_date",
+            "activation",
+            "decision_reason",
+            "target_count",
+            "executed_count",
+            "traded_weight",
+            "turnover",
+            "total_cost",
+        )
+        if key in row
+    } | {
+        "executed_symbol_count": len(executed_symbols),
+        "executed_symbols_sample": executed_symbols[:5],
+        "constrained_symbol_count": len(constrained_symbols),
+        "constrained_symbols_sample": constrained_symbols[:5],
+    }
+
+
+def _public_event_value(value: object) -> object:
+    if isinstance(value, str):
+        text = value.splitlines()[0]
+        text = re.sub(r"[A-Za-z]:\\[^\s\"']+", "<internal-path>", text)
+        text = re.sub(
+            r"(?<![:/\w])/(?!/)(?:[^/\s]+/)+[^\s\"']+",
+            "<internal-path>",
+            text,
+        )
+        text = re.sub(r"\b[a-fA-F0-9]{40,64}\b", "<internal-id>", text)
+        return text[:500]
+    if isinstance(value, list):
+        return [_public_event_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _public_event_value(item)
+            for key, item in value.items()
+            if key
+            not in {
+                "environment",
+                "environment_sha256",
+                "path",
+                "root",
+                "source",
+                "source_sha256",
+                "state_sha256",
+                "stderr",
+                "stdout",
+                "traceback",
+            }
+        }
+    return value
+
+
+def get_backtest_summary(backtest_id: str) -> dict | None:
+    record = get_backtest(backtest_id)
+    if record is None:
+        return None
+    returns = list(record.get("returns") or [])
+    weights = list(record.get("weights") or [])
+    executions = list(record.get("executions") or [])
+    events = list(record.get("events") or [])
+    warnings = list((record.get("validation_output") or {}).get("warnings") or [])
+    return {
+        "status": "succeeded",
+        "backtest_id": record["id"],
+        "error_code": None,
+        "error_summary": None,
+        "metrics": dict(record.get("metrics") or {}),
+        "period": {
+            "start_date": record.get("start_date"),
+            "end_date": record.get("end_date"),
+        },
+        "counts": {
+            "return_rows": len(returns),
+            "weight_rows": len(weights),
+            "executions": len(executions),
+            "events": len(events),
+        },
+        "samples": {
+            "returns": _head_tail(returns),
+            "executions": _head_tail(
+                [_public_event_value(_execution_sample(item)) for item in executions]
+            ),
+        },
+        "warnings": [_public_event_value(str(item)) for item in warnings[:10]],
+        "warnings_truncated": len(warnings) > 10,
+    }
+
+
+def get_backtest_event_page(
+    backtest_id: str,
+    *,
+    kind: str,
+    offset: int,
+    limit: int,
+) -> dict | None:
+    record = get_backtest(backtest_id)
+    if record is None:
+        return None
+    collections = {
+        "executions": list(record.get("executions") or []),
+        "events": list(record.get("events") or []),
+    }
+    if kind not in collections:
+        raise ValueError("kind must be executions or events")
+    rows = collections[kind]
+    start = max(0, int(offset))
+    size = max(1, min(int(limit), 100))
+    page = [_public_event_value(item) for item in rows[start : start + size]]
+    return {
+        "status": "succeeded",
+        "backtest_id": record["id"],
+        "kind": kind,
+        "offset": start,
+        "limit": size,
+        "total": len(rows),
+        "next_offset": start + len(page) if start + len(page) < len(rows) else None,
+        "rows": page,
+    }
 
 
 def list_backtests(limit: int = 20) -> list[dict]:
@@ -368,6 +506,8 @@ __all__ = [
     "create_paper_order",
     "execute_paper_rebalance",
     "get_backtest",
+    "get_backtest_event_page",
+    "get_backtest_summary",
     "list_backtests",
     "list_paper_fills",
     "list_paper_orders",

@@ -38,7 +38,7 @@ const store = new WebHarnessHostingStore({
 const result = await store.host({
   harnessNodeId: "alphalab-research-harness-v1",
   slug: process.env.CONEXUS_HOSTING_SLUG || "alphalab-research-agent",
-  accessPolicy: "anonymous",
+  identityPolicy: "enterprise",
   billingPolicy: "publisher",
   canvasState: { nodes: canvas.nodes, edges: canvas.edges },
 })

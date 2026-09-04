@@ -93,9 +93,16 @@ def execution(function=None, *, id: str | None = None, label: str | None = None)
     return _decorate("execution", function, id=id, label=label)
 
 
+def execution_data_fill(function=None, *, id: str | None = None, label: str | None = None):
+    """Register project-owned Python that fills missing execution-state fields."""
+
+    return _decorate("execution_data_fill", function, id=id, label=label)
+
+
 __all__ = [
     "Registration",
     "execution",
+    "execution_data_fill",
     "factor",
     "on_event",
     "portfolio",

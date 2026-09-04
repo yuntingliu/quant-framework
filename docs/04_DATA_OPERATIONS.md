@@ -2,9 +2,9 @@
 
 ## Profiles
 
-`demo` is the default and reads the tracked example files. `runtime` reads only
-local RQ partitions below `data/runtime`. The application never falls back from
-an incomplete runtime profile to demo data.
+`runtime` is the only application-facing profile and reads local RQ partitions
+below `data/runtime`. The tracked example files remain internal test fixtures;
+the application never exposes or falls back to them as an active data profile.
 
 Runtime datasets are:
 

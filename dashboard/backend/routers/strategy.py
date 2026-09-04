@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any, Literal
 
@@ -22,7 +23,8 @@ class CreateProjectRequest(BaseModel):
     project_id: str = Field(min_length=2, max_length=64)
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=500)
-    source: str = Field(min_length=1, max_length=300_000)
+    strategy_source: str = Field(min_length=1, max_length=300_000)
+    factor_sources: list[str] = Field(default_factory=list, max_length=100)
     profile: Literal["runtime"] = "runtime"
     settings: dict[str, Any] = Field(default_factory=dict)
     confirm_save: bool
@@ -42,6 +44,7 @@ class DraftRequest(BaseModel):
     source: str = Field(min_length=1, max_length=300_000)
     expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
     confirm_write: bool
+    confirm_python_execution: bool
 
 
 class MetadataRequest(BaseModel):
@@ -69,6 +72,7 @@ class AddFactorTemplateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
     confirm_write: bool
+    confirm_python_execution: bool
 
 
 class AddFactorSourceRequest(BaseModel):
@@ -76,6 +80,7 @@ class AddFactorSourceRequest(BaseModel):
     source: str = Field(min_length=1, max_length=100_000)
     expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
     confirm_write: bool
+    confirm_python_execution: bool
 
 
 class StructuredEditItem(BaseModel):
@@ -118,6 +123,7 @@ class StructuredEditRequest(BaseModel):
     edits: list[StructuredEditItem] = Field(default_factory=list, max_length=100)
     expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
     confirm_write: bool
+    confirm_python_execution: bool
 
     @model_validator(mode="after")
     def required_operation_fields(self):
@@ -152,12 +158,13 @@ class InsertRequest(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
     expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
     confirm_write: bool
+    confirm_python_execution: bool
 
 
 class PreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     operation: Literal["signal", "portfolio", "execution"] = "execution"
-    profile: Literal["demo", "runtime"] = "demo"
+    profile: Literal["runtime"] = "runtime"
     as_of_date: date | None = None
     revision: int | None = Field(default=None, ge=1)
     confirm_python_execution: bool
@@ -165,7 +172,7 @@ class PreviewRequest(BaseModel):
 
 class FactorSnapshotRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    profile: Literal["demo", "runtime"] = "demo"
+    profile: Literal["runtime"] = "runtime"
     as_of_date: date
     revision: int | None = Field(default=None, ge=1)
     parameters: dict[str, Any] = Field(default_factory=dict)
@@ -174,7 +181,7 @@ class FactorSnapshotRequest(BaseModel):
 
 class FactorHistoryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    profile: Literal["demo", "runtime"] = "demo"
+    profile: Literal["runtime"] = "runtime"
     start_date: date
     end_date: date
     revision: int | None = Field(default=None, ge=1)
@@ -188,23 +195,58 @@ def _confirmed(value: bool, message: str) -> None:
         raise HTTPException(status_code=409, detail=message)
 
 
+def _safe_error_message(exc: Exception) -> str:
+    message = str(exc).splitlines()[0] if str(exc) else "Strategy request failed"
+    message = re.sub(r"[A-Za-z]:\\[^\s\"']+", "<internal-path>", message)
+    message = re.sub(
+        r"(?<![:/\w])/(?!/)(?:[^/\s]+/)+[^\s\"']+",
+        "<internal-path>",
+        message,
+    )
+    message = re.sub(r"\b[a-fA-F0-9]{40,64}\b", "<internal-id>", message)
+    return message[:500]
+
+
 def _translate_error(exc: Exception) -> HTTPException:
     if isinstance(exc, KeyError):
         return HTTPException(status_code=404, detail="strategy project or revision not found")
     if isinstance(exc, FileExistsError):
         return HTTPException(status_code=409, detail="strategy project already exists")
     if isinstance(exc, PermissionError):
-        return HTTPException(status_code=409, detail=str(exc))
+        return HTTPException(status_code=409, detail=_safe_error_message(exc))
     if isinstance(exc, RuntimeError) and "changed since" in str(exc):
-        return HTTPException(status_code=409, detail=str(exc))
+        return HTTPException(status_code=409, detail=_safe_error_message(exc))
     if isinstance(exc, MissingDataError):
-        return HTTPException(status_code=503, detail=str(exc))
-    if isinstance(exc, (StrategySourceError, SdkRuntimeError)):
-        detail = {"message": str(exc), "phase": getattr(exc, "phase", "execute")}
-        if isinstance(exc, SdkRuntimeError):
-            detail.update(exc.to_dict())
-        return HTTPException(status_code=422, detail=detail)
-    return HTTPException(status_code=422, detail=str(exc))
+        return HTTPException(
+            status_code=503,
+            detail={
+                "code": "INSUFFICIENT_MARKET_STATE",
+                "message": "Runtime data coverage is insufficient for this request.",
+            },
+        )
+    if isinstance(exc, StrategySourceError):
+        return HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_STRATEGY_SOURCE",
+                "message": _safe_error_message(exc),
+                "phase": exc.phase,
+            },
+        )
+    if isinstance(exc, SdkRuntimeError):
+        return HTTPException(
+            status_code=422,
+            detail={
+                "code": "STRATEGY_EXECUTION_FAILED",
+                "message": _safe_error_message(exc),
+                "phase": exc.phase,
+                "entrypoint_id": exc.entrypoint_id,
+                "event": exc.event,
+                "as_of": exc.as_of,
+                "committed": exc.committed,
+            },
+        )
+    return HTTPException(status_code=422, detail=_safe_error_message(exc))
 
 
 @router.get("/projects")
@@ -213,7 +255,7 @@ def projects() -> list[dict[str, Any]]:
 
 
 @router.get("/fields")
-def fields(profile: Literal["demo", "runtime"] = "demo") -> dict[str, Any]:
+def fields(profile: Literal["runtime"] = "runtime") -> dict[str, Any]:
     try:
         datasets = {}
         for dataset in ("market_bars", "fundamentals"):
@@ -274,6 +316,10 @@ def clone_project(project_id: str, request: CloneRequest) -> dict[str, Any]:
 @router.put("/projects/{project_id}/draft")
 def save_draft(project_id: str, request: DraftRequest) -> dict[str, Any]:
     _confirmed(request.confirm_write, "updating strategy source requires confirmation")
+    _confirmed(
+        request.confirm_python_execution,
+        "saving strategy source runs trusted local probes and requires confirmation",
+    )
     try:
         return strategy_service.update_strategy_source(
             project_id,
@@ -344,10 +390,17 @@ def entrypoint_source(project_id: str, entrypoint_id: str) -> dict[str, Any]:
 @router.post("/projects/{project_id}/edits")
 def edit(project_id: str, request: StructuredEditRequest) -> dict[str, Any]:
     _confirmed(request.confirm_write, "updating strategy source requires confirmation")
+    _confirmed(
+        request.confirm_python_execution,
+        "saving strategy source runs trusted local probes and requires confirmation",
+    )
     try:
         return strategy_service.structured_edit(
             project_id,
-            request.model_dump(exclude={"confirm_write"}, exclude_none=True),
+            request.model_dump(
+                exclude={"confirm_write", "confirm_python_execution"},
+                exclude_none=True,
+            ),
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
@@ -369,6 +422,10 @@ def add_factor_template(
     project_id: str, template_id: str, request: AddFactorTemplateRequest
 ) -> dict[str, Any]:
     _confirmed(request.confirm_write, "adding a factor template requires confirmation")
+    _confirmed(
+        request.confirm_python_execution,
+        "saving factor source runs trusted local probes and requires confirmation",
+    )
     try:
         return strategy_service.add_project_factor_template(
             project_id,
@@ -382,6 +439,10 @@ def add_factor_template(
 @router.post("/projects/{project_id}/factors", status_code=201)
 def add_factor_source(project_id: str, request: AddFactorSourceRequest) -> dict[str, Any]:
     _confirmed(request.confirm_write, "adding factor source requires confirmation")
+    _confirmed(
+        request.confirm_python_execution,
+        "saving factor source runs trusted local probes and requires confirmation",
+    )
     try:
         return strategy_service.add_project_factor_source(
             project_id,
@@ -395,10 +456,14 @@ def add_factor_source(project_id: str, request: AddFactorSourceRequest) -> dict[
 @router.post("/projects/{project_id}/insertions")
 def insert(project_id: str, request: InsertRequest) -> dict[str, Any]:
     _confirmed(request.confirm_write, "updating strategy source requires confirmation")
+    _confirmed(
+        request.confirm_python_execution,
+        "saving strategy source runs trusted local probes and requires confirmation",
+    )
     try:
         return strategy_service.insertion(
             project_id,
-            request.model_dump(exclude={"confirm_write"}),
+            request.model_dump(exclude={"confirm_write", "confirm_python_execution"}),
         )
     except Exception as exc:
         raise _translate_error(exc) from exc

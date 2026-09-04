@@ -7,8 +7,11 @@ from fastapi.testclient import TestClient
 from alphalab import ResultStore
 from alphalab.dataio.recipes import render_builtin_recipe
 from alphalab.dataio.runtime import OperationsStore
+from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
 from alphalab.strategy.repository import StrategyRepository
-from dashboard.backend.main import app
+from alphalab.strategy.source import split_strategy_source
+from dashboard.backend.main import _public_error_value, app
+from dashboard.backend.routers import backtests as backtests_router
 from dashboard.backend.services import (
     backtest_analytics_service,
     data_sync_service,
@@ -24,12 +27,10 @@ def test_data_and_strategy_sdk_read_contracts(tmp_path, monkeypatch):
     assert client.get("/").json()["status"] == "ok"
     providers = client.get("/api/data/providers")
     assert providers.status_code == 200
-    assert providers.json()["profiles"]["demo"]["status"] == "ready"
-    fields = client.get("/api/strategy/fields", params={"profile": "demo"})
-    assert fields.status_code == 200
-    assert {"open", "close", "volume", "amount"} <= {
-        item["name"] for item in fields.json()["datasets"]["market_bars"]
-    }
+    assert providers.json()["active_profile"] == "runtime"
+    assert set(providers.json()["profiles"]) == {"runtime"}
+    assert client.get("/api/data/manifest").status_code == 404
+    assert client.get("/api/strategy/fields", params={"profile": "demo"}).status_code == 422
     projects = client.get("/api/strategy/projects")
     assert projects.status_code == 200
     assert projects.json()[0]["id"] == "sdk-v1-default"
@@ -48,6 +49,106 @@ def test_data_and_strategy_sdk_read_contracts(tmp_path, monkeypatch):
     assert entrypoint.status_code == 200, entrypoint.text
     assert entrypoint.json()["source_sha256"] == project["draft_source_sha256"]
     assert entrypoint.json()["source"].startswith("@signal(")
+
+
+def test_project_create_atomically_saves_strategy_and_factors(tmp_path, monkeypatch):
+    database = tmp_path / "atomic-project.db"
+    monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
+    strategy_source, factors = split_strategy_source(DEFAULT_STRATEGY_SOURCE)
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/strategy/projects",
+        json={
+            "project_id": "new-agent-project",
+            "name": "New Agent Project",
+            "strategy_source": strategy_source,
+            "factor_sources": [item.source for item in factors],
+            "confirm_save": True,
+            "confirm_python_execution": True,
+        },
+    )
+
+    assert created.status_code == 201, created.text
+    project = created.json()
+    assert project["id"] == "new-agent-project"
+    assert project["current_revision"] == 1
+    assert project["dirty"] is False
+    assert {item["path"] for item in project["source_units"]} == {
+        "strategy.py",
+        "factors/momentum_20d.py",
+    }
+
+
+def test_backtest_submission_is_runtime_only_and_returns_a_job(monkeypatch):
+    client = TestClient(app)
+    rejected_profile = client.post(
+        "/api/backtests/jobs",
+        json={
+            "project_id": "project",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "profile": "demo",
+            "confirm_python_execution": True,
+        },
+    )
+    assert rejected_profile.status_code == 422
+
+    def submit(_request):
+        return {"status": "queued", "id": "job-1"}
+
+    monkeypatch.setattr(backtests_router, "submit_backtest_job", submit)
+    accepted = client.post(
+        "/api/backtests/jobs",
+        json={
+            "project_id": "project",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "profile": "runtime",
+            "confirm_python_execution": True,
+        },
+    )
+    assert accepted.status_code == 202
+    assert accepted.json() == {"status": "queued", "id": "job-1"}
+
+
+def test_public_http_errors_remove_runtime_internals():
+    value = _public_error_value(
+        {
+            "code": "FAILED",
+            "message": "C:\\service\\release\\worker.py failed\nprivate stack",
+            "traceback": "private traceback",
+            "environment_sha256": "a" * 64,
+        }
+    )
+
+    assert value == {"code": "FAILED", "message": "<internal-path> failed"}
+
+
+def test_public_sync_job_is_status_only_and_sanitized():
+    value = data_sync_service._public_job(
+        {
+            "id": "sync-1",
+            "status": "failed",
+            "error": "/srv/releases/worker.py failed\nprivate traceback",
+            "request": {
+                "project_id": "project",
+                "symbols": ["A", "B"],
+                "recipe_source": "secret source",
+                "recipe_stdout": "secret output",
+            },
+        }
+    )
+
+    assert list(value)[:4] == ["status", "id", "error_code", "error_summary"]
+    assert value["error_code"] == "DATA_SYNC_FAILED"
+    assert value["error_summary"] == "<internal-path> failed"
+    assert value["log_reference"] == "data-sync:sync-1"
+    assert value["request"] == {
+        "project_id": "project",
+        "symbol_count": 2,
+        "symbols_sample": ["A", "B"],
+    }
 
 
 def test_sdk_documentation_uses_one_versioned_guide() -> None:
@@ -285,6 +386,7 @@ def test_strategy_clone_cst_edit_and_revision_confirmation(tmp_path, monkeypatch
             "value": 30,
             "expected_source_sha256": original_hash,
             "confirm_write": True,
+            "confirm_python_execution": True,
         },
     )
     assert edited.status_code == 200, edited.text
@@ -301,6 +403,7 @@ def test_strategy_clone_cst_edit_and_revision_confirmation(tmp_path, monkeypatch
             "normalization": "rank",
             "expected_source_sha256": edited.json()["project"]["draft_source_sha256"],
             "confirm_write": True,
+            "confirm_python_execution": True,
         },
     )
     assert blended.status_code == 200, blended.text
@@ -314,7 +417,7 @@ def test_strategy_clone_cst_edit_and_revision_confirmation(tmp_path, monkeypatch
         },
     )
     assert saved.status_code == 201, saved.text
-    assert saved.json()["revision"] == 2
+    assert saved.json()["revision"] == 3
 
 
 def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, monkeypatch):
@@ -349,7 +452,11 @@ def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, mo
     source_hash = cloned.json()["draft_source_sha256"]
     installed = client.post(
         "/api/strategy/projects/template-project/factor-templates/momentum_60d",
-        json={"expected_source_sha256": source_hash, "confirm_write": True},
+        json={
+            "expected_source_sha256": source_hash,
+            "confirm_write": True,
+            "confirm_python_execution": True,
+        },
     )
     assert installed.status_code == 200, installed.text
     assert installed.json()["factor"]["id"] == "momentum_60d"
@@ -365,7 +472,8 @@ def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, mo
         "momentum_20d",
         "momentum_60d",
     }
-    assert project["dirty"] is True
+    assert project["current_revision"] == 2
+    assert project["dirty"] is False
 
     blended = client.post(
         "/api/strategy/projects/template-project/edits",
@@ -376,6 +484,7 @@ def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, mo
             "normalization": "rank",
             "expected_source_sha256": project["draft_source_sha256"],
             "confirm_write": True,
+            "confirm_python_execution": True,
         },
     )
     assert blended.status_code == 200, blended.text
@@ -387,6 +496,7 @@ def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, mo
         json={
             "expected_source_sha256": project["draft_source_sha256"],
             "confirm_write": True,
+            "confirm_python_execution": True,
         },
     )
     assert duplicate.status_code == 200, duplicate.text
@@ -395,15 +505,14 @@ def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, mo
     assert duplicate.json()["factor"]["label"] == "60 日动量（副本 2）"
     project = duplicate.json()["project"]
     assert "def momentum_60d_2(context" in project["draft_source"]
-    assert "factors/momentum_60d_2.py" in {
-        item["path"] for item in project["source_units"]
-    }
+    assert "factors/momentum_60d_2.py" in {item["path"] for item in project["source_units"]}
 
     denied = client.post(
         "/api/strategy/projects/template-project/factor-templates/roe",
         json={
             "expected_source_sha256": project["draft_source_sha256"],
             "confirm_write": False,
+            "confirm_python_execution": True,
         },
     )
     assert denied.status_code == 409
@@ -417,12 +526,10 @@ def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, mo
         },
     )
     assert saved.status_code == 201, saved.text
-    assert saved.json()["revision"] == 2
+    assert saved.json()["revision"] == 4
 
 
-def test_strategy_and_factor_source_routes_keep_authoring_files_separate(
-    tmp_path, monkeypatch
-):
+def test_strategy_and_factor_source_routes_keep_authoring_files_separate(tmp_path, monkeypatch):
     database = tmp_path / "separate-source-routes.db"
     monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
     client = TestClient(app)
@@ -438,15 +545,14 @@ def test_strategy_and_factor_source_routes_keep_authoring_files_separate(
     assert cloned.status_code == 201, cloned.text
     project = cloned.json()
 
-    strategy_source = project["strategy_source"].replace(
-        "top_n: int = 10", "top_n: int = 4"
-    )
+    strategy_source = project["strategy_source"].replace("top_n: int = 10", "top_n: int = 4")
     updated = client.put(
         "/api/strategy/projects/separate-source-routes/draft",
         json={
             "source": strategy_source,
             "expected_source_sha256": project["draft_source_sha256"],
             "confirm_write": True,
+            "confirm_python_execution": True,
         },
     )
     assert updated.status_code == 200, updated.text
@@ -461,6 +567,7 @@ def test_strategy_and_factor_source_routes_keep_authoring_files_separate(
             "source": '@factor(id="close_level")\ndef close_level(context):\n    return context.current("close")\n',
             "expected_source_sha256": project["draft_source_sha256"],
             "confirm_write": True,
+            "confirm_python_execution": True,
         },
     )
     assert added.status_code == 201, added.text
@@ -468,9 +575,7 @@ def test_strategy_and_factor_source_routes_keep_authoring_files_separate(
     project = added.json()["project"]
     assert "@factor" not in project["strategy_source"]
     assert "def close_level(context)" in project["draft_source"]
-    assert "factors/close_level.py" in {
-        item["path"] for item in project["source_units"]
-    }
+    assert "factors/close_level.py" in {item["path"] for item in project["source_units"]}
 
 
 def test_visual_settings_batch_is_one_atomic_source_edit(tmp_path, monkeypatch):
@@ -530,20 +635,20 @@ def test_visual_settings_batch_is_one_atomic_source_edit(tmp_path, monkeypatch):
             "edits": edits,
             "expected_source_sha256": cloned.json()["draft_source_sha256"],
             "confirm_write": True,
+            "confirm_python_execution": True,
         },
     )
     assert updated.status_code == 200, updated.text
     project = updated.json()["project"]
     signal = next(
-        item for item in project["inspection"]["entrypoints"]
-        if item["id"] == "monthly_momentum"
+        item for item in project["inspection"]["entrypoints"] if item["id"] == "monthly_momentum"
     )
     assert signal["metadata"]["schedule"]["frequency"] == "weekly"
     assert signal["metadata"]["factor_blend"]["weights"] == {"momentum_20d": 0.75}
     assert signal["metadata"]["factor_blend"]["normalization"] == "zscore"
     assert next(item for item in signal["parameters"] if item["name"] == "top_n")["default"] == 3
-    assert project["current_revision"] == 1
-    assert project["dirty"] is True
+    assert project["current_revision"] == 2
+    assert project["dirty"] is False
 
     rejected = client.post(
         "/api/strategy/projects/visual-settings-project/edits",
@@ -566,6 +671,7 @@ def test_visual_settings_batch_is_one_atomic_source_edit(tmp_path, monkeypatch):
             ],
             "expected_source_sha256": project["draft_source_sha256"],
             "confirm_write": True,
+            "confirm_python_execution": True,
         },
     )
     assert rejected.status_code == 422
@@ -574,7 +680,12 @@ def test_visual_settings_batch_is_one_atomic_source_edit(tmp_path, monkeypatch):
 
     empty = client.post(
         "/api/strategy/projects/visual-settings-project/edits",
-        json={"operation": "batch", "edits": [], "confirm_write": True},
+        json={
+            "operation": "batch",
+            "edits": [],
+            "confirm_write": True,
+            "confirm_python_execution": True,
+        },
     )
     assert empty.status_code == 422
 

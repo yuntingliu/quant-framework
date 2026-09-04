@@ -1,5 +1,8 @@
 """Paper-only order endpoints."""
+
 from __future__ import annotations
+
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 
@@ -23,7 +26,7 @@ def orders(limit: int = 100) -> list[dict]:
 
 
 @router.get("/account")
-def account(account_id: str = "paper", profile: str = "demo") -> dict:
+def account(account_id: str = "paper", profile: Literal["runtime"] = "runtime") -> dict:
     try:
         return paper_account_summary(account_id, profile)
     except ValueError as exc:

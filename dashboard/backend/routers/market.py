@@ -1,4 +1,5 @@
 """Factor-based market analytics endpoints."""
+
 from __future__ import annotations
 
 from typing import Literal
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/api/market", tags=["market"])
 class CustomRiskFactorRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    profile: Literal["demo", "runtime"] = "demo"
+    profile: Literal["runtime"] = "runtime"
     name: str = Field(min_length=1, max_length=80)
     expression: str = Field(min_length=1, max_length=500)
     start_date: str | None = None
@@ -37,7 +38,7 @@ def _call(function, *args, **kwargs) -> dict:
 
 @router.get("/kpi")
 def kpi(
-    profile: str = "demo",
+    profile: Literal["runtime"] = "runtime",
     start: str | None = None,
     end: str | None = None,
 ) -> dict:
@@ -46,7 +47,7 @@ def kpi(
 
 @router.get("/cumulative-returns")
 def cumulative_returns(
-    profile: str = "demo",
+    profile: Literal["runtime"] = "runtime",
     start: str | None = None,
     end: str | None = None,
     factors: str | None = None,
@@ -62,7 +63,7 @@ def cumulative_returns(
 
 @router.get("/factor-stats")
 def factor_stats(
-    profile: str = "demo",
+    profile: Literal["runtime"] = "runtime",
     start: str | None = None,
     end: str | None = None,
     factors: str | None = None,
@@ -78,7 +79,7 @@ def factor_stats(
 
 @router.get("/drawdowns")
 def drawdowns(
-    profile: str = "demo",
+    profile: Literal["runtime"] = "runtime",
     start: str | None = None,
     end: str | None = None,
     top_n: int = Query(5, ge=1, le=20),
@@ -94,7 +95,7 @@ def drawdowns(
 
 @router.get("/annual-returns")
 def annual_returns(
-    profile: str = "demo",
+    profile: Literal["runtime"] = "runtime",
     start: str | None = None,
     end: str | None = None,
     factors: str | None = None,
@@ -110,7 +111,7 @@ def annual_returns(
 
 @router.get("/volatility")
 def volatility(
-    profile: str = "demo",
+    profile: Literal["runtime"] = "runtime",
     start: str | None = None,
     end: str | None = None,
 ) -> dict:
@@ -119,7 +120,7 @@ def volatility(
 
 @router.get("/correlation")
 def correlation(
-    profile: str = "demo",
+    profile: Literal["runtime"] = "runtime",
     start: str | None = None,
     end: str | None = None,
     factors: str | None = None,

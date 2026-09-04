@@ -1,9 +1,8 @@
 """Profile-aware data queries used by the workstation API."""
+
 from __future__ import annotations
 
-import hashlib
 import json
-from pathlib import Path
 
 import pandas as pd
 
@@ -11,20 +10,12 @@ from alphalab import ResultStore, create_default_engine, create_runtime_engine
 from alphalab.dataio import DataEngine, MissingDataError
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.schema import DatasetField, discover_parquet_fields
-from alphalab.utils.paths import APP_DATA_DIR, DATA_DIR, FACTOR_DIR, FUNDAMENTAL_DIR, MARKET_DIR
+from alphalab.utils.paths import DATA_DIR, FUNDAMENTAL_DIR, MARKET_DIR
 
 _DATASET_METADATA_FIELDS = {
     "market_bars": {"date", "symbol"},
     "fundamentals": {"quarter", "available_date", "symbol"},
 }
-
-
-def _hash_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def load_manifest() -> dict:
@@ -34,24 +25,8 @@ def load_manifest() -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _dataset_status(path: Path, manifest: dict, *, mutable: bool = False) -> dict:
-    relative = path.relative_to(DATA_DIR.parent).as_posix()
-    expected = manifest.get("files", {}).get(relative, {})
-    if not path.exists():
-        return {"status": "missing", "path": relative, "bytes": 0}
-    actual_hash = _hash_file(path)
-    expected_hash = expected.get("sha256")
-    return {
-        "status": "ready" if mutable or not expected_hash or actual_hash == expected_hash else "invalid",
-        "path": relative,
-        "bytes": path.stat().st_size,
-        "sha256": actual_hash,
-    }
-
-
 def list_provider_status() -> dict:
-    manifest = load_manifest()
-    engine = create_default_engine()
+    engine = create_runtime_engine()
     runtime = DataCatalog().summary()
     runtime_factor_status = next(
         (item["status"] for item in runtime["datasets"] if item["id"] == "runtime.factor_returns"),
@@ -59,14 +34,8 @@ def list_provider_status() -> dict:
     )
     return {
         "providers": engine.providers(),
-        "active_profile": "demo",
+        "active_profile": "runtime",
         "profiles": {
-            "demo": {
-                "status": "ready",
-                "latest_date": engine.get_latest_date(),
-                "symbol_count": manifest.get("symbol_count", 0),
-                "factor_returns": "ready",
-            },
             "runtime": {
                 "status": runtime["status"],
                 "latest_date": next(
@@ -91,17 +60,45 @@ def list_provider_status() -> dict:
                 "factor_returns": runtime_factor_status,
             },
         },
-        "latest_date": engine.get_latest_date(),
-        "sample_start": manifest.get("sample_start"),
-        "symbol_count": manifest.get("symbol_count", 0),
+        "latest_date": next(
+            (item["date_end"] for item in runtime["datasets"] if item["id"] == "rq.bars"),
+            None,
+        ),
+        "sample_start": next(
+            (item["date_start"] for item in runtime["datasets"] if item["id"] == "rq.bars"),
+            None,
+        ),
+        "symbol_count": next(
+            (item["symbol_count"] for item in runtime["datasets"] if item["id"] == "rq.bars"),
+            0,
+        ),
         "realtime": {"status": "not_configured", "source": None},
         "datasets": {
-            "market": _dataset_status(MARKET_DIR / "bars.parquet", manifest),
-            "fundamentals": _dataset_status(FUNDAMENTAL_DIR / "fundamentals.parquet", manifest),
-            "factors": _dataset_status(FACTOR_DIR / "factor_returns.parquet", manifest),
-            "app": _dataset_status(APP_DATA_DIR / "alphalab.db", manifest, mutable=True),
+            item["id"]: {
+                key: item.get(key)
+                for key in ("status", "rows", "date_start", "date_end", "symbol_count")
+            }
+            for item in runtime["datasets"]
         },
-        "runtime": runtime,
+        "runtime": {key: runtime.get(key) for key in ("status", "ready", "total", "configured")}
+        | {
+            "datasets": [
+                {
+                    key: item.get(key)
+                    for key in (
+                        "id",
+                        "label",
+                        "status",
+                        "configured",
+                        "rows",
+                        "date_start",
+                        "date_end",
+                        "symbol_count",
+                    )
+                }
+                for item in runtime["datasets"]
+            ]
+        },
     }
 
 
@@ -174,7 +171,9 @@ def market_symbol_options(profile: str = "demo") -> list[dict[str, str | None]]:
         )
     instruments = engine.get_instruments(engine.get_latest_date())
     if not instruments.empty and "symbol" in instruments:
-        name_column = next((column for column in ("name", "display_name") if column in instruments), None)
+        name_column = next(
+            (column for column in ("name", "display_name") if column in instruments), None
+        )
         if name_column:
             for symbol, name in instruments[["symbol", name_column]].itertuples(index=False):
                 normalized_symbol = str(symbol).strip().upper()
@@ -246,7 +245,9 @@ def fundamentals(
     )
     preview = frame.head(limit).copy()
     if "available_date" in preview:
-        preview["available_date"] = pd.to_datetime(preview["available_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        preview["available_date"] = pd.to_datetime(
+            preview["available_date"], errors="coerce"
+        ).dt.strftime("%Y-%m-%d")
     return {
         "profile": profile,
         "symbols": normalized_symbols,

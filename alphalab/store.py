@@ -59,6 +59,8 @@ class ResultStore:
             self._conn.execute("ALTER TABLE backtests ADD COLUMN provenance_json TEXT")
         if "execution_json" not in backtest_columns:
             self._conn.execute("ALTER TABLE backtests ADD COLUMN execution_json TEXT")
+        if "event_json" not in backtest_columns:
+            self._conn.execute("ALTER TABLE backtests ADD COLUMN event_json TEXT")
         if "attribution_json" not in backtest_columns:
             self._conn.execute("ALTER TABLE backtests ADD COLUMN attribution_json TEXT")
         for name, sql_type in (
@@ -77,6 +79,12 @@ class ResultStore:
         ):
             if name not in backtest_columns:
                 self._conn.execute(f"ALTER TABLE backtests ADD COLUMN {name} {sql_type}")
+        backtest_job_columns = {
+            row["name"] for row in self._conn.execute("PRAGMA table_info(backtest_jobs)").fetchall()
+        }
+        for name in ("error_code", "error_summary", "error_details_json", "log_reference"):
+            if name not in backtest_job_columns:
+                self._conn.execute(f"ALTER TABLE backtest_jobs ADD COLUMN {name} TEXT")
         order_columns = {
             row["name"] for row in self._conn.execute("PRAGMA table_info(orders)").fetchall()
         }
@@ -274,6 +282,7 @@ class ResultStore:
         notes: str | None = None,
         provenance: dict | None = None,
         executions: list[dict] | tuple[dict, ...] | None = None,
+        events: list[dict] | tuple[dict, ...] | None = None,
         persist_zero_weights: bool = False,
         strategy_source: str | None = None,
         settings: dict | None = None,
@@ -305,13 +314,13 @@ class ResultStore:
                 """INSERT INTO backtests
                    (id, strategy_id, config_yaml, code_version, start_date, end_date,
                     total_return, annual_return, annual_vol, sharpe, max_drawdown,
-                    n_periods, tags, notes, provenance_json, execution_json,
+                     n_periods, tags, notes, provenance_json, execution_json, event_json,
                     pipeline_project_id, strategy_source, component_manifest_json,
                     settings_json, attribution_json, strategy_project_id,
                     strategy_revision, strategy_source_sha256, strategy_manifest_json,
                     validation_source, validation_revision, validation_source_sha256,
                     validation_output_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     backtest_id,
                     strategy_id,
@@ -329,6 +338,7 @@ class ResultStore:
                     notes,
                     json.dumps(provenance, sort_keys=True) if provenance else None,
                     json.dumps(list(executions), sort_keys=True) if executions else None,
+                    json.dumps(list(events), sort_keys=True) if events else None,
                     None,
                     strategy_source,
                     None,
@@ -399,14 +409,36 @@ class ResultStore:
         result: dict | None = None,
         result_id: str | None = None,
         error: str | None = None,
+        error_code: str | None = None,
+        error_summary: str | None = None,
+        error_details: dict | None = None,
+        log_reference: str | None = None,
+        request: dict | None = None,
     ) -> None:
         values: dict[str, object] = {}
         if status is not None:
             values["status"] = status
             if status == "running":
                 values["started_at"] = datetime.now().isoformat(timespec="seconds")
+                values["finished_at"] = None
+                values["result_json"] = None
+                values["result_id"] = None
+                values["error"] = None
+                values["error_code"] = None
+                values["error_summary"] = None
+                values["error_details_json"] = None
+                values["log_reference"] = None
             if status in {"succeeded", "failed", "interrupted"}:
                 values["finished_at"] = datetime.now().isoformat(timespec="seconds")
+            if status == "succeeded":
+                values["error"] = None
+                values["error_code"] = None
+                values["error_summary"] = None
+                values["error_details_json"] = None
+                values["log_reference"] = None
+            if status in {"failed", "interrupted"}:
+                values["result_json"] = None
+                values["result_id"] = None
         if message is not None:
             values["message"] = message
         if result is not None:
@@ -415,6 +447,16 @@ class ResultStore:
             values["result_id"] = result_id
         if error is not None:
             values["error"] = str(error)[:2000]
+        if error_code is not None:
+            values["error_code"] = str(error_code)[:100]
+        if error_summary is not None:
+            values["error_summary"] = str(error_summary)[:500]
+        if error_details is not None:
+            values["error_details_json"] = json.dumps(error_details, default=str)
+        if log_reference is not None:
+            values["log_reference"] = str(log_reference)[:200]
+        if request is not None:
+            values["request_json"] = json.dumps(request, sort_keys=True)
         if not values:
             return
 
@@ -457,27 +499,16 @@ class ResultStore:
         self._write(work)
         return changed
 
-    def requeue_backtest_jobs(self) -> list[dict]:
-        pending = [
+    def list_pending_backtest_jobs(self) -> list[dict]:
+        """Return unfinished jobs without changing state owned by another worker."""
+
+        return [
             self._backtest_job_dict(row)
             for row in self._conn.execute(
                 """SELECT * FROM backtest_jobs
                    WHERE status IN ('queued', 'running') ORDER BY created_at, id"""
             ).fetchall()
         ]
-        if not pending:
-            return []
-
-        def work() -> None:
-            self._conn.execute(
-                """UPDATE backtest_jobs
-                   SET status='queued', started_at=NULL, finished_at=NULL,
-                       message='Recovered after service restart', error=NULL
-                   WHERE status IN ('queued', 'running')"""
-            )
-
-        self._write(work)
-        return pending
 
     @staticmethod
     def _backtest_job_dict(row: sqlite3.Row) -> dict:
@@ -485,6 +516,8 @@ class ResultStore:
         value["request"] = json.loads(value.pop("request_json"))
         raw_result = value.pop("result_json")
         value["result"] = json.loads(raw_result) if raw_result else None
+        raw_error_details = value.pop("error_details_json")
+        value["error_details"] = json.loads(raw_error_details) if raw_error_details else {}
         return value
 
     def list_backtests(self, strategy_id: str | None = None, limit: int = 20) -> pd.DataFrame:

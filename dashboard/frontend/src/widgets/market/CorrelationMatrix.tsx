@@ -5,12 +5,11 @@ import { useMarketCorrelation } from "@/hooks"
 import { useDataProfile } from "@/lib/data-profile"
 import { Widget } from "@/widgets/Widget"
 
-import { AnalyticsFilters } from "./AnalyticsControls"
 import { analyticsError } from "./analytics-utils"
 
 export function CorrelationMatrixWidget() {
   const { language } = useLanguage()
-  const [profile, setProfile] = useDataProfile()
+  const [profile] = useDataProfile()
   const { startDate, endDate, selectedFactors } = useGlobalFilter()
   const query = useMarketCorrelation(profile, startDate, endDate, selectedFactors)
   return (
@@ -19,7 +18,6 @@ export function CorrelationMatrixWidget() {
       loading={query.isLoading}
       error={analyticsError(query.error)}
       onRetry={() => query.refetch()}
-      actions={<AnalyticsFilters profile={profile} onProfileChange={setProfile} />}
       bodyPadding="compact"
     >
       <div className="analytics-correlation">

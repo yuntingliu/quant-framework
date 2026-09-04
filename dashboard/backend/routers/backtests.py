@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
@@ -20,6 +22,8 @@ from dashboard.backend.services.backtest_job_service import (
 )
 from dashboard.backend.services.result_service import (
     get_backtest,
+    get_backtest_event_page,
+    get_backtest_summary,
     list_backtests,
 )
 
@@ -30,7 +34,7 @@ class BacktestRequest(BaseModel):
     project_id: str = Field(min_length=1)
     start_date: str = Field(min_length=1)
     end_date: str = Field(min_length=1)
-    profile: str = "demo"
+    profile: Literal["runtime"] = "runtime"
     revision: int | None = Field(default=None, ge=1)
     confirm_python_execution: bool
 
@@ -78,8 +82,6 @@ def create_backtest_job(request: BacktestRequest) -> dict:
         raise HTTPException(status_code=404, detail="strategy not found") from None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except MissingDataError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/jobs")
@@ -98,6 +100,32 @@ def backtest_job(job_id: str) -> dict:
 @router.get("/{backtest_id}")
 def backtest_detail(backtest_id: str) -> dict:
     item = get_backtest(backtest_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="backtest not found")
+    return item
+
+
+@router.get("/{backtest_id}/summary")
+def backtest_summary(backtest_id: str) -> dict:
+    item = get_backtest_summary(backtest_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="backtest not found")
+    return item
+
+
+@router.get("/{backtest_id}/events")
+def backtest_events(
+    backtest_id: str,
+    kind: Literal["executions", "events"] = "events",
+    offset: int = 0,
+    limit: int = 50,
+) -> dict:
+    item = get_backtest_event_page(
+        backtest_id,
+        kind=kind,
+        offset=max(0, offset),
+        limit=max(1, min(limit, 100)),
+    )
     if item is None:
         raise HTTPException(status_code=404, detail="backtest not found")
     return item

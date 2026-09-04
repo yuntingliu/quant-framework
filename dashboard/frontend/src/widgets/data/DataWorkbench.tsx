@@ -75,7 +75,9 @@ interface SyncJob {
   progress: number
   total: number
   message?: string | null
-  error?: string | null
+  error_code?: string | null
+  error_summary?: string | null
+  log_reference?: string | null
   request: { project_id?: string; template_id?: string; kind?: string }
 }
 
@@ -417,7 +419,7 @@ export function DataWorkbenchWidget() {
           {latestJob && (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
               <Badge variant="outline">{latestJob.status}</Badge>
-              <span>{latestJob.error ?? latestJob.message ?? latestJob.id}</span>
+              <span>{latestJob.error_summary ?? latestJob.message ?? latestJob.id}</span>
               {latestJob.total > 0 && <span className="text-muted-foreground">{latestJob.progress}/{latestJob.total}</span>}
             </div>
           )}

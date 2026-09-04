@@ -8,7 +8,6 @@ import { useDataProfile } from "@/lib/data-profile"
 import { formatPercent } from "@/lib/utils"
 import { Widget } from "@/widgets/Widget"
 
-import { AnalyticsFilters } from "./AnalyticsControls"
 import { analyticsError } from "./analytics-utils"
 
 export function DrawdownAnalysisWidget() {
@@ -16,7 +15,7 @@ export function DrawdownAnalysisWidget() {
   const copy = language === "zh"
     ? { title: "回撤分析", start: "开始", trough: "谷底", end: "结束", depth: "深度", recovery: "修复", open: "尚未修复", months: "个月" }
     : { title: "Drawdown Analysis", start: "Start", trough: "Trough", end: "End", depth: "Depth", recovery: "Recovery", open: "Open", months: "mo" }
-  const [profile, setProfile] = useDataProfile()
+  const [profile] = useDataProfile()
   const { startDate, endDate } = useGlobalFilter()
   const query = useDrawdowns(profile, startDate, endDate, 5)
   const chartData = useMemo(
@@ -33,7 +32,6 @@ export function DrawdownAnalysisWidget() {
       loading={query.isLoading}
       error={analyticsError(query.error)}
       onRetry={() => query.refetch()}
-      actions={<AnalyticsFilters profile={profile} onProfileChange={setProfile} />}
       bodyPadding="compact"
     >
       <DrawdownChart data={chartData} height={250} />

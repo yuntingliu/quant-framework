@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_get_workspace_context",
-  "description": "Read one coherent snapshot of the current RQ runtime status, research projects, recent recipe jobs, recent backtests, and canonical SDK contracts.",
+  "description": "Read a compact runtime overview containing only data status, project summaries, and recent task summaries. Fetch sources, templates, and error details separately when needed.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {
@@ -12,7 +12,7 @@
     }
   },
   "outputSchema": { "type": "object" },
-  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nasync function get(path){const response=await fetch(origin()+path,{headers:{Accept:'application/json'}});if(!response.ok)throw new Error('AlphaLab API '+response.status+': '+await response.text());return response.json()}\nasync function run(input){const backtestLimit=Math.max(1,Math.min(20,Number(input.backtest_limit||5))),syncLimit=Math.max(1,Math.min(20,Number(input.sync_job_limit||5)));return get('/api/agent/context?backtest_limit='+backtestLimit+'&sync_job_limit='+syncLimit)}",
+  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nfunction safeText(value){return String(value||'Request failed').split(/\\r?\\n/,1)[0].replace(/[A-Za-z]:\\\\[^\\s\\\"']+/g,'<internal-path>').replace(/(^|\\s)\\/(?:[^\\/\\s]+\\/)+[^\\s\\\"']+/g,'$1<internal-path>').replace(/\\b[a-fA-F0-9]{40,64}\\b/g,'<internal-id>').slice(0,500)}\nasync function get(path){const response=await fetch(origin()+path,{headers:{Accept:'application/json'}});let payload=null;try{payload=await response.json()}catch{}if(!response.ok){const detail=payload&&payload.detail!==undefined?payload.detail:payload||{};const error=detail&&typeof detail==='object'?detail:{};throw new Error(JSON.stringify({status:'failed',error_code:String(error.code||'WORKSPACE_CONTEXT_FAILED'),error_summary:safeText(error.message||detail),http_status:response.status}))}return payload}\nasync function run(input){const backtestLimit=Math.max(1,Math.min(20,Number(input.backtest_limit||5))),syncLimit=Math.max(1,Math.min(20,Number(input.sync_job_limit||5)));return get('/api/agent/context?backtest_limit='+backtestLimit+'&sync_job_limit='+syncLimit)}",
   "timeoutMs": 15000,
   "permissions": { "network": "alphalab-api" },
   "sideEffects": "read"

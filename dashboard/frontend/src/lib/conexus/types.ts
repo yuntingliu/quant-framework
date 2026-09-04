@@ -99,7 +99,6 @@ export interface PublishedHarnessRun {
   completedAt?: string
   summary?: string
   result?: unknown
-  workspaceOutputs?: PublishedHarnessWorkspaceOutput[]
   workspaceRevision?: number
   nodeChanges?: { created: string[]; updated: string[]; deleted: string[] }
   error?: { code: string; message: string }

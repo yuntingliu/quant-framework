@@ -80,7 +80,7 @@ const STAGES: StageDefinition[] = [
   {
     id: "execution",
     title: "成交执行",
-    kinds: ["execution"],
+    kinds: ["execution_data_fill", "execution"],
     icon: Gauge,
   },
 ]
@@ -101,6 +101,15 @@ const PARAMETER_LABELS: Record<string, string> = {
   slippage_rate: "滑点率",
   max_participation_rate: "最大成交参与率",
   market_impact_rate: "冲击成本率",
+  main_board_limit_rate: "主板涨跌幅",
+  main_board_st_limit_rate_before_change: "主板 ST 调整前涨跌幅",
+  main_board_st_limit_rate: "主板 ST 当前涨跌幅",
+  main_board_st_change_date: "主板 ST 规则切换日",
+  star_market_limit_rate: "科创板涨跌幅",
+  chinext_limit_rate: "创业板涨跌幅",
+  beijing_limit_rate: "北交所涨跌幅",
+  ipo_unlimited_sessions: "沪深新股无涨跌停交易日",
+  beijing_ipo_unlimited_sessions: "北交所新股无涨跌停交易日",
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -136,6 +145,7 @@ function entrypointBusinessLabel(entrypoint: SdkEntrypoint) {
   if (entrypoint.kind === "schedule") return "自定义调仓日"
   if (entrypoint.kind === "portfolio") return "目标仓位模型"
   if (entrypoint.kind === "event") return EVENT_LABELS[entrypoint.event || ""] || "持有期处理规则"
+  if (entrypoint.kind === "execution_data_fill") return "缺失交易状态补齐"
   if (entrypoint.kind === "execution") return "成交模型"
   return entrypoint.id
 }

@@ -7,7 +7,7 @@ import {
   type PaperOrder,
   type PaperRebalancePreview,
 } from "../../lib/api"
-import { useDataProfile, type DataProfile } from "../../lib/data-profile"
+import { useDataProfile } from "../../lib/data-profile"
 import { SymbolCombobox } from "../../components/shared/SymbolCombobox"
 
 function money(value: number | "" | undefined): string {
@@ -17,7 +17,7 @@ function money(value: number | "" | undefined): string {
 }
 
 export function PaperExecutionDeskWidget() {
-  const [profile, setProfile] = useDataProfile()
+  const [profile] = useDataProfile()
   const [strategies, setStrategies] = useState<Array<{ id: string; name: string }>>([])
   const [strategyId, setStrategyId] = useState("sdk-v1-default")
   const [symbols, setSymbols] = useState<string[]>([])
@@ -136,10 +136,7 @@ export function PaperExecutionDeskWidget() {
         </div>
       )}
       <div className="paper-rebalance-controls">
-        <select value={profile} onChange={(event) => setProfile(event.target.value as DataProfile)}>
-          <option value="demo">Demo</option>
-          <option value="runtime">Local RQ</option>
-        </select>
+        <span className="status-pill neutral">Local RQ</span>
         <select value={strategyId} onChange={(event) => {
           setStrategyId(event.target.value)
           setPreview(null)

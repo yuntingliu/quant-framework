@@ -1,7 +1,10 @@
 """Stable public facade for AlphaLab Strategy SDK v1."""
 
+from typing import Annotated
+
 from alphalab.sdk.v1.decorators import (
     execution,
+    execution_data_fill,
     factor,
     on_event,
     portfolio,
@@ -29,6 +32,7 @@ from alphalab.sdk.v1.model import (
 )
 
 __all__ = [
+    "Annotated",
     "Daily",
     "Event",
     "ExecutionContext",
@@ -46,6 +50,7 @@ __all__ = [
     "UniverseResult",
     "Weekly",
     "execution",
+    "execution_data_fill",
     "factor",
     "on_event",
     "portfolio",

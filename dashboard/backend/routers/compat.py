@@ -1,4 +1,5 @@
 """Stable offline status endpoints used by the preserved workstation shell."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter
@@ -29,7 +30,7 @@ def trading_status() -> dict:
 
 @router.get("/trading/asset")
 def trading_asset() -> dict:
-    account = paper_account_summary("paper", "demo")["account"]
+    account = paper_account_summary("paper", "runtime")["account"]
     return {
         "cash": account["cash"],
         "total_asset": account["equity"],
@@ -41,13 +42,6 @@ def trading_asset() -> dict:
 def data_status() -> dict:
     status = list_provider_status()
     return {
-        "demo": {
-            "latest_date": status["latest_date"],
-            "needs_update": False,
-            "provider_pending": False,
-            "stock_count": status["symbol_count"],
-            "phase_label": "bundled historical sample",
-        },
         "runtime": {
             **status["profiles"]["runtime"],
             "needs_update": status["profiles"]["runtime"]["status"] != "ready",
@@ -84,5 +78,5 @@ def agent_config() -> dict:
             "provider": "none",
             "model": None,
             "mode": "not_configured",
-        }
+        },
     }

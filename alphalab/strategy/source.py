@@ -3,18 +3,31 @@
 from __future__ import annotations
 
 import ast
+import builtins
 import hashlib
 import math
+import symtable
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable
 
 import libcst as cst
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 
+from alphalab.sdk import v1 as public_sdk
+
 MAX_STRATEGY_SOURCE_BYTES = 300_000
 VALIDATOR_VERSION = "sdk-v1-validator-1"
-_KINDS = {"universe", "factor", "schedule", "signal", "portfolio", "execution"}
+_KINDS = {
+    "universe",
+    "factor",
+    "schedule",
+    "signal",
+    "portfolio",
+    "execution",
+    "execution_data_fill",
+}
 _REQUIRED = {"universe": 1, "signal": 1, "portfolio": 1, "execution": 1}
+_OPTIONAL_SINGLETONS = {"execution_data_fill"}
 _EXPECTED_POSITIONAL = {
     "universe": 1,
     "factor": 1,
@@ -22,8 +35,10 @@ _EXPECTED_POSITIONAL = {
     "portfolio": 3,
     "event": 2,
     "execution": 2,
+    "execution_data_fill": 2,
     "schedule": 2,
 }
+_FACTOR_PRELUDE_NAMES = frozenset(public_sdk.__all__) | frozenset(dir(builtins))
 
 
 class StrategySourceError(ValueError):
@@ -175,6 +190,14 @@ def inspect_strategy_source(source: str) -> SourceInspection:
                 phase="register",
             )
 
+    for kind in _OPTIONAL_SINGLETONS:
+        actual = counts.get(kind, 0)
+        if actual > 1:
+            raise StrategySourceError(
+                f"strategy allows at most one @{kind} function; found {actual}",
+                phase="register",
+            )
+
     _validate_factor_dependencies(tree, entrypoints)
 
     try:
@@ -233,6 +256,33 @@ def split_strategy_source(source: str) -> tuple[str, tuple[StrategySourceUnit, .
     return strategy_source, tuple(factors)
 
 
+def _validate_factor_unit_isolation(source: str) -> None:
+    """Reject globals that would be supplied only by another project source unit."""
+
+    root = symtable.symtable(source, "<alphalab-factor-unit>", "exec")
+    unresolved: set[str] = set()
+
+    def inspect_table(table: symtable.SymbolTable) -> None:
+        for symbol in table.get_symbols():
+            if (
+                symbol.is_referenced()
+                and symbol.is_global()
+                and symbol.get_name() not in _FACTOR_PRELUDE_NAMES
+            ):
+                unresolved.add(symbol.get_name())
+        for child in table.get_children():
+            inspect_table(child)
+
+    inspect_table(root)
+    if unresolved:
+        raise StrategySourceError(
+            "factor file has undeclared global dependencies: "
+            + ", ".join(sorted(unresolved))
+            + "; import non-SDK dependencies inside the factor function",
+            phase="register",
+        )
+
+
 def assemble_strategy_source(
     strategy_source: str,
     factor_sources: Iterable[str],
@@ -264,9 +314,7 @@ def assemble_strategy_source(
             factor_module = cst.parse_module(str(source))
         except cst.ParserSyntaxError as exc:
             raise StrategySourceError(f"factor Python syntax error: {exc}", phase="parse") from exc
-        if len(factor_module.body) != 1 or not isinstance(
-            factor_module.body[0], cst.FunctionDef
-        ):
+        if len(factor_module.body) != 1 or not isinstance(factor_module.body[0], cst.FunctionDef):
             raise StrategySourceError(
                 "each factor file must contain exactly one complete @factor function",
                 phase="register",
@@ -278,6 +326,7 @@ def assemble_strategy_source(
                 "each factor file must contain exactly one complete @factor function",
                 phase="register",
             )
+        _validate_factor_unit_isolation(str(source))
         if factor_id in factor_ids:
             raise StrategySourceError(f"duplicate factor source {factor_id!r}", phase="register")
         factor_ids.add(factor_id)
@@ -415,9 +464,7 @@ def ensure_default_risk_handler(source: str) -> tuple[str, SourceInspection]:
     tree = ast.parse(source)
     occupied = {item.id for item in inspection.entrypoints}
     occupied.update(
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     )
     function_name = "holding_period_risk"
     suffix = 2
@@ -485,11 +532,19 @@ def replace_registered_function(
     )
     if current_entrypoint is None:
         raise StrategySourceError(f"entrypoint {entrypoint_id!r} was not found", phase="edit")
-    replacement_module = cst.parse_module(function_source)
-    replacements = [item for item in replacement_module.body if isinstance(item, cst.FunctionDef)]
-    if len(replacements) != 1:
-        raise StrategySourceError("replacement must contain exactly one function", phase="edit")
-    replacement = replacements[0]
+    try:
+        replacement_module = cst.parse_module(function_source)
+    except cst.ParserSyntaxError as exc:
+        raise StrategySourceError(f"replacement Python syntax error: {exc}", phase="parse") from exc
+    if len(replacement_module.body) != 1 or not isinstance(
+        replacement_module.body[0], cst.FunctionDef
+    ):
+        raise StrategySourceError(
+            "replacement must contain exactly one registered function and no imports, "
+            "assignments, constants, or other top-level statements",
+            phase="edit",
+        )
+    replacement = replacement_module.body[0]
     replacement_kind, replacement_id = _cst_public_id(replacement)
     if replacement_kind != current_entrypoint.kind or replacement_id is None:
         raise StrategySourceError(
@@ -502,9 +557,11 @@ def replace_registered_function(
     if not transformer.changed:
         raise StrategySourceError(f"entrypoint {entrypoint_id!r} was not found", phase="edit")
     if current_entrypoint.kind == "factor" and replacement_id != entrypoint_id:
-        updated = cst.parse_module(updated).visit(
-            _FactorReferenceRenameTransformer(entrypoint_id, replacement_id)
-        ).code
+        updated = (
+            cst.parse_module(updated)
+            .visit(_FactorReferenceRenameTransformer(entrypoint_id, replacement_id))
+            .code
+        )
     return updated, inspect_strategy_source(updated)
 
 
@@ -543,10 +600,7 @@ def delete_registered_function(
     body = [
         item
         for item in module.body
-        if not (
-            isinstance(item, cst.FunctionDef)
-            and _cst_public_id(item)[1] == entrypoint_id
-        )
+        if not (isinstance(item, cst.FunctionDef) and _cst_public_id(item)[1] == entrypoint_id)
     ]
     if len(body) == len(module.body):
         raise StrategySourceError(f"entrypoint {entrypoint_id!r} was not found", phase="edit")
@@ -1027,7 +1081,9 @@ def _parameter_metadata(annotation: ast.expr | None) -> dict[str, Any]:
     owner_name = (
         owner.id
         if isinstance(owner, ast.Name)
-        else owner.attr if isinstance(owner, ast.Attribute) else None
+        else owner.attr
+        if isinstance(owner, ast.Attribute)
+        else None
     )
     if owner_name != "Annotated":
         return empty
@@ -1586,9 +1642,7 @@ class _FactorReferenceRenameTransformer(cst.CSTTransformer):
         updated = list(arguments)
         for index, argument in enumerate(updated):
             if argument.keyword is None and not argument.star:
-                updated[index] = argument.with_changes(
-                    value=self._rename_string(argument.value)
-                )
+                updated[index] = argument.with_changes(value=self._rename_string(argument.value))
                 break
         return tuple(updated)
 
@@ -1634,8 +1688,7 @@ class _FactorReferenceRenameTransformer(cst.CSTTransformer):
         literal_keys = [
             ast.literal_eval(element.key.value)
             for element in value.elements
-            if isinstance(element, cst.DictElement)
-            and isinstance(element.key, cst.SimpleString)
+            if isinstance(element, cst.DictElement) and isinstance(element.key, cst.SimpleString)
         ]
         if self.old_id in literal_keys and self.new_id in literal_keys:
             raise StrategySourceError(

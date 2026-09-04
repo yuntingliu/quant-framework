@@ -17,6 +17,7 @@ from typing import Any, Callable, Mapping
 import pandas as pd
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 
+from alphalab.sdk import v1 as public_sdk
 from alphalab.sdk.v1.decorators import Registration
 from alphalab.sdk.v1.model import (
     CalendarView,
@@ -114,6 +115,10 @@ def load_strategy_module(source: str) -> LoadedStrategy:
     namespace: dict[str, Any] = {
         "__name__": "alphalab_strategy_sdk_v1",
         "__package__": None,
+        # Canonical factor files contain only one registered function.  Give all
+        # assembled units the same explicit SDK prelude so a factor decorator
+        # never depends on an incidental import left behind in strategy.py.
+        **{name: getattr(public_sdk, name) for name in public_sdk.__all__},
     }
     exec(compile(source, "<alphalab-strategy-sdk-v1>", "exec"), namespace)
     by_kind: dict[str, list[RegisteredCallable]] = {}
@@ -381,11 +386,162 @@ def _dispatch(
 ) -> dict[str, Any]:
     if operation == "factor":
         return _evaluate_factor(strategy, payload)
+    if operation == "execution_data_fill":
+        return _evaluate_execution_data_fill(strategy, payload)
     if operation in {"signal", "portfolio", "execution", "event"}:
         return _evaluate_event(
             strategy, payload, stop_after=None if operation == "event" else operation
         )
     raise SdkRuntimeError(f"unsupported SDK operation: {operation}", phase="input")
+
+
+def _evaluate_execution_data_fill(
+    strategy: LoadedStrategy,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    handlers = strategy.by_kind.get("execution_data_fill", ())
+    if not handlers:
+        return {"rows": list(payload.get("execution_state_rows") or ()), "filled": {}}
+    if len(handlers) != 1:
+        raise SdkRuntimeError(
+            "runtime registry allows at most one execution_data_fill",
+            phase="register",
+        )
+
+    item = handlers[0]
+    symbols = tuple(str(value).strip().upper() for value in payload.get("available_symbols") or ())
+    as_of = pd.Timestamp(payload["as_of"]).normalize()
+    bars = payload.get("bars")
+    historical_bars = bars if isinstance(bars, pd.DataFrame) else pd.DataFrame(bars or ())
+    if not historical_bars.empty and "date" in historical_bars:
+        historical_bars = historical_bars.loc[historical_bars["date"].lt(as_of)].copy()
+    context = ExecutionContext(
+        event=payload.get("event", Event.SESSION_OPEN.value),
+        as_of=as_of,
+        sessions=payload.get("sessions") or [as_of],
+        symbols=symbols,
+        bars=historical_bars,
+        instruments=(payload.get("instruments") if payload.get("instruments") is not None else ()),
+        fundamentals=(
+            payload.get("fundamentals") if payload.get("fundamentals") is not None else ()
+        ),
+        daily_factors=(
+            payload.get("daily_factors") if payload.get("daily_factors") is not None else ()
+        ),
+        index_components=(
+            payload.get("index_components") if payload.get("index_components") is not None else ()
+        ),
+        portfolio=_portfolio_from_payload(payload.get("portfolio") or {}),
+        last_decision=_decision_from_payload(payload.get("last_decision")),
+        seed=int(payload.get("seed", 0)),
+    )
+    original = pd.DataFrame(payload.get("execution_state_rows") or ()).copy()
+    for field in ("date", "symbol", "is_suspended", "limit_up", "limit_down"):
+        if field not in original:
+            original[field] = pd.NA
+    original = original[["date", "symbol", "is_suspended", "limit_up", "limit_down"]]
+    original["date"] = pd.to_datetime(original["date"], errors="coerce").dt.normalize()
+    original["symbol"] = original["symbol"].astype(str).str.upper()
+    try:
+        raw = item.function(context, original.copy())
+    except Exception as exc:
+        raise _entrypoint_error(exc, item, Event(context.event), context) from exc
+    filled = _validate_execution_data_fill(original, raw, item)
+    counts = {
+        field: int((original[field].isna() & filled[field].notna()).sum())
+        for field in ("is_suspended", "limit_up", "limit_down")
+    }
+    return {
+        "rows": filled.to_dict(orient="records"),
+        "filled": {field: count for field, count in counts.items() if count},
+        "entrypoint_id": item.registration.id,
+    }
+
+
+def _validate_execution_data_fill(
+    original: pd.DataFrame,
+    value: Any,
+    item: RegisteredCallable,
+) -> pd.DataFrame:
+    if not isinstance(value, pd.DataFrame):
+        raise SdkRuntimeError(
+            "@execution_data_fill must return pandas.DataFrame",
+            phase="output",
+            entrypoint_id=item.registration.id,
+        )
+    required = {"date", "symbol", "is_suspended", "limit_up", "limit_down"}
+    if len(value.columns) != len(required) or set(value.columns) != required:
+        raise SdkRuntimeError(
+            "@execution_data_fill must return exactly date, symbol, is_suspended, limit_up, and limit_down",
+            phase="output",
+            entrypoint_id=item.registration.id,
+        )
+    filled = value[["date", "symbol", "is_suspended", "limit_up", "limit_down"]].copy()
+    filled["date"] = pd.to_datetime(filled["date"], errors="coerce").dt.normalize()
+    filled["symbol"] = filled["symbol"].astype(str).str.upper()
+    original_keys = original[["date", "symbol"]].reset_index(drop=True)
+    filled_keys = filled[["date", "symbol"]].reset_index(drop=True)
+    if len(filled) != len(original) or not filled_keys.equals(original_keys):
+        raise SdkRuntimeError(
+            "@execution_data_fill cannot add, remove, reorder, or rename market rows",
+            phase="output",
+            entrypoint_id=item.registration.id,
+        )
+    suspended = filled["is_suspended"]
+    valid_suspended = suspended.map(
+        lambda value: bool(pd.isna(value)) or isinstance(value, bool) or value in (0, 1)
+    )
+    if not bool(valid_suspended.all()):
+        raise SdkRuntimeError(
+            "@execution_data_fill is_suspended values must be boolean or missing",
+            phase="output",
+            entrypoint_id=item.registration.id,
+        )
+    filled["is_suspended"] = suspended.astype("boolean")
+    known_suspension = original["is_suspended"].notna()
+    if not filled.loc[known_suspension, "is_suspended"].equals(
+        original.loc[known_suspension, "is_suspended"].astype("boolean")
+    ):
+        raise SdkRuntimeError(
+            "@execution_data_fill cannot replace known is_suspended values",
+            phase="output",
+            entrypoint_id=item.registration.id,
+        )
+    for field in ("limit_up", "limit_down"):
+        numeric = pd.to_numeric(filled[field], errors="coerce")
+        invalid = filled[field].notna() & (
+            numeric.isna() | ~numeric.map(lambda item: math.isfinite(float(item))) | numeric.lt(0)
+        )
+        if bool(invalid.any()):
+            raise SdkRuntimeError(
+                f"@execution_data_fill {field} values must be finite non-negative numbers or missing",
+                phase="output",
+                entrypoint_id=item.registration.id,
+            )
+        known = original[field].notna()
+        original_numeric = pd.to_numeric(original.loc[known, field], errors="coerce")
+        if not bool(
+            (numeric.loc[known].astype(float) - original_numeric.astype(float))
+            .abs()
+            .le(1e-12)
+            .all()
+        ):
+            raise SdkRuntimeError(
+                f"@execution_data_fill cannot replace known {field} values",
+                phase="output",
+                entrypoint_id=item.registration.id,
+            )
+        filled[field] = numeric
+    zero_up = filled["limit_up"].eq(0.0)
+    zero_down = filled["limit_down"].eq(0.0)
+    if bool((zero_up ^ zero_down).any()):
+        raise SdkRuntimeError(
+            "@execution_data_fill must set both limit_up and limit_down to zero when "
+            "marking a session as having no price limit",
+            phase="output",
+            entrypoint_id=item.registration.id,
+        )
+    return filled
 
 
 def _evaluate_factor(strategy: LoadedStrategy, payload: Mapping[str, Any]) -> dict[str, Any]:

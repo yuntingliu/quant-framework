@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS backtests (
     notes TEXT,
     provenance_json TEXT,
     execution_json TEXT,
+    event_json TEXT,
     attribution_json TEXT,
     strategy_project_id TEXT,
     strategy_revision INTEGER,
@@ -165,6 +166,10 @@ CREATE TABLE IF NOT EXISTS backtest_jobs (
     result_id TEXT,
     message TEXT,
     error TEXT,
+    error_code TEXT,
+    error_summary TEXT,
+    error_details_json TEXT,
+    log_reference TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     started_at TEXT,
     finished_at TEXT

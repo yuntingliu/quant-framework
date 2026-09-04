@@ -50,7 +50,7 @@ export interface AgentResearchResult {
   runId?: string
   artifactId?: string
   updatedAt?: string
-  profile?: "demo" | "runtime"
+  profile?: "runtime"
   provenance?: Record<string, unknown>
   persistedAt?: string
   backtestId?: string
@@ -300,7 +300,7 @@ export function parseAgentResearchResult(
   const generatedAt = value.generatedAt === undefined ? undefined : text(value.generatedAt, 100)
   if (value.generatedAt !== undefined && generatedAt === undefined) return null
   if (generatedAt && Number.isNaN(Date.parse(generatedAt))) return null
-  const profile = value.profile === "demo" || value.profile === "runtime" ? value.profile : undefined
+  const profile = value.profile === "runtime" ? value.profile : undefined
   const provenance = isRecord(value.provenance) ? value.provenance : undefined
   const persistedAt = value.persistedAt === undefined ? undefined : text(value.persistedAt, 100)
   if (value.persistedAt !== undefined && !persistedAt) return null

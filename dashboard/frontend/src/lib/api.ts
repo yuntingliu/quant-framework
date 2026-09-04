@@ -33,7 +33,7 @@ export interface BacktestRecord {
   sharpe: number | ''
   max_drawdown: number | ''
   run_at: string
-  profile: "demo" | "runtime"
+  profile: "runtime"
 }
 
 export interface BacktestRunResult {
@@ -60,14 +60,21 @@ export interface BacktestJob {
     project_id: string
     start_date: string
     end_date: string
-    profile: "demo" | "runtime"
+    profile: "runtime"
     revision: number
     validation_revision?: number
   }
-  result: BacktestRunResult | null
+  result_summary: Pick<BacktestRunResult, "id" | "project_id" | "metrics"> & {
+    counts: Record<string, number>
+    warnings: string[]
+    warnings_truncated: boolean
+  } | null
   result_id: string | null
   message: string | null
-  error: string | null
+  error_code: string | null
+  error_summary: string | null
+  error_details: Record<string, unknown>
+  log_reference: string | null
   created_at: string
   started_at: string | null
   finished_at: string | null
@@ -76,7 +83,7 @@ export interface BacktestJob {
 export interface ResearchProvenance {
   version?: number
   created_at?: string
-  profile?: "demo" | "runtime"
+  profile?: "runtime"
   strategy_source_sha256?: string | null
   strategy_python_sha256?: string | null
   strategy_python?: { source: string; sha256: string } | null
@@ -120,7 +127,7 @@ export interface BacktestHoldingSnapshot {
 export interface BacktestAnalysis {
   id: string
   strategy_id: string
-  profile: "demo" | "runtime"
+  profile: "runtime"
   start_date: string
   end_date: string
   run_at: string
@@ -238,7 +245,7 @@ export interface BacktestComparison {
 export interface BacktestRobustness {
   id: string
   strategy_id: string
-  profile: "demo" | "runtime"
+  profile: "runtime"
   start_date: string
   end_date: string
   status: "research_candidate" | "watch" | "weak" | "invalid"
@@ -289,7 +296,7 @@ export interface BacktestRobustness {
 export interface ResearchRun {
   id: string
   strategy_id: string
-  profile: "demo" | "runtime"
+  profile: "runtime"
   start_date: string
   end_date: string
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted"
@@ -323,15 +330,29 @@ export interface ProviderStatus {
   sample_start: string | null
   symbol_count: number
   realtime: { status: string; source: string | null }
-  datasets: Record<string, { status: string; path: string; bytes: number; sha256?: string }>
-  active_profile: "demo" | "runtime"
+  datasets: Record<string, {
+    status: string
+    rows: number
+    date_start: string | null
+    date_end: string | null
+    symbol_count: number
+  }>
+  active_profile: "runtime"
   profiles: Record<string, {
     status: string
     latest_date: string | null
     symbol_count: number
     factor_returns: string
   }>
-  runtime: RuntimeCatalog
+  runtime: {
+    status: string
+    ready: number
+    total: number
+    configured: number
+    datasets: Array<Pick<RuntimeDataset,
+      "id" | "label" | "status" | "rows" | "date_start" | "date_end" | "symbol_count"
+    >>
+  }
 }
 
 export interface RuntimeDataset {
@@ -434,7 +455,7 @@ export interface FactorReturnsPayload {
 }
 
 export interface CustomRiskFactorResult {
-  profile: "demo" | "runtime"
+  profile: "runtime"
   name: string
   expression: string
   dependencies: string[]
@@ -502,7 +523,7 @@ export interface PaperAccountPayload {
     market_value: number
     equity: number
   }>
-  profile: "demo" | "runtime"
+  profile: "runtime"
   price_date: string
 }
 
@@ -517,7 +538,7 @@ export interface PaperRebalancePreview {
   account_id: string
   signal_id: string
   strategy_id: string
-  profile: "demo" | "runtime"
+  profile: "runtime"
   price_date: string
   allowed: boolean
   risk_status: "ready" | "blocked"

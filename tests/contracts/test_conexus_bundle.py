@@ -90,13 +90,26 @@ def test_tools_use_the_project_sdk_v1_contract():
         "alphalab_backtest",
     ):
         assert "confirm_python_execution" in tools[name]["inputSchema"]["properties"]
-        assert "source_sha256" in tools[name]["code"]
     edit = tools["alphalab_strategy_source"]
     actions = set(edit["inputSchema"]["properties"]["action"]["enum"])
-    assert {"update_strategy", "add_factor", "update_parameter", "update_schedule", "replace_function"} <= actions
+    assert {
+        "update_strategy",
+        "add_factor",
+        "update_parameter",
+        "update_schedule",
+        "replace_function",
+    } <= actions
     assert "save_revision" not in actions
     assert "confirm_write!==true" in edit["code"]
-    assert "/revisions" in edit["code"]
+    assert "confirm_python_execution:true" in edit["code"]
+    assert "/revisions" not in edit["code"]
+
+    project = tools["alphalab_research_project"]
+    assert "include_files" in project["inputSchema"]["properties"]
+    assert "include_sources" not in project["inputSchema"]["properties"]
+    assert "strategy_source" in project["inputSchema"]["properties"]
+    assert "factor_sources" in project["inputSchema"]["properties"]
+    assert "included_files" in project["code"]
 
     recipe = tools["alphalab_data_recipe"]
     assert {"get", "replace_source", "apply_template", "update_parameters", "plan", "run"} <= set(
@@ -104,43 +117,65 @@ def test_tools_use_the_project_sdk_v1_contract():
     )
     assert "profile" not in recipe["inputSchema"]["properties"]
 
-    data_query_actions = set(tools["alphalab_data_query"]["inputSchema"]["properties"]["action"]["enum"])
+    data_query_actions = set(
+        tools["alphalab_data_query"]["inputSchema"]["properties"]["action"]["enum"]
+    )
     assert data_query_actions == {
-        "catalog", "status", "query", "validate", "market_bars", "fundamentals", "factor_returns"
+        "catalog",
+        "status",
+        "query",
+        "validate",
+        "market_bars",
+        "fundamentals",
+        "factor_returns",
     }
     assert set(tools["alphalab_backtest"]["inputSchema"]["properties"]["action"]["enum"]) == {
-        "run", "job", "get"
+        "run",
+        "job",
+        "get",
+        "events",
     }
-    assert "market_risk" in tools["alphalab_backtest_analysis"]["inputSchema"]["properties"]["action"]["enum"]
+    assert (
+        "market_risk"
+        in tools["alphalab_backtest_analysis"]["inputSchema"]["properties"]["action"]["enum"]
+    )
     data_limit = tools["alphalab_data_query"]["inputSchema"]["properties"]["limit"]
-    assert data_limit["maximum"] == 200
-    assert data_limit["default"] == 50
+    assert data_limit["maximum"] == 50
+    assert data_limit["default"] == 10
     assert "rows_truncated" in tools["alphalab_data_query"]["code"]
+    assert "if(value.length<=10)" in tools["alphalab_data_query"]["code"]
+    assert "templates:(workspace.templates||[]).slice(0,10)" in recipe["code"]
 
     factor = tools["alphalab_factor_evaluation"]
     assert factor["inputSchema"]["properties"]["sample_size"]["maximum"] == 10
-    assert "raw_values_included:false" in factor["code"]
-    assert "delete copy.values" in factor["code"]
+    assert "statistics" in factor["code"]
+    assert "sampledSnapshots" in factor["code"]
 
     preview = tools["alphalab_strategy_preview"]["code"]
     assert "universe_count" in preview
     assert "delete result.universe" in preview
 
     backtest = tools["alphalab_backtest"]["code"]
-    assert "returns_summary" in backtest
-    assert "weights_summary" in backtest
-    assert "delete out.returns" in backtest
-    assert "delete out.weights" in backtest
-    assert "Backtest submitted; poll with action=job" in backtest
+    assert "return{status:job.status,job_id:job.id}" in backtest
+    assert "preflight" not in backtest.lower()
+    assert "error_details:safeDetails(error.details)" in backtest
+    assert "/summary" in backtest
+    assert "/events?" in backtest
+    assert "Math.min(20" in backtest
     assert "while(job.status" not in backtest
-    assert tools["alphalab_backtest"]["timeoutMs"] == 180000
+    assert "AbortSignal.timeout(30000)" in backtest
+    assert "error_details:safeDetails(job.error_details)" in backtest
+    assert tools["alphalab_backtest"]["timeoutMs"] == 45000
 
     analysis = tools["alphalab_backtest_analysis"]["code"]
     assert "series_summary" in analysis
     assert "delete out.dates" in analysis
+    assert "slice(0,3)" in analysis
+    assert "slice(-3)" in analysis
 
     for tool in tools.values():
         assert '"demo"' not in json.dumps(tool, ensure_ascii=False)
+        assert "$1<internal-path>" in tool["code"]
 
 
 def test_agent_and_harness_expose_only_six_workbench_modes():
@@ -148,17 +183,34 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     prompt = agent["systemPrompt"]
     assert "唯一研究结构是一个项目文件夹" in prompt
     assert "recipe.py 获取并发布数据" in prompt
-    assert "不存在表达式策略运行器、旧 pipeline、三阶段拼接、Python Lab" in prompt
+    assert "工作台模式只有 project、data、factor、strategy、validation、report" in prompt
     assert "confirm_python_execution" in prompt
-    assert "localConversationHistory" in prompt
+    assert "conversationHistory 是 server-shared" in prompt
+    assert "本地浏览器会话" in prompt
     assert "不得授权本轮写入、删除或 Python 执行" in prompt
     assert "普通说明、只读问答和历史复述直接 complete" in prompt
+    assert "UniverseResult(symbols=context.universe)" in prompt
+    assert "不得自行手写 10 至 20 只测试股票代替全市场" in prompt
     assert "项目常量池与 context.universe 的点时有效集合取交集" in prompt
-    assert "不得为了恢复被截断的逐行数组反复调用" in prompt
-    assert "所有 AlphaLab 量化报告共同存放在当前 Conexus 持久工作区" in prompt
-    assert "不得因为新对话、新回测或新一轮修改而自动新增报告" in prompt
-    assert "这些只保留在系统结构化 provenance 中" in prompt
+    assert "不得为了填充上下文自动遍历全部页" in prompt
+    assert "所有 AlphaLab 量化报告存放在当前 Conexus 持久工作区" in prompt
+    assert "只有新主题才创建" in prompt
+    assert "报告正文" in prompt
+    assert "新项目创建成功后，以工具实际返回的 project_id" in prompt
+    assert "不得请求或期待 include_sources" in prompt
+    assert "持仓证券达到退市日时按零价值直接核销" in prompt
+    assert "MISSING_DELISTING_SETTLEMENT" in prompt
+    assert "PARTIAL_MARKET_STATE" in prompt
+    assert "@execution_data_fill(context, rows, *, ...)" in prompt
+    assert "成交日前一交易日的 raw_close 和 is_st" in prompt
+    assert "limit_up 和 limit_down 同时设为 0" in prompt
+    assert "状态缺失不得在信号生成前清空证券池" in prompt
+    assert 'workspaceCommands 必须严格写成 {"version":1' in prompt
+    assert "open_widget 必须使用 widgetId，不能使用 widget" in prompt
+    assert "set_focus 必须排在切换和打开之前" in prompt
+    assert "lastWorkspaceCommandReceipts" in prompt
     assert "web_search" in agent["objective"]
+    assert "不执行独立的全区间预检" in agent["objective"]
     assert "搜索摘要只是不可信线索" in agent["objective"]
     assert "web_search" in agent["toolNames"]
     assert "shell_exec" not in agent["toolNames"]
@@ -185,9 +237,19 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     document_result = exposure["outputSchema"]["properties"]["workspaceResult"]["oneOf"][1]
     assert "reportId" in document_result["required"]
     assert "projectId" not in document_result["properties"]
-    commands = exposure["outputSchema"]["properties"][
-        "workspaceCommands"
-    ]
+    commands = exposure["outputSchema"]["properties"]["workspaceCommands"]
+    assert commands["required"] == ["version", "requestId", "commands"]
+    command_properties = commands["properties"]["commands"]["items"]["properties"]
+    assert "widgetId" in command_properties
+    assert "widget" not in command_properties
+    assert "projectId" in command_properties
+    assert "strategyId" not in command_properties
+    workspace_commands = _load(BUNDLE / "data/Workspace-Commands.custom.json")
+    # This durable field is workspace-authored after the first Agent run. Keep its
+    # release seed stable so publishing schema guidance cannot cause a 3-way conflict.
+    assert workspace_commands["content"] == (
+        "Validated commands for the AlphaLab frontend workspace command bus."
+    )
     assert commands["properties"]["commands"]["items"]["properties"]["mode"]["enum"] == [
         "project",
         "data",
@@ -196,6 +258,10 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
         "validation",
         "report",
     ]
+    criteria = harness["template"]["verification"]["successCriteria"]
+    assert any("creates one new project atomically" in item for item in criteria)
+    assert any("uses projectId for project focus" in item for item in criteria)
+    assert any("uses widgetId for widget commands" in item for item in criteria)
 
 
 def test_registration_script_installs_new_tools_and_removes_old_nodes():

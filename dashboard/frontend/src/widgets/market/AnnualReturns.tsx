@@ -7,12 +7,11 @@ import { useAnnualReturns } from "@/hooks"
 import { useDataProfile } from "@/lib/data-profile"
 import { Widget } from "@/widgets/Widget"
 
-import { AnalyticsFilters } from "./AnalyticsControls"
 import { analyticsError } from "./analytics-utils"
 
 export function AnnualReturnsWidget() {
   const { language } = useLanguage()
-  const [profile, setProfile] = useDataProfile()
+  const [profile] = useDataProfile()
   const { startDate, endDate, selectedFactors } = useGlobalFilter()
   const query = useAnnualReturns(profile, startDate, endDate, selectedFactors)
   const chartData = useMemo(
@@ -33,7 +32,6 @@ export function AnnualReturnsWidget() {
       loading={query.isLoading}
       error={analyticsError(query.error)}
       onRetry={() => query.refetch()}
-      actions={<AnalyticsFilters profile={profile} onProfileChange={setProfile} />}
       bodyPadding="compact"
     >
       <AnnualReturnsChart

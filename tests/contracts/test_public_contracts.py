@@ -100,12 +100,12 @@ def test_strategy_save_hides_internal_revision_workflow():
     factor = (ROOT / "dashboard/frontend/src/widgets/factors/FactorWorkbench.tsx").read_text(
         encoding="utf-8"
     )
-    strategy = (
-        ROOT / "dashboard/frontend/src/widgets/strategy/StrategyWorkbench.tsx"
-    ).read_text(encoding="utf-8")
-    backtest = (
-        ROOT / "dashboard/frontend/src/widgets/backtest/BacktestWorkbench.tsx"
-    ).read_text(encoding="utf-8")
+    strategy = (ROOT / "dashboard/frontend/src/widgets/strategy/StrategyWorkbench.tsx").read_text(
+        encoding="utf-8"
+    )
+    backtest = (ROOT / "dashboard/frontend/src/widgets/backtest/BacktestWorkbench.tsx").read_text(
+        encoding="utf-8"
+    )
 
     assert "commitSavedProject" in context
     assert "installFactorTemplate" in context
@@ -150,8 +150,7 @@ def test_strategy_authoring_units_assemble_into_one_runtime_package():
     schema = (ROOT / "alphalab/schema.sql").read_text(encoding="utf-8")
     source = (ROOT / "alphalab/strategy/source.py").read_text(encoding="utf-8")
     edit_tool = (
-        ROOT
-        / "integrations/conexus/alphalab-research-agent/tools/Strategy-Source.tool.json"
+        ROOT / "integrations/conexus/alphalab-research-agent/tools/Strategy-Source.tool.json"
     ).read_text(encoding="utf-8")
 
     assert "strategy_source_units" in schema
@@ -166,3 +165,34 @@ def test_strategy_contract_is_declared_implemented():
     contract = (ROOT / "docs/02_STRATEGY_SDK_V1_CONTRACT.md").read_text(encoding="utf-8")
     assert "Implementation status: implemented" in contract
     assert "alphalab.sdk.v1" in contract
+
+
+def test_frontend_uses_runtime_and_server_shared_agent_state_only():
+    profile = (ROOT / "dashboard/frontend/src/lib/data-profile.ts").read_text(encoding="utf-8")
+    agent = (ROOT / "dashboard/frontend/src/hooks/usePublishedAgent.ts").read_text(encoding="utf-8")
+    prompt = (ROOT / "dashboard/frontend/src/widgets/research/ResearchAgent.tsx").read_text(
+        encoding="utf-8"
+    )
+    commands = (ROOT / "dashboard/frontend/src/workspace/agentCommands.ts").read_text(
+        encoding="utf-8"
+    )
+    backend = (ROOT / "dashboard/backend/main.py").read_text(encoding="utf-8")
+
+    assert 'export type DataProfile = "runtime"' in profile
+    assert 'return "runtime"' in profile
+    assert "localStorage" not in agent
+    assert "localConversationHistory" not in agent
+    assert "conversationHistory" in agent
+    assert "activeDataProfile" not in prompt
+    assert "selectedProjectId" in prompt
+    assert "projectId" in commands
+    assert "strategyId" not in commands
+    workspace = (ROOT / "dashboard/frontend/src/Workspace.tsx").read_text(encoding="utf-8")
+    strategy_context = (
+        ROOT / "dashboard/frontend/src/contexts/StrategySdkContext.tsx"
+    ).read_text(encoding="utf-8")
+    assert "await openStrategyProject(projectId)" in workspace
+    assert "projectReadyRef.current" in workspace
+    assert "Agent 返回的工作台命令格式无效" in prompt
+    assert "openProject: (projectId: string) => Promise<StrategyProject>" in strategy_context
+    assert 'response.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"' in backend

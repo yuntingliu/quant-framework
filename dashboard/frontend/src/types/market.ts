@@ -1,6 +1,6 @@
 /** KPI metrics for the market overview page. */
 export interface MarketKPI {
-  profile: "demo" | "runtime"
+  profile: "runtime"
   data_start: string | null
   data_end: string | null
   n_months: number
@@ -22,14 +22,14 @@ export interface MarketKPI {
 
 /** Cumulative return series for selected factors. */
 export interface CumulativeReturns {
-  profile: "demo" | "runtime"
+  profile: "runtime"
   dates: string[]
   series: Record<string, (number | null)[]>
 }
 
 /** Annual returns by year for each factor. */
 export interface AnnualReturns {
-  profile: "demo" | "runtime"
+  profile: "runtime"
   years: string[]
   series: Record<string, (number | null)[]>
 }
@@ -48,7 +48,7 @@ export interface FactorStatRow {
 
 /** Factor statistics comparison table. */
 export interface FactorStats {
-  profile: "demo" | "runtime"
+  profile: "runtime"
   stats: FactorStatRow[]
 }
 
@@ -63,7 +63,7 @@ export interface DrawdownPeriod {
 
 /** MKT drawdown series plus top N drawdown periods. */
 export interface DrawdownData {
-  profile: "demo" | "runtime"
+  profile: "runtime"
   dates: string[]
   drawdown_values: (number | null)[]
   top_drawdowns: DrawdownPeriod[]
@@ -82,7 +82,7 @@ export interface VolRegimeStat {
 
 /** Volatility time series, regime classification, and regime statistics. */
 export interface VolatilityData {
-  profile: "demo" | "runtime"
+  profile: "runtime"
   dates: string[]
   vol_values: (number | null)[]
   regimes: string[]
@@ -92,7 +92,7 @@ export interface VolatilityData {
 }
 
 export interface CorrelationData {
-  profile: "demo" | "runtime"
+  profile: "runtime"
   labels: string[]
   matrix: (number | null)[][]
 }

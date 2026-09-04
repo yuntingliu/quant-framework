@@ -15,7 +15,7 @@
       "用户需要回测深度分析、稳健性检验、多回测对比或完整研究任务",
       "用户需要生成可交互的研究表格或图表",
       "用户明确要求运行因子检验、策略预览或完整回测",
-      "工作台需要保存在本机浏览器中的多轮量化研究会话"
+      "工作台需要跨浏览器会话共享的服务端持久量化研究历史"
     ],
     "whenNotToUse": [
       "启动、停止、构建或部署 AlphaLab 前后端",
@@ -230,6 +230,7 @@
           },
           "workspaceCommands": {
             "type": "object",
+            "description": "Frontend command batch. Always include version=1 and the current requestId. open_widget uses widgetId (never widget); set_focus must precede mode/widget commands when opening a project.",
             "additionalProperties": false,
             "required": ["version", "requestId", "commands"],
             "properties": {
@@ -247,11 +248,11 @@
                       "enum": ["switch_mode", "open_widget", "open_result", "close_widget", "set_focus", "set_link_symbol", "show_right_rail", "refresh_data", "save_layout", "reset_layout"]
                     },
                     "mode": { "type": "string", "enum": ["project", "data", "factor", "strategy", "validation", "report"] },
-                    "widgetId": { "type": "string", "minLength": 1, "maxLength": 200 },
+                    "widgetId": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Required for open_widget and close_widget. The field name is widgetId, never widget." },
                     "resultId": { "type": "string", "minLength": 1, "maxLength": 200 },
                     "title": { "type": "string", "minLength": 1, "maxLength": 200 },
                     "symbol": { "type": ["string", "null"], "maxLength": 200 },
-                    "strategyId": { "type": ["string", "null"], "maxLength": 200 },
+                    "projectId": { "type": ["string", "null"], "maxLength": 200 },
                     "backtestId": { "type": ["string", "null"], "maxLength": 200 },
                     "date": { "type": ["string", "null"], "maxLength": 200 },
                     "group": { "type": "string", "enum": ["a", "b", "c", "d"] },
@@ -274,7 +275,9 @@
     "verification": {
       "successCriteria": [
         "The final answer is grounded in AlphaLab API results or clearly marked as a hypothesis.",
+        "A request to create or implement a strategy creates one new project atomically and all later tool calls and set_focus commands use the project_id returned by that creation.",
         "Any backtest or signal action was explicitly requested by the user.",
+        "Backtest run immediately returns a task ID and starts the background run without a separate full-range preflight.",
         "Any project or Python source mutation was explicitly requested by the current user and used its dedicated confirmation flag.",
         "Every conclusion distinguishes factor or signal evidence from the viability of the complete event-driven strategy.",
         "Internal provenance binds the project and frozen sources or BacktestRun without placing hashes or execution identifiers in the user-facing quantitative report.",
@@ -286,7 +289,7 @@
         "Interactive table data is included in workspaceResult only when sorting, filtering, or CSV export is useful.",
         "Structured charts are included only when they materially improve interpretation and every plotted series is grounded in current tool results.",
         "RQ synchronization executes only the project's saved recipe.py, resumes completed batches, and runs only when authorized by an explicit research execution request.",
-        "The workspaceCommands output carries the current requestId and only declared frontend commands."
+        "The workspaceCommands output includes version 1, carries the current requestId, uses projectId for project focus, uses widgetId for widget commands, orders set_focus before strategy mode/widget commands, and only contains declared frontend commands."
       ]
     }
   }

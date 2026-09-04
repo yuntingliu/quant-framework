@@ -25,7 +25,7 @@ export interface SdkParameter {
 }
 
 export interface SdkEntrypoint {
-  kind: "universe" | "factor" | "schedule" | "signal" | "portfolio" | "event" | "execution"
+  kind: "universe" | "factor" | "schedule" | "signal" | "portfolio" | "event" | "execution_data_fill" | "execution"
   id: string
   function: string
   label: string | null
@@ -95,7 +95,7 @@ interface StrategySdkValue {
   loading: boolean
   error: string
   refresh: (preferredId?: string) => Promise<void>
-  openProject: (projectId: string) => Promise<void>
+  openProject: (projectId: string) => Promise<StrategyProject>
   createProject: (targetId: string, name: string) => Promise<StrategyProject>
   updateDraft: (source: string) => Promise<StrategyProject>
   updateMetadata: (values: Pick<StrategyProject, "name" | "description" | "profile" | "settings">) => Promise<StrategyProject>
@@ -124,7 +124,9 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
     const summary = Object.fromEntries(
       Object.entries(value).filter(([key]) => !["draft_source", "strategy_source", "inspection"].includes(key)),
     ) as ProjectSummary
-    setProjects((current) => current.map((item) => item.id === value.id ? summary : item))
+    setProjects((current) => current.some((item) => item.id === value.id)
+      ? current.map((item) => item.id === value.id ? summary : item)
+      : [...current, summary])
     setSelectedStrategy(value.id)
     setSelectedStrategyEditable(value.editable)
     setSelectedStrategyRevision(value.current_revision)
@@ -136,7 +138,7 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     setError("")
     try {
-      adopt(await api.get<StrategyProject>(`/strategy/projects/${projectId}`))
+      return adopt(await api.get<StrategyProject>(`/strategy/projects/${projectId}`))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
       throw reason
@@ -203,6 +205,7 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
         source,
         expected_source_sha256: project.draft_source_sha256,
         confirm_write: true,
+        confirm_python_execution: true,
       }))
     },
     updateMetadata: async (values) => adopt(await api.put<StrategyProject>(
@@ -217,6 +220,7 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
           ...payload,
           expected_source_sha256: project.draft_source_sha256,
           confirm_write: true,
+          confirm_python_execution: true,
         },
       )
       return commitSavedProject(response.project)
@@ -229,6 +233,7 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
           source,
           expected_source_sha256: project.draft_source_sha256,
           confirm_write: true,
+          confirm_python_execution: true,
         },
       )
       return { project: await commitSavedProject(response.project), factor: response.factor }
@@ -240,6 +245,7 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
         {
           expected_source_sha256: project.draft_source_sha256,
           confirm_write: true,
+          confirm_python_execution: true,
         },
       )
       return { project: await commitSavedProject(response.project), factor: response.factor }

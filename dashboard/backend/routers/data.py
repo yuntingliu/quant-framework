@@ -1,5 +1,8 @@
 """Data provider endpoints."""
+
 from __future__ import annotations
+
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -8,7 +11,6 @@ from dashboard.backend.services.data_service import (
     factor_returns,
     fundamentals,
     list_provider_status,
-    load_manifest,
     market_bars,
     market_symbol_options,
 )
@@ -24,16 +26,8 @@ def providers() -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@router.get("/manifest")
-def manifest() -> dict:
-    try:
-        return load_manifest()
-    except MissingDataError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
 @router.get("/market/symbols")
-def symbols(profile: str = "demo") -> dict:
+def symbols(profile: Literal["runtime"] = "runtime") -> dict:
     try:
         instruments = market_symbol_options(profile)
         return {
@@ -52,7 +46,7 @@ def bars(
     symbol: str,
     start: str | None = None,
     end: str | None = None,
-    profile: str = "demo",
+    profile: Literal["runtime"] = "runtime",
 ) -> dict:
     try:
         return {
@@ -75,7 +69,7 @@ def fundamental_rows(
     start_quarter: str | None = None,
     end_quarter: str | None = None,
     asof_date: str | None = None,
-    profile: str = "demo",
+    profile: Literal["runtime"] = "runtime",
     limit: int = Query(default=100, ge=1, le=1000),
 ) -> dict:
     try:
@@ -101,7 +95,7 @@ def factors(
     names: list[str] | None = Query(default=None),
     start: str | None = None,
     end: str | None = None,
-    profile: str = "demo",
+    profile: Literal["runtime"] = "runtime",
 ) -> dict:
     try:
         return factor_returns(names, start, end, profile)

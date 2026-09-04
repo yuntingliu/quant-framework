@@ -155,7 +155,7 @@ export function ValidationWorkbenchWidget() {
           })
         } else if (job.status === "failed" || job.status === "interrupted") {
           setActiveJobId(null)
-          setError(job.error || job.message || "回测未完成")
+          setError(job.error_summary || job.message || "回测未完成")
         }
       }).catch((reason: Error) => { setActiveJobId(null); setError(reason.message) })
     }, 1500)

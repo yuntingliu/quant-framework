@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-DEFAULT_STRATEGY_SOURCE = '''"""SDK v1 教学策略：月末选择动量最高的标的并在下一交易日开盘成交。"""
+DEFAULT_STRATEGY_SOURCE = '''"""SDK v1 教学策略：月末从全市场选择动量最高的标的并在下一交易日开盘成交。"""
 
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Annotated
+
+import pandas as pd
 
 from alphalab.sdk.v1 import (
     Event,
@@ -15,6 +18,7 @@ from alphalab.sdk.v1 import (
     SignalResult,
     UniverseResult,
     execution,
+    execution_data_fill,
     factor,
     on_event,
     portfolio,
@@ -26,14 +30,21 @@ SDK_VERSION = 1
 
 # 保存时系统会核对声明；运行前会拒绝缺少这些字段的数据环境。
 DATA_REQUIREMENTS = {
-    "bars": ["open", "high", "low", "close", "volume", "amount"],
+    "bars": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "amount",
+    ],
 }
 
 
-@universe(id="research_universe", label="研究标的池")
+@universe(id="research_universe", label="全市场点时有效股票池")
 def research_universe(context):
-    """使用当前数据环境已经按日期过滤好的研究标的池。"""
-    # UniverseResult 保留顺序，后续因子和信号只在这些证券上运行。
+    """默认使用当前日期已经上市、尚未退市且有有效行情的全部股票。"""
+    # context.universe 已按日期过滤；不要用少量手写代码代替全市场股票池。
     return UniverseResult(symbols=context.universe)
 
 
@@ -91,6 +102,156 @@ def holding_period_risk(context, state):
     # 可读取 context.portfolio 的真实持仓；返回 PortfolioDecision 才会调整目标仓位。
     # 跨日变量应写入 state 并随返回对象带回，不要使用模块全局变量。
     return None
+
+
+@execution_data_fill(id="fill_missing_market_state", label="补齐缺失交易状态")
+def fill_missing_market_state(
+    context,
+    rows,
+    *,
+    main_board_limit_rate: Annotated[
+        float,
+        Parameter(label="主板涨跌幅", minimum=0.01, maximum=1.0, step=0.01),
+    ] = 0.10,
+    main_board_st_limit_rate_before_change: Annotated[
+        float,
+        Parameter(label="主板 ST 调整前涨跌幅", minimum=0.01, maximum=1.0, step=0.01),
+    ] = 0.05,
+    main_board_st_limit_rate: Annotated[
+        float,
+        Parameter(label="主板 ST 当前涨跌幅", minimum=0.01, maximum=1.0, step=0.01),
+    ] = 0.10,
+    main_board_st_change_date: Annotated[
+        str,
+        Parameter(label="主板 ST 规则切换日"),
+    ] = "2026-07-06",
+    star_market_limit_rate: Annotated[
+        float,
+        Parameter(label="科创板涨跌幅", minimum=0.01, maximum=1.0, step=0.01),
+    ] = 0.20,
+    chinext_limit_rate: Annotated[
+        float,
+        Parameter(label="创业板涨跌幅", minimum=0.01, maximum=1.0, step=0.01),
+    ] = 0.20,
+    beijing_limit_rate: Annotated[
+        float,
+        Parameter(label="北交所涨跌幅", minimum=0.01, maximum=1.0, step=0.01),
+    ] = 0.30,
+    ipo_unlimited_sessions: Annotated[
+        int,
+        Parameter(label="沪深新股无涨跌停交易日", minimum=0, maximum=30, step=1),
+    ] = 5,
+    beijing_ipo_unlimited_sessions: Annotated[
+        int,
+        Parameter(label="北交所新股无涨跌停交易日", minimum=0, maximum=30, step=1),
+    ] = 1,
+):
+    """用成交日前的未复权行情和状态补齐实际订单所需的交易状态。"""
+    filled = rows.copy()
+    if filled.empty:
+        return filled
+    filled["symbol"] = filled["symbol"].astype(str).str.upper()
+    symbols = list(dict.fromkeys(filled["symbol"]))
+
+    # 停牌状态优先沿用上一交易日的已知值；没有历史值时继续保持缺失，交给严格引擎拒单。
+    suspended = context.history("is_suspended", window=1, symbols=symbols)
+    if not suspended.empty:
+        previous_suspended = suspended.iloc[-1]
+        missing = filled["is_suspended"].isna()
+        filled.loc[missing, "is_suspended"] = filled.loc[missing, "symbol"].map(
+            previous_suspended
+        )
+
+    # 涨跌停价必须按前一交易日未复权收盘价计算，不能使用策略因子的复权 close。
+    raw_close = context.history("raw_close", window=1, symbols=symbols)
+    previous_close = (
+        raw_close.iloc[-1] if not raw_close.empty else pd.Series(index=symbols, dtype=float)
+    )
+    st_history = context.history("is_st", window=1, symbols=symbols)
+    previous_is_st = (
+        st_history.iloc[-1] if not st_history.empty else pd.Series(False, index=symbols)
+    )
+
+    instruments = context.instruments()
+    listed_field = next(
+        (field for field in ("listed_date", "list_date") if field in instruments),
+        None,
+    )
+    listing_dates = pd.Series(dtype="datetime64[ns]")
+    if listed_field is not None and "symbol" in instruments:
+        listing_dates = pd.Series(
+            pd.to_datetime(instruments[listed_field], errors="coerce").values,
+            index=instruments["symbol"].astype(str).str.upper(),
+        )
+
+    sessions = tuple(
+        session
+        for session in context.calendar.sessions
+        if pd.Timestamp(session).normalize() <= context.as_of
+    )
+    no_limit_symbols = set()
+    limit_rates = {}
+    for symbol in symbols:
+        code, _, exchange = symbol.partition(".")
+        is_beijing = exchange == "BJ" or code.startswith(("4", "8", "920"))
+        is_star = exchange == "SH" and code.startswith(("688", "689"))
+        is_chinext = exchange == "SZ" and code.startswith(("300", "301"))
+
+        listed_date = listing_dates.get(symbol, pd.NaT)
+        if pd.notna(listed_date):
+            listed_date = pd.Timestamp(listed_date).normalize()
+            listed_sessions = sum(listed_date <= session <= context.as_of for session in sessions)
+            unlimited_sessions = (
+                beijing_ipo_unlimited_sessions if is_beijing else ipo_unlimited_sessions
+            )
+            if 0 < listed_sessions <= unlimited_sessions:
+                no_limit_symbols.add(symbol)
+
+        if is_beijing:
+            rate = beijing_limit_rate
+        elif is_star:
+            rate = star_market_limit_rate
+        elif is_chinext:
+            rate = chinext_limit_rate
+        elif pd.notna(previous_is_st.get(symbol)) and bool(previous_is_st.get(symbol)):
+            rate = (
+                main_board_st_limit_rate_before_change
+                if context.as_of < pd.Timestamp(main_board_st_change_date)
+                else main_board_st_limit_rate
+            )
+        else:
+            rate = main_board_limit_rate
+        limit_rates[symbol] = rate
+
+    # 一对 0 是 SDK 明确定义的“当日无涨跌停”标记；只有两列都缺失时才能写入。
+    no_limit_rows = filled["symbol"].isin(no_limit_symbols)
+    both_limits_missing = filled["limit_up"].isna() & filled["limit_down"].isna()
+    filled.loc[no_limit_rows & both_limits_missing, ["limit_up", "limit_down"]] = 0.0
+
+    rates = pd.Series(limit_rates, dtype=float)
+    price_tick = Decimal("0.01")
+    derived_up = (previous_close * (1.0 + rates)).map(
+        lambda value: (
+            float(Decimal(str(value)).quantize(price_tick, rounding=ROUND_HALF_UP))
+            if pd.notna(value)
+            else float("nan")
+        )
+    )
+    derived_down = (previous_close * (1.0 - rates)).map(
+        lambda value: (
+            float(Decimal(str(value)).quantize(price_tick, rounding=ROUND_HALF_UP))
+            if pd.notna(value)
+            else float("nan")
+        )
+    )
+    # 上市初期若只拿到单边价格，不伪造另一边；保留缺失让严格引擎明确拒单。
+    missing_up = filled["limit_up"].isna() & ~no_limit_rows
+    missing_down = filled["limit_down"].isna() & ~no_limit_rows
+    filled.loc[missing_up, "limit_up"] = filled.loc[missing_up, "symbol"].map(derived_up)
+    filled.loc[missing_down, "limit_down"] = filled.loc[missing_down, "symbol"].map(
+        derived_down
+    )
+    return filled
 
 
 @execution(id="next_open", label="下一交易日开盘成交")

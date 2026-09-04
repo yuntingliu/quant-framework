@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from alphalab.dataio import MissingDataError, create_default_engine
+from alphalab.dataio import create_default_engine
 from alphalab.sdk.v1 import Event, FactorContext
 from alphalab.strategy import repository as strategy_repository_module
 from alphalab.strategy.builtins import (
@@ -20,9 +20,13 @@ from alphalab.strategy.builtins import (
 )
 from alphalab.strategy.config import ExecutionSpec
 from alphalab.strategy.engine import (
+    BacktestPreflightError,
     _apply_execution_constraints,
-    _assert_no_unsettled_delistings,
+    _execution_data_gaps,
     _prepare_data,
+    _settle_delisted_positions,
+    _trade_allowed,
+    preflight_strategy_backtest,
     run_strategy_backtest,
 )
 from alphalab.strategy.factor_templates import (
@@ -30,7 +34,7 @@ from alphalab.strategy.factor_templates import (
     list_factor_templates,
 )
 from alphalab.strategy.repository import StrategyRepository
-from alphalab.strategy.sdk_runtime import SdkExecutionSession
+from alphalab.strategy.sdk_runtime import SdkExecutionSession, SdkRuntimeError
 from alphalab.strategy.source import (
     StrategySourceError,
     assemble_strategy_source,
@@ -107,11 +111,7 @@ def test_builtin_factor_catalog_is_native_sdk_python_and_all_templates_install(t
     assert all("# " in item.source for item in templates)
     assert all(
         ast.get_docstring(
-            next(
-                node
-                for node in ast.parse(item.source).body
-                if isinstance(node, ast.FunctionDef)
-            )
+            next(node for node in ast.parse(item.source).body if isinstance(node, ast.FunctionDef))
         )
         for item in templates
     )
@@ -158,11 +158,12 @@ def test_official_strategy_templates_explain_every_registered_function() -> None
 
 
 def test_immutable_builtin_project_advances_when_official_source_changes(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path,
+    monkeypatch,
 ) -> None:
     database = tmp_path / "builtin-template-refresh.db"
     legacy_source = DEFAULT_STRATEGY_SOURCE.replace(
-        '"""SDK v1 教学策略：月末选择动量最高的标的并在下一交易日开盘成交。"""\n\n',
+        '"""SDK v1 教学策略：月末从全市场选择动量最高的标的并在下一交易日开盘成交。"""\n\n',
         "",
         1,
     )
@@ -233,9 +234,68 @@ def test_strategy_source_units_round_trip_without_factor_leak():
         [item.source for item in factor_units],
     )
     assert bundled == DEFAULT_STRATEGY_SOURCE
-    assert {item.id for item in inspection.entrypoints if item.kind == "factor"} == {
-        "momentum_20d"
-    }
+    assert {item.id for item in inspection.entrypoints if item.kind == "factor"} == {"momentum_20d"}
+
+
+def test_atomic_project_creation_uses_sdk_prelude_and_one_revision(tmp_path: Path):
+    strategy_source, factor_units = split_strategy_source(DEFAULT_STRATEGY_SOURCE)
+    strategy_source = strategy_source.replace("    factor,\n", "", 1)
+    repository = StrategyRepository(tmp_path / "atomic-create.db")
+    try:
+        project = repository.create_project_from_units(
+            "atomic-create",
+            name="Atomic Create",
+            strategy_source=strategy_source,
+            factor_sources=[factor_units[0].source],
+        )
+        assert project["current_revision"] == 1
+        assert project["dirty"] is False
+        assert [item["revision"] for item in repository.list_packages("atomic-create")] == [1]
+        assert {item["path"] for item in project["source_units"]} == {
+            "strategy.py",
+            "factors/momentum_20d.py",
+        }
+    finally:
+        repository.close()
+
+
+def test_factor_units_cannot_depend_on_strategy_imports(tmp_path: Path):
+    strategy_source, factor_units = split_strategy_source(DEFAULT_STRATEGY_SOURCE)
+    strategy_source = strategy_source.replace(
+        "from typing import Annotated\n", "from typing import Annotated\nimport pandas as pd\n", 1
+    )
+    repository = StrategyRepository(tmp_path / "factor-isolation.db")
+    try:
+        with pytest.raises(StrategySourceError, match="undeclared global dependencies: pd"):
+            repository.create_project_from_units(
+                "implicit-factor-import",
+                name="Implicit Factor Import",
+                strategy_source=strategy_source,
+                factor_sources=[
+                    factor_units[0].source,
+                    '@factor(id="implicit_pd")\n'
+                    "def implicit_pd(context):\n"
+                    "    return pd.Series({symbol: 1.0 for symbol in context.universe})\n",
+                ],
+            )
+        assert repository.get_project("implicit-factor-import") is None
+
+        created = repository.create_project_from_units(
+            "self-contained-factor",
+            name="Self-contained Factor",
+            strategy_source=strategy_source,
+            factor_sources=[
+                factor_units[0].source,
+                '@factor(id="local_pd")\n'
+                "def local_pd(context):\n"
+                "    import pandas as pd\n"
+                "    return pd.Series({symbol: 1.0 for symbol in context.universe})\n",
+            ],
+        )
+        assert created["current_revision"] == 1
+        assert created["dirty"] is False
+    finally:
+        repository.close()
 
 
 def test_repository_edits_strategy_and_factor_units_independently(tmp_path: Path):
@@ -254,9 +314,7 @@ def test_repository_edits_strategy_and_factor_units_independently(tmp_path: Path
         )
         assert "@factor" not in frozen_strategy["source"]
 
-        strategy_source = project["strategy_source"].replace(
-            "top_n: int = 10", "top_n: int = 7"
-        )
+        strategy_source = project["strategy_source"].replace("top_n: int = 10", "top_n: int = 7")
         project = repository.update_strategy_source(
             "source-units",
             strategy_source,
@@ -265,13 +323,15 @@ def test_repository_edits_strategy_and_factor_units_independently(tmp_path: Path
         assert "top_n: int = 7" in project["strategy_source"]
         assert "@factor" not in project["strategy_source"]
         assert "def momentum_20d(" in project["draft_source"]
+        assert project["current_revision"] == 2
+        assert project["dirty"] is False
 
         project = repository.add_factor_source(
             "source-units",
-            '''@factor(id="close_level", label="收盘价")
+            """@factor(id="close_level", label="收盘价")
 def close_level(context):
     return context.current("close")
-''',
+""",
             expected_source_sha256=project["draft_source_sha256"],
         )
         assert "@factor" not in project["strategy_source"]
@@ -281,6 +341,8 @@ def close_level(context):
             "factors/momentum_20d.py",
             "factors/close_level.py",
         }
+        assert project["current_revision"] == 3
+        assert project["dirty"] is False
         close_source = repository.get_factor_source("source-units", "close_level")
         assert close_source["source"].startswith('@factor(id="close_level"')
         project = repository.replace_factor_source(
@@ -289,12 +351,10 @@ def close_level(context):
             close_source["source"].replace("close_level", "latest_close"),
             expected_source_sha256=project["draft_source_sha256"],
         )
-        assert "factors/close_level.py" not in {
-            item["path"] for item in project["source_units"]
-        }
-        assert "factors/latest_close.py" in {
-            item["path"] for item in project["source_units"]
-        }
+        assert "factors/close_level.py" not in {item["path"] for item in project["source_units"]}
+        assert "factors/latest_close.py" in {item["path"] for item in project["source_units"]}
+        assert project["current_revision"] == 4
+        assert project["dirty"] is False
     finally:
         repository.close()
 
@@ -512,6 +572,27 @@ def test_registered_function_source_is_exact_replaceable_unit():
     assert next(item for item in inspection.entrypoints if item.id == "monthly_momentum")
 
 
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "TOP_N = 5\n",
+        "from math import sqrt\n",
+        "print('unexpected top-level statement')\n",
+    ],
+)
+def test_replacing_registered_function_rejects_other_top_level_statements(prefix: str):
+    function_source = registered_function_source(
+        DEFAULT_STRATEGY_SOURCE, entrypoint_id="monthly_momentum"
+    )
+
+    with pytest.raises(StrategySourceError, match="exactly one registered function"):
+        replace_registered_function(
+            DEFAULT_STRATEGY_SOURCE,
+            entrypoint_id="monthly_momentum",
+            function_source=prefix + function_source,
+        )
+
+
 def test_deprecated_factor_inputs_are_removed_without_changing_function_code():
     legacy = DEFAULT_STRATEGY_SOURCE.replace(
         '@factor(id="momentum_20d", label="20 日动量")',
@@ -541,25 +622,23 @@ def test_replacing_factor_function_renames_static_sdk_references():
     assert "momentum_20d" not in factor_ids
     signal = next(item for item in inspection.entrypoints if item.id == "monthly_momentum")
     assert signal.metadata["factor_blend"]["weights"] == {"momentum_30d": 1.0}
-    assert signal.metadata["factor_blend"]["parameters"] == {
-        "momentum_30d": {"window": 20}
-    }
+    assert signal.metadata["factor_blend"]["parameters"] == {"momentum_30d": {"window": 20}}
 
 
 def test_replacing_factor_function_renames_factor_dependencies():
     source = DEFAULT_STRATEGY_SOURCE.replace(
         "\n@signal",
-        '''
+        """
 @factor(id="momentum_copy")
 def momentum_copy(context):
     return context.factor("momentum_20d")
 
-@signal''',
+@signal""",
         1,
     )
-    function_source = registered_function_source(
-        source, entrypoint_id="momentum_20d"
-    ).replace('id="momentum_20d"', 'id="momentum_30d"')
+    function_source = registered_function_source(source, entrypoint_id="momentum_20d").replace(
+        'id="momentum_20d"', 'id="momentum_30d"'
+    )
     updated, inspection = replace_registered_function(
         source,
         entrypoint_id="momentum_20d",
@@ -590,12 +669,12 @@ def test_replacing_registered_function_cannot_change_its_kind():
 def test_deleting_an_unused_factor_removes_only_that_function():
     source = DEFAULT_STRATEGY_SOURCE.replace(
         "\n@signal",
-        '''
+        """
 @factor(id="unused_factor")
 def unused_factor(context):
     return context.current("close")
 
-@signal''',
+@signal""",
         1,
     )
     updated, inspection = delete_registered_function(source, entrypoint_id="unused_factor")
@@ -638,10 +717,171 @@ def test_annotated_parameter_metadata_is_projected_and_enforced():
         raise AssertionError("out-of-range structured parameter must be rejected")
 
 
+def test_default_execution_fill_exposes_editable_market_rules():
+    inspection = inspect_strategy_source(DEFAULT_STRATEGY_SOURCE)
+    entrypoint = next(
+        item for item in inspection.entrypoints if item.id == "fill_missing_market_state"
+    )
+    parameters = {item.name: item for item in entrypoint.parameters}
+
+    assert entrypoint.kind == "execution_data_fill"
+    assert set(parameters) == {
+        "main_board_limit_rate",
+        "main_board_st_limit_rate_before_change",
+        "main_board_st_limit_rate",
+        "main_board_st_change_date",
+        "star_market_limit_rate",
+        "chinext_limit_rate",
+        "beijing_limit_rate",
+        "ipo_unlimited_sessions",
+        "beijing_ipo_unlimited_sessions",
+    }
+    assert all(item.editable for item in parameters.values())
+
+
+def test_default_execution_fill_uses_raw_close_board_st_and_ipo_rules():
+    dates = pd.bdate_range("2026-06-08", periods=20)
+    as_of = dates[-1]
+    symbols = ["600000.SH", "688001.SH", "300001.SZ", "430001.BJ", "001234.SZ"]
+    bars = pd.DataFrame(
+        [
+            {
+                "date": date,
+                "symbol": symbol,
+                "close": 100.0,
+                "raw_close": 10.0,
+                "is_suspended": False,
+                "is_st": symbol == "600000.SH",
+            }
+            for date in dates
+            for symbol in symbols
+        ]
+    )
+    listed_dates = [
+        pd.Timestamp("2020-01-01"),
+        pd.Timestamp("2020-01-01"),
+        pd.Timestamp("2020-01-01"),
+        pd.Timestamp("2020-01-01"),
+        dates[-5],
+    ]
+    payload = {
+        "sessions": tuple(dates),
+        "bars": bars,
+        "instruments": pd.DataFrame(
+            {
+                "snapshot_date": [dates[0]] * len(symbols),
+                "symbol": symbols,
+                "asset_type": ["CS"] * len(symbols),
+                "listed_date": listed_dates,
+            }
+        ),
+    }
+    execution_rows = [
+        {
+            "date": as_of,
+            "symbol": symbol,
+            "is_suspended": pd.NA,
+            "limit_up": pd.NA,
+            "limit_down": pd.NA,
+        }
+        for symbol in symbols
+    ]
+
+    with SdkExecutionSession(DEFAULT_STRATEGY_SOURCE) as session:
+        session.configure(payload)
+        result = session.execute(
+            "execution_data_fill",
+            {
+                "event": "session_open",
+                "as_of": as_of,
+                "available_symbols": symbols,
+                "execution_state_rows": execution_rows,
+            },
+        ).value
+
+    filled = pd.DataFrame(result["rows"]).set_index("symbol")
+    assert filled.loc["600000.SH", ["limit_up", "limit_down"]].tolist() == [10.5, 9.5]
+    assert filled.loc["688001.SH", ["limit_up", "limit_down"]].tolist() == [12.0, 8.0]
+    assert filled.loc["300001.SZ", ["limit_up", "limit_down"]].tolist() == [12.0, 8.0]
+    assert filled.loc["430001.BJ", ["limit_up", "limit_down"]].tolist() == [13.0, 7.0]
+    assert filled.loc["001234.SZ", ["limit_up", "limit_down"]].tolist() == [0.0, 0.0]
+    assert filled["is_suspended"].eq(False).all()
+
+    trade_rows = pd.DataFrame(
+        [
+            {
+                "symbol": "001234.SZ",
+                "open": 10.0,
+                "volume": 1_000_000.0,
+                "amount": 10_000_000.0,
+                "is_suspended": False,
+                "limit_up": 0.0,
+                "limit_down": 0.0,
+            }
+        ]
+    ).set_index("symbol")
+    assert _execution_data_gaps(trade_rows, ["001234.SZ"]) == {}
+    assert _trade_allowed(
+        trade_rows,
+        "001234.SZ",
+        "open",
+        side="buy",
+        strict_execution_data=True,
+    )
+
+
+def test_execution_fill_rejects_a_single_zero_price_limit_marker():
+    source, _ = replace_registered_function(
+        DEFAULT_STRATEGY_SOURCE,
+        entrypoint_id="fill_missing_market_state",
+        function_source="""@execution_data_fill(id="fill_missing_market_state")
+def fill_missing_market_state(context, rows):
+    filled = rows.copy()
+    filled.loc[filled["limit_up"].isna(), "limit_up"] = 0.0
+    return filled
+""",
+    )
+    dates = pd.bdate_range("2026-01-01", periods=2)
+    payload = {
+        "sessions": tuple(dates),
+        "bars": pd.DataFrame(
+            {
+                "date": [dates[0]],
+                "symbol": ["600000.SH"],
+                "raw_close": [10.0],
+                "is_st": [False],
+                "is_suspended": [False],
+            }
+        ),
+        "instruments": pd.DataFrame(),
+    }
+    with SdkExecutionSession(source) as session:
+        session.configure(payload)
+        with pytest.raises(SdkRuntimeError, match="both limit_up and limit_down"):
+            session.execute(
+                "execution_data_fill",
+                {
+                    "event": "session_open",
+                    "as_of": dates[-1],
+                    "available_symbols": ["600000.SH"],
+                    "execution_state_rows": [
+                        {
+                            "date": dates[-1],
+                            "symbol": "600000.SH",
+                            "is_suspended": False,
+                            "limit_up": pd.NA,
+                            "limit_down": pd.NA,
+                        }
+                    ],
+                },
+            )
+
+
 def test_requirement_manifests_reject_invalid_shapes_and_specifiers():
     bad_data = DEFAULT_STRATEGY_SOURCE.replace(
-        '"bars": ["open", "high", "low", "close", "volume", "amount"]',
-        '"bars": "close"',
+        "DATA_REQUIREMENTS = {",
+        'DATA_REQUIREMENTS = {"bars": "close"}\n\nIGNORED_REQUIREMENTS = {',
+        1,
     )
     bad_runtime = DEFAULT_STRATEGY_SOURCE.replace(
         "DATA_REQUIREMENTS = {",
@@ -711,7 +951,7 @@ def test_worker_uses_one_saved_factor_for_snapshot_and_event():
     assert event["signal"]["scores"] == {item["symbol"]: item["value"] for item in factor["values"]}
 
 
-def test_repository_keeps_immutable_revision_after_draft_change(tmp_path: Path):
+def test_repository_atomically_creates_a_new_immutable_revision(tmp_path: Path):
     repository = StrategyRepository(tmp_path / "sdk.db")
     try:
         project = repository.clone_project("sdk-v1-default", "test-project")
@@ -722,10 +962,16 @@ def test_repository_keeps_immutable_revision_after_draft_change(tmp_path: Path):
             parameter="window",
             value=40,
         )
-        repository.update_draft("test-project", updated)
+        changed = repository.update_draft("test-project", updated)
         frozen = repository.get_package("test-project", 1)
         assert frozen["source"] == package["source"]
         assert frozen["source_sha256"] == package["source_sha256"]
+        assert changed["current_revision"] == 2
+        assert changed["dirty"] is False
+        assert (
+            repository.get_package("test-project", 2)["source_sha256"]
+            == changed["draft_source_sha256"]
+        )
     finally:
         repository.close()
 
@@ -821,15 +1067,16 @@ def test_repository_backfills_default_risk_python_for_clean_legacy_projects(tmp_
     try:
         project = migrated.get_project("legacy-risk-project")
         assert project is not None
-        assert '@on_event(Event.SESSION_CLOSE, id="holding_period_risk"' in project[
-            "strategy_source"
-        ]
+        assert (
+            '@on_event(Event.SESSION_CLOSE, id="holding_period_risk"' in project["strategy_source"]
+        )
         assert project["current_revision"] == 2
         assert project["dirty"] is False
         assert migrated.get_package("legacy-risk-project", 1)["source_sha256"] == legacy_hash
-        assert migrated.get_package("legacy-risk-project", 2)["source_sha256"] == project[
-            "draft_source_sha256"
-        ]
+        assert (
+            migrated.get_package("legacy-risk-project", 2)["source_sha256"]
+            == project["draft_source_sha256"]
+        )
     finally:
         migrated.close()
 
@@ -971,6 +1218,26 @@ def unused_bad(context):
         repository.close()
 
 
+def test_failed_cross_file_probe_leaves_source_and_revision_unchanged(tmp_path: Path):
+    repository = StrategyRepository(tmp_path / "atomic-probe.db")
+    try:
+        original = repository.clone_project("sdk-v1-default", "atomic-probe")
+        with pytest.raises(Exception, match="must return pandas.Series"):
+            repository.add_factor_source(
+                "atomic-probe",
+                '@factor(id="bad")\ndef bad(context):\n    return {"not": "a series"}\n',
+                expected_source_sha256=original["draft_source_sha256"],
+            )
+        unchanged = repository.get_project("atomic-probe")
+        assert unchanged is not None
+        assert unchanged["draft_source_sha256"] == original["draft_source_sha256"]
+        assert unchanged["current_revision"] == 1
+        assert unchanged["dirty"] is False
+        assert [item["revision"] for item in repository.list_packages("atomic-probe")] == [1]
+    finally:
+        repository.close()
+
+
 class _SuspensionEngine:
     def __init__(self):
         self.dates = pd.bdate_range("2024-01-01", periods=4)
@@ -983,10 +1250,12 @@ class _SuspensionEngine:
                     "high": 10.0,
                     "low": 10.0,
                     "close": 10.0,
+                    "raw_close": 10.0,
                     "volume": 0.0 if index == 1 else 1_000_000.0,
                     "amount": 0.0 if index == 1 else 10_000_000.0,
                     # Nullable market-state columns are not a suspension.
                     "is_suspended": pd.NA,
+                    "is_st": False,
                 }
                 for index, date in enumerate(self.dates)
             ]
@@ -1013,9 +1282,11 @@ class _PartialExecutionDataEngine:
                     "high": 10.0,
                     "low": 10.0,
                     "close": 10.0,
+                    "raw_close": 10.0,
                     "volume": 1_000_000.0,
                     "amount": 100_000_000.0,
                     "is_suspended": False,
+                    "is_st": False,
                     "limit_up": pd.NA if symbol == "A" else 11.0,
                     "limit_down": 9.0,
                 }
@@ -1035,6 +1306,19 @@ class _PartialExecutionDataEngine:
 
     def get_bars(self, symbols, start_date, end_date, **kwargs):
         return self.bars.copy()
+
+
+class _PreflightExecutionDataEngine(_PartialExecutionDataEngine):
+    def get_instruments(self, as_of_date):
+        return pd.DataFrame(
+            {
+                "snapshot_date": [self.dates[0], self.dates[0]],
+                "symbol": ["A", "B"],
+                "asset_type": ["ETF", "ETF"],
+                "listed_date": [self.dates[0], self.dates[0]],
+                "de_listed_date": [pd.NaT, pd.NaT],
+            }
+        )
 
 
 def _daily_universe_strategy_source() -> str:
@@ -1057,6 +1341,116 @@ def _daily_universe_strategy_source() -> str:
             "    scores = __import__('pandas').Series({symbol: 1.0 for symbol in context.universe}, dtype=float)\n",
         )
     )
+
+
+def _without_execution_data_fill(source: str) -> str:
+    return source.replace(
+        '@execution_data_fill(id="fill_missing_market_state", label="补齐缺失交易状态")\n',
+        "",
+        1,
+    )
+
+
+def test_backtest_preflight_uses_stable_data_error_codes(tmp_path: Path):
+    repository = StrategyRepository(tmp_path / "preflight-errors.db")
+    engine = _PartialExecutionDataEngine()
+    try:
+        with pytest.raises(BacktestPreflightError) as missing_settlement:
+            preflight_strategy_backtest(
+                repository,
+                "sdk-v1-default",
+                str(engine.dates[0])[:10],
+                str(engine.dates[-1])[:10],
+                engine,
+            )
+        assert missing_settlement.value.code == "MISSING_DELISTING_SETTLEMENT"
+
+        incomplete_dates = _PreflightExecutionDataEngine()
+        incomplete_dates.bars["limit_up"] = 11.0
+        with pytest.raises(BacktestPreflightError) as date_coverage:
+            preflight_strategy_backtest(
+                repository,
+                "sdk-v1-default",
+                "2023-01-01",
+                str(incomplete_dates.dates[-1])[:10],
+                incomplete_dates,
+            )
+        assert date_coverage.value.code == "INSUFFICIENT_MARKET_STATE"
+        assert date_coverage.value.details["first_session"] == "2024-01-01"
+
+        incomplete = _PreflightExecutionDataEngine()
+        partial = preflight_strategy_backtest(
+            repository,
+            "sdk-v1-default",
+            str(incomplete.dates[0])[:10],
+            str(incomplete.dates[-1])[:10],
+            incomplete,
+        )
+        assert partial["status"] == "ready"
+        assert partial["warnings"][0]["code"] == "PARTIAL_MARKET_STATE"
+        assert partial["warnings"][0]["details"]["coverage"] == 0.5
+
+        unavailable = _PreflightExecutionDataEngine()
+        unavailable.bars["limit_up"] = pd.NA
+        with pytest.raises(BacktestPreflightError) as market_state:
+            preflight_strategy_backtest(
+                repository,
+                "sdk-v1-default",
+                str(unavailable.dates[0])[:10],
+                str(unavailable.dates[-1])[:10],
+                unavailable,
+            )
+        assert market_state.value.code == "INSUFFICIENT_MARKET_STATE"
+        assert market_state.value.details["coverage"] == 0.0
+
+        missing_required_field = _PreflightExecutionDataEngine()
+        missing_required_field.bars["amount"] = pd.NA
+        with pytest.raises(BacktestPreflightError) as required_field:
+            preflight_strategy_backtest(
+                repository,
+                "sdk-v1-default",
+                str(missing_required_field.dates[0])[:10],
+                str(missing_required_field.dates[-1])[:10],
+                missing_required_field,
+            )
+        assert required_field.value.code == "INSUFFICIENT_MARKET_STATE"
+        assert "bars.amount" in required_field.value.details["missing_fields"]
+
+        no_candidates = _PreflightExecutionDataEngine()
+        no_candidates.bars["limit_up"] = 11.0
+        no_candidates.bars["is_suspended"] = True
+        with pytest.raises(BacktestPreflightError) as candidates:
+            preflight_strategy_backtest(
+                repository,
+                "sdk-v1-default",
+                str(no_candidates.dates[0])[:10],
+                str(no_candidates.dates[-1])[:10],
+                no_candidates,
+            )
+        assert candidates.value.code == "NO_TRADABLE_CANDIDATES"
+    finally:
+        repository.close()
+
+
+def test_backtest_preflight_reports_ready_before_event_loop(tmp_path: Path):
+    repository = StrategyRepository(tmp_path / "preflight-ready.db")
+    engine = _PreflightExecutionDataEngine()
+    engine.bars["limit_up"] = 11.0
+    try:
+        result = preflight_strategy_backtest(
+            repository,
+            "sdk-v1-default",
+            str(engine.dates[0])[:10],
+            str(engine.dates[-1])[:10],
+            engine,
+        )
+    finally:
+        repository.close()
+
+    assert result["status"] == "ready"
+    assert result["delisting_policy"] == "write_off_at_zero"
+    assert result["complete_market_state_symbol_dates"] == result["eligible_symbol_dates"]
+    assert result["warnings"] == []
 
 
 def test_rejected_fill_does_not_change_actual_positions(tmp_path: Path):
@@ -1144,8 +1538,10 @@ class _FutureInstrumentSnapshotEngine:
                     "high": 101.0 + index,
                     "low": 99.0 + index,
                     "close": 100.0 + index + (1.0 if symbol == "B" else 0.0),
+                    "raw_close": 100.0 + index + (1.0 if symbol == "B" else 0.0),
                     "volume": 1_000_000.0,
                     "amount": 100_000_000.0,
+                    "is_st": False,
                 }
                 for index, date in enumerate(self.dates)
                 for symbol in ("A", "B")
@@ -1251,7 +1647,7 @@ def test_strict_backtest_excludes_candidates_with_missing_execution_data(tmp_pat
         repository.create_project(
             "strict-data",
             name="Strict Data",
-            source=_daily_universe_strategy_source(),
+            source=_without_execution_data_fill(_daily_universe_strategy_source()),
         )
         result = run_strategy_backtest(
             repository,
@@ -1264,29 +1660,59 @@ def test_strict_backtest_excludes_candidates_with_missing_execution_data(tmp_pat
         repository.close()
 
     assert any(item["executed_weights"].get("B", 0.0) > 0 for item in result.executions)
-    assert all("A" not in item["target_weights"] for item in result.executions)
+    assert all("A" in item["target_weights"] for item in result.executions)
     exclusions = result.diagnostics["execution_data_exclusions"]
-    assert exclusions["symbol_date_count"] == len(engine.dates)
+    assert exclusions["symbol_date_count"] == len(engine.dates) - 1
     assert exclusions["unique_symbol_count"] == 1
     assert exclusions["symbols_sample"] == ["A"]
     assert result.diagnostics["research_valid"] is False
-    assert any("excluded" in warning for warning in result.diagnostics["warnings"])
+    assert any(
+        warning.startswith("PARTIAL_MARKET_STATE:") for warning in result.diagnostics["warnings"]
+    )
 
 
-def test_strict_missing_execution_data_does_not_delete_an_existing_holding(tmp_path: Path):
+def test_project_python_fills_missing_execution_state_before_strict_checks(tmp_path: Path):
+    engine = _PartialExecutionDataEngine()
+    repository = StrategyRepository(tmp_path / "filled-execution-data.db")
+    try:
+        repository.create_project(
+            "filled-execution-data",
+            name="Filled Execution Data",
+            source=_daily_universe_strategy_source(),
+        )
+        result = run_strategy_backtest(
+            repository,
+            "filled-execution-data",
+            engine.dates[0].strftime("%Y-%m-%d"),
+            engine.dates[-1].strftime("%Y-%m-%d"),
+            engine,
+        )
+    finally:
+        repository.close()
+
+    assert any(item["executed_weights"].get("A", 0.0) > 0 for item in result.executions)
+    assert result.diagnostics["execution_data_exclusions"]["symbol_date_count"] == 0
+    fill = result.diagnostics["execution_data_fill"]
+    assert fill["value_count"] == len(engine.dates) - 1
+    assert fill["fields"] == {"limit_up": len(engine.dates) - 1}
+    assert any(
+        warning.startswith("CUSTOM_EXECUTION_DATA_FILL:")
+        for warning in result.diagnostics["warnings"]
+    )
+
+
+def test_missing_state_without_an_actual_trade_does_not_change_a_holding(tmp_path: Path):
     engine = _PartialExecutionDataEngine()
     engine.bars["is_suspended"] = engine.bars["is_suspended"].astype("boolean")
     missing_dates = engine.dates[2:]
-    missing_held_state = engine.bars["symbol"].eq("B") & engine.bars["date"].isin(
-        missing_dates
-    )
+    missing_held_state = engine.bars["symbol"].eq("B") & engine.bars["date"].isin(missing_dates)
     engine.bars.loc[missing_held_state, "is_suspended"] = pd.NA
     repository = StrategyRepository(tmp_path / "strict-held-data.db")
     try:
         repository.create_project(
             "strict-held-data",
             name="Strict Held Data",
-            source=_daily_universe_strategy_source(),
+            source=_without_execution_data_fill(_daily_universe_strategy_source()),
         )
         result = run_strategy_backtest(
             repository,
@@ -1299,31 +1725,36 @@ def test_strict_missing_execution_data_does_not_delete_an_existing_holding(tmp_p
         repository.close()
 
     assert result.weights.loc[engine.dates[-1], "B"] > 0.0
-    rejected_exit = next(
-        item
+    assert any(
+        missing["symbol"] == "B"
         for item in result.executions
-        if item["entry_date"] == engine.dates[-1].strftime("%Y-%m-%d")
+        for missing in item["missing_execution_data"]
     )
-    assert rejected_exit["constrained_symbols"] == ["B"]
-    assert rejected_exit["missing_execution_data"] == [
-        {"symbol": "B", "missing_fields": ["is_suspended"]}
-    ]
 
 
-def test_held_delisting_fails_instead_of_freezing_the_last_value():
+def test_held_delisting_writes_the_position_off_at_zero():
     instruments = pd.DataFrame(
         {
             "symbol": ["A"],
             "de_listed_date": [pd.Timestamp("2024-01-03")],
         }
     )
+    asset_values = {"A": 0.5, "B": 0.25}
+    entry_prices = {"A": 10.0, "B": 20.0}
+    previous_close_prices = {"A": 9.0, "B": 19.0}
 
-    with pytest.raises(MissingDataError, match="explicit settlement price"):
-        _assert_no_unsettled_delistings(
-            {"A": 0.5},
-            instruments,
-            pd.Timestamp("2024-01-03"),
-        )
+    settlements = _settle_delisted_positions(
+        asset_values,
+        entry_prices,
+        previous_close_prices,
+        instruments,
+        pd.Timestamp("2024-01-03"),
+    )
+
+    assert settlements == [{"symbol": "A", "written_off_value": 0.5}]
+    assert asset_values == {"B": 0.25}
+    assert entry_prices == {"B": 20.0}
+    assert previous_close_prices == {"B": 19.0}
 
 
 def test_factor_execution_handles_empty_universe_and_short_history():

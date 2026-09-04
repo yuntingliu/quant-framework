@@ -58,7 +58,7 @@ SDK v1 fixes the following architectural decisions:
 ```text
 Data Workbench       edits the separate acquisition recipe
 Factor Workbench     edits persistent factors/<factor_id>.py units
-Strategy Workbench   edits strategy.py (@universe/@signal/@portfolio/events/@execution)
+Strategy Workbench   edits strategy.py (@universe/@signal/@portfolio/events/@execution_data_fill/@execution)
 Codex                edits those same source units
                               |
                               v
@@ -103,6 +103,7 @@ from alphalab.sdk.v1 import (
     UniverseResult,
     Weekly,
     execution,
+    execution_data_fill,
     factor,
     on_event,
     portfolio,
@@ -141,9 +142,11 @@ RUNTIME_REQUIREMENTS = {
 }
 ```
 
-Requirements are preflight contracts, not installation commands. The runner
-MUST fail before execution when the selected data profile or runtime cannot
-satisfy them. It MUST NOT install packages or switch data profiles implicitly.
+Requirements are runtime-preparation contracts, not installation commands. The
+background runner MUST fail before invoking strategy code when the selected
+data profile or runtime cannot satisfy them. It MUST NOT install packages or
+switch data profiles implicitly, and submission MUST NOT perform a separate
+full-range preflight.
 
 ## 5. Canonical Source and Module Contract
 
@@ -166,6 +169,7 @@ A valid assembled project strategy module MUST contain:
 - exactly one `@signal` function;
 - exactly one `@portfolio` function;
 - zero or one `@on_event` function for each event key;
+- zero or one `@execution_data_fill` function;
 - exactly one `@execution` function;
 - arbitrary private helper functions and classes;
 - imports available in the configured runtime.
@@ -204,6 +208,11 @@ def target_weights(context: PortfolioContext, signal: SignalResult, state: State
 
 @on_event(Event.SESSION_CLOSE, id="daily_risk")
 def daily_risk(context: StrategyContext, state: State):
+    ...
+
+
+@execution_data_fill(id="fill_missing_market_state")
+def fill_missing_market_state(context: ExecutionContext, rows: pandas.DataFrame):
     ...
 
 
@@ -307,7 +316,8 @@ load current source units and assemble them
   -> preserve unrelated formatting, comments, and custom code
   -> split the result back into the same source-unit boundaries
   -> parse and validate the complete assembled module again
-  -> atomically update the affected unit and assembled draft artifact
+  -> run cross-file import, registry, and output probes
+  -> atomically update all affected units and record one immutable revision
 ```
 
 Clicking a data field inserts SDK Python at the active cursor, for example:
@@ -386,6 +396,20 @@ instrument universe. Historical suspension state is joined to market rows as
 `paused`/`is_suspended`; the execution engine rejects fills when
 `is_suspended` is true.
 
+An optional project-owned `@execution_data_fill` function receives a bounded
+`ExecutionContext` and a `pandas.DataFrame` containing only `date`, `symbol`,
+`is_suspended`, `limit_up`, and `limit_down` for actual order candidates. It
+returns that same frame after filling missing values. The function cannot add,
+remove, reorder, or rename rows; cannot replace known values; and cannot edit
+prices, volume, amount, instruments, or accounting inputs. Its Context market
+history ends before the execution date, so its visible Python cannot fill from
+future bars. Any fields it leaves missing remain non-tradable under strict
+execution. Price-limit values are finite positive prices, except that a paired
+`limit_up == limit_down == 0` explicitly means the session has no price limit.
+A single zero is invalid. Provider-side non-positive values are normalized to
+missing before the project hook runs, so only validated project code can emit
+the paired marker.
+
 ## 10. Universe Contract
 
 The universe entrypoint defines strategy eligibility preferences over the
@@ -398,6 +422,12 @@ def major_etfs(context: UniverseContext) -> UniverseResult:
     candidates = candidates[candidates["symbol"].isin(MAJOR_ETFS)]
     return UniverseResult(symbols=candidates["symbol"])
 ```
+
+New ordinary stock-selection strategies default to the complete point-in-time
+universe with `UniverseResult(symbols=context.universe)`. A small hard-coded
+pool is used only when the user explicitly requests a fixed, index, sector,
+ETF, or otherwise restricted universe; fixed pools are intersected with
+`context.universe`.
 
 The function MAY filter or rank instruments but MUST NOT introduce a symbol not
 present in the point-in-time instrument snapshot.
@@ -648,6 +678,31 @@ The core owns order creation, valid-price checks, stop/suspension handling,
 limit-up/limit-down behavior, cash, fills, fees, accounting, and broker
 authorization. Returning an `ExecutionPolicy` MUST NOT bypass those controls.
 
+The optional execution-state fill signature is:
+
+```python
+@execution_data_fill(id="fill_missing_market_state")
+def fill_missing_market_state(
+    context: ExecutionContext,
+    rows: pandas.DataFrame,
+    *,
+    main_board_limit_rate: float = 0.10,
+    star_market_limit_rate: float = 0.20,
+    chinext_limit_rate: float = 0.20,
+    ipo_unlimited_sessions: int = 5,
+) -> pandas.DataFrame:
+    ...
+```
+
+The function contains the project's actual Python for filling missing
+`is_suspended`, `limit_up`, and `limit_down` values. It returns the same rows
+directly; there is no decision wrapper or hidden policy branch. The core rejects
+changes to known values, row identity, other market fields, or row count. The
+shipped function derives limit prices from the previous trading day's
+unadjusted `raw_close`, reads point-in-time `is_st` and listing dates, and keeps
+board, ST-rule-change, and IPO-session rules as editable keyword-only defaults.
+For a known no-limit IPO session it sets both limit columns to zero.
+
 New broker order types or data feeds require an explicit SDK/core capability.
 Arbitrary Python cannot create capabilities the core does not expose.
 
@@ -662,7 +717,9 @@ For each event timestamp, the runner MUST use this order:
 4. a non-`None` event-handler decision replaces the base portfolio decision;
 5. run `@execution` for the final decision;
 6. validate all outputs, then atomically commit State and desired targets;
-7. the core creates and processes fills at the policy's permitted later event.
+7. at the policy's permitted later event, run `@execution_data_fill` for actual
+   order rows when the project defines it;
+8. the core validates the returned state frame and creates or rejects fills.
 
 If the signal schedule is not due, the base desired target is the previously
 committed target. Returning `None` from the event handler preserves it.
@@ -701,6 +758,12 @@ Saving a strategy revision requires all of these checks:
 10. run bounded contract probes with synthetic Contexts;
 11. compute the assembled source SHA-256 and package manifest.
 
+The assembled runtime provides every public name in `alphalab.sdk.v1` through
+an explicit stable prelude. A factor unit therefore does not depend on a
+decorator import in `strategy.py`; any non-SDK dependency used by a factor MUST
+be imported inside that factor function. All checks complete before any source
+unit or revision is written.
+
 Runtime boundary validation repeats on every entrypoint output. Static
 validation never substitutes for output validation.
 
@@ -719,6 +782,7 @@ Every research operation loads one immutable StrategySourcePackage:
 | Signal cross-section | `@universe`, dependencies, selected `@signal` |
 | Portfolio preview | signal followed by `@portfolio` and applicable event handler |
 | Execution preview | portfolio decision followed by `@execution` |
+| Execution-state fill | actual order rows passed through `@execution_data_fill` |
 | Backtest | full event loop over the same module |
 
 The operation result MUST record the package hash and invoked entrypoint IDs.
@@ -744,8 +808,11 @@ created timestamp
 parent revision
 ```
 
-Draft source is mutable. A saved revision is immutable. Editing from a saved
-revision creates a new draft; saving creates a new revision.
+Current authoring source may be replaced, while a saved revision is immutable.
+A successful save replaces the affected source units and creates at most one
+new revision in the same transaction. A failed validation or probe leaves both
+the authoring source and revision unchanged; no persisted dirty intermediate
+version is created.
 
 A Run freezes:
 
@@ -768,7 +835,7 @@ The target user-facing boundaries are:
 | --- | --- |
 | Project/Data | project metadata and the separate acquisition recipe |
 | Factor Research | persistent `factors/*.py` units and their tests |
-| Strategy | `strategy.py`: `@universe`, `@signal`, `@portfolio`, `@on_event`, `@execution` |
+| Strategy | `strategy.py`: `@universe`, `@signal`, `@portfolio`, `@on_event`, `@execution_data_fill`, `@execution` |
 | Validation | assembled-source inspection, immutable revision selection, evaluations, backtests |
 | Report | saved Run artifacts and provenance |
 
@@ -808,7 +875,8 @@ They MUST:
 - preserve unrelated custom code and comments;
 - validate after each source mutation;
 - obtain explicit confirmation before saving, executing, or deleting;
-- report the resulting revision and source hash;
+- report only the resulting revision, changed files, validation summary, and
+  compact manifest for a normal write;
 - never claim that trusted-local Python is sandboxed.
 
 Agent tools SHOULD be generated from the backend OpenAPI contract rather than
@@ -915,7 +983,8 @@ No SDK v1 strategy may override these core responsibilities:
 
 - point-in-time data visibility and fundamental availability dates;
 - session calendar and event ordering;
-- symbol existence, listing, delisting, and stale-data checks;
+- symbol existence, listing, delisting, and stale-data checks, including a
+  zero-value write-off for a held instrument on its delisting date;
 - valid price and positive-volume checks;
 - suspension, price-limit, and liquidity handling;
 - next-period alignment and fill creation;
@@ -925,12 +994,13 @@ No SDK v1 strategy may override these core responsibilities:
 - paper/live environment separation;
 - broker connection and order authorization.
 
-The SDK may expose supported options for these systems. It cannot replace their
-implementation or bypass their validation.
+The SDK may expose supported options and the bounded `@execution_data_fill`
+hook for these systems. It cannot replace their implementation or bypass their
+post-fill validation.
 
 ## 26. Error Contract
 
-SDK errors MUST identify:
+Internal SDK diagnostics MUST retain:
 
 - strategy revision and source hash;
 - entrypoint ID;
@@ -938,6 +1008,27 @@ SDK errors MUST identify:
 - contract phase (`parse`, `register`, `input`, `execute`, `output`, `state`);
 - a bounded traceback for custom Python failures;
 - whether any state or output was committed.
+
+Agent- and user-facing errors MUST instead return a stable error code, bounded
+safe summary, relevant phase/entrypoint fields, and an internal log reference.
+They MUST NOT expose absolute server paths, release directories, environment or
+source hashes, or tracebacks. Stable backtest runtime codes include
+`MISSING_DELISTING_SETTLEMENT`, `INSUFFICIENT_MARKET_STATE`, and
+`NO_TRADABLE_CANDIDATES`.
+
+Preflight MUST NOT reject a run merely because an unrelated full-universe
+symbol/date has incomplete execution state. If at least one candidate has
+complete state, partial coverage is returned as the structured warning
+`PARTIAL_MARKET_STATE` and the job may be queued. Missing state does not alter
+the signal universe. When an actual order is activated, the frozen project's
+optional `@execution_data_fill` Python runs first; any suspension or price-limit
+state that remains missing is treated as non-tradable. A validated paired zero
+means that the session is known to have no price limit and therefore skips only
+the limit-price check. The result retains
+bounded fill/exclusion counts and samples. Missing execution state for every
+actual order can therefore complete as a zero-trade result with explicit warnings;
+`INSUFFICIENT_MARKET_STATE` is reserved for a required runtime dataset or field
+with no usable coverage at all.
 
 User exceptions fail the current operation. The runner MUST NOT silently fall
 back to an older revision, default factor, demo profile, previous output, or

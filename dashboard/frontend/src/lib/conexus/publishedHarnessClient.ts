@@ -9,6 +9,7 @@ import type {
   PublishedHarnessRunEvent,
   PublishedHarnessWorkspaceSnapshot,
 } from "./types"
+import { parseRunEventBlock } from "./runState"
 
 export class ConexusClientError extends Error {
   constructor(message: string, readonly status: number) {
@@ -135,9 +136,15 @@ export async function readWorkspace(signal?: AbortSignal): Promise<PublishedHarn
   return payload.workspace
 }
 
-export async function readRun(runId: string, accessToken: string): Promise<PublishedHarnessRun> {
+export async function readRun(
+  runId: string,
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<PublishedHarnessRun> {
   const payload = await json<{ run: PublishedHarnessRun }>(`/runs/${encodeURIComponent(runId)}`, {
     headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+    signal,
   })
   return payload.run
 }
@@ -171,10 +178,6 @@ export async function answerRunInteraction(
   return payload.run
 }
 
-export function isTerminalRun(value: PublishedHarnessRun | PublishedHarnessRunEvent): boolean {
-  return ["completed", "blocked", "failed", "cancelled"].includes(value.status)
-}
-
 export async function streamRunEvents(params: {
   runId: string
   accessToken: string
@@ -183,6 +186,7 @@ export async function streamRunEvents(params: {
 }): Promise<void> {
   const response = await fetch(`${baseUrl()}/runs/${encodeURIComponent(params.runId)}/events`, {
     headers: { Accept: "text/event-stream", Authorization: `Bearer ${params.accessToken}` },
+    cache: "no-store",
     signal: params.signal,
   })
   if (!response.ok) throw await responseError(response)
@@ -193,17 +197,19 @@ export async function streamRunEvents(params: {
   let buffer = ""
   while (!params.signal.aborted) {
     const chunk = await reader.read()
-    if (chunk.done) break
-    buffer += decoder.decode(chunk.value, { stream: true }).replace(/\r\n/g, "\n")
+    if (chunk.done) {
+      buffer = `${buffer}${decoder.decode()}`.replace(/\r\n/g, "\n")
+      const trailing = parseRunEventBlock(buffer.trim())
+      if (trailing) await params.onEvent(trailing)
+      break
+    }
+    buffer = `${buffer}${decoder.decode(chunk.value, { stream: true })}`.replace(/\r\n/g, "\n")
     let boundary = buffer.indexOf("\n\n")
     while (boundary >= 0) {
       const block = buffer.slice(0, boundary)
       buffer = buffer.slice(boundary + 2)
-      const data = block.split("\n")
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).trimStart())
-        .join("\n")
-      if (data) await params.onEvent(JSON.parse(data) as PublishedHarnessRunEvent)
+      const event = parseRunEventBlock(block)
+      if (event) await params.onEvent(event)
       boundary = buffer.indexOf("\n\n")
     }
   }

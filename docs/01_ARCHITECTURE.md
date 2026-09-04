@@ -42,8 +42,16 @@ identifiers are not rendered in the quantitative Markdown.
 
 Agent conversations also form one server-persisted history for the AlphaLab
 publication. Browsers merge messages by conversation and message ID so stale
-tabs cannot replace another browser's turns. Browser storage is only a bounded
-fallback cache and a one-time migration source for older local-only history.
+tabs cannot replace another browser's turns. Conversation and report history
+are never read from or written to browser-local fallback storage.
+
+Active Agent Run state is server-authoritative. The browser consumes the Run
+event stream for low-latency updates and independently reconciles the
+authenticated Run snapshot every two seconds so a closed or interrupted stream
+cannot leave the interface active forever. Terminal states are monotonic in the
+browser: a delayed `queued` or `running` snapshot cannot replace `completed`,
+`blocked`, `failed`, or `cancelled`. Terminal reconciliation also closes any
+still-running tool activity indicators whose final message was not delivered.
 
 ## Shared Python editor
 
@@ -84,7 +92,7 @@ framing. This is editor tooling, not another Python execution route.
 
 Authoring source is split by responsibility, but there is only one executable
 contract. `strategy.py` owns imports, constants, helpers, universe, signal,
-portfolio, event, and execution registrations. Each factor unit owns one
+portfolio, event, execution-data fill, and execution registrations. Each factor unit owns one
 registered factor. `assemble_strategy_source()` inserts factor functions in a
 stable order before strategy entrypoints and validates the resulting module.
 No source unit is executed independently.
@@ -95,6 +103,7 @@ The assembled module declares `SDK_VERSION = 1` and registers:
 - zero or more `@factor` and `@schedule` functions;
 - exactly one `@signal` and one `@portfolio`;
 - at most one `@on_event` handler per event;
+- at most one `@execution_data_fill` function;
 - exactly one `@execution`.
 
 `alphalab.sdk.v1` is the stable strategy-facing facade. Context objects expose
@@ -123,7 +132,11 @@ visible as custom Python and is never translated to an expression language.
 The UI exposes one operation: save. Saving a strategy or factor unit assembles
 all current units, performs static contract validation, imports the complete
 module, runs bounded probes for the full path, every registered factor, and
-every registered event handler, then records an immutable package automatically.
+every registered event handler, then updates the source units and records one
+immutable package in the same transaction. A failed cross-file probe changes
+neither the current source nor its revision. The assembled runtime supplies an
+explicit `alphalab.sdk.v1` public prelude to every unit; other dependencies must
+be imported inside the factor function when the factor unit needs them.
 Runs pin that internal package; changing any source unit later cannot alter a
 historical result. Revision numbers and hashes are audit metadata, not
 user-managed authoring controls.
@@ -160,9 +173,12 @@ The backtest engine enumerates provider sessions and applies this sequence:
 3. run the current event handler and any decision handler;
 4. validate and atomically commit desired target and JSON State;
 5. activate orders only at the policy's later open/close event;
-6. enforce valid price, suspension/price-limit fields, positive volume and
-   amount, participation, cash, costs, and accounting;
-7. deliver fill or rejection events with the resulting actual portfolio.
+6. run the frozen project's optional `@execution_data_fill` Python over only
+   missing state fields for the actual order rows;
+7. validate positive price-limit values or the paired-zero “known no limit”
+   marker, then enforce price, suspension, positive volume and amount,
+   participation, cash, costs, and accounting;
+8. deliver fill or rejection events with the resulting actual portfolio.
 
 Target decisions never imply completed fills. Rejected or constrained orders
 leave the unfilled portion in the actual portfolio.
@@ -174,7 +190,23 @@ RQ-backed research store as their single data profile; the workbenches do not
 offer a Demo/Runtime switch. The bundled deterministic sample remains only as
 an internal test fixture and for reproducing historical sample runs. Context
 construction filters all dated rows at `as_of`; instrument listing/delisting
-and current-session tradability are core-owned.
+and current-session tradability are core-owned. Backtest submission first pins
+the project and validation revisions, persists a queued task, and immediately
+returns its ID. Runtime preparation is part of the background backtest itself;
+there is no separate full-range preflight phase before the event loop. Partial
+full-universe execution-state coverage is a bounded `PARTIAL_MARKET_STATE`
+warning rather than a task failure. Missing execution state never removes a
+symbol from the signal universe. For actual order rows, the event engine first
+runs the project's visible `@execution_data_fill` function when present, then
+rejects trades whose required suspension or price-limit state remains missing.
+A paired `limit_up == limit_down == 0` emitted by that validated function marks
+a known no-limit session; raw provider non-positive values remain missing.
+A held security reaching its delisting date is written off at zero and
+recorded as a settlement event. Backtests hold shared dataset read locks, while
+data publication takes an exclusive lock; concurrent backtests therefore do
+not mistake one another for dataset writers. A separate per-job process lock
+prevents the frontend and Agent API services from recovering and executing the
+same persisted task twice.
 
 The Data Workbench owns one Python acquisition recipe per research project.
 Built-in RQ templates are complete `@data_recipe` source modules, and the date
@@ -215,6 +247,13 @@ New backtests persist `strategy_project_id`, `strategy_revision`,
 `strategy_source_sha256`, the complete source, manifest, execution audit,
 weights, returns, attribution, settings, provenance, and the pinned
 `validation_source`, revision, hash, and named outputs.
+
+Agent-facing backtest submission returns only a task ID. Task polling keeps
+status and stable error fields first; the default result read contains metrics,
+counts, and small head/tail samples. Full daily and execution events are stored
+separately and are exposed to the Agent only through explicit bounded pages. A
+successful terminal transition atomically clears all earlier error metadata;
+failed transitions clear any stale result metadata.
 
 Old pipeline tables and old BacktestRuns remain only for one-time migration and
 read-only inspection. Migration converts every recognized legacy factor into an

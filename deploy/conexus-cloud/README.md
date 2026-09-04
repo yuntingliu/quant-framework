@@ -37,6 +37,12 @@ AlphaLab release and restarting the browser service also restarts the private
 API against the same release. The SSH tunnel can remain connected while the
 loopback API restarts.
 
+The authenticated browser service imports
+`/home/dev/.config/alphalab-dev/deployment_app.py`. Install the checked-in
+`deployment_app.py` there; its SPA fallback applies `no-store` headers to every
+HTML shell response so a release switch cannot leave the browser on an old
+hashed frontend bundle.
+
 Never point the tunnel at browser port `8100`; that route is protected by the
 browser authentication boundary and is not the private Agent API.
 

@@ -22,8 +22,9 @@ tool.
 The enterprise publication receives bounded dialogue from AlphaLab's shared
 server-side conversation history plus a structured research checkpoint as
 untrusted context. It reads the lightweight AlphaLab Agent snapshot only when
-current live facts are needed. Structured workspace results return as
-sanitized `workspaceOutputs`; durable quantitative reports remain native
-Document nodes in the publication workspace.
+current live facts are needed. Terminal Runs identify structured output changes
+by node ID; AlphaLab resolves their bounded payloads from the durable
+publication workspace and accepts only nodes updated by that exact Run.
+Quantitative reports remain native Document nodes in the same workspace.
 
 See `docs/04_CONEXUS_AGENT.md` for the full contract.

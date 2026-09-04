@@ -28,8 +28,10 @@ npm install
 npm run dev
 ```
 
-The bundled `demo` profile works offline. Configure `RQ_USER`, `RQ_PASSWORD`,
-and `RQ_HOST` in an untracked `.env` to use the `runtime` profile.
+The workstation exposes the single `runtime` data profile. Configure
+`RQ_USER`, `RQ_PASSWORD`, and `RQ_HOST` in an untracked `.env`, then use the
+Data Workbench to populate the local runtime store. Bundled sample data remains
+available only to internal tests and examples.
 
 Before starting the workbench, the read-only doctor reports local Python,
 Node, RQData, editor tools, runtime datasets, and port readiness without
@@ -68,7 +70,7 @@ event handlers, and one execution policy:
 ```python
 from alphalab.sdk.v1 import (
     ExecutionPolicy, Monthly, PortfolioDecision, SignalResult, UniverseResult,
-    execution, factor, portfolio, signal, universe,
+    execution, execution_data_fill, factor, portfolio, signal, universe,
 )
 
 SDK_VERSION = 1
@@ -94,6 +96,11 @@ def full_weight(context, signal, state):
         target_weights={signal.selected[0]: 1.0} if signal.selected else {},
         state=state,
     )
+
+@execution_data_fill(id="fill_missing_market_state")
+def fill_missing_market_state(context, rows):
+    # Project-owned Python may fill only missing execution-state values.
+    return rows
 
 @execution(id="next_open")
 def next_open(context, decision):
@@ -138,9 +145,10 @@ environment fingerprint. Every preview, factor evaluation, and backtest names
 the exact revision and hash it invokes.
 
 The core—not custom source—owns point-in-time filtering, calendar ordering,
-symbol/listing checks, suspension and explicit price-limit fields, positive
+symbol/listing checks, validation of known suspension and price-limit fields, positive
 volume/amount, participation, cash, fees, fills, rejection events, accounting,
-and output/state validation. A target is not a fill.
+and output/state validation. Project source may implement one bounded
+`@execution_data_fill` function for missing state values; a target is not a fill.
 
 ## Useful commands
 

@@ -70,7 +70,9 @@ Tests and examples import the small `alphalab` facade. Project authoring is a
 constants, helpers, and non-factor registrations belong in `strategy.py`;
 factor units contain exactly one registered function. Factor units are not
 executed alone: the repository assembles them into the runtime module first.
-User source imports only the public authoring API from `alphalab.sdk.v1`.
+The runtime supplies the stable `alphalab.sdk.v1` public prelude to every unit,
+so a factor never depends on a decorator imported incidentally by
+`strategy.py`. Non-SDK imports needed by a factor belong inside its function.
 
 Every built-in source template must be instructional as well as executable.
 Each registered function needs a useful docstring describing its return
@@ -140,8 +142,9 @@ Projected schedules, factor blends, and literal parameters share one draft and
 one global apply action. While visual changes are pending, the backend applies
 the ordered edits in memory and returns a read-only Python preview without
 persisting it. Applying submits the same ordered `batch` edit, validates the
-final assembled module, returns the corresponding `strategy.py` preview, and
-persists once; partial visual-form saves are not allowed.
+final assembled module, and persists the source units plus one immutable
+revision in the same transaction; partial visual-form saves and dirty
+intermediate revisions are not allowed.
 Unsaved code locks the visual controls, and pending visual changes make the
 `strategy.py` preview read-only.
 
@@ -173,10 +176,11 @@ policy, valid prices, liquidity, and cash.
 
 ## API conventions
 
-Current authoring routes are under `/api/strategy`. Mutations require
-`confirm_write`, saves require `confirm_save`, deletion requires
-`confirm_delete`, and anything importing or invoking strategy source requires
-`confirm_python_execution`.
+Current authoring routes are under `/api/strategy`. Atomic strategy/factor
+source writes require both `confirm_write` and `confirm_python_execution`
+because saving runs trusted-local cross-file probes. Project creation and
+explicit revision saves require `confirm_save` plus
+`confirm_python_execution`; deletion requires `confirm_delete`.
 
 `PUT /api/strategy/projects/{id}/draft` writes `strategy.py`, not the assembled
 module. `POST /api/strategy/projects/{id}/factors` creates one factor unit;
@@ -188,7 +192,34 @@ artifact.
 Backtests use `/api/backtests/jobs`. The frontend supplies the current internal
 strategy package ID; users do not choose or freeze revisions. The backend also
 pins the current validation package before queueing, and historical result
-endpoints never read later source.
+endpoints never read later source. Submission performs only bounded input and
+revision checks, persists the job, and returns immediately. Runtime data
+preparation happens inside the background backtest itself; there is no separate
+full-range preflight action in the workbench or submission path. Execution-state
+gaps do not alter the signal universe. For actual order rows the event engine
+runs the frozen project's optional `@execution_data_fill` Python, validates its
+returned frame, and rejects only orders whose required state remains missing.
+The hook derives ordinary limits from prior-session unadjusted `raw_close` and
+may use a paired zero for a known IPO no-limit session; provider non-positive
+values are normalized to missing and a single zero is invalid.
+Backtest workers acquire shared runtime-data
+locks and a per-job exclusive process lock. Dataset writers remain exclusive,
+but multiple API services and multiple backtests must not duplicate a task or
+block one another merely because they are reading the same partitions.
+
+The Agent-facing `run` operation returns only the job ID. Polling returns task
+status plus a stable error code and bounded summary. Default result reads omit
+daily events; `/api/backtests/{id}/events` provides explicit bounded pages for
+events or executions. Public errors contain a safe summary and log reference,
+never server paths, environment hashes, or tracebacks. Terminal task state is
+self-consistent: success exposes no error fields, and failure exposes no stale
+result identifier or result summary. Temporary write contention uses the
+stable `DATASET_BUSY` code rather than a market-coverage error.
+
+Runtime data-sync job endpoints follow the same boundary: task responses expose
+status, progress, a bounded request summary, stable error fields, and a log
+reference. Recipe source, captured output, and stored traceback details remain
+internal. The old bundled-data manifest endpoint is not part of the runtime API.
 
 Reports are Conexus Document nodes, read through `/api/conexus/workspace` and
 mutated by the published Agent through `create_nodes` and `update_nodes`.

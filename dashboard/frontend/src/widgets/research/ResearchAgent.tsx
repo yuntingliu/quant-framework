@@ -22,7 +22,6 @@ import type {
   AgentResearchCheckpoint,
   PublishedHarnessArtifact,
 } from "@/lib/conexus/types"
-import { useDataProfile } from "@/lib/data-profile"
 import {
   WORKSPACE_COMMAND_EVENT,
   parseAgentWorkspaceCommandBatch,
@@ -101,6 +100,14 @@ function workspaceCommandsFromArtifact(artifact: PublishedHarnessArtifact): unkn
     return customNodePayload(artifact.content.node.values.data, "alphalab_workspace_commands")
   }
   return null
+}
+
+function workspaceCommandRequestId(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const requestId = (value as Record<string, unknown>).requestId
+  if (typeof requestId !== "string") return null
+  const trimmed = requestId.trim()
+  return trimmed && trimmed.length <= 200 ? trimmed : null
 }
 
 function workspaceResultValueFromArtifact(artifact: PublishedHarnessArtifact): unknown {
@@ -237,7 +244,6 @@ export function ResearchAgentPanel() {
   const { language } = useLanguage()
   const workspace = useWorkspace()
   const { selectedFactors, startDate, endDate } = useGlobalFilter()
-  const [activeDataProfile] = useDataProfile()
   const queryClient = useQueryClient()
   const { stagedPrompt, consumePrompt, setDecisionNotebook, registerResearchResult, refreshResearchResults } = useAgentPrompt()
   const [draft, setDraft] = useState("")
@@ -284,7 +290,22 @@ export function ResearchAgentPanel() {
       const value = workspaceCommandsFromArtifact(artifact)
       if (!value) continue
       const batch = parseAgentWorkspaceCommandBatch(value)
-      if (!batch || !pendingWorkspaceRequestIdsRef.current.has(batch.requestId)) continue
+      if (!batch) {
+        const requestId = workspaceCommandRequestId(value)
+        if (!requestId || !pendingWorkspaceRequestIdsRef.current.has(requestId)) continue
+        processedWorkspaceArtifactIdsRef.current.add(artifact.id)
+        pendingWorkspaceRequestIdsRef.current.delete(requestId)
+        setWorkspaceReceipts([{
+          index: 0,
+          type: "invalid",
+          success: false,
+          message: language === "zh"
+            ? "Agent 返回的工作台命令格式无效，未执行任何界面操作"
+            : "The Agent returned an invalid workspace command batch; no interface actions were executed",
+        }])
+        break
+      }
+      if (!pendingWorkspaceRequestIdsRef.current.has(batch.requestId)) continue
       const runArtifacts = [...artifacts].reverse().filter((candidate) => candidate.runId === artifact.runId)
       const descriptorArtifact = runArtifacts.find((candidate) => workspaceResultValueFromArtifact(candidate) !== undefined)
       const descriptor = descriptorArtifact ? workspaceResultValueFromArtifact(descriptorArtifact) : undefined
@@ -321,7 +342,7 @@ export function ResearchAgentPanel() {
       void (detail.receiptPromise ?? Promise.resolve(detail.receipts)).then(setWorkspaceReceipts)
       break
     }
-  }, [artifacts, registerResearchResult])
+  }, [artifacts, language, registerResearchResult])
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
@@ -337,13 +358,12 @@ export function ResearchAgentPanel() {
       requestId,
       source: promptContext.source ?? "agent-rail",
       activeMode: workspace.activeMode,
-      activeDataProfile,
       selectedDataset: workspace.selectedDataset,
       selectedFactors,
       factorDateRange: { start: startDate || null, end: endDate || null },
       selectedSymbol: workspace.selectedSymbol,
       linkSymbols: workspace.linkSymbols,
-      selectedStrategy: workspace.selectedStrategy,
+      selectedProjectId: workspace.selectedStrategy,
       selectedBacktest: workspace.selectedBacktest,
       signalAsOfDate: workspace.signalAsOfDate,
       workspaceCapabilities: WORKSPACE_CAPABILITIES,

@@ -16,6 +16,15 @@ from alphalab.strategy.repository import StrategyRepository
 from alphalab.strategy.sdk_runtime import SdkExecutionSession
 
 
+class BacktestPreflightError(MissingDataError):
+    """Stable, externally classifiable failure raised before the event loop."""
+
+    def __init__(self, code: str, message: str, *, details: Mapping[str, Any] | None = None):
+        super().__init__(message)
+        self.code = code
+        self.details = dict(details or {})
+
+
 @dataclass(frozen=True)
 class StrategyBacktestResult:
     project: dict[str, Any]
@@ -199,6 +208,223 @@ def evaluate_factor_history(
     }
 
 
+def preflight_strategy_backtest(
+    repository: StrategyRepository,
+    project_id: str,
+    start_date: str,
+    end_date: str,
+    data_engine: DataEngine,
+    *,
+    revision: int | None = None,
+) -> dict[str, Any]:
+    """Validate runtime coverage and the project universe before queueing a run."""
+
+    project, package = _project_package(repository, project_id, revision)
+    start, end = pd.Timestamp(start_date), pd.Timestamp(end_date)
+    if start >= end:
+        raise ValueError("start_date must be before end_date")
+    lookback = int(project["settings"].get("lookback_days", 260))
+    try:
+        prepared = _prepare_data(
+            data_engine,
+            package,
+            start - pd.Timedelta(days=max(lookback * 2, 365)),
+            end,
+            execution_data_policy="strict",
+        )
+    except MissingDataError as exc:
+        raise BacktestPreflightError(
+            "INSUFFICIENT_MARKET_STATE",
+            "The requested backtest does not have complete runtime data coverage.",
+        ) from exc
+
+    sessions = tuple(value for value in prepared.sessions if start <= value <= end)
+    boundary_tolerance = pd.Timedelta(days=14)
+    if not sessions or (
+        sessions[0] > start + boundary_tolerance or sessions[-1] < end - boundary_tolerance
+    ):
+        raise BacktestPreflightError(
+            "INSUFFICIENT_MARKET_STATE",
+            "Runtime market dates do not cover the requested backtest boundaries.",
+            details={
+                "requested_start": start.strftime("%Y-%m-%d"),
+                "requested_end": end.strftime("%Y-%m-%d"),
+                "first_session": str(sessions[0])[:10] if sessions else None,
+                "last_session": str(sessions[-1])[:10] if sessions else None,
+            },
+        )
+    if len(sessions) < 2:
+        raise BacktestPreflightError(
+            "NO_TRADABLE_CANDIDATES",
+            "The requested date range contains fewer than two usable trading sessions.",
+            details={"session_count": len(sessions)},
+        )
+    listed_field = next(
+        (field for field in ("listed_date", "list_date") if field in prepared.instruments),
+        None,
+    )
+    delisted_field = next(
+        (field for field in ("de_listed_date", "delisted_date") if field in prepared.instruments),
+        None,
+    )
+    if listed_field is None or delisted_field is None:
+        raise BacktestPreflightError(
+            "MISSING_DELISTING_SETTLEMENT",
+            "Instrument listing and delisting dates are required for zero-value delisting settlement.",
+            details={
+                "listed_date_available": listed_field is not None,
+                "delisted_date_available": delisted_field is not None,
+            },
+        )
+    missing_coverage = _missing_required_coverage(
+        prepared,
+        package,
+        start=start,
+        end=end,
+    )
+    if missing_coverage:
+        raise BacktestPreflightError(
+            "INSUFFICIENT_MARKET_STATE",
+            "Required strategy or execution fields have no usable runtime coverage.",
+            details={"missing_fields": missing_coverage},
+        )
+
+    bars_by_date = {
+        pd.Timestamp(date): frame.drop_duplicates("symbol", keep="last").set_index("symbol")
+        for date, frame in prepared.bars.groupby("date")
+        if start <= pd.Timestamp(date) <= end
+    }
+    eligible_pairs = 0
+    complete_pairs = 0
+    tradable_pairs = 0
+    candidate_symbols: set[str] = set()
+    latest_request: tuple[pd.Timestamp, list[str]] | None = None
+    missing_fields: set[str] = set()
+    required_bar_fields = tuple(
+        dict.fromkeys(
+            [
+                *(package.get("data_requirements", {}).get("bars") or ()),
+                "open",
+                "close",
+                "volume",
+                "amount",
+            ]
+        )
+    )
+    for current_date in sessions:
+        rows = bars_by_date.get(current_date, pd.DataFrame())
+        listed_symbols = set(_available_symbols(prepared.instruments, current_date))
+        row_symbols = (
+            set(rows.index.astype(str).str.upper()) if rows.index.name == "symbol" else set()
+        )
+        available = sorted(listed_symbols & row_symbols)
+        eligible_pairs += len(available)
+        gaps = _execution_data_gaps(rows, available)
+        required_gaps = _required_bar_value_gaps(
+            rows,
+            available,
+            required_bar_fields,
+        )
+        gaps = {
+            symbol: tuple(sorted(set(gaps.get(symbol, ())) | set(required_gaps.get(symbol, ()))))
+            for symbol in set(gaps) | set(required_gaps)
+        }
+        for fields in gaps.values():
+            missing_fields.update(fields)
+        complete = [symbol for symbol in available if symbol not in gaps]
+        complete_pairs += len(complete)
+        tradable = [
+            symbol
+            for symbol in complete
+            if _trade_allowed(
+                rows,
+                symbol,
+                "open",
+                side="buy",
+                strict_execution_data=True,
+            )
+        ]
+        tradable_pairs += len(tradable)
+        candidate_symbols.update(tradable)
+        if tradable:
+            latest_request = (current_date, tradable)
+
+    if eligible_pairs == 0:
+        raise BacktestPreflightError(
+            "NO_TRADABLE_CANDIDATES",
+            "No tradable candidates overlap the requested dates and instrument universe.",
+            details={"session_count": len(sessions), "eligible_symbol_dates": eligible_pairs},
+        )
+    coverage_details = {
+        "eligible_symbol_dates": eligible_pairs,
+        "complete_symbol_dates": complete_pairs,
+        "coverage": float(complete_pairs / eligible_pairs),
+        "missing_fields": sorted(missing_fields),
+    }
+    if complete_pairs == 0:
+        raise BacktestPreflightError(
+            "INSUFFICIENT_MARKET_STATE",
+            "No candidate has complete suspension and price-limit state in the requested range.",
+            details=coverage_details,
+        )
+    warnings: list[dict[str, Any]] = []
+    if complete_pairs != eligible_pairs:
+        warnings.append(
+            {
+                "code": "PARTIAL_MARKET_STATE",
+                "message": (
+                    "Some full-universe symbol dates lack suspension, price-limit, or required "
+                    "bar values. The strict event engine will exclude them conservatively."
+                ),
+                "details": coverage_details,
+            }
+        )
+    if latest_request is None or not candidate_symbols:
+        raise BacktestPreflightError(
+            "NO_TRADABLE_CANDIDATES",
+            "No tradable candidates overlap the requested dates and instrument universe.",
+            details={"session_count": len(sessions), "eligible_symbol_dates": eligible_pairs},
+        )
+
+    as_of, available = latest_request
+    with SdkExecutionSession(package["source"], timeout_seconds=20.0) as session:
+        session.configure(_static_payload(prepared))
+        result = session.execute(
+            "signal",
+            _event_request(
+                project,
+                as_of,
+                available,
+                event="session_close",
+                portfolio={},
+                state={},
+                last_decision=None,
+                force_signal=True,
+            ),
+        )
+    project_universe = result.value.get("universe") or []
+    if not project_universe:
+        raise BacktestPreflightError(
+            "NO_TRADABLE_CANDIDATES",
+            "The saved project universe has no tradable candidates in the requested runtime data.",
+            details={"candidate_symbol_count": len(candidate_symbols)},
+        )
+    return {
+        "status": "ready",
+        "project_id": project_id,
+        "start_date": start.strftime("%Y-%m-%d"),
+        "end_date": end.strftime("%Y-%m-%d"),
+        "session_count": len(sessions),
+        "eligible_symbol_dates": eligible_pairs,
+        "complete_market_state_symbol_dates": complete_pairs,
+        "tradable_symbol_dates": tradable_pairs,
+        "candidate_symbol_count": len(candidate_symbols),
+        "project_universe_count": len(project_universe),
+        "delisting_policy": "write_off_at_zero",
+        "warnings": warnings,
+    }
+
+
 def run_strategy_backtest(
     repository: StrategyRepository,
     project_id: str,
@@ -266,45 +492,46 @@ def run_strategy_backtest(
     weights: dict[pd.Timestamp, dict[str, float]] = {}
     executions: list[dict[str, Any]] = []
     event_diagnostics: list[dict[str, Any]] = []
+    delisting_settlements: list[dict[str, Any]] = []
     warnings: set[str] = set()
     execution_exclusion_count = 0
     execution_exclusion_symbols: set[str] = set()
     execution_exclusion_samples: list[dict[str, Any]] = []
+    execution_fill_count = 0
+    execution_fill_fields: dict[str, int] = {}
     if execution_data_policy == "illustrative":
         warnings.add(
             "illustrative execution data: suspension and price-limit coverage is not guaranteed"
         )
     run_manifest = list(package.get("manifest") or [])
+    has_execution_data_fill = any(
+        item.get("kind") == "execution_data_fill" for item in run_manifest
+    )
 
     with SdkExecutionSession(package["source"], timeout_seconds=30.0) as session:
         session.configure(_static_payload(prepared))
         for session_index, current_date in enumerate(sessions):
             rows = bars_by_date.get(current_date, pd.DataFrame())
             available = _available_symbols(prepared.instruments, current_date, rows)
-            if execution_data_policy == "strict":
-                missing_execution_data = _execution_data_gaps(rows, available)
-                if missing_execution_data:
-                    unavailable = set(missing_execution_data)
-                    available = [symbol for symbol in available if symbol not in unavailable]
-                    execution_exclusion_count += len(missing_execution_data)
-                    execution_exclusion_symbols.update(missing_execution_data)
-                    remaining_sample_slots = max(0, 50 - len(execution_exclusion_samples))
-                    execution_exclusion_samples.extend(
-                        {
-                            "date": str(current_date)[:10],
-                            "symbol": symbol,
-                            "missing_fields": list(fields),
-                        }
-                        for symbol, fields in list(missing_execution_data.items())[
-                            :remaining_sample_slots
-                        ]
-                    )
 
-            _assert_no_unsettled_delistings(
+            delisted = _settle_delisted_positions(
                 asset_values,
+                entry_prices,
+                previous_close_prices,
                 prepared.instruments,
                 current_date,
             )
+            if delisted:
+                delisting_settlements.append(
+                    {
+                        "date": str(current_date)[:10],
+                        "symbols": [item["symbol"] for item in delisted],
+                        "position_count": len(delisted),
+                        "written_off_value": float(
+                            sum(float(item["written_off_value"]) for item in delisted)
+                        ),
+                    }
+                )
 
             open_prices = _prices(rows, "open")
             close_prices = _prices(rows, "close")
@@ -332,7 +559,22 @@ def run_strategy_backtest(
                     field="open",
                     project=project,
                     strict_execution_data=execution_data_policy == "strict",
+                    session=session,
+                    as_of=current_date,
+                    event="session_open",
+                    execution_data_fill=(
+                        has_execution_data_fill and execution_data_policy == "strict"
+                    ),
                 )
+                execution_fill_count, execution_fill_fields = _record_execution_data_audit(
+                    audit,
+                    current_date,
+                    execution_exclusion_symbols,
+                    execution_exclusion_samples,
+                    execution_fill_count,
+                    execution_fill_fields,
+                )
+                execution_exclusion_count += len(audit.get("missing_execution_data") or ())
                 executions.append(
                     {
                         **audit,
@@ -401,7 +643,22 @@ def run_strategy_backtest(
                     field="close",
                     project=project,
                     strict_execution_data=execution_data_policy == "strict",
+                    session=session,
+                    as_of=current_date,
+                    event="session_close",
+                    execution_data_fill=(
+                        has_execution_data_fill and execution_data_policy == "strict"
+                    ),
                 )
+                execution_fill_count, execution_fill_fields = _record_execution_data_audit(
+                    audit,
+                    current_date,
+                    execution_exclusion_symbols,
+                    execution_exclusion_samples,
+                    execution_fill_count,
+                    execution_fill_fields,
+                )
+                execution_exclusion_count += len(audit.get("missing_execution_data") or ())
                 executions.append(
                     {
                         **audit,
@@ -479,9 +736,14 @@ def run_strategy_backtest(
     )
     if execution_exclusion_count:
         warnings.add(
-            "strict execution excluded "
+            "PARTIAL_MARKET_STATE: strict execution excluded "
             f"{execution_exclusion_count} symbol-date candidates with missing "
             "suspension or price-limit data"
+        )
+    if execution_fill_count:
+        warnings.add(
+            "CUSTOM_EXECUTION_DATA_FILL: project Python filled "
+            f"{execution_fill_count} missing execution-state values"
         )
     return StrategyBacktestResult(
         project=project,
@@ -504,6 +766,7 @@ def run_strategy_backtest(
             },
             "periods": len(returns_series),
             "events": event_diagnostics,
+            "delisting_settlements": delisting_settlements,
             "final_state": state,
             "warnings": sorted(warnings),
             "execution_data_policy": execution_data_policy,
@@ -515,6 +778,10 @@ def run_strategy_backtest(
                 "unique_symbol_count": len(execution_exclusion_symbols),
                 "symbols_sample": sorted(execution_exclusion_symbols)[:50],
                 "samples": execution_exclusion_samples,
+            },
+            "execution_data_fill": {
+                "value_count": execution_fill_count,
+                "fields": dict(sorted(execution_fill_fields.items())),
             },
         },
     )
@@ -553,9 +820,7 @@ def _prepare_data(
     # the beginning of the range; StrategyContext and _available_symbols apply
     # the listing intervals at each point in time.
     master_loader = getattr(engine, "get_instrument_master", None)
-    instruments = (
-        master_loader() if callable(master_loader) else engine.get_instruments(None)
-    )
+    instruments = master_loader() if callable(master_loader) else engine.get_instruments(None)
     if instruments.empty or "symbol" not in instruments:
         raise MissingDataError("point-in-time instrument snapshots are required")
     instruments = instruments.copy()
@@ -587,12 +852,19 @@ def _prepare_data(
         )
     )
     required_execution_fields = ["open", "close", "volume", "amount"]
+    has_execution_data_fill = any(
+        item.get("kind") == "execution_data_fill" for item in package.get("manifest") or ()
+    )
     supplemental_execution_fields = (
-        ["limit_up", "limit_down"] if execution_data_policy == "strict" else []
+        [
+            "limit_up",
+            "limit_down",
+            *(["raw_close", "is_st"] if has_execution_data_fill else []),
+        ]
+        if execution_data_policy == "strict"
+        else []
     )
-    required_bar_fields = list(
-        dict.fromkeys([*declared_bar_fields, *required_execution_fields])
-    )
+    required_bar_fields = list(dict.fromkeys([*declared_bar_fields, *required_execution_fields]))
     fields = list(dict.fromkeys([*required_bar_fields, *supplemental_execution_fields]))
     state_field_names = {"paused", "is_suspended", "is_st"}
     requested_state_fields = list(
@@ -641,11 +913,23 @@ def _prepare_data(
         raise MissingDataError(f"data profile is missing required bar fields: {missing}")
     if execution_data_policy == "strict":
         # These fields are execution safeguards rather than strategy inputs.
-        # Missing values make only that symbol/date ineligible; they must not
-        # abort unrelated symbols or fabricate a sale of an existing holding.
-        for field in ("is_suspended", "limit_up", "limit_down"):
+        # Keep missing values visible to project-owned execution-data fill code;
+        # anything still missing is rejected only when an actual order is attempted.
+        for field in (
+            "is_suspended",
+            "limit_up",
+            "limit_down",
+            *(["raw_close", "is_st"] if has_execution_data_fill else []),
+        ):
             if field not in bars:
                 bars[field] = pd.NA
+        # Provider-side zero/negative/non-finite limits mean unavailable data.
+        # Only a validated @execution_data_fill result may use a paired zero to
+        # state explicitly that an IPO session has no price limit.
+        for field in ("limit_up", "limit_down"):
+            numeric = pd.to_numeric(bars[field], errors="coerce")
+            valid = numeric.notna() & np.isfinite(numeric) & numeric.gt(0)
+            bars[field] = numeric.where(valid, pd.NA)
     sessions = tuple(pd.DatetimeIndex(bars["date"].dropna().unique()).sort_values())
 
     instrument_fields = list(package.get("data_requirements", {}).get("instruments") or ())
@@ -673,9 +957,7 @@ def _prepare_data(
                 f"data profile is missing required fundamental fields: {missing_fundamentals}"
             )
 
-    daily_factor_fields = list(
-        package.get("data_requirements", {}).get("daily_factors") or ()
-    )
+    daily_factor_fields = list(package.get("data_requirements", {}).get("daily_factors") or ())
     daily_factors = pd.DataFrame()
     if daily_factor_fields:
         daily_factors = engine.get_daily_factors(
@@ -687,9 +969,7 @@ def _prepare_data(
             use_cache=False,
         )
         available_daily_fields = (
-            set(daily_factors["field"].dropna().astype(str))
-            if "field" in daily_factors
-            else set()
+            set(daily_factors["field"].dropna().astype(str)) if "field" in daily_factors else set()
         )
         missing_daily_factors = sorted(set(daily_factor_fields) - available_daily_fields)
         if missing_daily_factors:
@@ -697,9 +977,7 @@ def _prepare_data(
                 f"data profile is missing required daily factors: {missing_daily_factors}"
             )
 
-    requested_indexes = list(
-        package.get("data_requirements", {}).get("index_components") or ()
-    )
+    requested_indexes = list(package.get("data_requirements", {}).get("index_components") or ())
     index_components = pd.DataFrame()
     if requested_indexes:
         index_components = engine.get_index_components(
@@ -773,9 +1051,7 @@ def _available_symbols(
                 return []
             values = pd.to_numeric(rows[field], errors="coerce")
             valid &= values.notna() & np.isfinite(values) & values.gt(0)
-        market_symbols = set(
-            rows.loc[valid, "symbol"].dropna().astype(str).str.upper().unique()
-        )
+        market_symbols = set(rows.loc[valid, "symbol"].dropna().astype(str).str.upper().unique())
         if not market_symbols:
             return []
 
@@ -836,13 +1112,135 @@ def _execution_data_gaps(
         missing_fields: list[str] = []
         if pd.isna(row.get("is_suspended", pd.NA)):
             missing_fields.append("is_suspended")
-        for field in ("limit_up", "limit_down"):
-            value = pd.to_numeric(pd.Series([row.get(field)]), errors="coerce").iloc[0]
-            if pd.isna(value) or not math.isfinite(float(value)) or float(value) <= 0:
-                missing_fields.append(field)
+        limit_values = {
+            field: pd.to_numeric(pd.Series([row.get(field)]), errors="coerce").iloc[0]
+            for field in ("limit_up", "limit_down")
+        }
+        no_price_limit = all(
+            pd.notna(value) and math.isfinite(float(value)) and float(value) == 0.0
+            for value in limit_values.values()
+        )
+        if not no_price_limit:
+            for field, value in limit_values.items():
+                if pd.isna(value) or not math.isfinite(float(value)) or float(value) <= 0:
+                    missing_fields.append(field)
         if missing_fields:
             gaps[symbol] = tuple(missing_fields)
     return gaps
+
+
+def _required_bar_value_gaps(
+    rows: pd.DataFrame,
+    symbols: Sequence[str],
+    fields: Sequence[str],
+) -> dict[str, tuple[str, ...]]:
+    """Return required bar values that are null or non-finite for each row."""
+
+    if not symbols:
+        return {}
+    frame = rows.reset_index() if rows.index.name == "symbol" else rows.copy()
+    if frame.empty or "symbol" not in frame:
+        return {str(symbol).upper(): ("market_row",) for symbol in symbols}
+    frame["symbol"] = frame["symbol"].astype(str).str.upper()
+    indexed = frame.drop_duplicates("symbol", keep="last").set_index("symbol")
+    gaps: dict[str, tuple[str, ...]] = {}
+    for raw_symbol in symbols:
+        symbol = str(raw_symbol).upper()
+        if symbol not in indexed.index:
+            gaps[symbol] = ("market_row",)
+            continue
+        row = indexed.loc[symbol]
+        missing: list[str] = []
+        for field in fields:
+            value = pd.to_numeric(pd.Series([row.get(field)]), errors="coerce").iloc[0]
+            if pd.isna(value) or not math.isfinite(float(value)):
+                missing.append(field)
+            elif field in {"open", "high", "low", "close"} and float(value) <= 0:
+                missing.append(field)
+        if missing:
+            gaps[symbol] = tuple(missing)
+    return gaps
+
+
+def _missing_required_coverage(
+    prepared: PreparedRunData,
+    package: Mapping[str, Any],
+    *,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> list[str]:
+    """Find required datasets or fields with no usable value in the run range."""
+
+    requirements = package.get("data_requirements") or {}
+    missing: list[str] = []
+    bars = prepared.bars.loc[
+        pd.to_datetime(prepared.bars["date"], errors="coerce").between(start, end)
+    ]
+    bar_fields = tuple(
+        dict.fromkeys(
+            [
+                *(requirements.get("bars") or ()),
+                "open",
+                "close",
+                "volume",
+                "amount",
+            ]
+        )
+    )
+    for field in bar_fields:
+        values = (
+            pd.to_numeric(bars[field], errors="coerce") if field in bars else pd.Series(dtype=float)
+        )
+        if values.empty or not (values.notna() & np.isfinite(values)).any():
+            missing.append(f"bars.{field}")
+
+    for field in requirements.get("fundamentals") or ():
+        values = (
+            pd.to_numeric(prepared.fundamentals[field], errors="coerce")
+            if field in prepared.fundamentals
+            else pd.Series(dtype=float)
+        )
+        if values.empty or not (values.notna() & np.isfinite(values)).any():
+            missing.append(f"fundamentals.{field}")
+
+    lifecycle_fields = {"listed_date", "list_date", "delisted_date", "de_listed_date"}
+    for field in requirements.get("instruments") or ():
+        if field in lifecycle_fields:
+            continue
+        values = (
+            prepared.instruments[field]
+            if field in prepared.instruments
+            else pd.Series(dtype=object)
+        )
+        if values.empty or values.dropna().empty:
+            missing.append(f"instruments.{field}")
+
+    daily = prepared.daily_factors
+    for field in requirements.get("daily_factors") or ():
+        values = (
+            pd.to_numeric(
+                daily.loc[daily["field"].astype(str).eq(str(field)), "value"],
+                errors="coerce",
+            )
+            if {"field", "value"}.issubset(daily.columns)
+            else pd.Series(dtype=float)
+        )
+        if values.empty or not (values.notna() & np.isfinite(values)).any():
+            missing.append(f"daily_factors.{field}")
+
+    components = prepared.index_components
+    for index_symbol in requirements.get("index_components") or ():
+        available = (
+            components.loc[
+                components["index_symbol"].astype(str).str.upper().eq(str(index_symbol).upper()),
+                "symbol",
+            ]
+            if {"index_symbol", "symbol"}.issubset(components.columns)
+            else pd.Series(dtype=object)
+        )
+        if available.dropna().empty:
+            missing.append(f"index_components.{index_symbol}")
+    return sorted(missing)
 
 
 def _limits(project: Mapping[str, Any]) -> dict[str, float]:
@@ -1028,6 +1426,10 @@ def _execute_target(
     field: str,
     project: Mapping[str, Any],
     strict_execution_data: bool,
+    session: SdkExecutionSession,
+    as_of: pd.Timestamp,
+    event: str,
+    execution_data_fill: bool,
 ) -> tuple[dict[str, float], float, dict[str, float], dict[str, Any]]:
     decision = pending["decision"]
     policy = pending["policy"]
@@ -1048,6 +1450,26 @@ def _execute_target(
         indexed_rows = pd.DataFrame(columns=["symbol", "date", "open", "close", "volume", "amount"])
     if "date" not in indexed_rows:
         indexed_rows["date"] = pd.NaT
+    fill_audit: dict[str, Any] = {}
+    if execution_data_fill:
+        indexed_rows, fill_audit = _fill_execution_state(
+            session,
+            indexed_rows,
+            symbols=[
+                *requested_target,
+                *current,
+                *(policy.get("fallback_candidates") or ()),
+            ],
+            as_of=as_of,
+            event=event,
+        )
+    trade_rows = indexed_rows.set_index("symbol") if "symbol" in indexed_rows else indexed_rows
+    missing_execution_data: dict[str, tuple[str, ...]] = {}
+    if strict_execution_data:
+        for symbol in set(requested_target) | set(current):
+            delta = float(requested_target.get(symbol, 0.0)) - float(current.get(symbol, 0.0))
+            if abs(delta) > 1e-12:
+                missing_execution_data.update(_execution_data_gaps(trade_rows, [symbol]))
     target, fallback_routes = _route_fallbacks(
         requested_target,
         current,
@@ -1056,15 +1478,11 @@ def _execute_target(
         policy.get("fallback_candidates") or (),
         strict_execution_data=strict_execution_data,
     )
-    trade_rows = indexed_rows.set_index("symbol") if "symbol" in indexed_rows else indexed_rows
-    missing_execution_data: dict[str, tuple[str, ...]] = {}
     for symbol in set(target) | set(current):
         delta = float(target.get(symbol, 0.0)) - float(current.get(symbol, 0.0))
         if abs(delta) <= 1e-12:
             continue
         side = "buy" if delta > 0 else "sell"
-        if strict_execution_data:
-            missing_execution_data.update(_execution_data_gaps(trade_rows, [symbol]))
         if not _trade_allowed(
             trade_rows,
             symbol,
@@ -1119,10 +1537,90 @@ def _execute_target(
                 {"symbol": symbol, "missing_fields": list(fields)}
                 for symbol, fields in sorted(missing_execution_data.items())
             ],
+            "execution_data_fill": fill_audit,
             "decision_reason": decision.get("reason"),
             "state_committed": True,
         },
     )
+
+
+def _fill_execution_state(
+    session: SdkExecutionSession,
+    rows: pd.DataFrame,
+    *,
+    symbols: Sequence[str],
+    as_of: pd.Timestamp,
+    event: str,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Run the project's visible state-fill Python for actual order candidates."""
+
+    normalized_symbols = sorted({str(symbol).strip().upper() for symbol in symbols})
+    if rows.empty or not normalized_symbols or "symbol" not in rows:
+        return rows, {}
+    output = rows.copy()
+    output["symbol"] = output["symbol"].astype(str).str.upper()
+    state_rows = output.loc[output["symbol"].isin(normalized_symbols)].copy()
+    if state_rows.empty:
+        return output, {}
+    for field in ("is_suspended", "limit_up", "limit_down"):
+        if field not in state_rows:
+            state_rows[field] = pd.NA
+    request_rows = state_rows[["date", "symbol", "is_suspended", "limit_up", "limit_down"]].to_dict(
+        orient="records"
+    )
+    result = session.execute(
+        "execution_data_fill",
+        {
+            "event": event,
+            "as_of": as_of,
+            "available_symbols": normalized_symbols,
+            "execution_state_rows": request_rows,
+        },
+    ).value
+    filled = pd.DataFrame(result.get("rows") or ())
+    if filled.empty:
+        return output, {}
+    filled["symbol"] = filled["symbol"].astype(str).str.upper()
+    filled = filled.drop_duplicates("symbol", keep="last").set_index("symbol")
+    for field in ("is_suspended", "limit_up", "limit_down"):
+        if field not in output:
+            output[field] = pd.NA
+        replacement = output["symbol"].map(filled[field])
+        missing = output[field].isna() & replacement.notna()
+        output.loc[missing, field] = replacement.loc[missing]
+    return output, {
+        "entrypoint_id": result.get("entrypoint_id"),
+        "filled": dict(result.get("filled") or {}),
+    }
+
+
+def _record_execution_data_audit(
+    audit: Mapping[str, Any],
+    current_date: pd.Timestamp,
+    exclusion_symbols: set[str],
+    exclusion_samples: list[dict[str, Any]],
+    fill_count: int,
+    fill_fields: Mapping[str, int],
+) -> tuple[int, dict[str, int]]:
+    for item in audit.get("missing_execution_data") or ():
+        symbol = str(item.get("symbol") or "").upper()
+        if symbol:
+            exclusion_symbols.add(symbol)
+        if len(exclusion_samples) < 50:
+            exclusion_samples.append(
+                {
+                    "date": str(current_date)[:10],
+                    "symbol": symbol,
+                    "missing_fields": list(item.get("missing_fields") or ()),
+                }
+            )
+    next_fields = dict(fill_fields)
+    filled = (audit.get("execution_data_fill") or {}).get("filled") or {}
+    for field, raw_count in filled.items():
+        count = int(raw_count)
+        next_fields[str(field)] = next_fields.get(str(field), 0) + count
+        fill_count += count
+    return fill_count, next_fields
 
 
 def _route_fallbacks(
@@ -1203,15 +1701,29 @@ def _trade_allowed(
         return False
     if pd.notna(suspended) and bool(suspended):
         return False
+    limit_values = {
+        name: pd.to_numeric(pd.Series([row.get(name)]), errors="coerce").iloc[0]
+        for name in ("limit_up", "limit_down")
+    }
+    no_price_limit = all(
+        pd.notna(value) and math.isfinite(float(value)) and float(value) == 0.0
+        for value in limit_values.values()
+    )
+    single_zero = (
+        any(
+            pd.notna(value) and math.isfinite(float(value)) and float(value) == 0.0
+            for value in limit_values.values()
+        )
+        and not no_price_limit
+    )
     limit_field = "limit_up" if side == "buy" else "limit_down"
-    limit_value = pd.to_numeric(pd.Series([row.get(limit_field)]), errors="coerce").iloc[0]
-    if strict_execution_data and (
-        pd.isna(limit_value)
-        or not math.isfinite(float(limit_value))
-        or float(limit_value) <= 0
-    ):
-        return False
-    if pd.notna(limit_value) and float(limit_value) > 0:
+    limit_value = limit_values[limit_field]
+    if strict_execution_data and not no_price_limit:
+        if single_zero or (
+            pd.isna(limit_value) or not math.isfinite(float(limit_value)) or float(limit_value) <= 0
+        ):
+            return False
+    if not no_price_limit and pd.notna(limit_value) and float(limit_value) > 0:
         if side == "buy" and float(price) >= float(limit_value) - 1e-12:
             return False
         if side == "sell" and float(price) <= float(limit_value) + 1e-12:
@@ -1219,20 +1731,24 @@ def _trade_allowed(
     return True
 
 
-def _assert_no_unsettled_delistings(
-    asset_values: Mapping[str, float],
+def _settle_delisted_positions(
+    asset_values: dict[str, float],
+    entry_prices: dict[str, float],
+    previous_close_prices: dict[str, float],
     instruments: pd.DataFrame,
     as_of: pd.Timestamp,
-) -> None:
+) -> list[dict[str, Any]]:
+    """Write held instruments off at zero on their delisting date."""
+
     held = {str(symbol).upper() for symbol, value in asset_values.items() if value > 1e-12}
     if not held or instruments.empty or "symbol" not in instruments:
-        return
+        return []
     delisted_field = next(
         (field for field in ("de_listed_date", "delisted_date") if field in instruments),
         None,
     )
     if delisted_field is None:
-        return
+        return []
     frame = instruments.loc[
         instruments["symbol"].astype(str).str.upper().isin(held),
         ["symbol", delisted_field],
@@ -1244,11 +1760,17 @@ def _assert_no_unsettled_delistings(
         .str.upper()
         .unique()
     )
-    if affected:
-        raise MissingDataError(
-            "held instruments reached delisting without an explicit settlement price: "
-            + ", ".join(affected)
+    settled = []
+    for symbol in affected:
+        settled.append(
+            {
+                "symbol": symbol,
+                "written_off_value": float(asset_values.pop(symbol, 0.0)),
+            }
         )
+        entry_prices.pop(symbol, None)
+        previous_close_prices.pop(symbol, None)
+    return settled
 
 
 def _prices(rows: pd.DataFrame, field: str) -> dict[str, float]:
@@ -1464,10 +1986,12 @@ def _execution_cost(
 
 
 __all__ = [
+    "BacktestPreflightError",
     "PreparedRunData",
     "StrategyBacktestResult",
     "evaluate_factor_history",
     "evaluate_factor_snapshot",
     "preview_strategy",
+    "preflight_strategy_backtest",
     "run_strategy_backtest",
 ]

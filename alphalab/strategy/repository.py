@@ -11,7 +11,7 @@ import sqlite3
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
@@ -190,6 +190,30 @@ class StrategyRepository:
         profile: str = "runtime",
         settings: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        strategy_source, factor_units = split_strategy_source(source)
+        return self.create_project_from_units(
+            project_id,
+            name=name,
+            description=description,
+            strategy_source=strategy_source,
+            factor_sources=[item.source for item in factor_units],
+            profile=profile,
+            settings=settings,
+        )
+
+    def create_project_from_units(
+        self,
+        project_id: str,
+        *,
+        name: str,
+        strategy_source: str,
+        factor_sources: Iterable[str] = (),
+        description: str = "",
+        profile: str = "runtime",
+        settings: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Validate all source units, then create exactly one initial package."""
+
         normalized = normalize_project_id(project_id)
         if not str(name).strip():
             raise ValueError("project name must not be empty")
@@ -197,28 +221,39 @@ class StrategyRepository:
             raise ValueError("strategy projects use the RQ runtime profile")
         if self.get_project(normalized, include_source=False) is not None:
             raise FileExistsError(normalized)
-        inspection = inspect_strategy_source(source)
+        factors = [str(item) for item in factor_sources]
+        source, inspection = assemble_strategy_source(strategy_source, factors)
         self._probe_source(source, inspection)
-        with self._lock:
-            self._conn.execute(
-                """INSERT INTO strategy_projects
-                   (id, name, description, profile, current_revision,
-                    draft_parent_revision, draft_source, draft_source_sha256,
-                    settings_json, built_in)
-                   VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?, 0)""",
-                (
-                    normalized,
-                    str(name).strip(),
-                    str(description),
-                    profile,
-                    source,
-                    inspection.source_sha256,
-                    _json({**_default_settings(), **dict(settings or {})}),
-                ),
+        factor_ids = [item.id for item in inspection.entrypoints if item.kind == "factor"]
+        if len(factor_ids) != len(factors):
+            raise StrategySourceError(
+                "assembled factor inventory is inconsistent", phase="register"
             )
-            self._replace_source_units(normalized, source)
-            self._insert_package(normalized, 1, None, source, inspection)
-            self._conn.commit()
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                self._conn.execute(
+                    """INSERT INTO strategy_projects
+                       (id, name, description, profile, current_revision,
+                        draft_parent_revision, draft_source, draft_source_sha256,
+                        settings_json, built_in)
+                       VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?, 0)""",
+                    (
+                        normalized,
+                        str(name).strip(),
+                        str(description),
+                        profile,
+                        source,
+                        inspection.source_sha256,
+                        _json({**_default_settings(), **dict(settings or {})}),
+                    ),
+                )
+                self._write_source_units(normalized, strategy_source, factors, factor_ids)
+                self._insert_package(normalized, 1, None, source, inspection)
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
         return self.get_project(normalized) or {}
 
     def clone_project(
@@ -358,9 +393,7 @@ class StrategyRepository:
         strategy = next(str(item["source"]) for item in units if item["kind"] == "strategy")
         factor_rows = [item for item in units if item["kind"] == "factor"]
         factors = [
-            str(item["source"])
-            for item in factor_rows
-            if item["path"] != f"factors/{factor_id}.py"
+            str(item["source"]) for item in factor_rows if item["path"] != f"factors/{factor_id}.py"
         ]
         if len(factors) == len(factor_rows):
             raise KeyError(factor_id)
@@ -402,10 +435,7 @@ class StrategyRepository:
         expected_source_sha256: str | None = None,
     ) -> dict[str, Any]:
         observed = self._editable_row(project_id)
-        if (
-            expected_source_sha256
-            and observed["draft_source_sha256"] != expected_source_sha256
-        ):
+        if expected_source_sha256 and observed["draft_source_sha256"] != expected_source_sha256:
             raise RuntimeError("draft changed since it was inspected")
         source = str(observed["draft_source"])
         inspection = inspect_strategy_source(source)
@@ -584,11 +614,15 @@ class StrategyRepository:
         if expected_source_sha256 and row["draft_source_sha256"] != expected_source_sha256:
             raise RuntimeError("draft changed since it was inspected")
         bundled, inspection = assemble_strategy_source(strategy_source, factor_sources)
-        factor_ids = [
-            item.id for item in inspection.entrypoints if item.kind == "factor"
-        ]
+        # Probe the fully assembled cross-file package before opening the write
+        # transaction.  A failed import/register probe must never leave a dirty
+        # draft or consume a revision number.
+        self._probe_source(bundled, inspection)
+        factor_ids = [item.id for item in inspection.entrypoints if item.kind == "factor"]
         if len(factor_ids) != len(factor_sources):
-            raise StrategySourceError("assembled factor inventory is inconsistent", phase="register")
+            raise StrategySourceError(
+                "assembled factor inventory is inconsistent", phase="register"
+            )
         if any(
             factor_id in {".", ".."} or "/" in factor_id or "\\" in factor_id
             for factor_id in factor_ids
@@ -599,15 +633,46 @@ class StrategyRepository:
         with self._lock:
             try:
                 self._conn.execute("BEGIN IMMEDIATE")
+                locked = self._conn.execute(
+                    "SELECT * FROM strategy_projects WHERE id = ?",
+                    (row["id"],),
+                ).fetchone()
+                if locked is None:
+                    raise KeyError(str(row["id"]))
                 compare_hash = expected_source_sha256 or str(row["draft_source_sha256"])
-                cursor = self._conn.execute(
-                    """UPDATE strategy_projects
-                       SET draft_source = ?, draft_source_sha256 = ?, updated_at = datetime('now')
-                       WHERE id = ? AND draft_source_sha256 = ?""",
-                    (bundled, inspection.source_sha256, row["id"], compare_hash),
-                )
-                if cursor.rowcount != 1:
+                if locked["draft_source_sha256"] != compare_hash:
                     raise RuntimeError("draft changed while the update was being prepared")
+                current_revision = int(locked["current_revision"])
+                current = self._conn.execute(
+                    """SELECT source_sha256 FROM strategy_source_packages
+                       WHERE project_id = ? AND revision = ?""",
+                    (row["id"], current_revision),
+                ).fetchone()
+                if current is not None and current["source_sha256"] == inspection.source_sha256:
+                    revision = current_revision
+                else:
+                    revision = current_revision + 1
+                    self._insert_package(
+                        str(row["id"]),
+                        revision,
+                        current_revision or None,
+                        bundled,
+                        inspection,
+                    )
+                self._conn.execute(
+                    """UPDATE strategy_projects
+                       SET current_revision = ?, draft_parent_revision = ?,
+                           draft_source = ?, draft_source_sha256 = ?,
+                           updated_at = datetime('now')
+                       WHERE id = ?""",
+                    (
+                        revision,
+                        revision,
+                        bundled,
+                        inspection.source_sha256,
+                        row["id"],
+                    ),
+                )
                 self._write_source_units(
                     str(row["id"]), strategy_source, factor_sources, factor_ids
                 )
@@ -617,9 +682,7 @@ class StrategyRepository:
                 raise
         return self.get_project(str(row["id"])) or {}
 
-    def _insert_package_units(
-        self, project_id: str, revision: int, bundled_source: str
-    ) -> None:
+    def _insert_package_units(self, project_id: str, revision: int, bundled_source: str) -> None:
         strategy_source, factor_units = split_strategy_source(bundled_source)
         strategy_hash = hashlib.sha256(strategy_source.encode("utf-8")).hexdigest()
         rows = [
@@ -783,6 +846,11 @@ class StrategyRepository:
             "close",
             "volume",
             "amount",
+            "raw_close",
+            "is_suspended",
+            "is_st",
+            "limit_up",
+            "limit_down",
         }
         dates = pd.bdate_range("2024-01-01", periods=260)
         bars = pd.DataFrame(
@@ -793,8 +861,16 @@ class StrategyRepository:
                     **{
                         field: (
                             100.0 + index * 0.1
-                            if field in {"open", "high", "low", "close"}
-                            else 1_000_000.0
+                            if field in {"open", "high", "low", "close", "raw_close"}
+                            else (
+                                False
+                                if field in {"is_suspended", "is_st"}
+                                else (
+                                    200.0
+                                    if field == "limit_up"
+                                    else 1.0 if field == "limit_down" else 1_000_000.0
+                                )
+                            )
                         )
                         for field in fields
                     },
@@ -805,12 +881,8 @@ class StrategyRepository:
         )
         fundamentals_fields = set(inspection.data_requirements.get("fundamentals") or ())
         instrument_fields = set(inspection.data_requirements.get("instruments") or ())
-        daily_factor_fields = set(
-            inspection.data_requirements.get("daily_factors") or ()
-        )
-        index_component_ids = set(
-            inspection.data_requirements.get("index_components") or ()
-        )
+        daily_factor_fields = set(inspection.data_requirements.get("daily_factors") or ())
+        index_component_ids = set(inspection.data_requirements.get("index_components") or ())
         fundamentals = pd.DataFrame(
             [
                 {
@@ -870,6 +942,20 @@ class StrategyRepository:
             "limits": {"max_weight": 1.0, "max_gross_exposure": 1.0},
         }
         probe_sdk_operation(source, "execution", payload)
+        if any(item.kind == "execution_data_fill" for item in inspection.entrypoints):
+            execution_rows = bars.loc[bars["date"].eq(dates[-1])].copy()
+            execution_rows[["is_suspended", "limit_up", "limit_down"]] = pd.NA
+            probe_sdk_operation(
+                source,
+                "execution_data_fill",
+                {
+                    **payload,
+                    "event": "session_open",
+                    "execution_state_rows": execution_rows[
+                        ["date", "symbol", "is_suspended", "limit_up", "limit_down"]
+                    ].to_dict(orient="records"),
+                },
+            )
         for entrypoint in inspection.entrypoints:
             if entrypoint.kind == "factor":
                 probe_sdk_operation(
@@ -1046,9 +1132,7 @@ class StrategyRepository:
             return
         updated_projects: list[str] = []
         skipped_dirty_projects: list[str] = []
-        rows = self._conn.execute(
-            "SELECT * FROM strategy_projects ORDER BY id"
-        ).fetchall()
+        rows = self._conn.execute("SELECT * FROM strategy_projects ORDER BY id").fetchall()
         with self._lock:
             try:
                 for row in rows:

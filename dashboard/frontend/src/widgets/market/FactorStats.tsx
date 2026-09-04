@@ -5,7 +5,6 @@ import { useDataProfile } from "@/lib/data-profile"
 import { formatNumber, formatPercent } from "@/lib/utils"
 import { Widget } from "@/widgets/Widget"
 
-import { AnalyticsFilters } from "./AnalyticsControls"
 import { analyticsError } from "./analytics-utils"
 
 function pct(value: number | null): string {
@@ -21,7 +20,7 @@ export function FactorStatsWidget() {
   const copy = language === "zh"
     ? { title: "因子统计", factor: "因子", annual: "年化收益", volatility: "波动率", maxDrawdown: "最大回撤", positive: "正收益占比", skew: "偏度", kurtosis: "峰度" }
     : { title: "Factor Statistics", factor: "Factor", annual: "Annual", volatility: "Volatility", maxDrawdown: "Max DD", positive: "Positive", skew: "Skew", kurtosis: "Kurtosis" }
-  const [profile, setProfile] = useDataProfile()
+  const [profile] = useDataProfile()
   const { startDate, endDate, selectedFactors } = useGlobalFilter()
   const query = useFactorStats(profile, startDate, endDate, selectedFactors)
   return (
@@ -30,7 +29,6 @@ export function FactorStatsWidget() {
       loading={query.isLoading}
       error={analyticsError(query.error)}
       onRetry={() => query.refetch()}
-      actions={<AnalyticsFilters profile={profile} onProfileChange={setProfile} />}
       bodyPadding="none"
     >
       <div className="analytics-table-wrap">

@@ -22,7 +22,7 @@ import { StatusBar } from "@/widgets/StatusBar"
 import { LaunchSyncBanner } from "@/widgets/home/LaunchSyncBanner"
 import { layoutPresets, LAYOUT_VERSION, normalizeWorkspaceMode, type WorkspaceMode } from "@/layouts/presets"
 import { WorkspaceProvider, useWorkspace, type LinkGroup } from "@/contexts/WorkspaceContext"
-import { StrategySdkProvider } from "@/contexts/StrategySdkContext"
+import { StrategySdkProvider, useStrategySdk } from "@/contexts/StrategySdkContext"
 import { PanelContext } from "@/contexts/PanelContext"
 import { useAgentPrompt } from "@/contexts/AgentPromptContext"
 import { useAlertNotifications } from "@/lib/notifications"
@@ -258,6 +258,7 @@ function WorkspaceInner() {
   const apiRefsRef = useRef<Partial<Record<WorkspaceMode, DockviewApi>>>({})
   const pendingWidgetOpenRef = useRef<PendingWidgetOpen[]>([])
   const workspace = useWorkspace()
+  const { openProject: openStrategyProject } = useStrategySdk()
   const { activeMode, setActiveMode } = workspace
   const projectReady = Boolean(
     workspace.selectedStrategy
@@ -266,6 +267,7 @@ function WorkspaceInner() {
   )
   const { language } = useLanguage()
   const activeModeRef = useRef(activeMode)
+  const projectReadyRef = useRef(projectReady)
   const [mountedModes, setMountedModes] = useState<Set<WorkspaceMode>>(() => new Set([activeMode]))
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed)
   const [rightRailCollapsed, setRightRailCollapsed] = useState(loadRightRailCollapsed)
@@ -273,6 +275,7 @@ function WorkspaceInner() {
   const compactViewport = useViewportBelow(1024)
   const narrowViewport = useViewportBelow(768)
   useEffect(() => { activeModeRef.current = activeMode }, [activeMode])
+  useEffect(() => { projectReadyRef.current = projectReady }, [projectReady])
 
   useEffect(() => {
     for (const [mode, api] of Object.entries(apiRefsRef.current) as [WorkspaceMode, DockviewApi][]) {
@@ -285,7 +288,7 @@ function WorkspaceInner() {
   const switchMode = useCallback((rawMode: unknown) => {
     const mode = normalizeWorkspaceMode(rawMode)
     if (!(mode in MODE_CONFIG)) return false
-    if (mode !== "project" && !projectReady) return false
+    if (mode !== "project" && !projectReadyRef.current) return false
     if (mode === activeModeRef.current) return true
     const previousMode = activeModeRef.current
     const previousApi = apiRefsRef.current[previousMode]
@@ -305,7 +308,7 @@ function WorkspaceInner() {
       saveLayout(nextApi, mode)
     }
     return true
-  }, [language, projectReady, setActiveMode])
+  }, [language, setActiveMode])
 
   useEffect(() => {
     if (!projectReady && activeModeRef.current !== "project") switchMode("project")
@@ -356,7 +359,7 @@ function WorkspaceInner() {
       return Promise.resolve(undefined)
     }
     const targetMode = rawMode ? normalizeWorkspaceMode(rawMode) : activeModeRef.current
-    if (targetMode !== "project" && !projectReady) return Promise.resolve(undefined)
+    if (targetMode !== "project" && !projectReadyRef.current) return Promise.resolve(undefined)
     const targetApi = apiRefsRef.current[targetMode] ?? null
 
     return new Promise((resolve) => {
@@ -382,7 +385,7 @@ function WorkspaceInner() {
 
       pendingWidgetOpenRef.current.push({ widgetId, title, mode: targetMode, ...options, resolve })
     })
-  }, [addWidgetToApi, openAgentRail, projectReady, switchMode])
+  }, [addWidgetToApi, openAgentRail, switchMode])
 
   const toggleSidebarCollapsed = useCallback(() => {
     setSidebarCollapsed((prev) => {
@@ -505,13 +508,25 @@ function WorkspaceInner() {
       }
       case "set_focus": {
         const changed: string[] = []
+        if (Object.prototype.hasOwnProperty.call(command, "projectId")) {
+          const projectId = command.projectId ?? null
+          if (projectId) {
+            const focusedProject = await openStrategyProject(projectId)
+            projectReadyRef.current = Boolean(
+              focusedProject.editable && focusedProject.current_revision != null,
+            )
+            if (!projectReadyRef.current) {
+              return { type: command.type, success: false, message: `项目不可编辑：${projectId}` }
+            }
+          } else {
+            workspace.setSelectedStrategy(null)
+            projectReadyRef.current = false
+          }
+          changed.push(`项目 ${projectId ?? "已清除"}`)
+        }
         if (Object.prototype.hasOwnProperty.call(command, "symbol")) {
           workspace.setSelectedSymbol(command.symbol ?? null)
           changed.push(`标的 ${command.symbol ?? "已清除"}`)
-        }
-        if (Object.prototype.hasOwnProperty.call(command, "strategyId")) {
-          workspace.setSelectedStrategy(command.strategyId ?? null)
-          changed.push(`策略 ${command.strategyId ?? "已清除"}`)
         }
         if (Object.prototype.hasOwnProperty.call(command, "backtestId")) {
           workspace.setSelectedBacktest(command.backtestId ?? null)
@@ -556,7 +571,7 @@ function WorkspaceInner() {
         return { type: command.type, success: true, message: `已重置 ${targetMode} 布局` }
       }
     }
-  }, [language, openWidget, queryClient, registerResearchResult, switchMode, workspace])
+  }, [language, openStrategyProject, openWidget, queryClient, registerResearchResult, switchMode, workspace])
 
   useEffect(() => {
     const api = apiRefsRef.current[activeMode]

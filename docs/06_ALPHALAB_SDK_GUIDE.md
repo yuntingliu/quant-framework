@@ -101,6 +101,7 @@ DATA_REQUIREMENTS = {
 
 ```text
 @universe -> @factor -> @signal -> @portfolio -> @on_event -> @execution
+                                                        -> @execution_data_fill（实际下单时）
 ```
 
 - `@universe` 返回 `UniverseResult`，限定当前可研究标的。
@@ -108,6 +109,8 @@ DATA_REQUIREMENTS = {
 - `@portfolio` 把入选标的转换为 `PortfolioDecision.target_weights`。
 - `@on_event` 可在开盘、收盘、决策、成交或拒单事件上读取和更新持久 `state`。
 - `@execution` 返回 `ExecutionPolicy`，声明激活时点、费用、滑点、容量和备选标的。
+- `@execution_data_fill` 直接接收并返回执行状态 `DataFrame`；补齐代码就在
+  `strategy.py` 中，用户和 Agent 都能编辑。
 
 ### 关键返回对象
 
@@ -130,11 +133,45 @@ return ExecutionPolicy(
 
 `SignalResult.selected` 决定候选顺序，`scores` 保存解释用评分；`PortfolioDecision` 表达目标而不是订单；`ExecutionPolicy` 决定目标如何在市场约束下尝试成交。
 
+缺失状态的处理不是隐藏模式，而是项目内可编辑的普通 Python。例如：
+
+```python
+@execution_data_fill(id="fill_missing_market_state")
+def fill_missing_market_state(
+    context,
+    rows,
+    *,
+    main_board_limit_rate=0.10,
+    star_market_limit_rate=0.20,
+    chinext_limit_rate=0.20,
+    ipo_unlimited_sessions=5,
+):
+    filled = rows.copy()
+    symbols = list(filled["symbol"])
+    previous_close = context.history("raw_close", window=1, symbols=symbols).iloc[-1]
+    missing_up = filled["limit_up"].isna()
+    missing_down = filled["limit_down"].isna()
+    filled.loc[missing_up, "limit_up"] = filled.loc[missing_up, "symbol"].map(
+        (previous_close * (1.0 + main_board_limit_rate)).round(2)
+    )
+    filled.loc[missing_down, "limit_down"] = filled.loc[missing_down, "symbol"].map(
+        (previous_close * (1.0 - main_board_limit_rate)).round(2)
+    )
+    return filled
+```
+
+正式默认模板还会读取上一交易日 `is_st` 和证券上市日期，区分主板、ST、创业板、
+科创板、北交所和上市初期。规则作为该函数的可编辑关键字默认参数展示在策略工作台。
+制度上没有涨跌停的上市初期交易日用 `limit_up == limit_down == 0` 成对标记；单边 0
+会被拒绝，数据源自身的非正数也会先按缺失处理。
+
 ### 时点与可交易性
 
 - 收盘生成的信号默认不能用同一收盘价成交；官方模板使用 `next_session_open`。
-- 严格执行模式会校验停牌、涨停价和跌停价。候选标的缺少这些执行数据时会自动从当次候选中剔除并记录诊断，不会让整个回测因单个候选失败。
-- 已持仓标的若缺少必要市场状态，系统不能安全估值或决定退出，会拒绝继续执行；这与“尚未买入的候选可剔除”是不同风险级别。
+- 新建普通股票选股策略默认使用 `UniverseResult(symbols=context.universe)`，即运行时点全部有效股票；只有用户明确指定范围时才使用固定、指数、行业或 ETF 池。
+- 严格执行模式不会因状态缺失而提前清空信号证券池。只有实际订单进入成交阶段时，才运行项目的 `@execution_data_fill`，随后校验停牌、涨停价和跌停价。
+- 补齐函数只能填 `is_suspended`、`limit_up` 和 `limit_down` 的缺失值，不能覆盖已知值或修改行情。传入 Context 的行情历史严格结束在成交日前；普通涨跌停价使用前一交易日未复权 `raw_close`，返回值仍缺失时该订单被拒绝。
+- 已持仓标的无法成交时保留原持仓；只有确认到达退市日才按零价值核销。
 - 成交参与率和冲击成本依赖成交额。数据缺失时应查看 Run 的执行审计和警告，不要把未成交误认为零收益交易。
 
 ### 状态管理
@@ -249,7 +286,7 @@ def performance(context: ValidationContext, *, periods_per_year: int = 252) -> d
 ### 来源与溯源
 
 - `sources` 记录数据、网页或内部文档来源；不能用它代替正文中的方法说明。
-- `profile` 标明 `demo` 或 `runtime` 数据环境。
+- `profile` 固定为当前 `runtime` 数据环境。
 - `backtestId`、`runId`、`artifactId` 和 `provenance` 用于把结论追溯到具体运行、源码和数据。
 - 报告正文应明确研究区间、基准、成本、缺失数据处理、主要限制和不可外推的部分。
 

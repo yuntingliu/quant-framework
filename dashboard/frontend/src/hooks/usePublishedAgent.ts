@@ -5,15 +5,20 @@ import {
   buildRunInput,
   cancelRun,
   createRun,
-  isTerminalRun,
   readConexusStatus,
   readManifest,
   readRun,
+  readWorkspace,
   readSharedAgentConversations,
   selectRunExposure,
   streamRunEvents,
   upsertSharedAgentConversation,
 } from "@/lib/conexus/publishedHarnessClient"
+import {
+  changedWorkspaceNodesForRun,
+  isTerminalRun,
+  mergeRunSnapshot,
+} from "@/lib/conexus/runState"
 import type {
   AgentConversation,
   AgentConversationMessage,
@@ -36,14 +41,12 @@ interface ConversationHistoryState {
   selectedId: string | null
 }
 
-// Keep the original key so existing browser-only history can migrate to the server.
-const CONVERSATIONS_CACHE_KEY = "alphalab.anonymous-agent-conversations.v1"
 const MAX_SHARED_CONVERSATIONS = 100
 const MAX_MESSAGES = 80
 const MAX_STORED_MESSAGE_CHARACTERS = 40_000
 const MAX_CONTEXT_MESSAGES = 16
 const MAX_CONTEXT_MESSAGE_CHARACTERS = 8_000
-const MAX_LOCAL_CONTEXT_CHARACTERS = 60_000
+const MAX_CONVERSATION_CONTEXT_CHARACTERS = 60_000
 const DECISION_NOTEBOOK_NODE_ID = "alphalab-decision-notebook-v1"
 const WORKSPACE_RESULT_NODE_ID = "alphalab-workspace-result-v1"
 
@@ -124,10 +127,13 @@ function researchCheckpoint(value: unknown): AgentResearchCheckpoint | undefined
   }
 }
 
-function checkpointFromRun(run: PublishedHarnessRun): AgentResearchCheckpoint | undefined {
+function checkpointFromRun(
+  run: PublishedHarnessRun,
+  changedNodes: PublishedHarnessWorkspaceOutput[],
+): AgentResearchCheckpoint | undefined {
   let decisionNotebook: Record<string, unknown> | undefined
   let workspaceResult: Record<string, unknown> | undefined
-  for (const output of run.workspaceOutputs ?? []) {
+  for (const output of changedNodes) {
     if (output.id === DECISION_NOTEBOOK_NODE_ID) {
       decisionNotebook = boundedDecisionNotebook(customOutputData(output, "alphalab_decision_notebook"))
     } else if (output.id === WORKSPACE_RESULT_NODE_ID) {
@@ -144,9 +150,12 @@ function checkpointFromRun(run: PublishedHarnessRun): AgentResearchCheckpoint | 
   }
 }
 
-function workspaceOutputArtifacts(run: PublishedHarnessRun): PublishedHarnessArtifact[] {
+function workspaceNodeArtifacts(
+  run: PublishedHarnessRun,
+  changedNodes: PublishedHarnessWorkspaceOutput[],
+): PublishedHarnessArtifact[] {
   const createdAt = run.completedAt ?? new Date().toISOString()
-  return (run.workspaceOutputs ?? []).map((output) => {
+  return changedNodes.map((output) => {
     const common = {
       id: `${run.id}:${output.id}`,
       runId: run.id,
@@ -296,61 +305,6 @@ function storedConversation(value: unknown): AgentConversation | null {
   }
 }
 
-function loadCachedHistory(): ConversationHistoryState {
-  try {
-    const raw = localStorage.getItem(CONVERSATIONS_CACHE_KEY)
-    const parsed = raw ? JSON.parse(raw) : []
-    const conversations = Array.isArray(parsed)
-      ? parsed
-          .map(storedConversation)
-          .filter((item): item is AgentConversation => item !== null)
-          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-          .slice(0, MAX_SHARED_CONVERSATIONS)
-      : []
-    return { conversations, selectedId: conversations[0]?.id ?? null }
-  } catch {
-    return { conversations: [], selectedId: null }
-  }
-}
-
-function compactConversation(
-  conversation: AgentConversation,
-  messageLimit: number,
-): AgentConversation {
-  return {
-    ...conversation,
-    messages: conversation.messages.slice(-messageLimit).map((item) => ({
-      id: item.id,
-      role: item.role,
-      content: item.content.slice(0, MAX_STORED_MESSAGE_CHARACTERS),
-      createdAt: item.createdAt,
-      runId: item.runId,
-      ...(item.error ? { error: true } : {}),
-    })),
-    ...(conversation.researchCheckpoint ? { researchCheckpoint: conversation.researchCheckpoint } : {}),
-  }
-}
-
-function persistConversationCache(conversations: AgentConversation[]): void {
-  const ordered = [...conversations]
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .slice(0, MAX_SHARED_CONVERSATIONS)
-  for (const messageLimit of [MAX_MESSAGES, 40, 20, 10]) {
-    for (let count = ordered.length; count > 0; count -= 1) {
-      try {
-        localStorage.setItem(
-          CONVERSATIONS_CACHE_KEY,
-          JSON.stringify(ordered.slice(0, count).map((item) => compactConversation(item, messageLimit))),
-        )
-        return
-      } catch {
-        // Reduce retained history until the newest local conversations fit the browser quota.
-      }
-    }
-  }
-  try { localStorage.removeItem(CONVERSATIONS_CACHE_KEY) } catch { /* ignore */ }
-}
-
 function conversationTitle(content: string): string {
   const normalized = content.replace(/\s+/g, " ").trim()
   return normalized.length > 60 ? `${normalized.slice(0, 57)}...` : normalized || "New conversation"
@@ -432,7 +386,7 @@ function conversationContext(conversation: AgentConversation | null): Record<str
   const checkpoint = conversation?.researchCheckpoint
   let remaining = Math.max(
     0,
-    MAX_LOCAL_CONTEXT_CHARACTERS - (checkpoint ? JSON.stringify(checkpoint).length : 0),
+    MAX_CONVERSATION_CONTEXT_CHARACTERS - (checkpoint ? JSON.stringify(checkpoint).length : 0),
   )
   const messages: Array<{ role: "user" | "assistant"; content: string }> = []
   for (let index = candidates.length - 1; index >= 0 && remaining > 0; index -= 1) {
@@ -462,7 +416,10 @@ function terminalContent(run: PublishedHarnessRun): string {
 export function usePublishedAgent({ onCompleted }: Options = {}) {
   const [status, setStatus] = useState<ConexusStatus | null>(null)
   const [manifest, setManifest] = useState<HostedHarnessManifest | null>(null)
-  const [history, setHistory] = useState<ConversationHistoryState>(loadCachedHistory)
+  const [history, setHistory] = useState<ConversationHistoryState>({
+    conversations: [],
+    selectedId: null,
+  })
   const [run, setRun] = useState<PublishedHarnessRun | null>(null)
   const [toolActivities, setToolActivities] = useState<AgentToolActivity[]>([])
   const [loading, setLoading] = useState(true)
@@ -470,7 +427,6 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
   const runAccessTokenRef = useRef("")
   const streamRef = useRef<AbortController | null>(null)
   const finalizedRunIdsRef = useRef(new Set<string>())
-  const cachedHistoryRef = useRef(history.conversations)
   const sharedHistoryReadyRef = useRef(false)
   const sharedFingerprintsRef = useRef(new Map<string, string>())
 
@@ -478,6 +434,19 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
 
   const acceptError = useCallback((reason: unknown) => {
     setError(message(reason))
+  }, [])
+
+  const resolveChangedWorkspaceNodes = useCallback(async (
+    completed: PublishedHarnessRun,
+    signal?: AbortSignal,
+  ): Promise<PublishedHarnessWorkspaceOutput[]> => {
+    const changed = [
+      ...(completed.nodeChanges?.created ?? []),
+      ...(completed.nodeChanges?.updated ?? []),
+    ]
+    if (changed.length === 0) return []
+    const workspace = await readWorkspace(signal)
+    return changedWorkspaceNodesForRun(completed, workspace)
   }, [])
 
   const refreshSharedHistory = useCallback(async (
@@ -501,7 +470,6 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
   }, [])
 
   useEffect(() => {
-    persistConversationCache(history.conversations)
     if (!sharedHistoryReadyRef.current) return
     for (const item of history.conversations) {
       const fingerprint = conversationFingerprint(item)
@@ -528,17 +496,6 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
     const controller = new AbortController()
     const initialize = async () => {
       try {
-        for (const cached of cachedHistoryRef.current) {
-          try {
-            const savedValue = await upsertSharedAgentConversation(cached)
-            const saved = storedConversation(savedValue)
-            if (saved) {
-              sharedFingerprintsRef.current.set(saved.id, conversationFingerprint(saved))
-            }
-          } catch {
-            // A malformed legacy cache entry must not block loading server history.
-          }
-        }
         await refreshSharedHistory(controller.signal, true)
       } catch (reason) {
         if (!controller.signal.aborted) acceptError(reason)
@@ -587,12 +544,19 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
 
   useEffect(() => () => streamRef.current?.abort(), [])
 
-  const finalizeRun = useCallback((completed: PublishedHarnessRun, conversationId: string) => {
+  const finalizeRun = useCallback((
+    completed: PublishedHarnessRun,
+    conversationId: string,
+    changedNodes: PublishedHarnessWorkspaceOutput[],
+  ) => {
+    if (!isTerminalRun(completed)) return
     if (finalizedRunIdsRef.current.has(completed.id)) return
     finalizedRunIdsRef.current.add(completed.id)
+    streamRef.current?.abort()
+    streamRef.current = null
     const createdAt = completed.completedAt ?? new Date().toISOString()
-    const artifacts = workspaceOutputArtifacts(completed)
-    const checkpoint = checkpointFromRun(completed)
+    const artifacts = workspaceNodeArtifacts(completed, changedNodes)
+    const checkpoint = checkpointFromRun(completed, changedNodes)
     const assistantMessage: AgentConversationMessage = {
       id: id(),
       role: "assistant",
@@ -613,11 +577,66 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
       }
       return { conversations: withConversation(current.conversations, updated), selectedId: conversationId }
     })
+    setToolActivities((current) => current.map((activity): AgentToolActivity => activity.state === "running"
+      ? {
+          ...activity,
+          state: "completed",
+          ...(completed.status === "completed" ? {} : { success: false }),
+        }
+      : activity))
     setRun(completed)
+    setError("")
+    runAccessTokenRef.current = ""
     onCompleted?.()
   }, [onCompleted])
 
+  useEffect(() => {
+    const runId = run?.id
+    const conversationId = conversation?.id
+    const accessToken = runAccessTokenRef.current
+    if (
+      !runId
+      || !conversationId
+      || !accessToken
+      || finalizedRunIdsRef.current.has(runId)
+    ) return
+
+    const controller = new AbortController()
+    let timer: ReturnType<typeof globalThis.setTimeout> | undefined
+    const reconcile = async () => {
+      if (controller.signal.aborted || finalizedRunIdsRef.current.has(runId)) return
+      try {
+        const latest = await readRun(runId, accessToken, controller.signal)
+        const changedNodes = isTerminalRun(latest)
+          ? await resolveChangedWorkspaceNodes(latest, controller.signal)
+          : []
+        setRun((current) => current?.id === runId
+          ? mergeRunSnapshot(current, latest)
+          : current)
+        if (isTerminalRun(latest)) {
+          finalizeRun(latest, conversationId, changedNodes)
+          controller.abort()
+          return
+        }
+      } catch {
+        if (controller.signal.aborted) return
+      }
+      timer = globalThis.setTimeout(() => {
+        void reconcile()
+      }, 2_000)
+    }
+    timer = globalThis.setTimeout(() => {
+      void reconcile()
+    }, 2_000)
+    return () => {
+      controller.abort()
+      if (timer !== undefined) globalThis.clearTimeout(timer)
+    }
+  }, [conversation?.id, finalizeRun, resolveChangedWorkspaceNodes, run?.id])
+
   const selectConversation = useCallback((conversationId: string) => {
+    streamRef.current?.abort()
+    streamRef.current = null
     setHistory((current) => current.conversations.some((item) => item.id === conversationId)
       ? { ...current, selectedId: conversationId }
       : current)
@@ -628,6 +647,8 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
   }, [])
 
   const newConversation = useCallback(() => {
+    streamRef.current?.abort()
+    streamRef.current = null
     setHistory((current) => ({ ...current, selectedId: null }))
     setRun(null)
     setToolActivities([])
@@ -645,12 +666,13 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
 
     if (run?.pendingInteraction && runAccessTokenRef.current) {
       try {
-        setRun(await answerRunInteraction(
+        const answered = await answerRunInteraction(
           run.id,
           run.pendingInteraction.id,
           userMessage,
           runAccessTokenRef.current,
-        ))
+        )
+        setRun((current) => current ? mergeRunSnapshot(current, answered) : answered)
         return true
       } catch (reason) {
         acceptError(reason)
@@ -667,7 +689,7 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
         exposureId: exposure.id,
         input: buildRunInput(userMessage, {
           ...context,
-          localConversationHistory: conversationContext(conversation),
+          conversationHistory: conversationContext(conversation),
         }),
       })
       const now = new Date().toISOString()
@@ -736,16 +758,24 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
           }
           setRun((current) => current ? {
             ...current,
-            status: event.status,
+            status: isTerminalRun(current) && !isTerminalRun(event)
+              ? current.status
+              : event.status,
             ...(event.type === "run.interaction_requested" && event.interaction
               ? { pendingInteraction: event.interaction }
               : {}),
             ...(event.type === "run.interaction_resolved" ? { pendingInteraction: undefined } : {}),
           } : current)
           if (!isTerminalRun(event)) return
-          const completed = await readRun(result.run.id, result.accessToken)
-          finalizeRun(completed, conversationId)
-          controller.abort()
+          const completed = await readRun(result.run.id, result.accessToken, controller.signal)
+          const changedNodes = isTerminalRun(completed)
+            ? await resolveChangedWorkspaceNodes(completed, controller.signal)
+            : []
+          setRun((current) => current?.id === completed.id
+            ? mergeRunSnapshot(current, completed)
+            : current)
+          if (!isTerminalRun(completed)) return
+          finalizeRun(completed, conversationId, changedNodes)
         },
       }).catch((reason) => {
         if (!controller.signal.aborted) acceptError(reason)
@@ -755,7 +785,7 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
       acceptError(reason)
       return false
     }
-  }, [acceptError, conversation, finalizeRun, manifest, responseActive, run, status?.available])
+  }, [acceptError, conversation, finalizeRun, manifest, resolveChangedWorkspaceNodes, responseActive, run, status?.available])
 
   const cancel = useCallback(async () => {
     if (!runActive || !run || !runAccessTokenRef.current || !conversation) return
@@ -763,7 +793,7 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
     try {
       const cancelled = await cancelRun(run.id, runAccessTokenRef.current)
       streamRef.current?.abort()
-      finalizeRun(cancelled, conversation.id)
+      finalizeRun(cancelled, conversation.id, [])
     } catch (reason) {
       acceptError(reason)
     }

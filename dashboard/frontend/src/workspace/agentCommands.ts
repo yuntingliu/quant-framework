@@ -12,7 +12,7 @@ export type AgentWorkspaceCommand =
   | {
       type: "set_focus"
       symbol?: string | null
-      strategyId?: string | null
+      projectId?: string | null
       backtestId?: string | null
       date?: string | null
     }
@@ -97,7 +97,7 @@ function parseCommand(value: unknown): AgentWorkspaceCommand | null {
       const command: Extract<AgentWorkspaceCommand, { type: "set_focus" }> = { type: "set_focus" }
       for (const [source, target] of [
         ["symbol", "symbol"],
-        ["strategyId", "strategyId"],
+        ["projectId", "projectId"],
         ["backtestId", "backtestId"],
         ["date", "date"],
       ] as const) {

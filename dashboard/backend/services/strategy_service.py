@@ -18,6 +18,7 @@ from alphalab.store import ResultStore
 from alphalab.strategy.engine import (
     evaluate_factor_history,
     evaluate_factor_snapshot,
+    preflight_strategy_backtest,
     preview_strategy,
     run_strategy_backtest,
 )
@@ -69,7 +70,7 @@ def get_project(project_id: str) -> dict[str, Any] | None:
 def create_project(payload: Mapping[str, Any]) -> dict[str, Any]:
     repo = repository()
     try:
-        project = repo.create_project(**dict(payload))
+        project = repo.create_project_from_units(**dict(payload))
         validation_repo = ValidationRepository(repo.path)
         try:
             validation_repo.get_or_create(project["id"])
@@ -138,8 +139,7 @@ def add_project_factor_source(
     if project is None:
         raise KeyError(project_id)
     before = {
-        item["id"] for item in project["inspection"]["entrypoints"]
-        if item["kind"] == "factor"
+        item["id"] for item in project["inspection"]["entrypoints"] if item["kind"] == "factor"
     }
     repo = repository()
     try:
@@ -151,7 +151,8 @@ def add_project_factor_source(
     finally:
         repo.close()
     factor = next(
-        item for item in updated["inspection"]["entrypoints"]
+        item
+        for item in updated["inspection"]["entrypoints"]
         if item["kind"] == "factor" and item["id"] not in before
     )
     return {"project": updated, "factor": factor}
@@ -224,7 +225,8 @@ def add_project_factor_template(
     if expected_source_sha256 and expected_source_sha256 != project["draft_source_sha256"]:
         raise RuntimeError("draft changed since it was inspected")
     existing_factor_ids = {
-        item.id for item in inspect_strategy_source(project["draft_source"]).entrypoints
+        item.id
+        for item in inspect_strategy_source(project["draft_source"]).entrypoints
         if item.kind == "factor"
     }
     updated, inspection = install_factor_template(project["draft_source"], template_id=template_id)
@@ -252,11 +254,7 @@ def get_entrypoint_source(project_id: str, entrypoint_id: str) -> dict[str, Any]
     if project is None:
         raise KeyError(project_id)
     entrypoint = next(
-        (
-            item
-            for item in project["inspection"]["entrypoints"]
-            if item["id"] == entrypoint_id
-        ),
+        (item for item in project["inspection"]["entrypoints"] if item["id"] == entrypoint_id),
         None,
     )
     if entrypoint is None:
@@ -268,9 +266,7 @@ def get_entrypoint_source(project_id: str, entrypoint_id: str) -> dict[str, Any]
         finally:
             repo.close()
     else:
-        source = registered_function_source(
-            project["strategy_source"], entrypoint_id=entrypoint_id
-        )
+        source = registered_function_source(project["strategy_source"], entrypoint_id=entrypoint_id)
     return {
         "project_id": project_id,
         "entrypoint_id": entrypoint_id,
@@ -279,9 +275,7 @@ def get_entrypoint_source(project_id: str, entrypoint_id: str) -> dict[str, Any]
     }
 
 
-def _apply_structured_edit(
-    source: str, payload: Mapping[str, Any]
-) -> tuple[str, SourceInspection]:
+def _apply_structured_edit(source: str, payload: Mapping[str, Any]) -> tuple[str, SourceInspection]:
     operation = str(payload.get("operation") or "")
     if operation == "parameter":
         return update_parameter_default(
@@ -350,11 +344,7 @@ def structured_edit(project_id: str, payload: Mapping[str, Any]) -> dict[str, An
     operation = str(payload.get("operation") or "")
     entrypoint_id = str(payload.get("entrypoint_id") or "")
     entrypoint = next(
-        (
-            item
-            for item in project["inspection"]["entrypoints"]
-            if item["id"] == entrypoint_id
-        ),
+        (item for item in project["inspection"]["entrypoints"] if item["id"] == entrypoint_id),
         None,
     )
     if operation in {"replace_function", "delete_function"} and entrypoint is None:
@@ -461,8 +451,8 @@ def preview_project(
     as_of_date: str | None,
     revision: int | None,
 ) -> dict[str, Any]:
-    if profile not in {"demo", "runtime"}:
-        raise ValueError("profile must be demo or runtime")
+    if profile != "runtime":
+        raise ValueError("strategy previews use the runtime data profile")
     _, profile_end = _profile_range(profile)
     decision_date = as_of_date or profile_end
     if pd.Timestamp(decision_date) > pd.Timestamp(profile_end):
@@ -491,6 +481,8 @@ def factor_snapshot(
     revision: int | None,
     parameters: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
+    if profile != "runtime":
+        raise ValueError("factor evaluations use the runtime data profile")
     repo = repository()
     try:
         return evaluate_factor_snapshot(
@@ -517,6 +509,8 @@ def factor_history(
     parameters: Mapping[str, Any] | None,
     frequency: str,
 ) -> dict[str, Any]:
+    if profile != "runtime":
+        raise ValueError("factor evaluations use the runtime data profile")
     repo = repository()
     try:
         return evaluate_factor_history(
@@ -529,6 +523,29 @@ def factor_history(
             revision=revision,
             parameters=parameters,
             frequency=frequency,
+        )
+    finally:
+        repo.close()
+
+
+def preflight_project_backtest(
+    project_id: str,
+    start_date: str,
+    end_date: str,
+    profile: str,
+    revision: int | None = None,
+) -> dict[str, Any]:
+    if profile != "runtime":
+        raise ValueError("new backtests use the runtime data profile")
+    repo = repository()
+    try:
+        return preflight_strategy_backtest(
+            repo,
+            project_id,
+            start_date,
+            end_date,
+            _engine("runtime"),
+            revision=revision,
         )
     finally:
         repo.close()
@@ -549,9 +566,7 @@ def run_project_backtest(
     try:
         validation_repo = ValidationRepository(repo.path)
         try:
-            validation_package = validation_repo.get_package(
-                project_id, validation_revision
-            )
+            validation_package = validation_repo.get_package(project_id, validation_revision)
         finally:
             validation_repo.close()
         package = repo.get_package(project_id, revision)
@@ -564,7 +579,9 @@ def run_project_backtest(
             if profile == "runtime":
                 runtime_store = RuntimeStore()
                 for dataset in runtime_datasets:
-                    data_locks.enter_context(runtime_store.dataset_lock(dataset))
+                    data_locks.enter_context(
+                        runtime_store.dataset_read_lock(dataset, timeout_seconds=30.0)
+                    )
             provenance = build_research_provenance(
                 profile,
                 strategy_python=package["source"],
@@ -649,6 +666,13 @@ def run_project_backtest(
             tags=[f"profile:{profile}", "strategy:sdk-v1"],
             provenance=provenance,
             executions=run.executions,
+            events=[
+                *list(run.diagnostics.get("events") or ()),
+                *[
+                    {"kind": "delisting_settlement", **item}
+                    for item in run.diagnostics.get("delisting_settlements") or ()
+                ],
+            ],
             strategy_source=run.package["source"],
             settings=dict(run.project["settings"]),
             attribution=attribution,
@@ -670,6 +694,9 @@ def run_project_backtest(
         "strategy_id": run.project["id"],
         "strategy_type": "sdk_v1",
         "revision": run.package["revision"],
+        "start_date": start_date,
+        "end_date": end_date,
+        "profile": profile,
         "source_sha256": run.package["source_sha256"],
         "validation_revision": validation_package["revision"],
         "validation_source_sha256": validation_package["source_sha256"],
@@ -678,6 +705,14 @@ def run_project_backtest(
             {"date": str(date)[:10], "value": float(value)} for date, value in returns.items()
         ],
         "weights_count": int((weights.abs() > 1e-12).sum().sum()) if not weights.empty else 0,
+        "counts": {
+            "return_rows": len(returns),
+            "weight_rows": int((weights.abs() > 1e-12).sum().sum()) if not weights.empty else 0,
+            "executions": len(run.executions),
+            "events": len(run.diagnostics.get("events") or ())
+            + len(run.diagnostics.get("delisting_settlements") or ()),
+            "delisting_settlements": len(run.diagnostics.get("delisting_settlements") or ()),
+        },
         "execution": run.diagnostics,
         "strategy_manifest": run.package["manifest"],
         "attribution": attribution,
@@ -723,6 +758,7 @@ __all__ = [
     "list_projects",
     "list_revisions",
     "preview_project",
+    "preflight_project_backtest",
     "run_project_backtest",
     "save_revision",
     "structured_edit",

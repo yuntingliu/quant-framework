@@ -8,7 +8,6 @@ import { useDataProfile } from "@/lib/data-profile"
 import { formatPercent } from "@/lib/utils"
 import { Widget } from "@/widgets/Widget"
 
-import { AnalyticsFilters } from "./AnalyticsControls"
 import { analyticsError } from "./analytics-utils"
 
 export function VolatilityAnalysisWidget() {
@@ -21,7 +20,7 @@ export function VolatilityAnalysisWidget() {
     normal: copy.normal,
     high: copy.high,
   }
-  const [profile, setProfile] = useDataProfile()
+  const [profile] = useDataProfile()
   const { startDate, endDate } = useGlobalFilter()
   const query = useVolatilityAnalysis(profile, startDate, endDate)
   const chartData = useMemo(
@@ -39,7 +38,6 @@ export function VolatilityAnalysisWidget() {
       loading={query.isLoading}
       error={analyticsError(query.error)}
       onRetry={() => query.refetch()}
-      actions={<AnalyticsFilters profile={profile} onProfileChange={setProfile} />}
       bodyPadding="compact"
     >
       <VolatilityChart data={chartData} height={280} />
