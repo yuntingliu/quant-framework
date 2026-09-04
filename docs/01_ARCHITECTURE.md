@@ -191,7 +191,8 @@ The backtest engine enumerates provider sessions and applies this sequence:
 6. run the frozen project's optional `@execution_data_fill` Python over only
    missing state fields for the actual order rows;
 7. validate positive price-limit values or the paired-zero “known no limit”
-   marker, then enforce price, suspension, positive volume and amount,
+   marker, compare limits with the same-session unadjusted execution price,
+   then enforce price, suspension, positive volume and amount,
    participation, cash, costs, and accounting;
 8. deliver fill or rejection events with the resulting actual portfolio.
 
@@ -239,10 +240,11 @@ per-symbol and per-dimension persisted watermarks. Provider calls remain
 visible in `recipe.py`; the helper owns only deterministic batching and resume
 semantics. Every completed batch is atomically published before the next
 network call, so a later failure does not discard completed history. Runtime
-contracts also include historical suspension/ST state, daily point-in-time
-factors, and dated index membership. The runtime market provider joins
-suspension state into bars for execution, while Strategy Context exposes daily
-factors and index membership through bounded point-in-time methods.
+contracts also include historical suspension/ST state, adjusted and unadjusted
+daily OHLC, daily point-in-time factors, and dated index membership. The runtime
+market provider joins suspension state into bars for execution, while Strategy
+Context exposes daily factors and index membership through bounded point-in-time
+methods.
 
 `alphalab.data_sdk.v1.rq` is a lazy transparent proxy to the installed
 `rqdatac` package, so the framework does not duplicate or lag the vendor API.
@@ -268,13 +270,22 @@ cross-sectional score vectors used to calculate that evidence.
 
 Agent-facing backtest submission returns only a task ID. Task polling keeps
 status and stable error fields first. Job reads and frozen summaries share the
-same top-level `warnings`, `research_valid`, attempted/successful trade, fill,
-and missing-state rejection counters. `GET .../wait` holds one request for at
-most 30 seconds or until status changes. The default result read contains
+same top-level `warnings`, `research_valid`, research-invalid reasons,
+execution fidelity, attempted/successful trade counts, synthetic-state counts,
+and missing-state, suspension, price-limit, capacity, and cash rejection
+counters. Filled execution-state values retain their `provider`,
+`strategy_fill`, or `fallback` provenance in the paged execution audit.
+`GET .../wait` holds one request for at most 30 seconds or until status changes. The default result read contains
 metrics, counts, and small head/tail samples. Full daily and execution events
 are stored separately and are exposed to the Agent only through explicit
 bounded pages. A successful terminal transition atomically clears all earlier
 error metadata; failed transitions clear any stale result metadata.
+
+Harness outputs are committed once through Conexus's atomic output boundary.
+The Agent may create or update report Documents, but it never partially mutates
+the Decision Notebook, Workspace Result, or Workspace Commands output nodes.
+An `open_result` command is accepted only when the same atomic output contains a
+complete current-request Document descriptor for that exact report node.
 
 Default advancement is explicit. Migrating an editable project replaces only
 default-owned universe and execution-data-fill functions and creates a new

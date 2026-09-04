@@ -16,10 +16,10 @@ def test_signal_diagnostics_use_saved_stage_outputs(monkeypatch):
             "executions": [
                 {
                     "signal_date": "2025-01-31",
-                        "stage_outputs": {
-                            "selection": {"scores": scores, "selected": ["S8", "S9"]},
-                        },
-                        "eligibility": {"eligible_count": len(scores)},
+                    "stage_outputs": {
+                        "selection": {"scores": scores, "selected": ["S8", "S9"]},
+                    },
+                    "eligibility": {"eligible_count": len(scores)},
                     "selection_forward_returns": forward,
                 }
             ],
@@ -97,4 +97,46 @@ def test_empty_sdk_signal_evidence_does_not_use_legacy_stage_outputs(monkeypatch
 
     assert result["periods"] == 0
     assert result["rows"] == []
+    assert result["warning_code"] == "NO_SIGNAL_EVIDENCE"
     assert result["warning"] == "该回测没有产生可用信号截面。"
+
+
+def test_two_asset_signal_evidence_reports_insufficient_cross_section(monkeypatch):
+    monkeypatch.setattr(
+        service,
+        "get_backtest",
+        lambda _backtest_id: {
+            "id": "pair-run",
+            "run_diagnostics": {
+                "signal_evidence": {
+                    "rows": [
+                        {
+                            "signal_date": "2025-01-31",
+                            "universe_count": 2,
+                            "scored_count": 2,
+                            "selected_count": 1,
+                            "coverage": 1.0,
+                            "ic": None,
+                            "ic_observations": 2,
+                        },
+                        {
+                            "signal_date": "2025-02-28",
+                            "universe_count": 2,
+                            "scored_count": 2,
+                            "selected_count": 1,
+                            "coverage": 1.0,
+                            "ic": None,
+                            "ic_observations": 2,
+                        },
+                    ]
+                }
+            },
+        },
+    )
+
+    result = service.analyze_signal_diagnostics("pair-run")
+
+    assert result["periods"] == 2
+    assert result["evidence_periods"] == 0
+    assert result["warning_code"] == "INSUFFICIENT_CROSS_SECTION"
+    assert "不足 3 只" in result["warning"]

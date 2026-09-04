@@ -28,6 +28,7 @@ def test_background_backtest_job_persists_success(tmp_path):
             "profile": profile,
             "revision": revision,
             "metrics": {"sharpe": 1.2},
+            "research_valid": True,
             "counts": {"events": 2500},
             "returns": [{"date": "2024-01-01", "value": 0.1}] * 2500,
             "execution": {"events": [{"secret": "large"}] * 2500},
@@ -75,7 +76,13 @@ def test_background_backtest_job_persists_success(tmp_path):
     assert job["attempted_trade_count"] == 0
     assert job["successful_trade_count"] == 0
     assert job["execution_data_fill_count"] == 0
+    assert job["synthetic_state_count"] == 0
     assert job["market_state_rejection_count"] == 0
+    assert job["suspension_rejection_count"] == 0
+    assert job["limit_up_rejection_count"] == 0
+    assert job["limit_down_rejection_count"] == 0
+    assert job["capacity_rejection_count"] == 0
+    assert job["cash_rejection_count"] == 0
     assert "result" not in job
     assert "result_summary" not in job
     assert "returns" not in job
@@ -448,8 +455,16 @@ def test_backtest_summary_is_bounded_and_events_are_paged(tmp_path, monkeypatch)
                     "attempted_trade_count": 14,
                     "successful_trade_count": 9,
                     "execution_data_fill_count": 27,
+                    "synthetic_state_count": 27,
                     "market_state_rejection_count": 5,
+                    "suspension_rejection_count": 2,
+                    "limit_up_rejection_count": 1,
+                    "limit_down_rejection_count": 3,
+                    "capacity_rejection_count": 4,
+                    "cash_rejection_count": 2,
                 },
+                "research_invalid_reasons": ["MISSING_EXECUTION_STATE"],
+                "execution_fidelity": {"mean": 0.75},
             },
         )
     finally:
@@ -477,7 +492,15 @@ def test_backtest_summary_is_bounded_and_events_are_paged(tmp_path, monkeypatch)
     assert summary["attempted_trade_count"] == 14
     assert summary["successful_trade_count"] == 9
     assert summary["execution_data_fill_count"] == 27
+    assert summary["synthetic_state_count"] == 27
     assert summary["market_state_rejection_count"] == 5
+    assert summary["suspension_rejection_count"] == 2
+    assert summary["limit_up_rejection_count"] == 1
+    assert summary["limit_down_rejection_count"] == 3
+    assert summary["capacity_rejection_count"] == 4
+    assert summary["cash_rejection_count"] == 2
+    assert summary["research_invalid_reasons"] == ["MISSING_EXECUTION_STATE"]
+    assert summary["execution_fidelity"] == {"mean": 0.75}
     assert "returns" not in summary
     assert "weights" not in summary
 

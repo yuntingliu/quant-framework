@@ -139,9 +139,7 @@ class RQAcquirer:
                 continue
             output[target] = frame[source_column].to_numpy()
         is_common_stock = output["asset_type"].astype(str).str.upper().eq("CS")
-        output = output.loc[
-            ~is_common_stock | output["symbol"].map(is_a_share_symbol)
-        ].copy()
+        output = output.loc[~is_common_stock | output["symbol"].map(is_a_share_symbol)].copy()
         return output.dropna(subset=["symbol"]).drop_duplicates(["snapshot_date", "symbol"])
 
     def daily_bars(
@@ -210,21 +208,21 @@ class RQAcquirer:
                         )
                     )
                 )
-                raw = self._retry(
+                unadjusted = self._retry(
                     lambda rq_batch=rq_batch, chunk_start=chunk_start, chunk_end=chunk_end: (
                         rq.get_price(
                             rq_batch,
                             start_date=chunk_start,
                             end_date=chunk_end,
                             frequency="1d",
-                            fields=["close"],
+                            fields=["open", "high", "low", "close"],
                             adjust_type="none",
                             expect_df=True,
                             market=market,
                         )
                     )
                 )
-                normalized = normalize_rq_bars(adjusted, raw)
+                normalized = normalize_rq_bars(adjusted, unadjusted)
                 if not normalized.empty:
                     parts.append(normalized)
                 if progress:
@@ -267,12 +265,13 @@ class RQAcquirer:
                 paused = normalize_rq_market_state(paused_raw, field="paused")
                 if include_st:
                     st_raw = self._retry(
-                        lambda rq_batch=rq_batch, chunk_start=chunk_start,
-                        chunk_end=chunk_end: rq.is_st_stock(
-                            rq_batch,
-                            start_date=chunk_start,
-                            end_date=chunk_end,
-                            market=market,
+                        lambda rq_batch=rq_batch, chunk_start=chunk_start, chunk_end=chunk_end: (
+                            rq.is_st_stock(
+                                rq_batch,
+                                start_date=chunk_start,
+                                end_date=chunk_end,
+                                market=market,
+                            )
                         )
                     )
                     is_st = normalize_rq_market_state(st_raw, field="is_st")
@@ -324,22 +323,21 @@ class RQAcquirer:
                         return
                     rq_batch = [to_rq_symbol(symbol) for symbol in batch]
                     raw = self._retry(
-                        lambda rq_batch=rq_batch, rq_field=rq_field,
-                        chunk_start=chunk_start, chunk_end=chunk_end: rq.get_factor(
-                            rq_batch,
-                            rq_field,
-                            start_date=chunk_start,
-                            end_date=chunk_end,
-                            market=market,
+                        lambda rq_batch=rq_batch, rq_field=rq_field, chunk_start=chunk_start, chunk_end=chunk_end: (
+                            rq.get_factor(
+                                rq_batch,
+                                rq_field,
+                                start_date=chunk_start,
+                                end_date=chunk_end,
+                                market=market,
+                            )
                         )
                     )
                     normalized = normalize_rq_daily_factor(raw, field=field)
                     if not normalized.empty:
                         parts.append(normalized)
                     if progress:
-                        progress(
-                            f"daily-factor {field} {chunk_start}..{chunk_end} batch {index}"
-                        )
+                        progress(f"daily-factor {field} {chunk_start}..{chunk_end} batch {index}")
             if parts:
                 yield _combine_long(parts, ["date", "symbol", "field"])
 
@@ -561,8 +559,10 @@ def _same_frame_keys(
 ) -> None:
     if any(key not in left or key not in right for key in keys):
         raise DataValidationError(f"RQData {label} response is missing key columns")
-    mismatch = left[keys].drop_duplicates().merge(
-        right[keys].drop_duplicates(), on=keys, how="outer", indicator=True
+    mismatch = (
+        left[keys]
+        .drop_duplicates()
+        .merge(right[keys].drop_duplicates(), on=keys, how="outer", indicator=True)
     )
     if mismatch["_merge"].ne("both").any():
         raise DataValidationError(

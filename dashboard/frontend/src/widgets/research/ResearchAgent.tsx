@@ -25,6 +25,7 @@ import type {
 import {
   WORKSPACE_COMMAND_EVENT,
   parseAgentWorkspaceCommandBatch,
+  workspaceResultMatchesCommands,
   type AgentWorkspaceCommandEventDetail,
   type AgentWorkspaceCommandReceipt,
 } from "@/workspace/agentCommands"
@@ -328,6 +329,20 @@ export function ResearchAgentPanel() {
           })
         : null
       const researchResult: AgentResearchResult | undefined = parsedResult?.requestId === batch.requestId ? parsedResult : undefined
+      const openResult = batch.commands.find((command) => command.type === "open_result")
+      if (openResult && !workspaceResultMatchesCommands(batch, researchResult)) {
+        processedWorkspaceArtifactIdsRef.current.add(artifact.id)
+        pendingWorkspaceRequestIdsRef.current.delete(batch.requestId)
+        setWorkspaceReceipts([{
+          index: batch.commands.indexOf(openResult),
+          type: "open_result",
+          success: false,
+          message: language === "zh"
+            ? "Agent 返回的报告描述不完整或与打开命令不一致，未执行任何界面操作"
+            : "The report descriptor is incomplete or does not match the open command; no workspace actions were executed",
+        }])
+        break
+      }
       if (researchResult) registerResearchResult(researchResult)
       processedWorkspaceArtifactIdsRef.current.add(artifact.id)
       pendingWorkspaceRequestIdsRef.current.delete(batch.requestId)

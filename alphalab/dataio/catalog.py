@@ -1,4 +1,5 @@
 """Runtime dataset catalog and local coverage inspection."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -41,14 +42,14 @@ DATASET_SPECS: tuple[DatasetSpec, ...] = (
     ),
     DatasetSpec(
         "rq.bars",
-        "RQ adjusted daily bars",
+        "RQ adjusted and unadjusted daily bars",
         "rq/bars",
         ("date", "symbol"),
         "date",
         "rq",
         ("get_price",),
         "factor_input",
-        "provider_daily_schema_plus_raw_close",
+        "provider_daily_schema_plus_raw_ohlc",
     ),
     DatasetSpec(
         "rq.paused",
@@ -208,12 +209,8 @@ class DataCatalog:
                 "files": len(files),
                 "rows": rows,
                 "bytes": sum(path.stat().st_size for path in files),
-                "date_start": (
-                    date_start.strftime("%Y-%m-%d") if date_start is not None else None
-                ),
-                "date_end": (
-                    date_end.strftime("%Y-%m-%d") if date_end is not None else None
-                ),
+                "date_start": (date_start.strftime("%Y-%m-%d") if date_start is not None else None),
+                "date_end": (date_end.strftime("%Y-%m-%d") if date_end is not None else None),
                 "symbol_count": len(symbols),
             }
         except Exception as exc:

@@ -13,6 +13,7 @@ import pandas as pd
 
 from alphalab.dataio.errors import DataLoadError, DataValidationError, MissingDataError
 from alphalab.dataio.rq_frames import (
+    normalize_rq_bars,
     normalize_rq_daily_factor,
     normalize_rq_index_components,
     normalize_rq_market_state,
@@ -184,7 +185,7 @@ class RQDataProvider:
             return _empty_bars(list(_BAR_FIELDS))
         rq = self.client.connect()
         try:
-            raw = rq.get_price(
+            adjusted = rq.get_price(
                 [_to_rq_symbol(symbol) for symbol in symbols],
                 start_date=start,
                 end_date=end,
@@ -194,9 +195,19 @@ class RQDataProvider:
                 expect_df=True,
                 market=self.market,
             )
+            unadjusted = rq.get_price(
+                [_to_rq_symbol(symbol) for symbol in symbols],
+                start_date=start,
+                end_date=end,
+                frequency="1d",
+                fields=["open", "high", "low", "close"],
+                adjust_type="none",
+                expect_df=True,
+                market=self.market,
+            )
         except Exception as exc:
             raise DataLoadError("RQData market request failed") from exc
-        return _normalize_discovered_bars(raw)
+        return normalize_rq_bars(adjusted, unadjusted)
 
     def get_symbols(self, universe: str = "all") -> list[str]:
         supported = {"all", *(value.lower() for value in self.instrument_types)}
@@ -273,9 +284,7 @@ class RQDataProvider:
                     continue
                 out[target] = frame[source_column].to_numpy()
             is_common_stock = out["asset_type"].astype(str).str.upper().eq("CS")
-            out = out.loc[
-                ~is_common_stock | out["symbol"].map(is_a_share_symbol)
-            ].copy()
+            out = out.loc[~is_common_stock | out["symbol"].map(is_a_share_symbol)].copy()
             out = out.dropna(subset=["symbol"])
             self._instrument_cache = out.drop_duplicates("symbol", keep="last")
             out = self._instrument_cache.copy()
@@ -345,7 +354,7 @@ class RQDataProvider:
         end: str,
         fields: list[str] | None = None,
     ) -> pd.DataFrame:
-        default_fields = ["paused", *( ["is_st"] if "CS" in self.instrument_types else [])]
+        default_fields = ["paused", *(["is_st"] if "CS" in self.instrument_types else [])]
         requested = list(dict.fromkeys(fields or default_fields))
         unknown = sorted(set(requested) - {"paused", "is_st", "is_suspended"})
         if unknown:
@@ -410,9 +419,7 @@ class RQDataProvider:
                     market=self.market,
                 )
             except Exception as exc:
-                raise DataLoadError(
-                    f"RQData daily factor request failed: {factor_name}"
-                ) from exc
+                raise DataLoadError(f"RQData daily factor request failed: {factor_name}") from exc
             normalized = normalize_rq_daily_factor(raw, field=factor_name)
             if not normalized.empty:
                 frames.append(normalized)
@@ -488,48 +495,6 @@ def _normalize_bars(raw: Any, fields: list[str]) -> pd.DataFrame:
         out["volume"] = out["volume"] / 100.0
     return (
         out.dropna(subset=["date", "symbol"]).sort_values(["date", "symbol"]).reset_index(drop=True)
-    )
-
-
-def _normalize_discovered_bars(raw: Any) -> pd.DataFrame:
-    frame = _reset_index(pd.DataFrame(raw))
-    if frame.empty:
-        return _empty_bars(list(_BAR_FIELDS))
-    columns = _columns(frame)
-    symbol_column = columns.get("order_book_id") or columns.get("symbol")
-    date_column = columns.get("datetime") or columns.get("date") or columns.get("trading_date")
-    if symbol_column is None or date_column is None:
-        raise DataValidationError("RQData bars must include order_book_id and date")
-    output = pd.DataFrame(
-        {
-            "date": pd.to_datetime(frame[date_column], errors="coerce"),
-            "symbol": frame[symbol_column].map(_from_rq_symbol),
-        }
-    )
-    excluded = {symbol_column, date_column}
-    for source_column in frame.columns:
-        if source_column in excluded:
-            continue
-        source_name = str(source_column).strip().lower()
-        target_name = "amount" if source_name == "total_turnover" else source_name
-        if not target_name or target_name in {"date", "symbol"} or target_name in output:
-            continue
-        raw_values = frame[source_column]
-        numeric = pd.to_numeric(raw_values, errors="coerce")
-        output[target_name] = (
-            numeric
-            if raw_values.dropna().empty or numeric.notna().sum() >= raw_values.notna().sum()
-            else raw_values
-        )
-    if "volume" in output:
-        output["volume"] = pd.to_numeric(output["volume"], errors="coerce") / 100.0
-    missing = [field for field in _BAR_FIELDS if field not in output]
-    if missing:
-        raise DataValidationError(f"RQData daily bars do not include required fields: {missing}")
-    return (
-        output.dropna(subset=["date", "symbol"])
-        .sort_values(["date", "symbol"])
-        .reset_index(drop=True)
     )
 
 

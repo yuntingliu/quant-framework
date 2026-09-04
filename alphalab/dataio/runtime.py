@@ -49,6 +49,7 @@ def _release_file_lock(descriptor: int) -> None:
         return
     fcntl.flock(descriptor, fcntl.LOCK_UN)
 
+
 _OPERATIONS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS datasets (
     id TEXT PRIMARY KEY,
@@ -115,6 +116,7 @@ CREATE TABLE IF NOT EXISTS data_recipe_templates (
 );
 """
 
+
 class _ProcessReadWriteLock:
     """Coordinate shared readers and one writer before taking the OS lock."""
 
@@ -130,10 +132,10 @@ class _ProcessReadWriteLock:
             if not shared:
                 self._waiting_writers += 1
             try:
-                while self._writer or (
-                    shared and self._waiting_writers > 0
-                ) or (
-                    not shared and self._readers > 0
+                while (
+                    self._writer
+                    or (shared and self._waiting_writers > 0)
+                    or (not shared and self._readers > 0)
                 ):
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -715,15 +717,24 @@ class RuntimeStore:
         dataset: str,
         *,
         dimension: tuple[str, str] | None = None,
+        required_columns: tuple[str, ...] = (),
     ) -> dict[str, pd.Timestamp]:
-        """Return latest stored date per symbol, optionally within one dimension."""
+        """Return latest stored date per symbol when the persisted schema is current."""
 
         spec = self.catalog.spec(dataset)
         if spec.date_column is None:
             return {}
         date_column = spec.date_column
         result: dict[str, pd.Timestamp] = {}
-        for path in self.catalog.files(dataset):
+        files = self.catalog.files(dataset)
+        required = set(required_columns)
+        if required and any(
+            not required.issubset(set(pq.ParquetFile(path).schema.names)) for path in files
+        ):
+            # A schema upgrade must replay the requested interval instead of
+            # trusting date watermarks written by the older payload shape.
+            return {}
+        for path in files:
             columns = [date_column, "symbol"]
             if dimension is not None:
                 columns.append(dimension[0])
@@ -739,9 +750,12 @@ class RuntimeStore:
             if frame.empty or "symbol" not in frame:
                 continue
             frame[date_column] = pd.to_datetime(frame[date_column], errors="coerce")
-            for symbol, latest in frame.dropna(subset=[date_column, "symbol"]).groupby(
-                "symbol"
-            )[date_column].max().items():
+            for symbol, latest in (
+                frame.dropna(subset=[date_column, "symbol"])
+                .groupby("symbol")[date_column]
+                .max()
+                .items()
+            ):
                 key = str(symbol).upper()
                 timestamp = pd.Timestamp(latest).normalize()
                 if key not in result or timestamp > result[key]:
@@ -761,9 +775,12 @@ class RuntimeStore:
             except (KeyError, ValueError):
                 continue
             frame[spec.date_column] = pd.to_datetime(frame[spec.date_column], errors="coerce")
-            for value, latest in frame.dropna(subset=[spec.date_column, dimension]).groupby(
-                dimension
-            )[spec.date_column].max().items():
+            for value, latest in (
+                frame.dropna(subset=[spec.date_column, dimension])
+                .groupby(dimension)[spec.date_column]
+                .max()
+                .items()
+            ):
                 key = str(value)
                 timestamp = pd.Timestamp(latest).normalize()
                 if key not in result or timestamp > result[key]:

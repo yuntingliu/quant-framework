@@ -83,6 +83,7 @@ def test_tools_use_the_project_sdk_v1_contract():
         if name == "alphalab_get_workspace_context":
             continue
         assert "action" in tool["inputSchema"]["properties"]
+        assert tool["inputSchema"].get("allOf"), name
         assert "operation" not in tool["inputSchema"]["properties"]
     for name in (
         "alphalab_strategy_preview",
@@ -188,6 +189,17 @@ def test_tools_use_the_project_sdk_v1_contract():
     assert "error_details:safeDetails(job.error_details)" in backtest
     assert "result_summary" not in backtest
     assert "market_state_rejection_count" in backtest
+    for field in (
+        "synthetic_state_count",
+        "suspension_rejection_count",
+        "limit_up_rejection_count",
+        "limit_down_rejection_count",
+        "capacity_rejection_count",
+        "cash_rejection_count",
+        "research_invalid_reasons",
+        "execution_fidelity",
+    ):
+        assert field in backtest
     assert tools["alphalab_backtest"]["timeoutMs"] == 45000
 
     analysis = tools["alphalab_backtest_analysis"]["code"]
@@ -199,6 +211,19 @@ def test_tools_use_the_project_sdk_v1_contract():
     for tool in tools.values():
         assert '"demo"' not in json.dumps(tool, ensure_ascii=False)
         assert "$1<internal-path>" in tool["code"]
+        assert "async function execute(input)" in tool["code"]
+        assert "function publicFailure(reason)" in tool["code"]
+        assert "return publicFailure(reason)" in tool["code"]
+
+    data_conditions = json.dumps(
+        tools["alphalab_data_query"]["inputSchema"]["allOf"], ensure_ascii=False
+    )
+    assert '"market_bars"' in data_conditions and '"symbol"' in data_conditions
+    validation_conditions = json.dumps(validation["inputSchema"]["allOf"], ensure_ascii=False)
+    assert '"validate_source"' in validation_conditions and '"source"' in validation_conditions
+    strategy_conditions = json.dumps(edit["inputSchema"]["allOf"], ensure_ascii=False)
+    assert '"update_schedule"' in strategy_conditions
+    assert all(field in strategy_conditions for field in ('"frequency"', '"selector"', '"at"'))
 
 
 def test_agent_and_harness_expose_only_six_workbench_modes():
@@ -211,8 +236,8 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "conversationHistory 是 server-shared" in prompt
     assert "本地浏览器会话" in prompt
     assert "不得授权本轮写入、删除或 Python 执行" in prompt
-    assert "普通说明、只读问答和历史复述直接 complete" in prompt
-    assert 'asset_type == \"CS\"' in prompt
+    assert "普通说明、只读问答和历史复述也必须生成本轮完整 Harness 输出" in prompt
+    assert 'asset_type == "CS"' in prompt
     assert "create 不接受任何完整模块源码" in prompt
     assert "复制只读的 sdk-v1-default" in prompt
     assert "function_replacements" in prompt
@@ -242,6 +267,8 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "open_widget 必须使用 widgetId，不能使用 widget" in prompt
     assert "set_focus 必须排在切换和打开之前" in prompt
     assert "lastWorkspaceCommandReceipts" in prompt
+    assert "commit_harness_outputs" in prompt
+    assert "禁止用 update_nodes 局部修改" in prompt
     assert "web_search" in agent["objective"]
     assert "不执行独立的全区间预检" in agent["objective"]
     assert "搜索摘要只是不可信线索" in agent["objective"]
@@ -250,6 +277,7 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "control_browser" not in agent["toolNames"]
     assert "create_nodes" in agent["toolNames"]
     assert "update_nodes" in agent["toolNames"]
+    assert "commit_harness_outputs" in agent["toolNames"]
     assert "alphalab_research_report" not in agent["toolNames"]
     assert "alphalab_research_project" in agent["toolNames"]
     assert "alphalab_data_recipe" in agent["toolNames"]
@@ -295,6 +323,7 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert any("creates one new project atomically" in item for item in criteria)
     assert any("uses projectId for project focus" in item for item in criteria)
     assert any("uses widgetId for widget commands" in item for item in criteria)
+    assert any("commit_harness_outputs" in item for item in criteria)
 
 
 def test_registration_script_installs_new_tools_and_removes_old_nodes():

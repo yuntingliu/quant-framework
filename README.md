@@ -57,7 +57,8 @@ alphalab data validate --datasets rq.bars,rq.paused,rq.is_st --fail-on-gap
 Daily RQ requests are split by symbols and dates. Each completed chunk is
 persisted immediately; rerunning resumes from per-symbol/per-field/per-index
 watermarks with an overlap refresh. Runtime research data includes adjusted
-bars with `raw_close`, suspensions, ST state, daily factors, historical index
+bars with `raw_open`/`raw_high`/`raw_low`/`raw_close`, suspensions, ST state,
+daily factors, historical index
 membership, PIT financials, and attribution factors. See
 [Data operations](docs/04_DATA_OPERATIONS.md) for exact templates and schemas.
 

@@ -706,6 +706,11 @@ dates, and keeps board, ETF, ST-rule-change, and stock IPO-session rules as
 editable keyword-only defaults. For a known no-limit stock IPO session it sets
 both limit columns to zero.
 
+The engine compares those unadjusted limits only with the matching unadjusted
+execution field (`raw_open` for open activation and `raw_close` for close
+activation). Adjusted `open`/`close` remain the research and accounting series;
+mixing an adjusted execution field with an unadjusted price limit is invalid.
+
 New broker order types or data feeds require an explicit SDK/core capability.
 Arbitrary Python cannot create capabilities the core does not expose.
 
@@ -1040,19 +1045,33 @@ with no usable coverage at all.
 
 Background job reads and frozen result summaries MUST expose one compact
 top-level contract. It always includes `warnings`, `research_valid`,
-`attempted_trade_count`, `successful_trade_count`,
-`execution_data_fill_count`, and `market_state_rejection_count`; callers do not
-unwrap a second result-summary object. While a job has no result,
+`research_invalid_reasons`, `execution_fidelity`, `attempted_trade_count`,
+`successful_trade_count`, `execution_data_fill_count`,
+`synthetic_state_count`, `market_state_rejection_count`,
+`suspension_rejection_count`, `limit_up_rejection_count`,
+`limit_down_rejection_count`, `capacity_rejection_count`, and
+`cash_rejection_count`; callers do not unwrap a second result-summary object.
+Each synthetic value in the full execution audit records whether it came from
+the provider, project `strategy_fill`, or an explicit engine fallback. While a job has no result,
 `research_valid` is `null` and all counters are zero. A wait endpoint MUST hold
 one request for no more than 30 seconds and return when the persisted status
 changes or the timeout expires.
+
+`research_valid` MUST be false when execution state is missing, the same exit
+repeatedly fails, or the actual portfolio remains materially different from
+the requested target across rebalances. `PERSISTENT_EXIT_FAILURE` and
+`LOW_EXECUTION_FIDELITY` are stable invalid-reason codes. A single aggregate
+success-rate threshold is not sufficient because an unfilled exit is more
+material than an ordinary partial buy.
 
 Each signal evaluation MAY use the complete in-memory score vector while the
 backtest is running, but a frozen Run stores only compact per-rebalance
 evidence: universe/scored/selected counts, coverage, selection turnover, and
 rank IC measured to the following signal date. The score vector MUST NOT be
 stored in summary diagnostics. Analytics for SDK Runs MUST consume this native
-evidence before considering a read-only legacy stage-output fallback.
+evidence before considering a read-only legacy stage-output fallback. Fewer
+than three paired securities MUST return `INSUFFICIENT_CROSS_SECTION`, not a
+misleading claim that only one signal period exists.
 
 Return annualization MUST be selected from the frozen return index's observed
 calendar cadence. Signal or rebalance frequency describes decision timing and

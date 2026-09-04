@@ -48,6 +48,20 @@ export interface BacktestRunResult {
   metrics: Record<string, number>
   returns: { date: string; value: number }[]
   weights_count: number
+  warnings: string[]
+  research_valid: boolean
+  research_invalid_reasons: string[]
+  execution_fidelity: Record<string, unknown>
+  attempted_trade_count: number
+  successful_trade_count: number
+  execution_data_fill_count: number
+  synthetic_state_count: number
+  market_state_rejection_count: number
+  suspension_rejection_count: number
+  limit_up_rejection_count: number
+  limit_down_rejection_count: number
+  capacity_rejection_count: number
+  cash_rejection_count: number
   execution: Record<string, unknown>
   attribution: BacktestAttribution
   provenance: ResearchProvenance
@@ -62,10 +76,18 @@ export interface BacktestJob {
   warnings: string[]
   warnings_truncated: boolean
   research_valid: boolean | null
+  research_invalid_reasons: string[]
+  execution_fidelity: Record<string, unknown>
   attempted_trade_count: number
   successful_trade_count: number
   execution_data_fill_count: number
+  synthetic_state_count: number
   market_state_rejection_count: number
+  suspension_rejection_count: number
+  limit_up_rejection_count: number
+  limit_down_rejection_count: number
+  capacity_rejection_count: number
+  cash_rejection_count: number
   metrics: Record<string, number>
   period: { start_date?: string; end_date?: string }
   counts: Record<string, number>

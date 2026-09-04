@@ -13,6 +13,19 @@ from alphalab import ResultStore, StrategyRepository
 from alphalab.dataio import MissingDataError
 from dashboard.backend.services.data_service import _engine
 
+_EXECUTION_COUNTER_FIELDS = (
+    "attempted_trade_count",
+    "successful_trade_count",
+    "execution_data_fill_count",
+    "synthetic_state_count",
+    "market_state_rejection_count",
+    "suspension_rejection_count",
+    "limit_up_rejection_count",
+    "limit_down_rejection_count",
+    "capacity_rejection_count",
+    "cash_rejection_count",
+)
+
 
 def _json_payload(value: object, default: object) -> object:
     if not isinstance(value, str) or not value:
@@ -108,6 +121,17 @@ def _execution_sample(row: dict) -> dict:
             "traded_weight",
             "turnover",
             "total_cost",
+            "execution_fidelity",
+            "target_weight_deviation",
+            "attempted_trade_count",
+            "successful_trade_count",
+            "synthetic_state_count",
+            "market_state_rejection_count",
+            "suspension_rejection_count",
+            "limit_up_rejection_count",
+            "limit_down_rejection_count",
+            "capacity_rejection_count",
+            "cash_rejection_count",
         )
         if key in row
     } | {
@@ -181,22 +205,20 @@ def _execution_summary(record: dict) -> dict[str, int]:
         for item in executions
     )
     filled = sum(
-        sum(int(value or 0) for value in (item.get("execution_data_fill") or {}).get("filled", {}).values())
+        sum(
+            int(value or 0)
+            for value in (item.get("execution_data_fill") or {}).get("filled", {}).values()
+        )
         for item in executions
     )
     nested_fill = diagnostics.get("execution_data_fill")
     nested_fill = nested_fill if isinstance(nested_fill, dict) else {}
-    return {
+    summary = {
         "attempted_trade_count": int(
-            record.get(
-                "attempted_trade_count", saved.get("attempted_trade_count", attempted)
-            )
-            or 0
+            record.get("attempted_trade_count", saved.get("attempted_trade_count", attempted)) or 0
         ),
         "successful_trade_count": int(
-            record.get(
-                "successful_trade_count", saved.get("successful_trade_count", successful)
-            )
+            record.get("successful_trade_count", saved.get("successful_trade_count", successful))
             or 0
         ),
         "execution_data_fill_count": int(
@@ -219,6 +241,16 @@ def _execution_summary(record: dict) -> dict[str, int]:
             or 0
         ),
     }
+    for field in _EXECUTION_COUNTER_FIELDS[3:]:
+        fallback = (
+            summary["execution_data_fill_count"]
+            if field == "synthetic_state_count"
+            else summary["market_state_rejection_count"]
+            if field == "market_state_rejection_count"
+            else sum(int(item.get(field) or 0) for item in executions)
+        )
+        summary[field] = int(record.get(field, saved.get(field, fallback)) or 0)
+    return summary
 
 
 def build_backtest_summary(record: dict) -> dict:
@@ -239,11 +271,20 @@ def build_backtest_summary(record: dict) -> dict:
     warnings = list(dict.fromkeys(str(item) for item in warning_values if str(item).strip()))
     execution_summary = _execution_summary(record)
     raw_research_valid = record.get("research_valid", diagnostics.get("research_valid"))
-    research_valid = (
-        bool(raw_research_valid)
-        if raw_research_valid is not None
-        else execution_summary["market_state_rejection_count"] == 0
+    research_valid = bool(raw_research_valid) if raw_research_valid is not None else False
+    raw_invalid_reasons = record.get(
+        "research_invalid_reasons", diagnostics.get("research_invalid_reasons")
     )
+    research_invalid_reasons = [
+        str(value)
+        for value in (raw_invalid_reasons or ())
+        if isinstance(value, str) and value.strip()
+    ]
+    if raw_research_valid is None and not research_invalid_reasons:
+        research_invalid_reasons = ["UNVERIFIED_EXECUTION_FIDELITY"]
+    execution_fidelity = diagnostics.get("execution_fidelity")
+    if not isinstance(execution_fidelity, dict):
+        execution_fidelity = {}
     period = record.get("period") if isinstance(record.get("period"), dict) else {}
     counts = record.get("counts") if isinstance(record.get("counts"), dict) else {}
     samples = record.get("samples") if isinstance(record.get("samples"), dict) else None
@@ -277,6 +318,8 @@ def build_backtest_summary(record: dict) -> dict:
         "warnings": [_public_event_value(str(item)) for item in warnings[:10]],
         "warnings_truncated": bool(record.get("warnings_truncated")) or len(warnings) > 10,
         "research_valid": research_valid,
+        "research_invalid_reasons": research_invalid_reasons,
+        "execution_fidelity": _public_event_value(execution_fidelity),
         **execution_summary,
     }
 

@@ -218,7 +218,9 @@ runs the frozen project's optional `@execution_data_fill` Python, validates its
 returned frame, and rejects only orders whose required state remains missing.
 The hook derives ordinary limits from prior-session unadjusted `raw_close` and
 may use a paired zero for a known IPO no-limit session; provider non-positive
-values are normalized to missing and a single zero is invalid.
+values are normalized to missing and a single zero is invalid. Strict limit
+checks use the matching unadjusted execution field (`raw_open` or `raw_close`),
+never the adjusted research price.
 Backtest workers acquire shared runtime-data
 locks and a per-job exclusive process lock. Dataset writers remain exclusive,
 but multiple API services and multiple backtests must not duplicate a task or
@@ -229,13 +231,18 @@ status plus a stable error code and bounded summary. Prefer
 `GET /api/backtests/jobs/{id}/wait?timeout_seconds=25` while a task is running;
 it waits for a status transition instead of forcing repeated Agent turns. Job
 reads and `/api/backtests/{id}/summary` expose warnings, research validity, and
-the four execution counters at the top level. Default result reads omit daily
+the complete execution counter set at the top level. Default result reads omit daily
 events; `/api/backtests/{id}/events` provides explicit bounded pages for events
 or executions. Public errors contain a safe summary and log reference, never
 server paths, environment hashes, or tracebacks. Terminal task state is
 self-consistent: success exposes no error fields, and failure exposes no stale
 result identifier. Temporary write contention uses the stable `DATASET_BUSY`
 code rather than a market-coverage error.
+
+Every action-union Agent tool uses conditional JSON Schema requirements for its
+selected action. Its outer runtime boundary converts both local validation and
+HTTP failures into a structured safe error result; uncaught JavaScript errors
+must never expose temporary module paths or stacks.
 
 SDK backtests calculate compact signal evidence in the event loop. Persist
 per-rebalance counts, coverage, turnover, and next-signal rank IC, never the
@@ -260,6 +267,11 @@ Document node IDs; the Agent updates an existing matching report and creates a
 new one only for a new research subject. The current report history is global
 to the AlphaLab publication and is not partitioned by project. Report Markdown
 must remain domain-facing and omit hashes and execution identifiers.
+
+The published Agent submits `summary`, Decision Notebook, Workspace Result, and
+Workspace Commands together through `commit_harness_outputs`. Generic node
+tools modify report Documents only; they never partially update the bound
+Harness output nodes.
 
 Validation source routes are under `/api/validation`. `validation.py` must
 declare `VALIDATION_SDK_VERSION = 1` and provide `performance` and `alpha_beta`

@@ -15,6 +15,23 @@ from alphalab.strategy.config import ExecutionSpec
 from alphalab.strategy.repository import StrategyRepository
 from alphalab.strategy.sdk_runtime import SdkExecutionSession
 
+_EXECUTION_COUNTER_FIELDS = (
+    "attempted_trade_count",
+    "successful_trade_count",
+    "execution_data_fill_count",
+    "synthetic_state_count",
+    "market_state_rejection_count",
+    "suspension_rejection_count",
+    "limit_up_rejection_count",
+    "limit_down_rejection_count",
+    "capacity_rejection_count",
+    "cash_rejection_count",
+)
+
+
+def _empty_execution_summary() -> dict[str, int]:
+    return {field: 0 for field in _EXECUTION_COUNTER_FIELDS}
+
 
 @dataclass(frozen=True)
 class StrategyBacktestResult:
@@ -198,6 +215,7 @@ def evaluate_factor_history(
         "invoked": sorted(invoked),
     }
 
+
 def run_strategy_backtest(
     repository: StrategyRepository,
     project_id: str,
@@ -245,13 +263,25 @@ def run_strategy_backtest(
                     "symbols_sample": [],
                     "samples": [],
                 },
-                "execution_data_fill": {"value_count": 0, "fields": {}},
-                "execution_summary": {
-                    "attempted_trade_count": 0,
-                    "successful_trade_count": 0,
-                    "execution_data_fill_count": 0,
-                    "market_state_rejection_count": 0,
+                "execution_data_fill": {
+                    "value_count": 0,
+                    "fields": {},
+                    "source_counts": {
+                        "provider": {},
+                        "strategy_fill": {},
+                        "fallback": {},
+                    },
                 },
+                "execution_summary": _empty_execution_summary(),
+                "execution_fidelity": {
+                    "mean": None,
+                    "minimum": None,
+                    "low_fidelity_period_count": 0,
+                    "persistent_tracking_error_periods": 0,
+                    "maximum_target_weight_deviation": 0.0,
+                    "persistent_exit_failure_symbols": [],
+                },
+                "research_invalid_reasons": ["INSUFFICIENT_SESSIONS"],
                 "signal_evidence": {"rows": [], "periods": 0, "evidence_periods": 0},
             },
         )
@@ -540,12 +570,39 @@ def run_strategy_backtest(
             "CUSTOM_EXECUTION_DATA_FILL: project Python filled "
             f"{execution_fill_count} missing execution-state values"
         )
-    attempted_trade_count = sum(
-        int(item.get("attempted_trade_count") or 0) for item in executions
-    )
-    successful_trade_count = sum(
-        int(item.get("successful_trade_count") or 0) for item in executions
-    )
+    execution_summary = _aggregate_execution_summary(executions)
+    execution_state_source_counts = _aggregate_execution_state_sources(executions)
+    execution_fidelity = _execution_fidelity_summary(executions)
+    research_invalid_reasons: list[str] = []
+    if execution_data_policy != "strict":
+        research_invalid_reasons.append("ILLUSTRATIVE_EXECUTION_DATA")
+    if execution_summary["market_state_rejection_count"]:
+        research_invalid_reasons.append("MISSING_EXECUTION_STATE")
+    if execution_fidelity["persistent_exit_failure_symbols"]:
+        research_invalid_reasons.append("PERSISTENT_EXIT_FAILURE")
+    if (
+        (
+            execution_summary["attempted_trade_count"] > 0
+            and execution_summary["successful_trade_count"] == 0
+        )
+        or execution_fidelity["persistent_tracking_error_periods"] >= 2
+        or (
+            execution_fidelity["low_fidelity_period_count"] >= 2
+            and execution_fidelity["mean"] is not None
+            and execution_fidelity["mean"] < 0.8
+        )
+    ):
+        research_invalid_reasons.append("LOW_EXECUTION_FIDELITY")
+    if "PERSISTENT_EXIT_FAILURE" in research_invalid_reasons:
+        warnings.add(
+            "PERSISTENT_EXIT_FAILURE: one or more positions repeatedly failed to reach "
+            "their requested lower or zero target"
+        )
+    if "LOW_EXECUTION_FIDELITY" in research_invalid_reasons:
+        warnings.add(
+            "LOW_EXECUTION_FIDELITY: the actual portfolio repeatedly remained materially "
+            "different from the requested target"
+        )
     return StrategyBacktestResult(
         project=project,
         package=package,
@@ -571,9 +628,8 @@ def run_strategy_backtest(
             "final_state": state,
             "warnings": sorted(warnings),
             "execution_data_policy": execution_data_policy,
-            "research_valid": (
-                execution_data_policy == "strict" and execution_exclusion_count == 0
-            ),
+            "research_valid": not research_invalid_reasons,
+            "research_invalid_reasons": research_invalid_reasons,
             "execution_data_exclusions": {
                 "symbol_date_count": execution_exclusion_count,
                 "unique_symbol_count": len(execution_exclusion_symbols),
@@ -583,13 +639,10 @@ def run_strategy_backtest(
             "execution_data_fill": {
                 "value_count": execution_fill_count,
                 "fields": dict(sorted(execution_fill_fields.items())),
+                "source_counts": execution_state_source_counts,
             },
-            "execution_summary": {
-                "attempted_trade_count": attempted_trade_count,
-                "successful_trade_count": successful_trade_count,
-                "execution_data_fill_count": execution_fill_count,
-                "market_state_rejection_count": execution_exclusion_count,
-            },
+            "execution_summary": execution_summary,
+            "execution_fidelity": execution_fidelity,
             "signal_evidence": {
                 "rows": signal_evidence_rows,
                 "periods": len(signal_evidence_rows),
@@ -673,7 +726,9 @@ def _prepare_data(
         [
             "limit_up",
             "limit_down",
-            *(["raw_close", "is_st"] if has_execution_data_fill else []),
+            "raw_open",
+            "raw_close",
+            *(["is_st"] if has_execution_data_fill else []),
         ]
         if execution_data_policy == "strict"
         else []
@@ -733,7 +788,9 @@ def _prepare_data(
             "is_suspended",
             "limit_up",
             "limit_down",
-            *(["raw_close", "is_st"] if has_execution_data_fill else []),
+            "raw_open",
+            "raw_close",
+            *(["is_st"] if has_execution_data_fill else []),
         ):
             if field not in bars:
                 bars[field] = pd.NA
@@ -904,6 +961,8 @@ def _available_symbols(
 def _execution_data_gaps(
     rows: pd.DataFrame,
     symbols: Sequence[str],
+    *,
+    execution_field: str,
 ) -> dict[str, tuple[str, ...]]:
     """Return missing strict-execution fields for otherwise valid candidates."""
 
@@ -935,13 +994,18 @@ def _execution_data_gaps(
             for value in limit_values.values()
         )
         if not no_price_limit:
+            raw_price_field = f"raw_{execution_field}"
+            raw_price = pd.to_numeric(pd.Series([row.get(raw_price_field)]), errors="coerce").iloc[
+                0
+            ]
+            if pd.isna(raw_price) or not math.isfinite(float(raw_price)) or float(raw_price) <= 0:
+                missing_fields.append(raw_price_field)
             for field, value in limit_values.items():
                 if pd.isna(value) or not math.isfinite(float(value)) or float(value) <= 0:
                     missing_fields.append(field)
         if missing_fields:
             gaps[symbol] = tuple(missing_fields)
     return gaps
-
 
 
 def _limits(project: Mapping[str, Any]) -> dict[str, float]:
@@ -1175,7 +1239,13 @@ def _execute_target(
         for symbol in set(requested_target) | set(current):
             delta = float(requested_target.get(symbol, 0.0)) - float(current.get(symbol, 0.0))
             if abs(delta) > 1e-12:
-                missing_execution_data.update(_execution_data_gaps(trade_rows, [symbol]))
+                missing_execution_data.update(
+                    _execution_data_gaps(
+                        trade_rows,
+                        [symbol],
+                        execution_field=field,
+                    )
+                )
     target, fallback_routes = _route_fallbacks(
         requested_target,
         current,
@@ -1184,18 +1254,48 @@ def _execute_target(
         policy.get("fallback_candidates") or (),
         strict_execution_data=strict_execution_data,
     )
+    rejection_symbols: dict[str, set[str]] = {
+        "market_state": set(missing_execution_data),
+        "suspension": set(),
+        "limit_up": set(),
+        "limit_down": set(),
+        "capacity": set(),
+        "cash": set(),
+    }
+    for symbol in set(requested_target) | set(current):
+        delta = float(requested_target.get(symbol, 0.0)) - float(current.get(symbol, 0.0))
+        if abs(delta) <= 1e-12:
+            continue
+        reason = _trade_rejection_reason(
+            trade_rows,
+            symbol,
+            field,
+            side="buy" if delta > 0 else "sell",
+            strict_execution_data=strict_execution_data,
+        )
+        if reason is not None:
+            rejection_symbols[reason].add(symbol)
     for symbol in set(target) | set(current):
         delta = float(target.get(symbol, 0.0)) - float(current.get(symbol, 0.0))
         if abs(delta) <= 1e-12:
             continue
         side = "buy" if delta > 0 else "sell"
-        if not _trade_allowed(
+        reason = _trade_rejection_reason(
             trade_rows,
             symbol,
             field,
             side=side,
             strict_execution_data=strict_execution_data,
-        ):
+        )
+        if reason is not None:
+            already_state_blocked = symbol in set().union(
+                rejection_symbols["market_state"],
+                rejection_symbols["suspension"],
+                rejection_symbols["limit_up"],
+                rejection_symbols["limit_down"],
+            )
+            if reason != "capacity" or not already_state_blocked:
+                rejection_symbols[reason].add(symbol)
             indexed_rows.loc[
                 indexed_rows["symbol"].astype(str).str.upper().eq(symbol), "volume"
             ] = 0.0
@@ -1211,6 +1311,16 @@ def _execute_target(
         entry_date,
         SimpleNamespace(execution=execution_spec),
     )
+    state_blocked = set().union(
+        rejection_symbols["market_state"],
+        rejection_symbols["suspension"],
+        rejection_symbols["limit_up"],
+        rejection_symbols["limit_down"],
+    )
+    rejection_symbols["capacity"].update(
+        set(audit.get("capacity_rejection_symbols") or ()) - state_blocked
+    )
+    rejection_symbols["cash"].update(audit.get("cash_rejection_symbols") or ())
     successful_trade_count = sum(
         1
         for symbol in set(executed) | set(current)
@@ -1234,6 +1344,29 @@ def _execute_target(
         elif new > old + 1e-12 and price is not None:
             old_entry = next_entries.get(symbol, price)
             next_entries[symbol] = (old * old_entry + (new - old) * price) / new
+    requested_trade_weight = float(
+        sum(
+            abs(float(requested_target.get(symbol, 0.0)) - float(current.get(symbol, 0.0)))
+            for symbol in set(requested_target) | set(current)
+        )
+    )
+    target_weight_deviation = float(
+        sum(
+            abs(float(requested_target.get(symbol, 0.0)) - float(executed.get(symbol, 0.0)))
+            for symbol in set(requested_target) | set(executed)
+        )
+    )
+    execution_fidelity = (
+        max(0.0, 1.0 - min(1.0, target_weight_deviation / requested_trade_weight))
+        if requested_trade_weight > 1e-12
+        else 1.0
+    )
+    exit_failure_symbols = sorted(
+        symbol
+        for symbol in set(current) | set(requested_target)
+        if float(requested_target.get(symbol, 0.0)) < float(current.get(symbol, 0.0)) - 1e-12
+        and float(executed.get(symbol, 0.0)) > float(requested_target.get(symbol, 0.0)) + 1e-6
+    )
     return (
         next_values,
         max(0.0, next_cash),
@@ -1251,7 +1384,23 @@ def _execute_target(
             "execution_data_fill": fill_audit,
             "attempted_trade_count": attempted_trade_count,
             "successful_trade_count": successful_trade_count,
-            "market_state_rejection_count": len(missing_execution_data),
+            "execution_data_fill_count": int(
+                sum(int(value or 0) for value in fill_audit.get("filled", {}).values())
+            ),
+            "synthetic_state_count": int(fill_audit.get("synthetic_state_count") or 0),
+            "market_state_rejection_count": len(rejection_symbols["market_state"]),
+            "suspension_rejection_count": len(rejection_symbols["suspension"]),
+            "limit_up_rejection_count": len(rejection_symbols["limit_up"]),
+            "limit_down_rejection_count": len(rejection_symbols["limit_down"]),
+            "capacity_rejection_count": len(rejection_symbols["capacity"]),
+            "cash_rejection_count": len(rejection_symbols["cash"]),
+            "rejection_symbols": {
+                reason: sorted(symbols) for reason, symbols in rejection_symbols.items() if symbols
+            },
+            "requested_trade_weight": requested_trade_weight,
+            "target_weight_deviation": target_weight_deviation,
+            "execution_fidelity": execution_fidelity,
+            "exit_failure_symbols": exit_failure_symbols,
             "decision_reason": decision.get("reason"),
             "state_committed": True,
         },
@@ -1298,9 +1447,7 @@ def _record_signal_evidence(
             if math.isfinite(value):
                 scores[str(symbol).upper()] = value
     selected = {
-        str(symbol).upper()
-        for symbol in signal.get("selected") or ()
-        if isinstance(symbol, str)
+        str(symbol).upper() for symbol in signal.get("selected") or () if isinstance(symbol, str)
     }
     if pending is not None:
         prior_scores = pending["scores"]
@@ -1382,12 +1529,12 @@ def _fill_execution_state(
     state_rows = output.loc[output["symbol"].isin(normalized_symbols)].copy()
     if state_rows.empty:
         return output, {}
-    for field in ("is_suspended", "limit_up", "limit_down"):
+    state_fields = ("is_suspended", "limit_up", "limit_down")
+    for field in state_fields:
         if field not in state_rows:
             state_rows[field] = pd.NA
-    request_rows = state_rows[["date", "symbol", "is_suspended", "limit_up", "limit_down"]].to_dict(
-        orient="records"
-    )
+    provider_counts = {field: int(state_rows[field].notna().sum()) for field in state_fields}
+    request_rows = state_rows[["date", "symbol", *state_fields]].to_dict(orient="records")
     result = session.execute(
         "execution_data_fill",
         {
@@ -1402,15 +1549,36 @@ def _fill_execution_state(
         return output, {}
     filled["symbol"] = filled["symbol"].astype(str).str.upper()
     filled = filled.drop_duplicates("symbol", keep="last").set_index("symbol")
-    for field in ("is_suspended", "limit_up", "limit_down"):
+    filled_values: list[dict[str, str]] = []
+    strategy_fill_counts: dict[str, int] = {}
+    for field in state_fields:
         if field not in output:
             output[field] = pd.NA
         replacement = output["symbol"].map(filled[field])
         missing = output[field].isna() & replacement.notna()
         output.loc[missing, field] = replacement.loc[missing]
+        count = int(missing.sum())
+        if count:
+            strategy_fill_counts[field] = count
+            filled_values.extend(
+                {
+                    "symbol": str(symbol),
+                    "field": field,
+                    "source": "strategy_fill",
+                }
+                for symbol in output.loc[missing, "symbol"].tolist()
+            )
+    synthetic_state_count = sum(strategy_fill_counts.values())
     return output, {
         "entrypoint_id": result.get("entrypoint_id"),
-        "filled": dict(result.get("filled") or {}),
+        "filled": strategy_fill_counts,
+        "synthetic_state_count": synthetic_state_count,
+        "source_counts": {
+            "provider": provider_counts,
+            "strategy_fill": strategy_fill_counts,
+            "fallback": {},
+        },
+        "filled_values": filled_values,
     }
 
 
@@ -1503,24 +1671,36 @@ def _trade_allowed(
     side: str,
     strict_execution_data: bool = False,
 ) -> bool:
+    return (
+        _trade_rejection_reason(
+            rows,
+            symbol,
+            field,
+            side=side,
+            strict_execution_data=strict_execution_data,
+        )
+        is None
+    )
+
+
+def _trade_rejection_reason(
+    rows: pd.DataFrame,
+    symbol: str,
+    field: str,
+    *,
+    side: str,
+    strict_execution_data: bool = False,
+) -> str | None:
     if symbol not in rows.index:
-        return False
+        return "market_state" if strict_execution_data else "capacity"
     row = rows.loc[symbol]
     if isinstance(row, pd.DataFrame):
         row = row.iloc[-1]
-    price = pd.to_numeric(pd.Series([row.get(field)]), errors="coerce").iloc[0]
-    volume = pd.to_numeric(pd.Series([row.get("volume")]), errors="coerce").iloc[0]
-    amount = pd.to_numeric(pd.Series([row.get("amount")]), errors="coerce").iloc[0]
-    if any(
-        pd.isna(value) or not math.isfinite(float(value)) or float(value) <= 0
-        for value in (price, volume, amount)
-    ):
-        return False
     suspended = row.get("is_suspended", pd.NA)
     if strict_execution_data and pd.isna(suspended):
-        return False
+        return "market_state"
     if pd.notna(suspended) and bool(suspended):
-        return False
+        return "suspension"
     limit_values = {
         name: pd.to_numeric(pd.Series([row.get(name)]), errors="coerce").iloc[0]
         for name in ("limit_up", "limit_down")
@@ -1542,13 +1722,25 @@ def _trade_allowed(
         if single_zero or (
             pd.isna(limit_value) or not math.isfinite(float(limit_value)) or float(limit_value) <= 0
         ):
-            return False
+            return "market_state"
     if not no_price_limit and pd.notna(limit_value) and float(limit_value) > 0:
-        if side == "buy" and float(price) >= float(limit_value) - 1e-12:
-            return False
-        if side == "sell" and float(price) <= float(limit_value) + 1e-12:
-            return False
-    return True
+        raw_price_field = f"raw_{field}"
+        raw_price = pd.to_numeric(pd.Series([row.get(raw_price_field)]), errors="coerce").iloc[0]
+        if pd.isna(raw_price) or not math.isfinite(float(raw_price)) or float(raw_price) <= 0:
+            return "market_state" if strict_execution_data else None
+        if side == "buy" and float(raw_price) >= float(limit_value) - 1e-12:
+            return "limit_up"
+        if side == "sell" and float(raw_price) <= float(limit_value) + 1e-12:
+            return "limit_down"
+    price = pd.to_numeric(pd.Series([row.get(field)]), errors="coerce").iloc[0]
+    volume = pd.to_numeric(pd.Series([row.get("volume")]), errors="coerce").iloc[0]
+    amount = pd.to_numeric(pd.Series([row.get("amount")]), errors="coerce").iloc[0]
+    if any(
+        pd.isna(value) or not math.isfinite(float(value)) or float(value) <= 0
+        for value in (price, volume, amount)
+    ):
+        return "capacity"
+    return None
 
 
 def _settle_delisted_positions(
@@ -1672,6 +1864,8 @@ def _apply_execution_constraints(
     desired: dict[str, float] = {}
     constrained: set[str] = set()
     missing_amount: set[str] = set()
+    capacity_rejections: set[str] = set()
+    cash_rejections: set[str] = set()
     participation: dict[str, float] = {}
     universe = set(target) | set(current)
     for symbol in universe:
@@ -1689,6 +1883,7 @@ def _apply_execution_constraints(
             desired[symbol] = old
             if abs(wanted - old) > 1e-12:
                 constrained.add(symbol)
+                capacity_rejections.add(symbol)
             continue
         delta = wanted - old
         amount = pd.to_numeric(
@@ -1704,6 +1899,7 @@ def _apply_execution_constraints(
             if abs(delta) > capacity:
                 delta = float(np.sign(delta) * capacity)
                 constrained.add(symbol)
+                capacity_rejections.add(symbol)
             participation[symbol] = min(
                 1.0,
                 abs(delta) * config.execution.portfolio_value / float(amount),
@@ -1714,6 +1910,7 @@ def _apply_execution_constraints(
             desired[symbol] = old
             if abs(delta) > 1e-12:
                 constrained.add(symbol)
+                capacity_rejections.add(symbol)
             continue
         desired[symbol] = max(0.0, old + delta)
 
@@ -1747,8 +1944,7 @@ def _apply_execution_constraints(
         available_cash -= increase * (1.0 + marginal_cost)
         if increase + 1e-12 < wanted - old:
             constrained.add(symbol)
-        if available_cash <= 1e-12:
-            break
+            cash_rejections.add(symbol)
     executed = {symbol: float(weight) for symbol, weight in executed.items() if weight > 1e-12}
     deltas = {
         symbol: executed.get(symbol, 0.0) - current.get(symbol, 0.0)
@@ -1769,6 +1965,65 @@ def _apply_execution_constraints(
         "executed_count": len(executed),
         "constrained_symbols": sorted(constrained),
         "missing_amount_symbols": sorted(missing_amount),
+        "capacity_rejection_symbols": sorted(capacity_rejections),
+        "cash_rejection_symbols": sorted(cash_rejections),
+    }
+
+
+def _aggregate_execution_summary(executions: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    summary = _empty_execution_summary()
+    for execution in executions:
+        for field in _EXECUTION_COUNTER_FIELDS:
+            summary[field] += int(execution.get(field) or 0)
+    return summary
+
+
+def _aggregate_execution_state_sources(
+    executions: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, int]]:
+    totals: dict[str, dict[str, int]] = {
+        "provider": {},
+        "strategy_fill": {},
+        "fallback": {},
+    }
+    for execution in executions:
+        source_counts = (execution.get("execution_data_fill") or {}).get("source_counts") or {}
+        for source, fields in source_counts.items():
+            target = totals.setdefault(str(source), {})
+            for field, value in dict(fields or {}).items():
+                target[str(field)] = target.get(str(field), 0) + int(value or 0)
+    return {source: dict(sorted(fields.items())) for source, fields in totals.items()}
+
+
+def _execution_fidelity_summary(executions: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    attempted = [item for item in executions if int(item.get("attempted_trade_count") or 0)]
+    fidelities = [float(item.get("execution_fidelity", 1.0)) for item in attempted]
+    deviations = [float(item.get("target_weight_deviation") or 0.0) for item in attempted]
+    low_fidelity_period_count = sum(value < 0.8 for value in fidelities)
+    tracking_streak = 0
+    maximum_tracking_streak = 0
+    exit_streaks: dict[str, int] = {}
+    maximum_exit_streaks: dict[str, int] = {}
+    for item in attempted:
+        deviation = float(item.get("target_weight_deviation") or 0.0)
+        tracking_streak = tracking_streak + 1 if deviation > 0.05 else 0
+        maximum_tracking_streak = max(maximum_tracking_streak, tracking_streak)
+        failed = {str(symbol).upper() for symbol in item.get("exit_failure_symbols") or ()}
+        for symbol in set(exit_streaks) | failed:
+            exit_streaks[symbol] = exit_streaks.get(symbol, 0) + 1 if symbol in failed else 0
+            maximum_exit_streaks[symbol] = max(
+                maximum_exit_streaks.get(symbol, 0), exit_streaks[symbol]
+            )
+    persistent_exit_symbols = sorted(
+        symbol for symbol, streak in maximum_exit_streaks.items() if streak >= 2
+    )
+    return {
+        "mean": float(np.mean(fidelities)) if fidelities else None,
+        "minimum": min(fidelities) if fidelities else None,
+        "low_fidelity_period_count": low_fidelity_period_count,
+        "persistent_tracking_error_periods": maximum_tracking_streak,
+        "maximum_target_weight_deviation": max(deviations, default=0.0),
+        "persistent_exit_failure_symbols": persistent_exit_symbols[:50],
     }
 
 

@@ -12,6 +12,7 @@ class FakeRQData:
         self.init_args = None
         self.init_kwargs = None
         self.price_kwargs = None
+        self.price_calls = []
         self.fundamental_calls = []
 
     def init(self, user, password, host, **kwargs) -> None:
@@ -20,6 +21,7 @@ class FakeRQData:
 
     def get_price(self, order_book_ids, **kwargs):
         self.price_kwargs = {"order_book_ids": order_book_ids, **kwargs}
+        self.price_calls.append(self.price_kwargs)
         index = pd.MultiIndex.from_tuples(
             [
                 ("000001.XSHE", pd.Timestamp("2025-01-02")),
@@ -121,7 +123,9 @@ def test_rq_market_discovery_preserves_all_daily_fields() -> None:
         "2025-01-03",
     )
 
-    assert module.price_kwargs["fields"] is None
+    assert module.price_calls[-2]["fields"] is None
+    assert module.price_calls[-1]["fields"] == ["open", "high", "low", "close"]
+    assert {"raw_open", "raw_high", "raw_low", "raw_close"}.issubset(bars)
     assert bars["prev_close"].tolist() == [10.0, 20.0]
     assert bars["num_trades"].tolist() == [12, 24]
     assert bars["amount"].tolist() == [10200.0, 40400.0]

@@ -871,6 +871,9 @@ class StrategyRepository:
             "close",
             "volume",
             "amount",
+            "raw_open",
+            "raw_high",
+            "raw_low",
             "raw_close",
             "is_suspended",
             "is_st",
@@ -886,14 +889,26 @@ class StrategyRepository:
                     **{
                         field: (
                             100.0 + index * 0.1
-                            if field in {"open", "high", "low", "close", "raw_close"}
+                            if field
+                            in {
+                                "open",
+                                "high",
+                                "low",
+                                "close",
+                                "raw_open",
+                                "raw_high",
+                                "raw_low",
+                                "raw_close",
+                            }
                             else (
                                 False
                                 if field in {"is_suspended", "is_st"}
                                 else (
                                     200.0
                                     if field == "limit_up"
-                                    else 1.0 if field == "limit_down" else 1_000_000.0
+                                    else 1.0
+                                    if field == "limit_down"
+                                    else 1_000_000.0
                                 )
                             )
                         )

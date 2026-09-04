@@ -6,11 +6,29 @@
   "inputSchema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["action", "project_id"],
+    "required": [
+      "action",
+      "project_id"
+    ],
     "properties": {
-      "action": { "type": "string", "enum": ["get", "validate_source", "update_parameters"] },
-      "project_id": { "type": "string", "minLength": 2, "maxLength": 64 },
-      "source": { "type": "string", "minLength": 1, "maxLength": 300000 },
+      "action": {
+        "type": "string",
+        "enum": [
+          "get",
+          "validate_source",
+          "update_parameters"
+        ]
+      },
+      "project_id": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 64
+      },
+      "source": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300000
+      },
       "edits": {
         "type": "array",
         "minItems": 1,
@@ -18,20 +36,75 @@
         "items": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["entrypoint_id", "parameter", "value"],
+          "required": [
+            "entrypoint_id",
+            "parameter",
+            "value"
+          ],
           "properties": {
-            "entrypoint_id": { "type": "string", "minLength": 1, "maxLength": 100 },
-            "parameter": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "entrypoint_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "parameter": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
             "value": {}
           }
         }
       },
-      "confirm_write": { "type": "boolean", "default": false }
-    }
+      "confirm_write": {
+        "type": "boolean",
+        "default": false
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "action": {
+              "const": "validate_source"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "source"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "action": {
+              "const": "update_parameters"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "edits",
+            "confirm_write"
+          ],
+          "properties": {
+            "confirm_write": {
+              "const": true
+            }
+          }
+        }
+      }
+    ]
   },
-  "outputSchema": { "type": "object" },
-  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nfunction safeText(value){return String(value||'Request failed').split(/\\r?\\n/,1)[0].replace(/[A-Za-z]:\\\\[^\\s\\\"']+/g,'<internal-path>').replace(/(^|\\s)\\/(?:[^\\/\\s]+\\/)+[^\\s\\\"']+/g,'$1<internal-path>').replace(/\\b[a-fA-F0-9]{40,64}\\b/g,'<internal-id>').slice(0,500)}\nasync function call(path,options={}){const response=await fetch(origin()+path,{headers:{Accept:'application/json','Content-Type':'application/json'},...options});let payload=null;try{payload=await response.json()}catch{}if(!response.ok){const detail=payload&&payload.detail!==undefined?payload.detail:payload||{};const error=detail&&typeof detail==='object'?detail:{};throw new Error(JSON.stringify({status:'failed',error_code:String(error.code||'VALIDATION_SOURCE_FAILED'),error_summary:safeText(error.message||detail),http_status:response.status}))}return payload}\nfunction manifest(value){const inspection=value?.inspection||value||{};return{entrypoints:Array.isArray(inspection.entrypoints)?inspection.entrypoints.map(item=>({id:item.id,kind:item.kind})):[],parameters:Array.isArray(inspection.parameters)?inspection.parameters.map(item=>({name:item.name,default:item.default,editable:item.editable})):[],warnings_count:Array.isArray(inspection.warnings)?inspection.warnings.length:0}}\nfunction writeResult(id,value){return{status:'succeeded',project_id:id,revision:value.current_revision,changed_files:['validation.py'],validation:{valid:true,warnings_count:Array.isArray(value?.inspection?.warnings)?value.inspection.warnings.length:0},manifest:manifest(value)}}\nasync function run(input){const action=String(input.action||''),id=String(input.project_id||'').trim();if(!id)throw new Error('project_id is required');const base='/api/validation/projects/'+encodeURIComponent(id);if(action==='get'){const value=await call(base);return{status:'succeeded',project_id:id,revision:value.current_revision,included_files:{'validation.py':value.source},manifest:manifest(value)}}if(action==='validate_source'){if(!input.source)throw new Error('validation.py source is required');const value=await call('/api/validation/validate',{method:'POST',body:JSON.stringify({source:input.source})});return{status:'succeeded',validation:{valid:true,warnings_count:Array.isArray(value.warnings)?value.warnings.length:0},manifest:manifest(value)}}const current=await call(base);if(input.confirm_write!==true)throw new Error('Editing validation.py requires confirm_write=true');let value;if(action==='update_parameters'){if(!Array.isArray(input.edits)||!input.edits.length)throw new Error('edits are required');value=await call(base+'/parameters',{method:'POST',body:JSON.stringify({edits:input.edits,expected_source_sha256:current.source_sha256,confirm_write:true})})}else throw new Error('unsupported validation source action');return writeResult(id,value)}",
+  "outputSchema": {
+    "type": "object"
+  },
+  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nfunction safeText(value){return String(value||'Request failed').split(/\\r?\\n/,1)[0].replace(/[A-Za-z]:\\\\[^\\s\\\"']+/g,'<internal-path>').replace(/(^|\\s)\\/(?:[^\\/\\s]+\\/)+[^\\s\\\"']+/g,'$1<internal-path>').replace(/\\b[a-fA-F0-9]{40,64}\\b/g,'<internal-id>').slice(0,500)}\nasync function call(path,options={}){const response=await fetch(origin()+path,{headers:{Accept:'application/json','Content-Type':'application/json'},...options});let payload=null;try{payload=await response.json()}catch{}if(!response.ok){const detail=payload&&payload.detail!==undefined?payload.detail:payload||{};const error=detail&&typeof detail==='object'?detail:{};throw new Error(JSON.stringify({status:'failed',error_code:String(error.code||'VALIDATION_SOURCE_FAILED'),error_summary:safeText(error.message||detail),http_status:response.status}))}return payload}\nfunction manifest(value){const inspection=value?.inspection||value||{};return{entrypoints:Array.isArray(inspection.entrypoints)?inspection.entrypoints.map(item=>({id:item.id,kind:item.kind})):[],parameters:Array.isArray(inspection.parameters)?inspection.parameters.map(item=>({name:item.name,default:item.default,editable:item.editable})):[],warnings_count:Array.isArray(inspection.warnings)?inspection.warnings.length:0}}\nfunction writeResult(id,value){return{status:'succeeded',project_id:id,revision:value.current_revision,changed_files:['validation.py'],validation:{valid:true,warnings_count:Array.isArray(value?.inspection?.warnings)?value.inspection.warnings.length:0},manifest:manifest(value)}}\nasync function execute(input){const action=String(input.action||''),id=String(input.project_id||'').trim();if(!id)throw new Error('project_id is required');const base='/api/validation/projects/'+encodeURIComponent(id);if(action==='get'){const value=await call(base);return{status:'succeeded',project_id:id,revision:value.current_revision,included_files:{'validation.py':value.source},manifest:manifest(value)}}if(action==='validate_source'){if(!input.source)throw new Error('validation.py source is required');const value=await call('/api/validation/validate',{method:'POST',body:JSON.stringify({source:input.source})});return{status:'succeeded',validation:{valid:true,warnings_count:Array.isArray(value.warnings)?value.warnings.length:0},manifest:manifest(value)}}const current=await call(base);if(input.confirm_write!==true)throw new Error('Editing validation.py requires confirm_write=true');let value;if(action==='update_parameters'){if(!Array.isArray(input.edits)||!input.edits.length)throw new Error('edits are required');value=await call(base+'/parameters',{method:'POST',body:JSON.stringify({edits:input.edits,expected_source_sha256:current.source_sha256,confirm_write:true})})}else throw new Error('unsupported validation source action');return writeResult(id,value)}\nfunction publicFailure(reason){let value=null;try{value=JSON.parse(String(reason?.message||''))}catch{}const error=value&&typeof value==='object'?value:{};return{status:'failed',error_code:String(error.error_code||'VALIDATION_SOURCE_FAILED'),error_summary:safeText(error.error_summary||reason?.message||reason),error_details:error.error_details&&typeof error.error_details==='object'?error.error_details:{},log_reference:error.log_reference||null}}\nasync function run(input){try{return await execute(input)}catch(reason){return publicFailure(reason)}}",
   "timeoutMs": 180000,
-  "permissions": { "network": "alphalab-api" },
+  "permissions": {
+    "network": "alphalab-api"
+  },
   "sideEffects": "write"
 }

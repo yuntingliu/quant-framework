@@ -601,12 +601,8 @@ def migrate_default_strategy_components(
     for kind in requested:
         default_item = default_by_kind.get(kind)
         if default_item is None:
-            raise StrategySourceError(
-                f"default project has no @{kind} function", phase="edit"
-            )
-        function_source = registered_function_source(
-            default_source, entrypoint_id=default_item.id
-        )
+            raise StrategySourceError(f"default project has no @{kind} function", phase="edit")
+        function_source = registered_function_source(default_source, entrypoint_id=default_item.id)
         inspection = inspect_strategy_source(current)
         current_item = next((item for item in inspection.entrypoints if item.kind == kind), None)
         if current_item is not None:
@@ -652,9 +648,7 @@ def _merge_named_imports(source: str, reference_source: str, names: set[str]) ->
                 if public_name in missing:
                     suffix = f" as {alias.asname}" if alias.asname else ""
                     statements.append(
-                        cst.parse_statement(
-                            f"from {node.module} import {alias.name}{suffix}\n"
-                        )
+                        cst.parse_statement(f"from {node.module} import {alias.name}{suffix}\n")
                     )
                     missing.remove(public_name)
     if missing:
@@ -843,7 +837,18 @@ def factor_field_snippet(field: str) -> str:
     normalized = str(field).strip()
     if not normalized.isidentifier() or normalized.startswith("_"):
         raise StrategySourceError("field must be a public Python identifier", phase="edit")
-    if normalized in {"open", "high", "low", "close", "volume", "amount"}:
+    if normalized in {
+        "open",
+        "high",
+        "low",
+        "close",
+        "raw_open",
+        "raw_high",
+        "raw_low",
+        "raw_close",
+        "volume",
+        "amount",
+    }:
         return f'{normalized} = context.history("{normalized}", window=window)'
     return f'{normalized} = context.fundamental("{normalized}")'
 

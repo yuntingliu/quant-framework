@@ -22,15 +22,23 @@ Runtime datasets are:
 | `runtime.factor_returns` | `date` | year |
 
 Runtime bars contain adjusted `open/high/low/close` for research and
-unadjusted `raw_close` for market capitalization. Runtime factor returns use
+unadjusted `raw_open/raw_high/raw_low/raw_close` for execution rules and market
+capitalization. Runtime factor returns use
 the same MKT/SMB/HML/MOM/RMW definitions as the bundled sample. RQ's China 1M
 yield curve is converted from an annual yield to the monthly `rf` return.
 
 Daily synchronization requests `get_price(fields=None)` and preserves every
 field returned by the installed RQ SDK in addition to the canonical OHLCV names
-and `raw_close`. Instrument snapshots likewise retain provider metadata columns.
-Numeric market and canonical PIT fields are discovered from Parquet metadata and
-become safe factor-expression inputs without a frontend whitelist update.
+and unadjusted OHLC. Instrument snapshots likewise retain provider metadata
+columns. Numeric market and canonical PIT fields are discovered from Parquet
+metadata and become safe factor-expression inputs without a frontend whitelist
+update.
+
+The built-in bar recipe declares unadjusted OHLC as required persisted columns.
+If an older `rq.bars` partition only contains `raw_close`, its date watermark is
+not reused: the next normal synchronization replays the configured interval and
+atomically upgrades those partitions. Operators do not need to set `force=true`
+for this schema migration.
 
 ## RQData templates
 

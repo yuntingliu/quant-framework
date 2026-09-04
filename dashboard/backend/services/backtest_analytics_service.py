@@ -495,9 +495,7 @@ def analyze_signal_diagnostics(backtest_id: str) -> dict:
     if record is None:
         raise KeyError(backtest_id)
     diagnostics = (
-        record.get("run_diagnostics")
-        if isinstance(record.get("run_diagnostics"), dict)
-        else {}
+        record.get("run_diagnostics") if isinstance(record.get("run_diagnostics"), dict) else {}
     )
     raw_evidence = diagnostics.get("signal_evidence")
     evidence = raw_evidence if isinstance(raw_evidence, dict) else {}
@@ -513,6 +511,18 @@ def analyze_signal_diagnostics(backtest_id: str) -> dict:
             for item in rows
             if item.get("selection_turnover") is not None
         ]
+        if ic_values:
+            warning_code = None
+            warning = None
+        elif not rows:
+            warning_code = "NO_SIGNAL_EVIDENCE"
+            warning = "该回测没有产生可用信号截面。"
+        elif max(int(item.get("ic_observations") or 0) for item in rows) < 3:
+            warning_code = "INSUFFICIENT_CROSS_SECTION"
+            warning = "每个信号截面可配对证券不足 3 只，不适合计算横截面 IC。"
+        else:
+            warning_code = "INSUFFICIENT_FORWARD_EVIDENCE"
+            warning = "信号截面缺少可用的下一期收益证据，无法计算 IC。"
         return {
             "id": record["id"],
             "periods": len(rows),
@@ -520,27 +530,16 @@ def analyze_signal_diagnostics(backtest_id: str) -> dict:
             "summary": {
                 "mean_ic": _safe(np.mean(ic_values)) if ic_values else None,
                 "positive_ic_ratio": (
-                    _safe(np.mean([value > 0 for value in ic_values]))
-                    if ic_values
-                    else None
+                    _safe(np.mean([value > 0 for value in ic_values])) if ic_values else None
                 ),
-                "average_coverage": (
-                    _safe(np.mean(coverage_values)) if coverage_values else None
-                ),
+                "average_coverage": (_safe(np.mean(coverage_values)) if coverage_values else None),
                 "average_selection_turnover": (
                     _safe(np.mean(turnover_values)) if turnover_values else None
                 ),
             },
             "rows": rows,
-            "warning": (
-                None
-                if ic_values
-                else (
-                    "该回测没有产生可用信号截面。"
-                    if not rows
-                    else "该回测只有一个可用信号截面，尚无下一截面用于计算 IC。"
-                )
-            ),
+            "warning_code": warning_code,
+            "warning": warning,
         }
 
     # Persisted pre-evidence Runs retain their legacy frozen adapter. New SDK
@@ -644,9 +643,7 @@ def _config_from_record(record: dict) -> StrategyConfig:
             signal = next((item for item in sdk_manifest if item.get("kind") == "signal"), {})
             schedule = (signal.get("metadata") or {}).get("schedule") or {}
             frequency = schedule.get("frequency")
-            parameters = _frozen_entrypoint_parameters(
-                sdk_manifest, inspection, "execution"
-            )
+            parameters = _frozen_entrypoint_parameters(sdk_manifest, inspection, "execution")
             portfolio_parameters = _frozen_entrypoint_parameters(
                 sdk_manifest, inspection, "portfolio"
             )
@@ -682,9 +679,7 @@ def _config_from_record(record: dict) -> StrategyConfig:
                     },
                     "portfolio": {
                         "max_weight": float(
-                            portfolio_parameters.get(
-                                "max_weight", settings.get("max_weight", 1.0)
-                            )
+                            portfolio_parameters.get("max_weight", settings.get("max_weight", 1.0))
                         ),
                         "max_gross_exposure": float(
                             portfolio_parameters.get(

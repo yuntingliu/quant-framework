@@ -28,12 +28,18 @@ def research_data(
         order_book_ids, start_date=start, end_date=end,
         frequency="1d", fields=None, adjust_type="pre", expect_df=True,
     )
-    raw_close = rq.get_price(
+    unadjusted = rq.get_price(
         order_book_ids, start_date=start, end_date=end,
-        frequency="1d", fields=["close"], adjust_type="none", expect_df=True,
+        frequency="1d", fields=["open", "high", "low", "close"],
+        adjust_type="none", expect_df=True,
     )
-    context.publish("rq.bars", normalize_rq_bars(adjusted, raw_close))
+    context.publish("rq.bars", normalize_rq_bars(adjusted, unadjusted))
 ```
+
+The normalizer preserves the adjusted provider schema and adds unadjusted
+`raw_open`, `raw_high`, `raw_low`, and `raw_close`. Price-limit checks use the
+matching unadjusted execution price; factor research continues to use adjusted
+OHLC.
 
 Production recipes place those visible RQ calls inside
 `context.sync_batches(...)`. The helper uses persisted per-symbol watermarks,
@@ -47,6 +53,12 @@ context.require_coverage(
     "rq.bars", start=start, end=end, fail_on_gap=True, symbols=active_symbols
 )
 ```
+
+Recipes may pass `required_columns` to `sync_batches`. In run mode, a watermark
+is ignored when a persisted partition still uses an older schema that lacks a
+required column. The built-in `rq.bars` recipe uses this mechanism for
+`raw_open/raw_high/raw_low/raw_close`, so its first normal run after the schema
+upgrade replays the configured history without an operator-only force flag.
 
 Passing the recipe's active symbols keeps a template-specific validation from
 being polluted by bars acquired through another template in the shared runtime

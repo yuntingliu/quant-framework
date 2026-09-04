@@ -854,6 +854,8 @@ def run_project_backtest(
         **dict(run.diagnostics.get("execution_summary") or {}),
         "warnings": list(run.diagnostics.get("warnings") or ()),
         "research_valid": bool(run.diagnostics.get("research_valid", False)),
+        "research_invalid_reasons": list(run.diagnostics.get("research_invalid_reasons") or ()),
+        "execution_fidelity": dict(run.diagnostics.get("execution_fidelity") or {}),
         "execution": run.diagnostics,
         "strategy_manifest": frozen_strategy_manifest,
         "attribution": attribution,
@@ -875,17 +877,15 @@ def _compact_run_diagnostics(diagnostics: Mapping[str, Any]) -> dict[str, Any]:
             "warnings",
             "execution_data_policy",
             "research_valid",
+            "research_invalid_reasons",
             "execution_data_exclusions",
             "execution_data_fill",
             "execution_summary",
+            "execution_fidelity",
             "signal_evidence",
         )
         if key in diagnostics
-    } | {
-        "delisting_settlement_count": len(
-            diagnostics.get("delisting_settlements") or ()
-        )
-    }
+    } | {"delisting_settlement_count": len(diagnostics.get("delisting_settlements") or ())}
 
 
 def _runtime_datasets_for_backtest(package: Mapping[str, Any]) -> tuple[str, ...]:

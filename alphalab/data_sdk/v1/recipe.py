@@ -215,6 +215,7 @@ class DataRecipeContext:
         available_from: dict[str, Any] | None = None,
         dimension: tuple[str, str] | None = None,
         companions: Iterable[str] = (),
+        required_columns: Iterable[str] = (),
     ) -> tuple[DateSymbolBatch, ...]:
         """Plan missing date/symbol batches from persisted per-symbol watermarks.
 
@@ -235,9 +236,7 @@ class DataRecipeContext:
             raise ValueError("start must be on or before end")
         normalized = tuple(
             dict.fromkeys(
-                to_framework_symbol(str(symbol))
-                for symbol in symbols
-                if str(symbol).strip()
+                to_framework_symbol(str(symbol)) for symbol in symbols if str(symbol).strip()
             )
         )
         if not normalized:
@@ -248,13 +247,23 @@ class DataRecipeContext:
             if value is not None and not pd.isna(value)
         }
         companion_ids = tuple(str(value).strip() for value in companions)
+        required = tuple(
+            dict.fromkeys(str(value).strip() for value in required_columns if str(value).strip())
+        )
         for companion in companion_ids:
             companion_spec = self._catalog.spec(companion)
-            if companion_spec.date_column != spec.date_column or "symbol" not in companion_spec.key_columns:
+            if (
+                companion_spec.date_column != spec.date_column
+                or "symbol" not in companion_spec.key_columns
+            ):
                 raise ValueError(f"{companion} is not compatible with {dataset_id} batching")
         watermark_sets = (
             [
-                self._store.watermarks(candidate, dimension=dimension)
+                self._store.watermarks(
+                    candidate,
+                    dimension=dimension,
+                    required_columns=required if candidate == dataset_id else (),
+                )
                 for candidate in (dataset_id, *companion_ids)
             ]
             if self.mode == "run" and self._store is not None and not force
@@ -348,9 +357,7 @@ class DataRecipeContext:
 
         if self.mode != "run":
             return
-        requirements = {
-            item["dataset"]: item for item in self._coverage_requirements
-        }
+        requirements = {item["dataset"]: item for item in self._coverage_requirements}
         selected = dict.fromkeys(
             [
                 *(item["dataset"] for item in self._published),

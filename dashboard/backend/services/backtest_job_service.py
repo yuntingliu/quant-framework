@@ -28,6 +28,7 @@ from dashboard.backend.services.result_service import (
 BacktestRunner = Callable[..., dict]
 logger = logging.getLogger(__name__)
 
+
 def _safe_error_summary(error: Exception) -> str:
     if isinstance(error, DataLoadError) and _is_dataset_busy(error):
         return "Runtime data is being updated; retry the backtest shortly."
@@ -68,9 +69,7 @@ def _public_job(job: dict) -> dict:
     failed = status in {"failed", "interrupted"}
     request = job.get("request") if isinstance(job.get("request"), dict) else {}
     raw_result = (
-        job.get("result")
-        if status == "succeeded" and isinstance(job.get("result"), dict)
-        else None
+        job.get("result") if status == "succeeded" and isinstance(job.get("result"), dict) else None
     )
     result = _compact_result(raw_result) if raw_result is not None else {}
     error_summary = (
@@ -89,9 +88,8 @@ def _public_job(job: dict) -> dict:
         }
     return {
         "status": status,
-        "backtest_id": result.get("backtest_id") or (
-            job.get("result_id") if status == "succeeded" else None
-        ),
+        "backtest_id": result.get("backtest_id")
+        or (job.get("result_id") if status == "succeeded" else None),
         "error_code": error_code,
         "error_summary": error_summary,
         "project_id": result.get("project_id") or request.get("project_id"),
@@ -102,12 +100,22 @@ def _public_job(job: dict) -> dict:
         "warnings": list(result.get("warnings") or ()),
         "warnings_truncated": bool(result.get("warnings_truncated", False)),
         "research_valid": result.get("research_valid") if status == "succeeded" else None,
+        "research_invalid_reasons": (
+            list(result.get("research_invalid_reasons") or ()) if status == "succeeded" else []
+        ),
+        "execution_fidelity": (
+            dict(result.get("execution_fidelity") or {}) if status == "succeeded" else {}
+        ),
         "attempted_trade_count": int(result.get("attempted_trade_count") or 0),
         "successful_trade_count": int(result.get("successful_trade_count") or 0),
         "execution_data_fill_count": int(result.get("execution_data_fill_count") or 0),
-        "market_state_rejection_count": int(
-            result.get("market_state_rejection_count") or 0
-        ),
+        "synthetic_state_count": int(result.get("synthetic_state_count") or 0),
+        "market_state_rejection_count": int(result.get("market_state_rejection_count") or 0),
+        "suspension_rejection_count": int(result.get("suspension_rejection_count") or 0),
+        "limit_up_rejection_count": int(result.get("limit_up_rejection_count") or 0),
+        "limit_down_rejection_count": int(result.get("limit_down_rejection_count") or 0),
+        "capacity_rejection_count": int(result.get("capacity_rejection_count") or 0),
+        "cash_rejection_count": int(result.get("cash_rejection_count") or 0),
         "job_id": job.get("id"),
         "id": job.get("id"),
         "result_id": job.get("result_id") if status == "succeeded" else None,
@@ -159,10 +167,7 @@ class BacktestJobManager:
         existing_job: dict | None = None
         with self._store() as store:
             for existing in store.list_backtest_jobs(limit=100):
-                if (
-                    existing["status"] in {"queued", "running"}
-                    and existing["request"] == request
-                ):
+                if existing["status"] in {"queued", "running"} and existing["request"] == request:
                     existing_job = existing
                     break
             if existing_job is None:
@@ -262,9 +267,7 @@ class BacktestJobManager:
             parameters = inspect.signature(self._runner).parameters
             keyword_arguments = {}
             if "validation_revision" in parameters:
-                keyword_arguments["validation_revision"] = request.get(
-                    "validation_revision"
-                )
+                keyword_arguments["validation_revision"] = request.get("validation_revision")
             if "backtest_id" in parameters:
                 keyword_arguments["backtest_id"] = job_id
             if keyword_arguments:

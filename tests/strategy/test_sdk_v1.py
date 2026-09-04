@@ -17,12 +17,15 @@ from alphalab.strategy import repository as strategy_repository_module
 from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
 from alphalab.strategy.config import ExecutionSpec
 from alphalab.strategy.engine import (
+    _aggregate_execution_summary,
     _apply_execution_constraints,
     _execution_data_gaps,
+    _execution_fidelity_summary,
     _prepare_data,
     _record_signal_evidence,
     _settle_delisted_positions,
     _trade_allowed,
+    _trade_rejection_reason,
     run_strategy_backtest,
 )
 from alphalab.strategy.factor_templates import (
@@ -62,19 +65,17 @@ def test_explicit_default_component_migration_preserves_old_packages(tmp_path: P
         source, _ = replace_registered_function(
             source,
             entrypoint_id="research_universe",
-            function_source='''@universe(id="legacy_universe")
+            function_source="""@universe(id="legacy_universe")
 def legacy_universe(context):
     return UniverseResult(symbols=context.universe)
-''',
+""",
         )
         legacy = repository.update_draft(
             "old-stock-project",
             source,
             expected_source_sha256=project["draft_source_sha256"],
         )
-        legacy_package = repository.get_package(
-            "old-stock-project", legacy["current_revision"]
-        )
+        legacy_package = repository.get_package("old-stock-project", legacy["current_revision"])
         migrated_source, inspection = migrate_default_strategy_components(
             legacy["draft_source"], DEFAULT_STRATEGY_SOURCE
         )
@@ -87,9 +88,10 @@ def legacy_universe(context):
         assert migrated["current_revision"] == legacy["current_revision"] + 1
         assert any(item.kind == "execution_data_fill" for item in inspection.entrypoints)
         assert 'asset_type"].astype(str).str.upper().eq("CS")' in migrated["draft_source"]
-        assert repository.get_package(
-            "old-stock-project", legacy["current_revision"]
-        )["source_sha256"] == legacy_package["source_sha256"]
+        assert (
+            repository.get_package("old-stock-project", legacy["current_revision"])["source_sha256"]
+            == legacy_package["source_sha256"]
+        )
     finally:
         repository.close()
 
@@ -911,13 +913,54 @@ def test_default_execution_fill_uses_raw_close_board_st_and_ipo_rules():
             }
         ]
     ).set_index("symbol")
-    assert _execution_data_gaps(trade_rows, ["001234.SZ"]) == {}
+    assert (
+        _execution_data_gaps(
+            trade_rows,
+            ["001234.SZ"],
+            execution_field="open",
+        )
+        == {}
+    )
     assert _trade_allowed(
         trade_rows,
         "001234.SZ",
         "open",
         side="buy",
         strict_execution_data=True,
+    )
+
+
+def test_510500_exit_on_2021_11_01_uses_unadjusted_execution_price():
+    trade_rows = pd.DataFrame(
+        [
+            {
+                "symbol": "510500.SH",
+                "date": pd.Timestamp("2021-11-01"),
+                "open": 6.484,
+                "raw_open": 7.90,
+                "volume": 1_000_000.0,
+                "amount": 10_000_000.0,
+                "is_suspended": False,
+                "limit_up": 8.68,
+                "limit_down": 7.11,
+            }
+        ]
+    ).set_index("symbol")
+
+    assert _trade_allowed(
+        trade_rows,
+        "510500.SH",
+        "open",
+        side="sell",
+        strict_execution_data=True,
+    )
+    assert (
+        _execution_data_gaps(
+            trade_rows,
+            ["510500.SH"],
+            execution_field="open",
+        )
+        == {}
     )
 
 
@@ -1263,6 +1306,9 @@ def test_field_and_factor_click_snippets_insert_as_valid_python():
     source = DEFAULT_STRATEGY_SOURCE
     marker = source.index("    return close.iloc[-1]") + 4
     field = factor_field_snippet("volume")
+    assert factor_field_snippet("raw_open") == (
+        'raw_open = context.history("raw_open", window=window)'
+    )
     updated, inspection = insert_source(
         source,
         cursor=marker,
@@ -1363,6 +1409,9 @@ class _SuspensionEngine:
                     "high": 10.0,
                     "low": 10.0,
                     "close": 10.0,
+                    "raw_open": 10.0,
+                    "raw_high": 10.0,
+                    "raw_low": 10.0,
                     "raw_close": 10.0,
                     "volume": 0.0 if index == 1 else 1_000_000.0,
                     "amount": 0.0 if index == 1 else 10_000_000.0,
@@ -1395,6 +1444,9 @@ class _PartialExecutionDataEngine:
                     "high": 10.0,
                     "low": 10.0,
                     "close": 10.0,
+                    "raw_open": 10.0,
+                    "raw_high": 10.0,
+                    "raw_low": 10.0,
                     "raw_close": 10.0,
                     "volume": 1_000_000.0,
                     "amount": 100_000_000.0,
@@ -1419,7 +1471,6 @@ class _PartialExecutionDataEngine:
 
     def get_bars(self, symbols, start_date, end_date, **kwargs):
         return self.bars.copy()
-
 
 
 def _daily_universe_strategy_source() -> str:
@@ -1450,7 +1501,6 @@ def _without_execution_data_fill(source: str) -> str:
         "",
         1,
     )
-
 
 
 def test_rejected_fill_does_not_change_actual_positions(tmp_path: Path):
@@ -1522,6 +1572,91 @@ def test_equal_buy_deltas_use_symbol_as_a_deterministic_tie_breaker():
     assert executed["A"] == 0.5
     assert executed["B"] < 0.5
     assert audit["constrained_symbols"] == ["B"]
+    assert audit["cash_rejection_symbols"] == ["B"]
+    assert audit["capacity_rejection_symbols"] == []
+
+
+def test_execution_rejections_are_classified_by_system_cause():
+    rows = pd.DataFrame(
+        [
+            {
+                "symbol": "SUSPENDED",
+                "open": 10.0,
+                "raw_open": 10.0,
+                "volume": 0.0,
+                "amount": 0.0,
+                "is_suspended": True,
+                "limit_up": 11.0,
+                "limit_down": 9.0,
+            },
+            {
+                "symbol": "LIMIT_UP",
+                "open": 10.0,
+                "raw_open": 11.0,
+                "volume": 1_000.0,
+                "amount": 10_000.0,
+                "is_suspended": False,
+                "limit_up": 11.0,
+                "limit_down": 9.0,
+            },
+            {
+                "symbol": "MISSING",
+                "open": 10.0,
+                "raw_open": 10.0,
+                "volume": 1_000.0,
+                "amount": 10_000.0,
+                "is_suspended": pd.NA,
+                "limit_up": 11.0,
+                "limit_down": 9.0,
+            },
+        ]
+    ).set_index("symbol")
+
+    assert (
+        _trade_rejection_reason(rows, "SUSPENDED", "open", side="sell", strict_execution_data=True)
+        == "suspension"
+    )
+    assert (
+        _trade_rejection_reason(rows, "LIMIT_UP", "open", side="buy", strict_execution_data=True)
+        == "limit_up"
+    )
+    assert (
+        _trade_rejection_reason(rows, "MISSING", "open", side="buy", strict_execution_data=True)
+        == "market_state"
+    )
+    assert (
+        _trade_rejection_reason(rows, "ABSENT", "open", side="buy", strict_execution_data=True)
+        == "market_state"
+    )
+
+
+def test_execution_fidelity_flags_repeated_exit_shortfalls():
+    executions = [
+        {
+            "attempted_trade_count": 1,
+            "successful_trade_count": 0,
+            "execution_fidelity": 0.0,
+            "target_weight_deviation": 0.5,
+            "exit_failure_symbols": ["510500.SH"],
+            "limit_down_rejection_count": 1,
+        },
+        {
+            "attempted_trade_count": 1,
+            "successful_trade_count": 0,
+            "execution_fidelity": 0.0,
+            "target_weight_deviation": 0.5,
+            "exit_failure_symbols": ["510500.SH"],
+            "limit_down_rejection_count": 1,
+        },
+    ]
+
+    fidelity = _execution_fidelity_summary(executions)
+    summary = _aggregate_execution_summary(executions)
+
+    assert fidelity["persistent_exit_failure_symbols"] == ["510500.SH"]
+    assert fidelity["persistent_tracking_error_periods"] == 2
+    assert summary["limit_down_rejection_count"] == 2
+    assert summary["attempted_trade_count"] == 2
 
 
 def test_sdk_signal_evidence_resolves_ic_without_persisting_score_vectors():
@@ -1570,6 +1705,9 @@ class _FutureInstrumentSnapshotEngine:
                     "high": 101.0 + index,
                     "low": 99.0 + index,
                     "close": 100.0 + index + (1.0 if symbol == "B" else 0.0),
+                    "raw_open": 100.0 + index,
+                    "raw_high": 101.0 + index,
+                    "raw_low": 99.0 + index,
                     "raw_close": 100.0 + index + (1.0 if symbol == "B" else 0.0),
                     "volume": 1_000_000.0,
                     "amount": 100_000_000.0,
@@ -1698,6 +1836,7 @@ def test_strict_backtest_excludes_candidates_with_missing_execution_data(tmp_pat
     assert exclusions["unique_symbol_count"] == 1
     assert exclusions["symbols_sample"] == ["A"]
     assert result.diagnostics["research_valid"] is False
+    assert "LOW_EXECUTION_FIDELITY" in result.diagnostics["research_invalid_reasons"]
     assert any(
         warning.startswith("PARTIAL_MARKET_STATE:") for warning in result.diagnostics["warnings"]
     )
@@ -1727,6 +1866,15 @@ def test_project_python_fills_missing_execution_state_before_strict_checks(tmp_p
     fill = result.diagnostics["execution_data_fill"]
     assert fill["value_count"] == len(engine.dates) - 1
     assert fill["fields"] == {"limit_up": len(engine.dates) - 1}
+    assert fill["source_counts"]["strategy_fill"] == {"limit_up": len(engine.dates) - 1}
+    assert all(
+        value["source"] == "strategy_fill"
+        for execution in result.executions
+        for value in execution["execution_data_fill"].get("filled_values", [])
+    )
+    assert result.diagnostics["execution_summary"]["synthetic_state_count"] == (
+        len(engine.dates) - 1
+    )
     assert any(
         warning.startswith("CUSTOM_EXECUTION_DATA_FILL:")
         for warning in result.diagnostics["warnings"]

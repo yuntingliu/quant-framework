@@ -331,6 +331,7 @@ def research_data(
         overlap_days=7,
         force=FORCE,
         available_from=available_from,
+        required_columns=("raw_open", "raw_high", "raw_low", "raw_close"),
     ):
         batch = rq_order_book_ids(request.symbols)
         adjusted_raw = rq.get_price(
@@ -343,17 +344,17 @@ def research_data(
             expect_df=True,
             market=MARKET,
         )
-        raw_close = rq.get_price(
+        unadjusted_raw = rq.get_price(
             batch,
             start_date=request.start,
             end_date=request.end,
             frequency="1d",
-            fields=["close"],
+            fields=["open", "high", "low", "close"],
             adjust_type="none",
             expect_df=True,
             market=MARKET,
         )
-        bars = normalize_rq_bars(adjusted_raw, raw_close)
+        bars = normalize_rq_bars(adjusted_raw, unadjusted_raw)
         if not bars.empty:
             context.publish("rq.bars", bars)
             published_bar_batches += 1
@@ -430,11 +431,11 @@ def _add_builtin_recipe_comments(source: str) -> str:
         ),
         (
             "ASSET_TYPES = ",
-            "# 模板只提供默认市场范围；可以直接修改这些常量或下面的查询逻辑。\n" "ASSET_TYPES = ",
+            "# 模板只提供默认市场范围；可以直接修改这些常量或下面的查询逻辑。\nASSET_TYPES = ",
         ),
         (
             "def _batches(values, size):\n",
-            "# RQData 大批量查询按标的拆分，避免单次请求过大。\n" "def _batches(values, size):\n",
+            "# RQData 大批量查询按标的拆分，避免单次请求过大。\ndef _batches(values, size):\n",
         ),
         (
             '@data_recipe(id="research_data"',
@@ -469,7 +470,7 @@ def _add_builtin_recipe_comments(source: str) -> str:
         ),
         (
             "    published_bar_batches = 0\n",
-            "    # 3. 分批查询日线。前复权价格用于研究，未复权收盘价用于估值口径。\n"
+            "    # 3. 分批查询日线。前复权价格用于研究，未复权 OHLC 用于真实交易约束。\n"
             "    published_bar_batches = 0\n",
         ),
         (
@@ -478,14 +479,14 @@ def _add_builtin_recipe_comments(source: str) -> str:
             "        adjusted_raw = rq.get_price(\n",
         ),
         (
-            "        raw_close = rq.get_price(\n",
-            "        # 单独读取未复权 close，保存为统一契约中的 raw_close。\n"
-            "        raw_close = rq.get_price(\n",
+            "        unadjusted_raw = rq.get_price(\n",
+            "        # 单独读取未复权 OHLC，保存为 raw_open/raw_high/raw_low/raw_close。\n"
+            "        unadjusted_raw = rq.get_price(\n",
         ),
         (
-            "        bars = normalize_rq_bars(adjusted_raw, raw_close)\n",
+            "        bars = normalize_rq_bars(adjusted_raw, unadjusted_raw)\n",
             "        # 只做字段名、代码格式和成交量单位转换，然后写入同一数据仓库。\n"
-            "        bars = normalize_rq_bars(adjusted_raw, raw_close)\n",
+            "        bars = normalize_rq_bars(adjusted_raw, unadjusted_raw)\n",
         ),
         (
             "    published_state_batches = 0\n",
@@ -539,6 +540,39 @@ def builtin_recipe_catalog(*, start: str, end: str) -> list[dict[str, Any]]:
     ]
 
 
+def _previous_raw_close_builtin_recipe(
+    template_id: str,
+    *,
+    start: str,
+    end: str,
+    symbols: list[str] | None,
+) -> str:
+    """Reconstruct the last released built-in source for a narrow migration."""
+
+    return (
+        render_builtin_recipe(
+            template_id,
+            start=start,
+            end=end,
+            symbols=symbols,
+        )
+        .replace(
+            "未复权 OHLC 用于真实交易约束",
+            "未复权收盘价用于估值口径",
+        )
+        .replace(
+            "单独读取未复权 OHLC，保存为 raw_open/raw_high/raw_low/raw_close",
+            "单独读取未复权 close，保存为统一契约中的 raw_close",
+        )
+        .replace(
+            '        required_columns=("raw_open", "raw_high", "raw_low", "raw_close"),\n',
+            "",
+        )
+        .replace("unadjusted_raw", "raw_close")
+        .replace('["open", "high", "low", "close"]', '["close"]')
+    )
+
+
 def migrate_legacy_builtin_recipe(source: str) -> str:
     """Upgrade untouched built-in drafts while preserving edited custom Python."""
 
@@ -559,6 +593,14 @@ def migrate_legacy_builtin_recipe(source: str) -> str:
             symbols=symbol_values,
         )
     }
+    legacy_versions.add(
+        _previous_raw_close_builtin_recipe(
+            inspection.template_id,
+            start=start,
+            end=end,
+            symbols=symbol_values,
+        )
+    )
     original_datasets = {
         "rq.a_share_daily": ("instruments", "bars"),
         "rq.etf_daily": ("instruments", "bars"),

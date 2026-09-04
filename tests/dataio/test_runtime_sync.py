@@ -74,6 +74,9 @@ def _financial_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
             "high": [10.5] * 8,
             "low": [9.5] * 8,
             "close": [10.2] * 8,
+            "raw_open": [10.0] * 8,
+            "raw_high": [10.5] * 8,
+            "raw_low": [9.5] * 8,
             "raw_close": [10.0] * 8,
             "volume": [1000.0] * 8,
             "amount": [10000.0] * 8,
@@ -87,7 +90,7 @@ def test_runtime_store_deduplicates_and_rejects_empty_overwrite(tmp_path) -> Non
     bars_contract = store.catalog.status("rq.bars")
     assert bars_contract["provider_api"] == ("get_price",)
     assert bars_contract["research_role"] == "factor_input"
-    assert bars_contract["field_policy"] == "provider_daily_schema_plus_raw_close"
+    assert bars_contract["field_policy"] == "provider_daily_schema_plus_raw_ohlc"
     _, _, bars = _financial_frames()
     store.write("rq.bars", bars.iloc[:2])
     revised = bars.iloc[[1]].copy()
@@ -255,11 +258,7 @@ class _FakeAcquirer:
 
     def index_components(self, indexes, dates, **kwargs):
         return pd.DataFrame(
-            [
-                (date, index_symbol, "000001.SZ")
-                for date in dates
-                for index_symbol in indexes
-            ],
+            [(date, index_symbol, "000001.SZ") for date in dates for index_symbol in indexes],
             columns=["date", "index_symbol", "symbol"],
         )
 
@@ -432,6 +431,9 @@ def test_incremental_bars_backfill_new_symbols_from_requested_start(tmp_path) ->
                     "high": [10.5] * len(symbols),
                     "low": [9.5] * len(symbols),
                     "close": [10.2] * len(symbols),
+                    "raw_open": [10.0] * len(symbols),
+                    "raw_high": [10.5] * len(symbols),
+                    "raw_low": [9.5] * len(symbols),
                     "raw_close": [10.0] * len(symbols),
                     "volume": [1000.0] * len(symbols),
                     "amount": [10000.0] * len(symbols),
@@ -559,9 +561,7 @@ def test_rq_acquirer_filters_b_shares_without_filtering_etfs() -> None:
         def all_instruments(self, *, type, market):
             assert market == "cn"
             symbols = (
-                ["600000.XSHG", "900901.XSHG", "200002.XSHE"]
-                if type == "CS"
-                else ["510300.XSHG"]
+                ["600000.XSHG", "900901.XSHG", "200002.XSHE"] if type == "CS" else ["510300.XSHG"]
             )
             return pd.DataFrame(
                 {
@@ -607,7 +607,7 @@ def test_rq_acquirer_enforces_stock_and_quarter_batch_limits() -> None:
     assert max(len(call["order_book_ids"]) for call in module.price_calls) <= 200
     assert len(module.financial_calls) == 4
     assert all(call["statements"] == "all" for call in module.financial_calls)
-    assert "raw_close" in bars
+    assert {"raw_open", "raw_high", "raw_low", "raw_close"}.issubset(bars)
     assert "prev_close" in bars
     assert "num_trades" in bars
     assert not financials.empty
@@ -852,14 +852,15 @@ def test_gap_validation_detects_incomplete_market_state(tmp_path) -> None:
 def _coverage_bars() -> pd.DataFrame:
     return pd.DataFrame(
         {
-            "date": pd.to_datetime(
-                ["2025-01-02", "2025-01-02", "2025-01-03", "2025-01-03"]
-            ),
+            "date": pd.to_datetime(["2025-01-02", "2025-01-02", "2025-01-03", "2025-01-03"]),
             "symbol": ["000001.SZ", "600000.SH"] * 2,
             "open": [10.0, 11.0, 10.1, 11.1],
             "high": [10.5, 11.5, 10.6, 11.6],
             "low": [9.5, 10.5, 9.6, 10.6],
             "close": [10.2, 11.2, 10.3, 11.3],
+            "raw_open": [10.0, 11.0, 10.1, 11.1],
+            "raw_high": [10.5, 11.5, 10.6, 11.6],
+            "raw_low": [9.5, 10.5, 9.6, 10.6],
             "raw_close": [10.0, 11.0, 10.1, 11.1],
             "volume": [1000.0] * 4,
             "amount": [10000.0] * 4,
@@ -930,9 +931,7 @@ def test_recipe_quality_scope_does_not_mix_other_template_symbols(tmp_path) -> N
     store.write("rq.bars", bars)
     store.write(
         "rq.paused",
-        bars.loc[bars["symbol"].eq("000001.SZ"), ["date", "symbol"]].assign(
-            paused=False
-        ),
+        bars.loc[bars["symbol"].eq("000001.SZ"), ["date", "symbol"]].assign(paused=False),
     )
 
     scoped = validate_dataset(

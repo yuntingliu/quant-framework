@@ -136,7 +136,18 @@ def _validate_bars(
     symbols: set[str] | None,
 ) -> tuple[list[QualityIssue], dict]:
     required = {
-        "date", "symbol", "open", "high", "low", "close", "raw_close", "volume", "amount"
+        "date",
+        "symbol",
+        "open",
+        "high",
+        "low",
+        "close",
+        "raw_open",
+        "raw_high",
+        "raw_low",
+        "raw_close",
+        "volume",
+        "amount",
     }
     dates: set[pd.Timestamp] = set()
     observed_symbols: set[str] = set()
@@ -157,7 +168,18 @@ def _validate_bars(
         observed_symbols.update(frame["symbol"].dropna().astype(str).str.upper())
         duplicate_count += int(frame.duplicated(["date", "symbol"]).sum())
         numeric = frame[list(required - {"date", "symbol"})].apply(pd.to_numeric, errors="coerce")
-        prices = numeric[["open", "high", "low", "close", "raw_close"]]
+        prices = numeric[
+            [
+                "open",
+                "high",
+                "low",
+                "close",
+                "raw_open",
+                "raw_high",
+                "raw_low",
+                "raw_close",
+            ]
+        ]
         invalid_price_count += int(
             (prices.isna() | ~np.isfinite(prices) | prices.le(0)).any(axis=1).sum()
         )
@@ -170,6 +192,9 @@ def _validate_bars(
                 numeric["high"].lt(numeric["low"])
                 | numeric["high"].lt(numeric[["open", "close"]].max(axis=1))
                 | numeric["low"].gt(numeric[["open", "close"]].min(axis=1))
+                | numeric["raw_high"].lt(numeric["raw_low"])
+                | numeric["raw_high"].lt(numeric[["raw_open", "raw_close"]].max(axis=1))
+                | numeric["raw_low"].gt(numeric[["raw_open", "raw_close"]].min(axis=1))
             ).sum()
         )
     issues = _daily_issues(
@@ -250,7 +275,9 @@ def _validate_market_state(
     coverage = float(len(required_keys & state_keys) / len(required_keys)) if required_keys else 0.0
     if fail_on_gap and coverage < 0.98:
         issues.append(
-            QualityIssue("bar_key_gap", f"{field} covers only {coverage:.2%} of required RQ bar keys")
+            QualityIssue(
+                "bar_key_gap", f"{field} covers only {coverage:.2%} of required RQ bar keys"
+            )
         )
     metrics = _coverage_metrics(dates, observed_symbols)
     metrics.update(
@@ -327,7 +354,9 @@ def _validate_daily_factors(
     if fail_on_gap and incomplete:
         details = ", ".join(f"{field}={value:.2%}" for field, value in incomplete.items())
         issues.append(
-            QualityIssue("factor_key_gap", f"Daily factor bar-key coverage is incomplete: {details}")
+            QualityIssue(
+                "factor_key_gap", f"Daily factor bar-key coverage is incomplete: {details}"
+            )
         )
     metrics = _coverage_metrics(dates, observed_symbols)
     metrics.update(
@@ -434,7 +463,9 @@ def _validate_compact(
         missing_components = sorted(required - set(frame))
         if missing_components:
             issues.append(
-                QualityIssue("missing_columns", f"Missing index-component columns: {missing_components}")
+                QualityIssue(
+                    "missing_columns", f"Missing index-component columns: {missing_components}"
+                )
             )
         else:
             dated = frame.assign(date=pd.to_datetime(frame["date"], errors="coerce"))
@@ -461,26 +492,44 @@ def _validate_compact(
         required = {"quarter", "symbol", "info_date", "if_adjusted"}
         missing_financials = sorted(required - set(frame))
         if missing_financials:
-            issues.append(QualityIssue("missing_columns", f"Missing PIT fields: {missing_financials}"))
+            issues.append(
+                QualityIssue("missing_columns", f"Missing PIT fields: {missing_financials}")
+            )
         elif pd.to_datetime(frame["info_date"], errors="coerce").isna().any():
-            issues.append(QualityIssue("invalid_disclosure_date", "PIT rows contain invalid info_date"))
+            issues.append(
+                QualityIssue("invalid_disclosure_date", "PIT rows contain invalid info_date")
+            )
     elif dataset == "canonical.fundamentals":
         required = {
-            "quarter", "available_date", "symbol", "ep", "bp", "roe",
-            "gross_margin", "leverage", "profit_growth", "revenue_growth",
+            "quarter",
+            "available_date",
+            "symbol",
+            "ep",
+            "bp",
+            "roe",
+            "gross_margin",
+            "leverage",
+            "profit_growth",
+            "revenue_growth",
         }
         missing_fundamentals = sorted(required - set(frame))
         if missing_fundamentals:
             issues.append(
-                QualityIssue("missing_columns", f"Missing canonical columns: {missing_fundamentals}")
+                QualityIssue(
+                    "missing_columns", f"Missing canonical columns: {missing_fundamentals}"
+                )
             )
         elif pd.to_datetime(frame["available_date"], errors="coerce").isna().any():
-            issues.append(QualityIssue("invalid_available_date", "Canonical rows need available_date"))
+            issues.append(
+                QualityIssue("invalid_available_date", "Canonical rows need available_date")
+            )
     elif dataset == "runtime.factor_returns":
         required = {"date", "MKT", "SMB", "HML", "MOM", "RMW", "rf"}
         missing_factors = sorted(required - set(frame))
         if missing_factors:
-            issues.append(QualityIssue("missing_columns", f"Missing factor columns: {missing_factors}"))
+            issues.append(
+                QualityIssue("missing_columns", f"Missing factor columns: {missing_factors}")
+            )
         else:
             values = frame[list(required - {"date"})].apply(pd.to_numeric, errors="coerce")
             if values[["MKT", "rf"]].isna().any().any():
@@ -530,7 +579,9 @@ def _coerce_boolean(values: pd.Series) -> pd.Series:
         "0": False,
     }
     return values.map(
-        lambda value: accepted.get(value.strip().lower() if isinstance(value, str) else value, pd.NA)
+        lambda value: accepted.get(
+            value.strip().lower() if isinstance(value, str) else value, pd.NA
+        )
     ).astype("boolean")
 
 
@@ -548,11 +599,17 @@ def _daily_issues(
 ) -> list[QualityIssue]:
     issues: list[QualityIssue] = []
     if missing_columns:
-        issues.append(QualityIssue("missing_columns", f"Missing columns: {sorted(missing_columns)}"))
+        issues.append(
+            QualityIssue("missing_columns", f"Missing columns: {sorted(missing_columns)}")
+        )
     if duplicate_count:
-        issues.append(QualityIssue("duplicate_keys", f"Dataset contains {duplicate_count} duplicate keys"))
+        issues.append(
+            QualityIssue("duplicate_keys", f"Dataset contains {duplicate_count} duplicate keys")
+        )
     if invalid_date_count:
-        issues.append(QualityIssue("invalid_dates", f"Dataset contains {invalid_date_count} invalid dates"))
+        issues.append(
+            QualityIssue("invalid_dates", f"Dataset contains {invalid_date_count} invalid dates")
+        )
     return issues
 
 

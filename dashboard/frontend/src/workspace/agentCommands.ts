@@ -141,3 +141,20 @@ export function parseAgentWorkspaceCommandBatch(value: unknown): AgentWorkspaceC
   if (commands.some((command) => command === null)) return null
   return { version: 1, requestId, commands: commands as AgentWorkspaceCommand[] }
 }
+
+export function workspaceResultMatchesCommands(
+  batch: AgentWorkspaceCommandBatch,
+  result: AgentResearchResult | undefined,
+): boolean {
+  const opens = batch.commands.filter(
+    (command): command is Extract<AgentWorkspaceCommand, { type: "open_result" }> => (
+      command.type === "open_result"
+    ),
+  )
+  if (opens.length === 0) return true
+  return Boolean(
+    result
+    && result.requestId === batch.requestId
+    && opens.every((command) => command.resultId === result.reportId),
+  )
+}

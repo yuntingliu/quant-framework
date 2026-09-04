@@ -6,23 +6,114 @@
   "inputSchema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["project_id", "factor_id", "action", "confirm_python_execution"],
+    "required": [
+      "project_id",
+      "factor_id",
+      "action",
+      "confirm_python_execution"
+    ],
     "properties": {
-      "project_id": { "type": "string", "minLength": 2, "maxLength": 64 },
-      "factor_id": { "type": "string", "minLength": 1, "maxLength": 100 },
-      "action": { "type": "string", "enum": ["snapshot", "history"] },
-      "as_of_date": { "type": "string", "minLength": 10, "maxLength": 10 },
-      "start_date": { "type": "string", "minLength": 10, "maxLength": 10 },
-      "end_date": { "type": "string", "minLength": 10, "maxLength": 10 },
-      "frequency": { "type": "string", "enum": ["daily", "weekly", "monthly"], "default": "monthly" },
-      "parameters": { "type": "object" },
-      "sample_size": { "type": "integer", "minimum": 1, "maximum": 10, "default": 5, "description": "Number of highest and lowest finite factor observations retained per snapshot." },
-      "confirm_python_execution": { "type": "boolean" }
-    }
+      "project_id": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 64
+      },
+      "factor_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "snapshot",
+          "history"
+        ]
+      },
+      "as_of_date": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 10
+      },
+      "start_date": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 10
+      },
+      "end_date": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 10
+      },
+      "frequency": {
+        "type": "string",
+        "enum": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "default": "monthly"
+      },
+      "parameters": {
+        "type": "object"
+      },
+      "sample_size": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10,
+        "default": 5,
+        "description": "Number of highest and lowest finite factor observations retained per snapshot."
+      },
+      "confirm_python_execution": {
+        "type": "boolean"
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "action": {
+              "const": "snapshot"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "as_of_date"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "action": {
+              "const": "history"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "start_date",
+            "end_date"
+          ]
+        }
+      },
+      {
+        "properties": {
+          "confirm_python_execution": {
+            "const": true
+          }
+        }
+      }
+    ]
   },
-  "outputSchema": { "type": "object" },
-  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nfunction safeText(value){return String(value||'Request failed').split(/\\r?\\n/,1)[0].replace(/[A-Za-z]:\\\\[^\\s\\\"']+/g,'<internal-path>').replace(/(^|\\s)\\/(?:[^\\/\\s]+\\/)+[^\\s\\\"']+/g,'$1<internal-path>').replace(/\\b[a-fA-F0-9]{40,64}\\b/g,'<internal-id>').slice(0,500)}\nasync function call(path,options={}){const response=await fetch(origin()+path,{headers:{Accept:'application/json','Content-Type':'application/json'},...options});let payload=null;try{payload=await response.json()}catch{}if(!response.ok){const detail=payload&&payload.detail!==undefined?payload.detail:payload||{};const error=detail&&typeof detail==='object'?detail:{};throw new Error(JSON.stringify({status:'failed',error_code:String(error.code||'FACTOR_EVALUATION_FAILED'),error_summary:safeText(error.message||detail),http_status:response.status}))}return payload}\nfunction summarizeValues(values,sampleSize){const rows=Array.isArray(values)?values:[],finite=[];for(const row of rows){const value=Number(row&&row.value);if(Number.isFinite(value))finite.push({symbol:String(row.symbol||''),value})}finite.sort((a,b)=>a.value-b.value);const nums=finite.map(row=>row.value),count=nums.length,mean=count?nums.reduce((sum,value)=>sum+value,0)/count:null,variance=count?nums.reduce((sum,value)=>sum+(value-mean)*(value-mean),0)/count:null;return{symbol_count:rows.length,finite_count:count,null_count:rows.length-count,coverage:rows.length?count/rows.length:0,min:count?nums[0]:null,max:count?nums[count-1]:null,mean,std:variance===null?null:Math.sqrt(variance),bottom:finite.slice(0,sampleSize),top:finite.slice(Math.max(0,count-sampleSize)).reverse()}}\nfunction sampledSnapshots(rows,sampleSize){const values=rows.map(snapshot=>({date:snapshot.date,statistics:summarizeValues(snapshot.values,sampleSize)})),count=values.length;if(count<=12)return{count,rows:values,truncated:false};return{count,head:values.slice(0,6),tail:values.slice(-6),truncated:true}}\nfunction compactResult(result,sampleSize){const value={factor_id:result.factor_id,frequency:result.frequency,observations:result.observations,invoked:Array.isArray(result.invoked)?result.invoked.slice(0,20):[]};if(Array.isArray(result.snapshots))value.snapshots=sampledSnapshots(result.snapshots,sampleSize);if(Array.isArray(result.values))value.statistics=summarizeValues(result.values,sampleSize);return value}\nasync function run(input){if(input.confirm_python_execution!==true)throw new Error('Factor evaluation requires explicit Python execution confirmation');const id=String(input.project_id||'').trim(),factor=String(input.factor_id||'').trim();if(!id||!factor)throw new Error('project_id and factor_id are required');const base='/api/strategy/projects/'+encodeURIComponent(id),project=await call(base);if(project.dirty)throw new Error('Save the project source before evaluating a factor');const revision=Number(project.current_revision),expected=project.current_package?.source_sha256,action=input.action==='history'?'history':'snapshot';if(action==='history'&&(!input.start_date||!input.end_date))throw new Error('start_date and end_date are required for history');if(action==='snapshot'&&!input.as_of_date)throw new Error('as_of_date is required for snapshot');const body=action==='history'?{profile:'runtime',start_date:String(input.start_date),end_date:String(input.end_date),revision,frequency:input.frequency||'monthly',parameters:input.parameters||{},confirm_python_execution:true}:{profile:'runtime',as_of_date:String(input.as_of_date),revision,parameters:input.parameters||{},confirm_python_execution:true},result=await call(base+'/factors/'+encodeURIComponent(factor)+'/'+action,{method:'POST',body:JSON.stringify(body)});if(result.revision!==revision||(expected&&result.source_sha256!==expected))throw new Error('Strategy source package changed during factor evaluation');return{status:'succeeded',project_id:id,revision,action,...compactResult(result,Math.max(1,Math.min(10,Number(input.sample_size||5))))}}",
+  "outputSchema": {
+    "type": "object"
+  },
+  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nfunction safeText(value){return String(value||'Request failed').split(/\\r?\\n/,1)[0].replace(/[A-Za-z]:\\\\[^\\s\\\"']+/g,'<internal-path>').replace(/(^|\\s)\\/(?:[^\\/\\s]+\\/)+[^\\s\\\"']+/g,'$1<internal-path>').replace(/\\b[a-fA-F0-9]{40,64}\\b/g,'<internal-id>').slice(0,500)}\nasync function call(path,options={}){const response=await fetch(origin()+path,{headers:{Accept:'application/json','Content-Type':'application/json'},...options});let payload=null;try{payload=await response.json()}catch{}if(!response.ok){const detail=payload&&payload.detail!==undefined?payload.detail:payload||{};const error=detail&&typeof detail==='object'?detail:{};throw new Error(JSON.stringify({status:'failed',error_code:String(error.code||'FACTOR_EVALUATION_FAILED'),error_summary:safeText(error.message||detail),http_status:response.status}))}return payload}\nfunction summarizeValues(values,sampleSize){const rows=Array.isArray(values)?values:[],finite=[];for(const row of rows){const value=Number(row&&row.value);if(Number.isFinite(value))finite.push({symbol:String(row.symbol||''),value})}finite.sort((a,b)=>a.value-b.value);const nums=finite.map(row=>row.value),count=nums.length,mean=count?nums.reduce((sum,value)=>sum+value,0)/count:null,variance=count?nums.reduce((sum,value)=>sum+(value-mean)*(value-mean),0)/count:null;return{symbol_count:rows.length,finite_count:count,null_count:rows.length-count,coverage:rows.length?count/rows.length:0,min:count?nums[0]:null,max:count?nums[count-1]:null,mean,std:variance===null?null:Math.sqrt(variance),bottom:finite.slice(0,sampleSize),top:finite.slice(Math.max(0,count-sampleSize)).reverse()}}\nfunction sampledSnapshots(rows,sampleSize){const values=rows.map(snapshot=>({date:snapshot.date,statistics:summarizeValues(snapshot.values,sampleSize)})),count=values.length;if(count<=12)return{count,rows:values,truncated:false};return{count,head:values.slice(0,6),tail:values.slice(-6),truncated:true}}\nfunction compactResult(result,sampleSize){const value={factor_id:result.factor_id,frequency:result.frequency,observations:result.observations,invoked:Array.isArray(result.invoked)?result.invoked.slice(0,20):[]};if(Array.isArray(result.snapshots))value.snapshots=sampledSnapshots(result.snapshots,sampleSize);if(Array.isArray(result.values))value.statistics=summarizeValues(result.values,sampleSize);return value}\nasync function execute(input){if(input.confirm_python_execution!==true)throw new Error('Factor evaluation requires explicit Python execution confirmation');const id=String(input.project_id||'').trim(),factor=String(input.factor_id||'').trim();if(!id||!factor)throw new Error('project_id and factor_id are required');const base='/api/strategy/projects/'+encodeURIComponent(id),project=await call(base);if(project.dirty)throw new Error('Save the project source before evaluating a factor');const revision=Number(project.current_revision),expected=project.current_package?.source_sha256,action=input.action==='history'?'history':'snapshot';if(action==='history'&&(!input.start_date||!input.end_date))throw new Error('start_date and end_date are required for history');if(action==='snapshot'&&!input.as_of_date)throw new Error('as_of_date is required for snapshot');const body=action==='history'?{profile:'runtime',start_date:String(input.start_date),end_date:String(input.end_date),revision,frequency:input.frequency||'monthly',parameters:input.parameters||{},confirm_python_execution:true}:{profile:'runtime',as_of_date:String(input.as_of_date),revision,parameters:input.parameters||{},confirm_python_execution:true},result=await call(base+'/factors/'+encodeURIComponent(factor)+'/'+action,{method:'POST',body:JSON.stringify(body)});if(result.revision!==revision||(expected&&result.source_sha256!==expected))throw new Error('Strategy source package changed during factor evaluation');return{status:'succeeded',project_id:id,revision,action,...compactResult(result,Math.max(1,Math.min(10,Number(input.sample_size||5))))}}\nfunction publicFailure(reason){let value=null;try{value=JSON.parse(String(reason?.message||''))}catch{}const error=value&&typeof value==='object'?value:{};return{status:'failed',error_code:String(error.error_code||'FACTOR_EVALUATION_FAILED'),error_summary:safeText(error.error_summary||reason?.message||reason),error_details:error.error_details&&typeof error.error_details==='object'?error.error_details:{},log_reference:error.log_reference||null}}\nasync function run(input){try{return await execute(input)}catch(reason){return publicFailure(reason)}}",
   "timeoutMs": 600000,
-  "permissions": { "network": "alphalab-api" },
+  "permissions": {
+    "network": "alphalab-api"
+  },
   "sideEffects": "write"
 }

@@ -91,19 +91,29 @@ function boundedDecisionNotebook(value: unknown): Record<string, unknown> | unde
 
 function boundedWorkspaceResult(value: unknown): Record<string, unknown> | undefined {
   const result = record(value)
-  if (!result || result.version !== 1 || typeof result.requestId !== "string" || typeof result.kind !== "string") {
+  const requestId = result ? boundedText(result.requestId, 200)?.trim() : undefined
+  if (!result || result.version !== 1 || !requestId || (result.kind !== "none" && result.kind !== "document")) {
     return undefined
   }
+  if (result.kind === "none") return { version: 1, requestId, kind: "none" }
+  const reportId = boundedText(result.reportId, 200)?.trim()
+  const title = boundedText(result.title, 200)?.trim()
+  if (
+    !reportId
+    || !/^[A-Za-z0-9][A-Za-z0-9._:-]{1,199}$/.test(reportId)
+    || !title
+    || !Array.isArray(result.sources)
+    || result.sources.length > 20
+    || result.sources.some((item) => !boundedText(item, 500)?.trim())
+  ) return undefined
   return {
     version: 1,
-    requestId: result.requestId.slice(0, 200),
-    kind: result.kind.slice(0, 40),
-    ...(boundedText(result.reportId, 200) ? { reportId: boundedText(result.reportId, 200) } : {}),
-    ...(boundedText(result.title, 200) ? { title: boundedText(result.title, 200) } : {}),
+    requestId,
+    kind: "document",
+    reportId,
+    title,
     ...(boundedText(result.description, 1_000) ? { description: boundedText(result.description, 1_000) } : {}),
-    ...(Array.isArray(result.sources)
-      ? { sources: result.sources.filter((item): item is string => typeof item === "string").slice(0, 20).map((item) => item.slice(0, 500)) }
-      : {}),
+    sources: result.sources.map((item) => (item as string).trim()),
   }
 }
 

@@ -40,6 +40,8 @@ def test_builtin_recipe_is_real_python_and_parameters_are_cst_projected() -> Non
     assert inspection.template_id == "rq.etf_daily"
     assert "rq.all_instruments(" in source
     assert "rq.get_price(" in source
+    assert 'fields=["open", "high", "low", "close"]' in source
+    assert 'required_columns=("raw_open", "raw_high", "raw_low", "raw_close")' in source
     assert "RQSyncRequest" not in source
     assert "# 1. 直接调用 rq.all_instruments" in source
     assert "# 3. 分批查询日线" in source
@@ -80,12 +82,29 @@ def test_builtin_recipe_comment_upgrade_preserves_custom_logic() -> None:
         start="2021-08-25",
         end="2026-08-25",
     )
+    raw_close_only_source = (
+        source.replace(
+            "未复权 OHLC 用于真实交易约束",
+            "未复权收盘价用于估值口径",
+        )
+        .replace(
+            "单独读取未复权 OHLC，保存为 raw_open/raw_high/raw_low/raw_close",
+            "单独读取未复权 close，保存为统一契约中的 raw_close",
+        )
+        .replace(
+            '        required_columns=("raw_open", "raw_high", "raw_low", "raw_close"),\n',
+            "",
+        )
+        .replace("unadjusted_raw", "raw_close")
+        .replace('["open", "high", "low", "close"]', '["close"]')
+    )
     old_commented_source = source.replace(
         '    """预览同步计划，并在运行模式下发布规范化研究数据。"""\n',
         "",
         1,
     )
 
+    assert migrate_legacy_builtin_recipe(raw_close_only_source) == source
     assert migrate_legacy_builtin_recipe(old_commented_source) == source
 
     custom = old_commented_source.replace("CHUNK_DAYS = 366", "CHUNK_DAYS = 180", 1)
@@ -105,6 +124,7 @@ def test_visible_recipe_instrument_normalizer_keeps_only_a_shares_for_cs() -> No
 
     assert stocks["symbol"].tolist() == ["600000.SH"]
     assert funds["symbol"].tolist() == ["600000.SH", "900901.SH", "510300.SH"]
+
 
 def test_manual_recipe_logic_is_custom_and_static_errors_have_a_phase() -> None:
     source = render_builtin_recipe(
@@ -207,6 +227,9 @@ def custom_bars(context, *, start: str = "2026-08-24"):
             "high": [4.2],
             "low": [3.9],
             "close": [4.1],
+            "raw_open": [4.0],
+            "raw_high": [4.2],
+            "raw_low": [3.9],
             "raw_close": [4.1],
             "volume": [1000.0],
             "amount": [4100.0],
@@ -248,7 +271,6 @@ def test_builtin_recipe_executes_visible_rq_commands_and_publishes_results(
             values = {
                 "order_book_id": [order_book_ids[0]],
                 "date": ["2025-01-02"],
-                "close": [4.1],
             }
             if kwargs.get("fields") is None:
                 values.update(
@@ -256,8 +278,18 @@ def test_builtin_recipe_executes_visible_rq_commands_and_publishes_results(
                         "open": [4.0],
                         "high": [4.2],
                         "low": [3.9],
+                        "close": [4.1],
                         "volume": [100_000.0],
                         "total_turnover": [410_000.0],
+                    }
+                )
+            else:
+                values.update(
+                    {
+                        "open": [4.0],
+                        "high": [4.2],
+                        "low": [3.9],
+                        "close": [4.1],
                     }
                 )
             return pd.DataFrame(values)
@@ -371,6 +403,9 @@ def test_recipe_sync_batches_resume_existing_symbols_and_backfill_new_ones(tmp_p
             "high": 10.5,
             "low": 9.5,
             "close": 10.2,
+            "raw_open": 10.0,
+            "raw_high": 10.5,
+            "raw_low": 9.5,
             "raw_close": 10.2,
             "volume": 1000.0,
             "amount": 10000.0,
@@ -392,6 +427,37 @@ def test_recipe_sync_batches_resume_existing_symbols_and_backfill_new_ones(tmp_p
     assert starts["600000.SH"] == "2025-01-01"
 
 
+def test_recipe_sync_batches_replays_history_after_required_bar_schema_upgrade(tmp_path) -> None:
+    context = DataRecipeContext(mode="run", root=str(tmp_path))
+    legacy = pd.DataFrame(
+        {
+            "date": pd.date_range("2025-01-01", "2025-01-10", freq="B"),
+            "symbol": "000001.SZ",
+            "open": 10.0,
+            "high": 10.5,
+            "low": 9.5,
+            "close": 10.2,
+            "raw_close": 10.2,
+            "volume": 1000.0,
+            "amount": 10000.0,
+        }
+    )
+    context.publish("rq.bars", legacy)
+
+    batches = context.sync_batches(
+        "rq.bars",
+        ["000001.SZ"],
+        start="2025-01-01",
+        end="2025-01-20",
+        overlap_days=1,
+        chunk_days=366,
+        required_columns=("raw_open", "raw_high", "raw_low", "raw_close"),
+    )
+
+    assert len(batches) == 1
+    assert batches[0].start == "2025-01-01"
+
+
 def test_adjusted_and_raw_bar_key_mismatch_is_rejected() -> None:
     adjusted = pd.DataFrame(
         {
@@ -405,7 +471,7 @@ def test_adjusted_and_raw_bar_key_mismatch_is_rejected() -> None:
             "total_turnover": [10200.0, 40400.0],
         }
     )
-    raw = adjusted.iloc[:1][["order_book_id", "date", "close"]]
+    raw = adjusted.iloc[:1][["order_book_id", "date", "open", "high", "low", "close"]]
 
     with pytest.raises(DataValidationError, match="key mismatch"):
         normalize_rq_bars(adjusted, raw)

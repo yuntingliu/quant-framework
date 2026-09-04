@@ -10,6 +10,7 @@ from alphalab.dataio.errors import DataValidationError
 from alphalab.dataio.symbols import is_a_share_symbol, to_framework_symbol, to_rq_symbol
 
 _REQUIRED_BAR_FIELDS = ("open", "high", "low", "close", "volume", "amount")
+_RAW_PRICE_FIELDS = ("open", "high", "low", "close")
 
 
 def rq_order_book_ids(symbols: Iterable[str]) -> list[str]:
@@ -75,12 +76,12 @@ def normalize_rq_instruments(
     return output.dropna(subset=["symbol"]).drop_duplicates(["snapshot_date", "symbol"])
 
 
-def normalize_rq_bars(adjusted_raw: Any, raw_close: Any) -> pd.DataFrame:
-    """Combine adjusted and unadjusted ``rq.get_price`` results."""
+def normalize_rq_bars(adjusted_raw: Any, unadjusted_raw: Any) -> pd.DataFrame:
+    """Combine adjusted and unadjusted ``rq.get_price`` OHLC results."""
 
     adjusted = _normalize_discovered_bars(adjusted_raw)
-    unadjusted = _normalize_selected_bars(raw_close, ("close",)).rename(
-        columns={"close": "raw_close"}
+    unadjusted = _normalize_selected_bars(unadjusted_raw, _RAW_PRICE_FIELDS).rename(
+        columns={field: f"raw_{field}" for field in _RAW_PRICE_FIELDS}
     )
     _require_same_keys(adjusted, unadjusted, ("date", "symbol"), label="adjusted/raw bars")
     if adjusted.empty:
@@ -415,9 +416,7 @@ def _require_same_keys(
     mismatch = left_keys.merge(right_keys, on=key_columns, how="outer", indicator=True)
     unmatched = mismatch.loc[mismatch["_merge"].ne("both")]
     if not unmatched.empty:
-        raise DataValidationError(
-            f"RQData {label} key mismatch ({len(unmatched)} unmatched rows)"
-        )
+        raise DataValidationError(f"RQData {label} key mismatch ({len(unmatched)} unmatched rows)")
 
 
 __all__ = [

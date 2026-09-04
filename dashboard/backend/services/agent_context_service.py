@@ -130,12 +130,18 @@ def _backtest_job_summary(value: dict) -> dict:
         "counts": dict(value.get("counts") or {}),
         "warnings": list(value.get("warnings") or ()),
         "research_valid": value.get("research_valid"),
+        "research_invalid_reasons": list(value.get("research_invalid_reasons") or ()),
+        "execution_fidelity": dict(value.get("execution_fidelity") or {}),
         "attempted_trade_count": int(value.get("attempted_trade_count") or 0),
         "successful_trade_count": int(value.get("successful_trade_count") or 0),
         "execution_data_fill_count": int(value.get("execution_data_fill_count") or 0),
-        "market_state_rejection_count": int(
-            value.get("market_state_rejection_count") or 0
-        ),
+        "synthetic_state_count": int(value.get("synthetic_state_count") or 0),
+        "market_state_rejection_count": int(value.get("market_state_rejection_count") or 0),
+        "suspension_rejection_count": int(value.get("suspension_rejection_count") or 0),
+        "limit_up_rejection_count": int(value.get("limit_up_rejection_count") or 0),
+        "limit_down_rejection_count": int(value.get("limit_down_rejection_count") or 0),
+        "capacity_rejection_count": int(value.get("capacity_rejection_count") or 0),
+        "cash_rejection_count": int(value.get("cash_rejection_count") or 0),
         "created_at": value.get("created_at"),
         "finished_at": value.get("finished_at"),
     }

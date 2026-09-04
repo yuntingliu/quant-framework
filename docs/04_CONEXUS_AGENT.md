@@ -143,6 +143,13 @@ genuinely new research subject. Request IDs, hashes, job IDs, and other audit
 details are not part of report Markdown. Historical BacktestRuns always use
 their frozen strategy and validation snapshots.
 
+The run's `summary`, Decision Notebook, Workspace Result, and Workspace Commands
+are submitted together through `commit_harness_outputs`. A Document descriptor
+always carries version, current request ID, kind, report node ID, title, and
+sources. Generic node tools may change report Documents but may not partially
+update the three Harness output nodes. The frontend rejects the whole command
+batch when `open_result` does not match a valid descriptor from the same request.
+
 Backtests are asynchronous at the Agent boundary: `action=run` validates and
 pins the current strategy/validation packages, submits one job, and returns its
 ID immediately. The Agent then uses `action=job` until a terminal state before

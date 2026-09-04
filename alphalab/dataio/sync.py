@@ -73,9 +73,7 @@ class SyncRequest(BaseModel):
         if not isinstance(value, dict):
             return value
         normalized = dict(value)
-        template = get_rq_sync_template(
-            normalized.get("template_id", DEFAULT_RQ_SYNC_TEMPLATE_ID)
-        )
+        template = get_rq_sync_template(normalized.get("template_id", DEFAULT_RQ_SYNC_TEMPLATE_ID))
         normalized["template_id"] = template.id
         normalized["datasets"] = list(template.resolve_datasets(normalized.get("datasets")))
         return normalized
@@ -232,9 +230,7 @@ def build_sync_plan(
             }
         )
     if "index-components" in request.datasets and request.index_symbols:
-        index_watermarks = store.dimension_watermarks(
-            "rq.index_components", "index_symbol"
-        )
+        index_watermarks = store.dimension_watermarks("rq.index_components", "index_symbol")
         index_starts = {
             symbol: (
                 start
@@ -248,7 +244,8 @@ def build_sync_plan(
                 "dataset": "rq.index_components",
                 "mode": (
                     "full"
-                    if request.force or any(symbol not in index_watermarks for symbol in index_starts)
+                    if request.force
+                    or any(symbol not in index_watermarks for symbol in index_starts)
                     else "incremental"
                 ),
                 "start": min(index_starts.values()),
@@ -448,9 +445,7 @@ class RQSyncService:
             if "market-state" in datasets:
                 paused_step = _step(plan, "rq.paused")
                 state_datasets = ["rq.paused"]
-                include_st = any(
-                    item["dataset"] == "rq.is_st" for item in plan["steps"]
-                )
+                include_st = any(item["dataset"] == "rq.is_st" for item in plan["steps"])
                 if include_st:
                     state_datasets.append("rq.is_st")
                 groups = _symbol_sync_groups(
@@ -534,17 +529,13 @@ class RQSyncService:
                             self.operations.save_checkpoint(
                                 job_id,
                                 "rq.daily_factors",
-                                pd.to_datetime(daily_factors["date"]).max().strftime(
-                                    "%Y-%m-%d"
-                                ),
+                                pd.to_datetime(daily_factors["date"]).max().strftime("%Y-%m-%d"),
                             )
                             wrote_daily_factors = True
                 self._check_cancel(job_id)
                 if not wrote_daily_factors:
                     raise MissingDataError("RQData returned no daily factors")
-                progress = self._complete_step(
-                    job_id, "rq.daily_factors", progress, total
-                )
+                progress = self._complete_step(job_id, "rq.daily_factors", progress, total)
 
             if "index-components" in datasets:
                 component_step = _step(plan, "rq.index_components")
@@ -577,9 +568,7 @@ class RQSyncService:
                     wrote_components = True
                 if not wrote_components:
                     raise MissingDataError("RQData returned no index components")
-                progress = self._complete_step(
-                    job_id, "rq.index_components", progress, total
-                )
+                progress = self._complete_step(job_id, "rq.index_components", progress, total)
 
             if "fundamentals" in datasets:
                 income_step = _step(plan, "rq.financials.income")
@@ -943,9 +932,7 @@ def _symbols_from_instruments(
     ]
     if "asset_type" in candidates:
         is_common_stock = candidates["asset_type"].astype(str).str.upper().eq("CS")
-        candidates = candidates.loc[
-            ~is_common_stock | candidates["symbol"].map(is_a_share_symbol)
-        ]
+        candidates = candidates.loc[~is_common_stock | candidates["symbol"].map(is_a_share_symbol)]
     return sorted(
         dict.fromkeys(
             canonical_a_share_symbol(value) for value in candidates["symbol"].dropna().astype(str)
@@ -991,7 +978,14 @@ def _symbol_sync_groups(
             for symbol, value in listed.dropna().groupby("symbol")["listed_date"].min().items()
         }
     dataset_watermarks = [
-        store.watermarks(dataset, dimension=dimension) for dataset in datasets
+        store.watermarks(
+            dataset,
+            dimension=dimension,
+            required_columns=("raw_open", "raw_high", "raw_low", "raw_close")
+            if dataset == "rq.bars"
+            else (),
+        )
+        for dataset in datasets
     ]
     grouped: dict[str, list[str]] = {}
     for raw_symbol in symbols:
@@ -1023,9 +1017,7 @@ def _daily_bar_chunks(
     if hasattr(acquirer, "daily_bar_chunks"):
         yield from acquirer.daily_bar_chunks(symbols, start, end, **kwargs)
         return
-    fallback_kwargs = {
-        key: value for key, value in kwargs.items() if key != "date_chunk_days"
-    }
+    fallback_kwargs = {key: value for key, value in kwargs.items() if key != "date_chunk_days"}
     frame = acquirer.daily_bars(symbols, start, end, **fallback_kwargs)
     if frame is not None and not frame.empty:
         yield frame
@@ -1102,8 +1094,9 @@ def _estimate_batches(steps: list[dict], symbol_count: int) -> int:
                 _component_dates(step["start"], step["end"], step.get("frequency", "ME"))
             )
         elif step["dataset"].startswith("rq.financials."):
-            start_year, start_quarter = int(step["start_quarter"][:4]), int(
-                step["start_quarter"][-1]
+            start_year, start_quarter = (
+                int(step["start_quarter"][:4]),
+                int(step["start_quarter"][-1]),
             )
             end_year, end_quarter = int(step["end_quarter"][:4]), int(step["end_quarter"][-1])
             quarters = (end_year - start_year) * 4 + end_quarter - start_quarter + 1
