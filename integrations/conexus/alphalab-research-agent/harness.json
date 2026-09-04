@@ -290,6 +290,7 @@
         "Interactive table data is included in workspaceResult only when sorting, filtering, or CSV export is useful.",
         "Structured charts are included only when they materially improve interpretation and every plotted series is grounded in current tool results.",
         "RQ synchronization executes only the project's saved recipe.py, resumes completed batches, and runs only when authorized by an explicit research execution request.",
+        "When bounded queries or execution evidence identify a concrete missing dataset or field for an authorized research run, the Agent uses the current project's Data Workbench recipe, waits for terminal sync status, verifies bounded evidence, and retries the original backtest at most once; a failed sync stops the loop and zero execution is not reported as strategy performance.",
         "The workspaceCommands output includes version 1, carries the current requestId, uses projectId for project focus, uses widgetId for widget commands, orders set_focus before strategy mode/widget commands, and only contains declared frontend commands."
       ]
     }

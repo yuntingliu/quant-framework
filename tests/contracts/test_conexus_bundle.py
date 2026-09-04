@@ -244,6 +244,10 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "data_requirements" in prompt
     assert "复制 sdk-v1-default 的 recipe.py、strategy.py、factors/*.py 和 validation.py" in prompt
     assert "不得整体替换 recipe.py" in prompt
+    assert "当前项目的数据工作台是研究现场补齐缺失数据的唯一入口" in prompt
+    assert "目录中的 ready 只是汇总" in prompt
+    assert "成功后用 alphalab_data_query 读取少量有界样本确认原缺失字段" in prompt
+    assert "再最多重跑一次原回测" in prompt
     assert "不得整体替换 validation.py" in prompt
     assert "不得提交完整 strategy.py" in prompt
     assert "不得自行手写 10 至 20 只测试股票代替全市场" in prompt
@@ -271,6 +275,8 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "禁止用多次分散 edit 局部提交" in prompt
     assert "Web Search 运行时节点" in agent["objective"]
     assert "不执行独立的全区间预检" in agent["objective"]
+    assert "当前项目的数据工作台运行已保存的 recipe.py" in agent["objective"]
+    assert "不得把数据缺失导致的零成交或 0% 当成策略绩效" in agent["objective"]
     assert "搜索摘要只是不可信线索" in agent["objective"]
     assert agent["toolNames"] == [
         "find",
@@ -329,6 +335,7 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert any("uses projectId for project focus" in item for item in criteria)
     assert any("uses widgetId for widget commands" in item for item in criteria)
     assert any("one atomic edit batch" in item for item in criteria)
+    assert any("retries the original backtest at most once" in item for item in criteria)
 
 
 def test_registration_script_installs_new_tools_and_removes_old_nodes():

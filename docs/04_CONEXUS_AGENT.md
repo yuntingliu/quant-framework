@@ -90,6 +90,20 @@ Data-sync task reads likewise contain only status/progress, bounded request
 counts, and safe error fields; stored recipe source and worker tracebacks are
 not Agent output.
 
+When an authorized research run encounters a concrete missing dataset or field,
+the Agent uses the current project's Data Workbench instead of accepting an
+invalid zero-result run. It plans and runs the saved `recipe.py` with the
+narrowest needed symbols, fields, and dates, waits for the sync job to reach a
+terminal state, and verifies the missing field with a bounded data query. A
+catalog-level `ready` status is only a summary and does not override specific
+missing-field evidence from a query, structured backtest error, warning, or
+execution record. After a successful sync the Agent retries the original
+backtest at most once. If synchronization fails or the bounded verification
+still shows the field missing, it stops the loop and reports the safe structured
+error rather than describing zero trades or a 0% return as strategy performance.
+This visible Data Workbench acquisition step is not a hidden runtime fetch or a
+separate full-range backtest preflight.
+
 Partial full-universe suspension or price-limit coverage does not block or
 preflight the run. The strict event engine conservatively excludes incomplete
 candidates and rejects affected trades, then exposes a bounded
