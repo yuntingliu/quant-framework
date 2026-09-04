@@ -164,8 +164,8 @@ def test_strategy_authoring_units_assemble_into_one_runtime_package():
     project_tool = (
         ROOT / "integrations/conexus/alphalab-research-agent/tools/Research-Project.tool.json"
     ).read_text(encoding="utf-8")
-    assert '"migrate_template"' in project_tool
-    assert "/template-migration" in project_tool
+    assert '"migrate_default"' in project_tool
+    assert "/default-migration" in project_tool
 
 
 def test_strategy_contract_is_declared_implemented():

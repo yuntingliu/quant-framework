@@ -72,7 +72,6 @@ class CreateProjectRequest(BaseModel):
     project_id: str = Field(min_length=2, max_length=64)
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=500)
-    template_id: Literal["common_stock_selection", "etf_rotation"]
     function_replacements: list[TemplateFunctionReplacement] = Field(
         default_factory=list, max_length=20
     )
@@ -91,17 +90,8 @@ class CreateProjectRequest(BaseModel):
     confirm_python_execution: bool
 
 
-class CloneRequest(BaseModel):
+class DefaultMigrationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    target_id: str = Field(min_length=2, max_length=64)
-    name: str | None = Field(default=None, min_length=1, max_length=100)
-    confirm_save: bool
-    confirm_python_execution: bool
-
-
-class TemplateMigrationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    template_id: Literal["common_stock_selection"]
     expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
     confirm_write: bool
     confirm_python_execution: bool
@@ -347,11 +337,6 @@ def factor_templates() -> dict[str, Any]:
     return strategy_service.factor_template_catalog()
 
 
-@router.get("/project-templates")
-def project_templates() -> dict[str, Any]:
-    return strategy_service.strategy_project_template_catalog()
-
-
 @router.get("/projects/{project_id}")
 def project(project_id: str) -> dict[str, Any]:
     item = strategy_service.get_project(project_id)
@@ -368,35 +353,24 @@ def create_project(request: CreateProjectRequest) -> dict[str, Any]:
     )
     try:
         return strategy_service.create_project(
-            request.model_dump(exclude={"confirm_save", "confirm_python_execution"})
+            request.model_dump(
+                exclude={"confirm_save", "confirm_python_execution"}, exclude_none=True
+            )
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
 
 
-@router.post("/projects/{project_id}/clone", status_code=201)
-def clone_project(project_id: str, request: CloneRequest) -> dict[str, Any]:
-    _confirmed(request.confirm_save, "saving a cloned strategy requires confirmation")
-    _confirmed(
-        request.confirm_python_execution, "strategy validation executes trusted local Python"
-    )
-    try:
-        return strategy_service.clone_project(project_id, request.target_id, request.name)
-    except Exception as exc:
-        raise _translate_error(exc) from exc
-
-
-@router.post("/projects/{project_id}/template-migration")
-def migrate_project_template(project_id: str, request: TemplateMigrationRequest) -> dict[str, Any]:
-    _confirmed(request.confirm_write, "migrating strategy template components requires confirmation")
+@router.post("/projects/{project_id}/default-migration")
+def migrate_project_default(project_id: str, request: DefaultMigrationRequest) -> dict[str, Any]:
+    _confirmed(request.confirm_write, "migrating default project components requires confirmation")
     _confirmed(
         request.confirm_python_execution,
         "saving migrated strategy source runs trusted local probes and requires confirmation",
     )
     try:
-        return strategy_service.migrate_project_template(
+        return strategy_service.migrate_project_default(
             project_id,
-            request.template_id,
             expected_source_sha256=request.expected_source_sha256,
         )
     except Exception as exc:

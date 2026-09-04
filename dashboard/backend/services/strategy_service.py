@@ -14,14 +14,14 @@ from alphalab.analytics import (
 )
 from alphalab.dataio import MissingDataError
 from alphalab.dataio.catalog import DataCatalog
-from alphalab.dataio.recipes import inspect_data_recipe_source, render_builtin_recipe
+from alphalab.dataio.recipes import (
+    inspect_data_recipe_source,
+    render_builtin_recipe,
+    update_recipe_parameters,
+)
 from alphalab.dataio.runtime import OperationsStore, RuntimeStore
 from alphalab.provenance import build_research_provenance
 from alphalab.store import ResultStore
-from alphalab.strategy.builtins import (
-    get_strategy_project_template,
-    list_strategy_project_templates,
-)
 from alphalab.strategy.engine import (
     evaluate_factor_history,
     evaluate_factor_snapshot,
@@ -34,7 +34,11 @@ from alphalab.strategy.factor_templates import (
     instantiate_factor_template,
     list_factor_templates,
 )
-from alphalab.strategy.repository import StrategyRepository, normalize_project_id
+from alphalab.strategy.repository import (
+    DEFAULT_PROJECT_ID,
+    StrategyRepository,
+    normalize_project_id,
+)
 from alphalab.strategy.source import (
     SourceInspection,
     StrategySourceError,
@@ -44,7 +48,7 @@ from alphalab.strategy.source import (
     insert_source,
     inspect_strategy_source,
     merge_data_requirements,
-    migrate_strategy_template_components,
+    migrate_default_strategy_components,
     registered_function_source,
     replace_registered_function,
     split_strategy_source,
@@ -52,7 +56,6 @@ from alphalab.strategy.source import (
     update_signal_factor_blend,
     update_signal_schedule,
 )
-from alphalab.validation.builtins import DEFAULT_VALIDATION_SOURCE
 from alphalab.validation.repository import ValidationRepository
 from alphalab.validation.runtime import execute_validation
 from alphalab.validation.source import (
@@ -98,72 +101,15 @@ def get_project(project_id: str) -> dict[str, Any] | None:
         repo.close()
 
 
-def strategy_project_template_catalog() -> dict[str, Any]:
-    return {"templates": list_strategy_project_templates()}
-
-
 def create_project(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Create one editable project from the current built-in default project."""
+
     values = dict(payload)
-    template_id = str(values.pop("template_id"))
     replacements = list(values.pop("function_replacements", ()) or ())
     data_requirements = dict(values.pop("data_requirements", {}) or {})
     supplied_factors = values.pop("factors", None)
     recipe_parameters = dict(values.pop("recipe_parameters", {}) or {})
     validation_edits = list(values.pop("validation_parameter_edits", ()) or ())
-    template = get_strategy_project_template(template_id)
-    strategy_source, template_factors = split_strategy_source(template["source"])
-    if supplied_factors is None:
-        factor_sources = [item.source for item in template_factors]
-    else:
-        factor_sources = []
-        for spec in supplied_factors:
-            factor_spec = dict(spec)
-            factor_template_id = str(factor_spec["template_id"])
-            factor_template = get_factor_template(factor_template_id)
-            factor_sources.append(
-                instantiate_factor_template(
-                    factor_template_id,
-                    factor_id=factor_spec.get("factor_id"),
-                    label=factor_spec.get("label"),
-                    parameter_values=factor_spec.get("parameter_values"),
-                    body=factor_spec.get("body"),
-                )
-            )
-            for dataset, fields in factor_template.requirements.items():
-                current = data_requirements.setdefault(dataset, [])
-                current.extend(field for field in fields if field not in current)
-    strategy_source, _ = merge_data_requirements(strategy_source, data_requirements)
-    seen_entrypoints: set[str] = set()
-    for replacement in replacements:
-        entrypoint_id = str(replacement["entrypoint_id"]).strip()
-        if entrypoint_id in seen_entrypoints:
-            raise StrategySourceError(
-                f"template entrypoint {entrypoint_id!r} may be replaced only once",
-                phase="edit",
-            )
-        seen_entrypoints.add(entrypoint_id)
-        strategy_source, _ = replace_registered_function(
-            strategy_source,
-            entrypoint_id=entrypoint_id,
-            function_source=str(replacement["function_source"]),
-        )
-    validation_source = DEFAULT_VALIDATION_SOURCE
-    if validation_edits:
-        validation_source, validation_inspection = update_validation_parameters(
-            validation_source, validation_edits
-        )
-    else:
-        validation_inspection = inspect_validation_source(validation_source)
-
-    bounds = _project_recipe_bounds()
-    recipe_source = render_builtin_recipe(
-        template["recipe_template_id"],
-        start=str(recipe_parameters.get("start") or bounds["start"]),
-        end=str(recipe_parameters.get("end") or bounds["end"]),
-        symbols=recipe_parameters.get("symbols"),
-    )
-    inspect_data_recipe_source(recipe_source)
-
     project_id = normalize_project_id(str(values["project_id"]))
     values["project_id"] = project_id
     operations = operations_store()
@@ -171,6 +117,77 @@ def create_project(payload: Mapping[str, Any]) -> dict[str, Any]:
         raise FileExistsError(f"project recipe already exists for {project_id!r}")
     repo = repository()
     try:
+        default_project = repo.get_project(DEFAULT_PROJECT_ID)
+        if default_project is None:
+            raise RuntimeError("built-in default project is not initialized")
+        strategy_source, default_factors = split_strategy_source(default_project["draft_source"])
+        if supplied_factors is None:
+            factor_sources = [item.source for item in default_factors]
+        else:
+            factor_sources = []
+            for spec in supplied_factors:
+                factor_spec = dict(spec)
+                factor_template_id = str(factor_spec["template_id"])
+                factor_template = get_factor_template(factor_template_id)
+                factor_sources.append(
+                    instantiate_factor_template(
+                        factor_template_id,
+                        factor_id=factor_spec.get("factor_id"),
+                        label=factor_spec.get("label"),
+                        parameter_values=factor_spec.get("parameter_values"),
+                        body=factor_spec.get("body"),
+                    )
+                )
+                for dataset, fields in factor_template.requirements.items():
+                    current = data_requirements.setdefault(dataset, [])
+                    current.extend(field for field in fields if field not in current)
+        strategy_source, _ = merge_data_requirements(strategy_source, data_requirements)
+        seen_entrypoints: set[str] = set()
+        for replacement in replacements:
+            entrypoint_id = str(replacement["entrypoint_id"]).strip()
+            if entrypoint_id in seen_entrypoints:
+                raise StrategySourceError(
+                    f"default entrypoint {entrypoint_id!r} may be replaced only once",
+                    phase="edit",
+                )
+            seen_entrypoints.add(entrypoint_id)
+            strategy_source, _ = replace_registered_function(
+                strategy_source,
+                entrypoint_id=entrypoint_id,
+                function_source=str(replacement["function_source"]),
+            )
+
+        validation_repo = ValidationRepository(repo.path)
+        try:
+            validation_source = str(validation_repo.get_or_create(DEFAULT_PROJECT_ID)["source"])
+        finally:
+            validation_repo.close()
+        if validation_edits:
+            validation_source, validation_inspection = update_validation_parameters(
+                validation_source, validation_edits
+            )
+        else:
+            validation_inspection = inspect_validation_source(validation_source)
+
+        source_recipe = operations.get_recipe_draft(DEFAULT_PROJECT_ID)
+        if source_recipe is None:
+            bounds = _project_recipe_bounds()
+            recipe_source = render_builtin_recipe(
+                "rq.a_share_research", start=bounds["start"], end=bounds["end"]
+            )
+            selected_recipe_template_id = "rq.a_share_research"
+        else:
+            recipe_source = str(source_recipe["source"])
+            selected_recipe_template_id = source_recipe.get("selected_template_id")
+        parameter_values = {
+            key: (tuple(value) if key == "symbols" and value else value)
+            for key, value in recipe_parameters.items()
+            if value is not None
+        }
+        if parameter_values:
+            recipe_source, _ = update_recipe_parameters(recipe_source, parameter_values)
+        inspect_data_recipe_source(recipe_source)
+
         project = repo.create_project_from_units(
             **values,
             strategy_source=strategy_source,
@@ -182,7 +199,7 @@ def create_project(payload: Mapping[str, Any]) -> dict[str, Any]:
             operations.save_recipe_draft(
                 project["id"],
                 recipe_source,
-                selected_template_id=template["recipe_template_id"],
+                selected_template_id=selected_recipe_template_id,
             )
         except Exception:
             repo.delete_project(project["id"])
@@ -193,56 +210,13 @@ def create_project(payload: Mapping[str, Any]) -> dict[str, Any]:
         repo.close()
 
 
-def clone_project(project_id: str, target_id: str, name: str | None) -> dict[str, Any]:
-    project_id = normalize_project_id(project_id)
-    target_id = normalize_project_id(target_id)
-    operations = operations_store()
-    if operations.get_recipe_draft(target_id) is not None:
-        raise FileExistsError(f"project recipe already exists for {target_id!r}")
-    source_recipe = operations.get_recipe_draft(project_id)
-    if source_recipe is None:
-        bounds = _project_recipe_bounds()
-        recipe_source = render_builtin_recipe(
-            "rq.a_share_research", start=bounds["start"], end=bounds["end"]
-        )
-        selected_template_id = "rq.a_share_research"
-    else:
-        recipe_source = str(source_recipe["source"])
-        selected_template_id = source_recipe.get("selected_template_id")
-    inspect_data_recipe_source(recipe_source)
-    repo = repository()
-    try:
-        project = repo.clone_project(project_id, target_id, name=name)
-        try:
-            validation_repo = ValidationRepository(repo.path)
-            try:
-                validation_repo.clone_source(project_id, project["id"])
-            finally:
-                validation_repo.close()
-            operations.save_recipe_draft(
-                project["id"],
-                recipe_source,
-                selected_template_id=selected_template_id,
-            )
-        except Exception:
-            repo.delete_project(project["id"])
-            operations.delete_recipe_draft(project["id"])
-            raise
-        return project
-    finally:
-        repo.close()
-
-
-def migrate_project_template(
+def migrate_project_default(
     project_id: str,
-    template_id: str,
     *,
     expected_source_sha256: str | None = None,
 ) -> dict[str, Any]:
-    """Explicitly advance template-owned strategy functions in a new revision."""
+    """Explicitly advance default-owned strategy functions in a new revision."""
 
-    if template_id != "common_stock_selection":
-        raise ValueError("only common_stock_selection supports component migration")
     project = get_project(project_id)
     if project is None:
         raise KeyError(project_id)
@@ -250,13 +224,15 @@ def migrate_project_template(
         raise PermissionError("built-in projects cannot be edited")
     if expected_source_sha256 and project["draft_source_sha256"] != expected_source_sha256:
         raise RuntimeError("draft changed since it was inspected")
-    template = get_strategy_project_template(template_id)
-    migrated_source, _ = migrate_strategy_template_components(
-        project["draft_source"],
-        template["source"],
-    )
     repo = repository()
     try:
+        default_project = repo.get_project(DEFAULT_PROJECT_ID)
+        if default_project is None:
+            raise RuntimeError("built-in default project is not initialized")
+        migrated_source, _ = migrate_default_strategy_components(
+            project["draft_source"],
+            default_project["draft_source"],
+        )
         return repo.update_draft(
             project_id,
             migrated_source,
@@ -938,7 +914,6 @@ def _runtime_datasets_for_backtest(package: Mapping[str, Any]) -> tuple[str, ...
 __all__ = [
     "add_project_factor_source",
     "add_project_factor_template",
-    "clone_project",
     "create_project",
     "delete_project",
     "factor_history",
@@ -950,12 +925,11 @@ __all__ = [
     "get_revision",
     "insertion",
     "list_projects",
-    "migrate_project_template",
+    "migrate_project_default",
     "list_revisions",
     "preview_project",
     "run_project_backtest",
     "save_revision",
-    "strategy_project_template_catalog",
     "structured_edit",
     "update_draft",
     "update_strategy_source",

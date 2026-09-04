@@ -32,7 +32,7 @@ from alphalab.utils.paths import APP_DATA_DIR
 _SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schema.sql"
 _DEFAULT_DB = APP_DATA_DIR / "alphalab.db"
 _ID = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
-_DEFAULT_PROJECT_ID = "sdk-v1-default"
+DEFAULT_PROJECT_ID = "sdk-v1-default"
 _MIGRATION_NAME = "strategy-sdk-v1-cutover"
 _FACTOR_REPAIR_MIGRATION = "strategy-sdk-v1-factor-repair"
 _RQ_PROFILE_MIGRATION = "strategy-sdk-v1-rq-profile"
@@ -74,7 +74,7 @@ class StrategyRepository:
 
     def _seed_default(self) -> None:
         if self._conn.execute(
-            "SELECT 1 FROM strategy_projects WHERE id = ?", (_DEFAULT_PROJECT_ID,)
+            "SELECT 1 FROM strategy_projects WHERE id = ?", (DEFAULT_PROJECT_ID,)
         ).fetchone():
             return
         inspection = inspect_strategy_source(DEFAULT_STRATEGY_SOURCE)
@@ -86,7 +86,7 @@ class StrategyRepository:
                     settings_json, built_in)
                    VALUES (?, ?, ?, 'runtime', 1, 1, ?, ?, ?, 1)""",
                 (
-                    _DEFAULT_PROJECT_ID,
+                    DEFAULT_PROJECT_ID,
                     "SDK v1 默认策略",
                     "统一源码：研究标的池 → 月末动量 → 等权组合 → 下一交易日开盘执行",
                     DEFAULT_STRATEGY_SOURCE,
@@ -94,9 +94,9 @@ class StrategyRepository:
                     _json(_default_settings()),
                 ),
             )
-            self._replace_source_units(_DEFAULT_PROJECT_ID, DEFAULT_STRATEGY_SOURCE)
+            self._replace_source_units(DEFAULT_PROJECT_ID, DEFAULT_STRATEGY_SOURCE)
             self._insert_package(
-                _DEFAULT_PROJECT_ID,
+                DEFAULT_PROJECT_ID,
                 1,
                 None,
                 DEFAULT_STRATEGY_SOURCE,
@@ -110,7 +110,7 @@ class StrategyRepository:
         inspection = inspect_strategy_source(DEFAULT_STRATEGY_SOURCE)
         row = self._conn.execute(
             "SELECT * FROM strategy_projects WHERE id = ? AND built_in = 1",
-            (_DEFAULT_PROJECT_ID,),
+            (DEFAULT_PROJECT_ID,),
         ).fetchone()
         if row is None or (
             row["draft_source"] == DEFAULT_STRATEGY_SOURCE
@@ -123,7 +123,7 @@ class StrategyRepository:
                 self._conn.execute("BEGIN IMMEDIATE")
                 locked = self._conn.execute(
                     "SELECT * FROM strategy_projects WHERE id = ? AND built_in = 1",
-                    (_DEFAULT_PROJECT_ID,),
+                    (DEFAULT_PROJECT_ID,),
                 ).fetchone()
                 if locked is None or (
                     locked["draft_source"] == DEFAULT_STRATEGY_SOURCE
@@ -134,14 +134,14 @@ class StrategyRepository:
                 existing = self._conn.execute(
                     """SELECT revision FROM strategy_source_packages
                        WHERE project_id = ? AND source_sha256 = ?""",
-                    (_DEFAULT_PROJECT_ID, inspection.source_sha256),
+                    (DEFAULT_PROJECT_ID, inspection.source_sha256),
                 ).fetchone()
                 if existing is not None:
                     revision = int(existing["revision"])
                 else:
                     revision = int(locked["current_revision"]) + 1
                     self._insert_package(
-                        _DEFAULT_PROJECT_ID,
+                        DEFAULT_PROJECT_ID,
                         revision,
                         int(locked["current_revision"]) or None,
                         DEFAULT_STRATEGY_SOURCE,
@@ -158,10 +158,10 @@ class StrategyRepository:
                         revision,
                         DEFAULT_STRATEGY_SOURCE,
                         inspection.source_sha256,
-                        _DEFAULT_PROJECT_ID,
+                        DEFAULT_PROJECT_ID,
                     ),
                 )
-                self._replace_source_units(_DEFAULT_PROJECT_ID, DEFAULT_STRATEGY_SOURCE)
+                self._replace_source_units(DEFAULT_PROJECT_ID, DEFAULT_STRATEGY_SOURCE)
                 self._conn.commit()
             except Exception:
                 self._conn.rollback()
@@ -1395,4 +1395,4 @@ def _load_json(value: str | None, default: Any) -> Any:
         return default
 
 
-__all__ = ["StrategyRepository", "normalize_project_id"]
+__all__ = ["DEFAULT_PROJECT_ID", "StrategyRepository", "normalize_project_id"]

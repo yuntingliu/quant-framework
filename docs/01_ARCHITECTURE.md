@@ -141,19 +141,20 @@ Runs pin that internal package; changing any source unit later cannot alter a
 historical result. Revision numbers and hashes are audit metadata, not
 user-managed authoring controls.
 
-Agent-created projects start from one canonical project-template bundle. The
-bundle selects `recipe.py`, `strategy.py`, the initial `factors/*.py`, and
-`validation.py` together. The Agent may merge structured data requirements,
-replace registered strategy functions, instantiate built-in or generic factor
-templates, and set recipe/validation parameters; it cannot submit a
-from-scratch module. Strategy and validation are inserted with the single
-initial strategy revision, while the separately stored recipe draft uses
-compensating cleanup if its write fails. The ordinary-stock bundle therefore
-always contributes the research data recipe, visible stock-type filter,
-editable `@execution_data_fill`, and canonical validation source. After
-creation, every copied file remains normal project-owned source that the user
-may edit in its workbench. Agent tools continue to expose only template and
-structured edits.
+Agent-created projects copy the current read-only `sdk-v1-default` project as
+their only starting point. Its `recipe.py`, `strategy.py`, initial
+`factors/*.py`, and `validation.py` are copied together. Before the first save,
+the Agent may merge structured data requirements, replace registered strategy
+functions, instantiate built-in or generic factor templates, and set
+recipe/validation parameters; it cannot submit a from-scratch module or select
+another hidden project template. Strategy and validation are inserted with the
+single initial strategy revision, while the separately stored recipe draft uses
+compensating cleanup if its write fails. The default project therefore always
+contributes the research data recipe, visible stock-type filter, editable
+`@execution_data_fill`, and canonical validation source. After creation, every
+copied file remains normal project-owned source that the user may edit in its
+workbench. Agent tools continue to expose only factor-template and structured
+edits.
 
 `ValidationRepository` applies the same user-facing save model to
 `validation_sources` and immutable `validation_source_packages`. A Run pins
@@ -275,10 +276,10 @@ are stored separately and are exposed to the Agent only through explicit
 bounded pages. A successful terminal transition atomically clears all earlier
 error metadata; failed transitions clear any stale result metadata.
 
-Template advancement is explicit. Migrating an editable common-stock project
-replaces only template-owned universe and execution-data-fill functions and
-creates a new immutable revision. Existing frozen revisions and BacktestRuns
-are never rewritten.
+Default advancement is explicit. Migrating an editable project replaces only
+default-owned universe and execution-data-fill functions and creates a new
+immutable revision. Existing frozen revisions and BacktestRuns are never
+rewritten.
 
 Old pipeline tables and old BacktestRuns remain only for one-time migration and
 read-only inspection. Migration converts every recognized legacy factor into an

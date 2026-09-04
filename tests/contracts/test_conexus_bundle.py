@@ -107,17 +107,18 @@ def test_tools_use_the_project_sdk_v1_contract():
     assert "include_files" in project["inputSchema"]["properties"]
     assert "include_sources" not in project["inputSchema"]["properties"]
     assert "strategy_source" not in project["inputSchema"]["properties"]
-    assert "template_id" in project["inputSchema"]["properties"]
+    assert "template_id" not in project["inputSchema"]["properties"]
     assert "function_replacements" in project["inputSchema"]["properties"]
     assert "data_requirements" in project["inputSchema"]["properties"]
     assert "factors" in project["inputSchema"]["properties"]
     assert "recipe_parameters" in project["inputSchema"]["properties"]
     assert "validation_parameter_edits" in project["inputSchema"]["properties"]
     assert "factor_sources" not in project["inputSchema"]["properties"]
-    assert "list_strategy_templates" in project["inputSchema"]["properties"]["action"]["enum"]
-    assert "migrate_template" in project["inputSchema"]["properties"]["action"]["enum"]
-    assert "/api/strategy/project-templates" in project["code"]
-    assert "/template-migration" in project["code"]
+    assert "list_strategy_templates" not in project["inputSchema"]["properties"]["action"]["enum"]
+    assert "clone" not in project["inputSchema"]["properties"]["action"]["enum"]
+    assert "migrate_default" in project["inputSchema"]["properties"]["action"]["enum"]
+    assert "/api/strategy/project-templates" not in project["code"]
+    assert "/default-migration" in project["code"]
     assert "included_files" in project["code"]
 
     recipe = tools["alphalab_data_recipe"]
@@ -213,10 +214,10 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "普通说明、只读问答和历史复述直接 complete" in prompt
     assert 'asset_type == \"CS\"' in prompt
     assert "create 不接受任何完整模块源码" in prompt
-    assert "common_stock_selection" in prompt
+    assert "复制只读的 sdk-v1-default" in prompt
     assert "function_replacements" in prompt
     assert "data_requirements" in prompt
-    assert "项目模板包一次生成 recipe.py、strategy.py、factors/*.py 和 validation.py" in prompt
+    assert "复制 sdk-v1-default 的 recipe.py、strategy.py、factors/*.py 和 validation.py" in prompt
     assert "不得整体替换 recipe.py" in prompt
     assert "不得整体替换 validation.py" in prompt
     assert "不得提交完整 strategy.py" in prompt
@@ -236,7 +237,7 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "limit_up 和 limit_down 同时设为 0" in prompt
     assert "状态缺失不得在信号生成前清空证券池" in prompt
     assert "action=wait" in prompt
-    assert "migrate_template" in prompt
+    assert "migrate_default" in prompt
     assert 'workspaceCommands 必须严格写成 {"version":1' in prompt
     assert "open_widget 必须使用 widgetId，不能使用 widget" in prompt
     assert "set_focus 必须排在切换和打开之前" in prompt

@@ -190,8 +190,8 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
     refresh,
     openProject,
     createProject: async (targetId, name) => {
-      const created = await api.post<StrategyProject>("/strategy/projects/sdk-v1-default/clone", {
-        target_id: targetId,
+      const created = await api.post<StrategyProject>("/strategy/projects", {
+        project_id: targetId,
         name,
         confirm_save: true,
         confirm_python_execution: true,

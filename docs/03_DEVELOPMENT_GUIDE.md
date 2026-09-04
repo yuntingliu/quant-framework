@@ -63,16 +63,16 @@ demo/default logic, or a parallel backtest path. Pre-SDK database tables are
 read only: migration is implemented directly by `StrategyRepository`, while
 historical report reconstruction stays in the analytics service.
 
-The Agent project-creation boundary accepts a canonical project-template ID,
-structured data requirements, registered-function replacements, factor-template
-instances, recipe parameters, and validation parameter edits. It does not accept
-a full from-scratch Python module. Template application and all replacements
-happen in memory before the repository records the single initial strategy and
-validation package; recipe persistence is compensated by deleting the new
-project if its separate database write fails. This restriction applies to Agent
-authoring only. The resulting `recipe.py`, `strategy.py`, `factors/*.py`, and
-`validation.py` remain visible and fully editable by the user through the
-canonical workbenches and APIs.
+The Agent project-creation boundary always copies the current read-only
+`sdk-v1-default` project and accepts structured data requirements,
+registered-function replacements, factor-template instances, recipe parameters,
+and validation parameter edits. It does not accept a project-template ID or a
+full from-scratch Python module. All replacements happen in memory before the
+repository records the single initial strategy and validation package; recipe
+persistence is compensated by deleting the new project if its separate database
+write fails. This restriction applies to Agent authoring only. The resulting
+`recipe.py`, `strategy.py`, `factors/*.py`, and `validation.py` remain visible
+and fully editable by the user through the canonical workbenches and APIs.
 
 Agent mutation tools must preserve the same boundary after creation: install a
 factor template before replacing its one registered function, use CST edits for
@@ -243,10 +243,10 @@ complete score vector. Robustness annualization is inferred from frozen return
 dates; signal frequency remains descriptive. Parse position limits from the
 frozen `@portfolio` signature before considering legacy project settings.
 
-Old common-stock projects advance only through the explicit
-`POST /api/strategy/projects/{id}/template-migration` operation. It migrates
-template-owned universe and execution-data-fill functions into a new revision;
-never rewrite an existing source package or frozen backtest.
+Old projects advance default-owned components only through the explicit
+`POST /api/strategy/projects/{id}/default-migration` operation. It migrates the
+default universe and execution-data-fill functions into a new revision; never
+rewrite an existing source package or frozen backtest.
 
 Runtime data-sync job endpoints follow the same boundary: task responses expose
 status, progress, a bounded request summary, stable error fields, and a log

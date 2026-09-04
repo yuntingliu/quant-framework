@@ -14,11 +14,7 @@ import pytest
 from alphalab.dataio import create_default_engine
 from alphalab.sdk.v1 import Event, FactorContext
 from alphalab.strategy import repository as strategy_repository_module
-from alphalab.strategy.builtins import (
-    DEFAULT_STRATEGY_SOURCE,
-    ETF_ROTATION_EVENT_EXAMPLE_SOURCE,
-    list_strategy_project_templates,
-)
+from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
 from alphalab.strategy.config import ExecutionSpec
 from alphalab.strategy.engine import (
     _apply_execution_constraints,
@@ -45,7 +41,7 @@ from alphalab.strategy.source import (
     insert_source,
     inspect_strategy_source,
     merge_data_requirements,
-    migrate_strategy_template_components,
+    migrate_default_strategy_components,
     registered_function_source,
     remove_factor_inputs_arguments,
     replace_registered_function,
@@ -56,7 +52,7 @@ from alphalab.strategy.source import (
 )
 
 
-def test_explicit_template_component_migration_preserves_old_packages(tmp_path: Path):
+def test_explicit_default_component_migration_preserves_old_packages(tmp_path: Path):
     repository = StrategyRepository(tmp_path / "template-migration.db")
     try:
         project = repository.clone_project("sdk-v1-default", "old-stock-project")
@@ -79,7 +75,7 @@ def legacy_universe(context):
         legacy_package = repository.get_package(
             "old-stock-project", legacy["current_revision"]
         )
-        migrated_source, inspection = migrate_strategy_template_components(
+        migrated_source, inspection = migrate_default_strategy_components(
             legacy["draft_source"], DEFAULT_STRATEGY_SOURCE
         )
         migrated = repository.update_draft(
@@ -212,19 +208,14 @@ def test_factor_template_instantiation_only_replaces_template_edits() -> None:
         instantiate_factor_template("momentum_20d", parameter_values={"missing": 1})
 
 
-def test_official_strategy_templates_explain_every_registered_function() -> None:
-    assert {item["id"] for item in list_strategy_project_templates()} == {
-        "common_stock_selection",
-        "etf_rotation",
-    }
-    for source in (DEFAULT_STRATEGY_SOURCE, ETF_ROTATION_EVENT_EXAMPLE_SOURCE):
-        tree = ast.parse(source)
-        functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
+def test_official_default_strategy_explains_every_registered_function() -> None:
+    tree = ast.parse(DEFAULT_STRATEGY_SOURCE)
+    functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
 
-        assert ast.get_docstring(tree)
-        assert functions
-        assert all(ast.get_docstring(function) for function in functions)
-        assert source.count("# ") >= len(functions)
+    assert ast.get_docstring(tree)
+    assert functions
+    assert all(ast.get_docstring(function) for function in functions)
+    assert DEFAULT_STRATEGY_SOURCE.count("# ") >= len(functions)
 
 
 def test_immutable_builtin_project_advances_when_official_source_changes(
@@ -818,6 +809,7 @@ def test_default_execution_fill_exposes_editable_market_rules():
         "star_market_limit_rate",
         "chinext_limit_rate",
         "beijing_limit_rate",
+        "etf_limit_rate",
         "ipo_unlimited_sessions",
         "beijing_ipo_unlimited_sessions",
         "state_lookback_sessions",
@@ -832,7 +824,14 @@ def test_default_execution_fill_exposes_editable_market_rules():
 def test_default_execution_fill_uses_raw_close_board_st_and_ipo_rules():
     dates = pd.bdate_range("2026-06-08", periods=20)
     as_of = dates[-1]
-    symbols = ["600000.SH", "688001.SH", "300001.SZ", "430001.BJ", "001234.SZ"]
+    symbols = [
+        "600000.SH",
+        "688001.SH",
+        "300001.SZ",
+        "430001.BJ",
+        "001234.SZ",
+        "518880.SH",
+    ]
     bars = pd.DataFrame(
         [
             {
@@ -841,7 +840,7 @@ def test_default_execution_fill_uses_raw_close_board_st_and_ipo_rules():
                 "close": 100.0,
                 "raw_close": 10.0,
                 "is_suspended": False,
-                "is_st": symbol == "600000.SH",
+                "is_st": symbol in {"600000.SH", "518880.SH"},
             }
             for date in dates
             for symbol in symbols
@@ -853,6 +852,7 @@ def test_default_execution_fill_uses_raw_close_board_st_and_ipo_rules():
         pd.Timestamp("2020-01-01"),
         pd.Timestamp("2020-01-01"),
         dates[-5],
+        pd.Timestamp("2020-01-01"),
     ]
     payload = {
         "sessions": tuple(dates),
@@ -861,7 +861,7 @@ def test_default_execution_fill_uses_raw_close_board_st_and_ipo_rules():
             {
                 "snapshot_date": [dates[0]] * len(symbols),
                 "symbol": symbols,
-                "asset_type": ["CS"] * len(symbols),
+                "asset_type": ["CS", "CS", "CS", "CS", "CS", "ETF"],
                 "listed_date": listed_dates,
             }
         ),
@@ -895,6 +895,7 @@ def test_default_execution_fill_uses_raw_close_board_st_and_ipo_rules():
     assert filled.loc["300001.SZ", ["limit_up", "limit_down"]].tolist() == [12.0, 8.0]
     assert filled.loc["430001.BJ", ["limit_up", "limit_down"]].tolist() == [13.0, 7.0]
     assert filled.loc["001234.SZ", ["limit_up", "limit_down"]].tolist() == [0.0, 0.0]
+    assert filled.loc["518880.SH", ["limit_up", "limit_down"]].tolist() == [11.0, 9.0]
     assert filled["is_suspended"].eq(False).all()
 
     trade_rows = pd.DataFrame(

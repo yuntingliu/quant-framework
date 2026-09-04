@@ -108,6 +108,7 @@ const PARAMETER_LABELS: Record<string, string> = {
   star_market_limit_rate: "科创板涨跌幅",
   chinext_limit_rate: "创业板涨跌幅",
   beijing_limit_rate: "北交所涨跌幅",
+  etf_limit_rate: "ETF 涨跌幅",
   ipo_unlimited_sessions: "沪深新股无涨跌停交易日",
   beijing_ipo_unlimited_sessions: "北交所新股无涨跌停交易日",
   state_lookback_sessions: "状态补齐向前查找交易日数",
@@ -374,7 +375,7 @@ export function StrategyWorkbenchWidget() {
   const visualDraftKey = JSON.stringify(visualDraft.edits)
   const hasUnsavedChanges = Boolean(project?.dirty || moduleDirty || visualDirty)
   const editLocked = moduleDirty
-  const needsTemplateMigration = Boolean(
+  const needsDefaultMigration = Boolean(
     project?.editable
     && !project.inspection.entrypoints.some((item) => item.kind === "execution_data_fill"),
   )
@@ -439,17 +440,16 @@ export function StrategyWorkbenchWidget() {
     finally { setBusy(false) }
   }
 
-  async function migrateTemplate() {
+  async function migrateDefault() {
     if (!project?.editable || hasUnsavedChanges) return
     if (!await confirm({
-      title: "迁移普通股票模板基础组件",
-      description: "将用最新模板更新股票池和交易状态补齐函数，并保存为新版本；历史回测版本保持不变。",
+      title: "迁移默认项目基础组件",
+      description: "将用最新 sdk-v1-default 更新标的池和交易状态补齐函数，并保存为新版本；历史回测版本保持不变。",
       confirmText: "迁移并保存",
     })) return
     setBusy(true); setError("")
     try {
-      await api.post(`/strategy/projects/${project.id}/template-migration`, {
-        template_id: "common_stock_selection",
+      await api.post(`/strategy/projects/${project.id}/default-migration`, {
         expected_source_sha256: projectHash,
         confirm_write: true,
         confirm_python_execution: true,
@@ -503,7 +503,7 @@ export function StrategyWorkbenchWidget() {
               <section className="strategy-visual-pane">
                 <header className="strategy-pane-header"><div><Settings2 size={16} /><strong>可视化配置</strong></div>{visualDirty ? <Badge variant={visualDraft.valid ? "secondary" : "destructive"}>待应用</Badge> : null}</header>
                 <div className="strategy-pane-scroll">
-                  {needsTemplateMigration ? <div className="workbench-message warning">这个旧项目还没有模板化的交易状态补齐函数。<Button variant="outline" disabled={busy || hasUnsavedChanges} onClick={() => void migrateTemplate()}>迁移最新普通股票模板</Button></div> : null}
+                  {needsDefaultMigration ? <div className="workbench-message warning">这个旧项目还没有默认的交易状态补齐函数。<Button variant="outline" disabled={busy || hasUnsavedChanges} onClick={() => void migrateDefault()}>迁移最新默认项目组件</Button></div> : null}
                   {editLocked ? <div className="workbench-message warning">右侧 Python 有未保存修改；保存后才能调整左侧设置。</div> : null}
                   <StrategyVisualEditor
                     stageGroups={stageGroups}

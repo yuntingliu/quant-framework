@@ -424,12 +424,11 @@ def major_etfs(context: UniverseContext) -> UniverseResult:
 ```
 
 `context.universe` is the complete point-in-time instrument set, not an implicit
-asset-type filter. New ordinary stock-selection strategies start from the
-`common_stock_selection` template, whose universe intersects that set with
-`context.instruments()` rows where `asset_type == "CS"`. A small hard-coded pool
-is used only when the user explicitly requests a fixed, index, sector, ETF, or
-otherwise restricted universe; fixed pools are still intersected with
-`context.universe`.
+asset-type filter. Every new project starts from `sdk-v1-default`, whose universe
+intersects that set with `context.instruments()` rows where `asset_type == "CS"`.
+An Agent creating a fixed, index, sector, ETF, or otherwise restricted strategy
+replaces that registered universe function before the initial save; restricted
+pools are still intersected with `context.universe`.
 
 The function MAY filter or rank instruments but MUST NOT introduce a symbol not
 present in the point-in-time instrument snapshot.
@@ -691,6 +690,7 @@ def fill_missing_market_state(
     main_board_limit_rate: float = 0.10,
     star_market_limit_rate: float = 0.20,
     chinext_limit_rate: float = 0.20,
+    etf_limit_rate: float = 0.10,
     ipo_unlimited_sessions: int = 5,
 ) -> pandas.DataFrame:
     ...
@@ -701,9 +701,10 @@ The function contains the project's actual Python for filling missing
 directly; there is no decision wrapper or hidden policy branch. The core rejects
 changes to known values, row identity, other market fields, or row count. The
 shipped function derives limit prices from the previous trading day's
-unadjusted `raw_close`, reads point-in-time `is_st` and listing dates, and keeps
-board, ST-rule-change, and IPO-session rules as editable keyword-only defaults.
-For a known no-limit IPO session it sets both limit columns to zero.
+unadjusted `raw_close`, reads point-in-time asset type, `is_st`, and listing
+dates, and keeps board, ETF, ST-rule-change, and stock IPO-session rules as
+editable keyword-only defaults. For a known no-limit stock IPO session it sets
+both limit columns to zero.
 
 New broker order types or data feeds require an explicit SDK/core capability.
 Arbitrary Python cannot create capabilities the core does not expose.
@@ -870,9 +871,9 @@ Codex and published Agents edit the same project draft as the workbenches.
 
 They MUST:
 
-- create new projects from a project-template bundle that initializes
+- create every new project by copying `sdk-v1-default`, which initializes
   `recipe.py`, `strategy.py`, `factors/*.py`, and `validation.py`; Agent create
-  requests never carry a complete module;
+  requests carry neither a project-template selector nor a complete module;
 - install or instantiate factor templates before changing their parameters or
   function body, and limit recipe/validation writes to template operations;
 - inspect the current source-unit inventory, relevant unit, assembled

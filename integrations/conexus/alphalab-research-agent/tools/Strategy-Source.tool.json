@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_strategy_source",
-  "description": "Atomically edit project-template strategy functions or install/edit factor-template copies. Whole-module and source-from-scratch writes are not exposed.",
+  "description": "Atomically edit registered strategy functions copied from sdk-v1-default or install/edit factor-template copies. Whole-module and source-from-scratch writes are not exposed.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {

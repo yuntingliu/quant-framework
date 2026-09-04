@@ -565,23 +565,23 @@ def replace_registered_function(
     return updated, inspect_strategy_source(updated)
 
 
-def migrate_strategy_template_components(
+def migrate_default_strategy_components(
     source: str,
-    template_source: str,
+    default_source: str,
     *,
     kinds: Iterable[str] = ("universe", "execution_data_fill"),
 ) -> tuple[str, SourceInspection]:
-    """Replace explicit template-owned functions while preserving project strategy logic."""
+    """Replace default-owned functions while preserving project strategy logic."""
 
     requested = tuple(dict.fromkeys(str(kind) for kind in kinds))
     unsupported = sorted(set(requested) - {"universe", "execution_data_fill"})
     if unsupported:
         raise StrategySourceError(
-            f"unsupported template migration components: {unsupported}", phase="edit"
+            f"unsupported default migration components: {unsupported}", phase="edit"
         )
     current = source
-    template_inspection = inspect_strategy_source(template_source)
-    template_by_kind = {item.kind: item for item in template_inspection.entrypoints}
+    default_inspection = inspect_strategy_source(default_source)
+    default_by_kind = {item.kind: item for item in default_inspection.entrypoints}
     required_imports = {
         "execution_data_fill": {
             "Annotated",
@@ -595,17 +595,17 @@ def migrate_strategy_template_components(
     }
     current = _merge_named_imports(
         current,
-        template_source,
+        default_source,
         set().union(*(required_imports[kind] for kind in requested)),
     )
     for kind in requested:
-        template_item = template_by_kind.get(kind)
-        if template_item is None:
+        default_item = default_by_kind.get(kind)
+        if default_item is None:
             raise StrategySourceError(
-                f"template has no @{kind} function", phase="edit"
+                f"default project has no @{kind} function", phase="edit"
             )
         function_source = registered_function_source(
-            template_source, entrypoint_id=template_item.id
+            default_source, entrypoint_id=default_item.id
         )
         inspection = inspect_strategy_source(current)
         current_item = next((item for item in inspection.entrypoints if item.kind == kind), None)
@@ -617,7 +617,7 @@ def migrate_strategy_template_components(
             )
         else:
             current = _insert_registered_function(current, function_source)
-    return merge_data_requirements(current, template_inspection.data_requirements)
+    return merge_data_requirements(current, default_inspection.data_requirements)
 
 
 def _merge_named_imports(source: str, reference_source: str, names: set[str]) -> str:
@@ -1955,7 +1955,7 @@ __all__ = [
     "insert_source",
     "inspect_strategy_source",
     "merge_data_requirements",
-    "migrate_strategy_template_components",
+    "migrate_default_strategy_components",
     "registered_function_source",
     "remove_factor_inputs_arguments",
     "replace_registered_function",

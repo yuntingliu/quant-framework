@@ -1,4 +1,4 @@
-"""Canonical SDK v1 strategy templates."""
+"""Canonical SDK v1 default strategy source."""
 
 from __future__ import annotations
 
@@ -150,6 +150,10 @@ def fill_missing_market_state(
         float,
         Parameter(label="北交所涨跌幅", minimum=0.01, maximum=1.0, step=0.01),
     ] = 0.30,
+    etf_limit_rate: Annotated[
+        float,
+        Parameter(label="ETF 涨跌幅", minimum=0.01, maximum=1.0, step=0.01),
+    ] = 0.10,
     ipo_unlimited_sessions: Annotated[
         int,
         Parameter(label="沪深新股无涨跌停交易日", minimum=0, maximum=30, step=1),
@@ -212,6 +216,12 @@ def fill_missing_market_state(
     )
 
     instruments = context.instruments()
+    asset_types = pd.Series(dtype=str)
+    if {"symbol", "asset_type"}.issubset(instruments.columns):
+        asset_types = pd.Series(
+            instruments["asset_type"].astype(str).str.upper().values,
+            index=instruments["symbol"].astype(str).str.upper(),
+        )
     listed_field = next(
         (field for field in ("listed_date", "list_date") if field in instruments),
         None,
@@ -232,12 +242,14 @@ def fill_missing_market_state(
     limit_rates = {}
     for symbol in symbols:
         code, _, exchange = symbol.partition(".")
+        asset_type = str(asset_types.get(symbol, "")).upper()
+        is_common_stock = asset_type == "CS"
         is_beijing = exchange == "BJ" or code.startswith(("4", "8", "920"))
         is_star = exchange == "SH" and code.startswith(("688", "689"))
         is_chinext = exchange == "SZ" and code.startswith(("300", "301"))
 
         listed_date = listing_dates.get(symbol, pd.NaT)
-        if pd.notna(listed_date):
+        if is_common_stock and pd.notna(listed_date):
             listed_date = pd.Timestamp(listed_date).normalize()
             listed_sessions = sum(listed_date <= session <= context.as_of for session in sessions)
             unlimited_sessions = (
@@ -246,13 +258,17 @@ def fill_missing_market_state(
             if 0 < listed_sessions <= unlimited_sessions:
                 no_limit_symbols.add(symbol)
 
-        if is_beijing:
+        if asset_type == "ETF":
+            rate = etf_limit_rate
+        elif is_beijing:
             rate = beijing_limit_rate
         elif is_star:
             rate = star_market_limit_rate
         elif is_chinext:
             rate = chinext_limit_rate
-        elif pd.notna(previous_is_st.get(symbol)) and bool(previous_is_st.get(symbol)):
+        elif is_common_stock and pd.notna(previous_is_st.get(symbol)) and bool(
+            previous_is_st.get(symbol)
+        ):
             rate = (
                 main_board_st_limit_rate_before_change
                 if context.as_of < pd.Timestamp(main_board_st_change_date)
@@ -313,147 +329,4 @@ def next_open(
 '''
 
 
-# This compact example demonstrates daily stateful exits; it is intentionally
-# not labeled as the user's full 127-instrument V10 strategy package.
-ETF_ROTATION_EVENT_EXAMPLE_SOURCE = '''"""SDK v1 事件示例：月末 ETF 轮动，并在持有期每日执行保护规则。"""
-
-from alphalab.sdk.v1 import (
-    Event,
-    ExecutionPolicy,
-    Monthly,
-    PortfolioDecision,
-    SignalResult,
-    UniverseResult,
-    execution,
-    factor,
-    on_event,
-    portfolio,
-    signal,
-    universe,
-)
-
-SDK_VERSION = 1
-
-# 日线用于因子、均线、估值和下一开盘成交；amount 支持容量约束。
-DATA_REQUIREMENTS = {
-    "bars": ["open", "high", "low", "close", "volume", "amount"],
-}
-
-ETF_POOL = ("510300", "512100", "513100", "511260")
-DEFENSIVE = "511260"
-
-
-@universe(id="major_etfs")
-def major_etfs(context):
-    """只保留示例 ETF 池中当前数据环境实际可用的证券。"""
-    available = set(context.universe)
-    # 先与点时标的池求交集，避免把未上市或无数据 ETF 强行加入回测。
-    return UniverseResult(symbols=[symbol for symbol in ETF_POOL if symbol in available])
-
-
-@factor(id="momentum_20d")
-def momentum_20d(context, *, window: int = 20):
-    """计算截至当前评估日的短期累计收益率。"""
-    close = context.history("close", window=window + 1)
-    if len(close.index) < window + 1:
-        # 新上市或数据不足时保留 NaN，后续信号会自动跳过。
-        return close.mean(axis=0) * float("nan")
-    return close.iloc[-1] / close.iloc[0] - 1.0
-
-
-@signal(id="monthly_top1", schedule=Monthly.last_trading_day(at="close"))
-def monthly_top1(context, state, *, top_n: int = 1, minimum_momentum: float = 0.03):
-    """月末解除保护锁，并选择达到最低动量门槛的风险资产。"""
-    # 新调仓月允许重新进入风险资产；保护事件可在月内再次锁定。
-    state["locked_until_month_end"] = False
-    # 防御资产不参加风险资产排名，但仍可由组合阶段作为兜底持仓。
-    scores = context.factor("momentum_20d", window=20).drop(labels=[DEFENSIVE], errors="ignore").dropna()
-    scores = scores[scores >= minimum_momentum]
-    selected = list(scores.nlargest(top_n).index)
-    return SignalResult(selected=selected, scores=scores, state=state)
-
-
-@portfolio(id="top1_or_bond")
-def top1_or_bond(context, signal, state):
-    """持有排名第一的风险资产；没有合格候选时全仓防御资产。"""
-    target = signal.selected[0] if signal.selected else DEFENSIVE
-    return PortfolioDecision(target_weights={target: 1.0}, state=state)
-
-
-@on_event(Event.SESSION_CLOSE, id="daily_protection")
-def daily_protection(context, state):
-    """每日收盘检查均线和利润回撤，并可切换到防御资产。"""
-    holding = context.portfolio.primary_holding
-    # 没有风险持仓或本月已经触发保护时，无需重复生成目标仓位。
-    if holding is None or holding.symbol == DEFENSIVE or state.get("locked_until_month_end"):
-        return None
-    # 峰值收益保存在显式 state 中，确保不同 Run 和 worker 互不污染。
-    peak = max(float(state.get("peak_return", 0.0)), float(holding.return_since_entry))
-    state["peak_return"] = peak
-    close = context.history("close", symbols=[holding.symbol], window=100)
-    below_ma100 = holding.close is not None and holding.close < float(close[holding.symbol].mean())
-    profit_lock = peak > 0.20 and peak - holding.return_since_entry > 0.08
-    if below_ma100 or profit_lock:
-        # 一旦触发，本月锁定在防御资产；下个月信号入口会解除锁定。
-        state["locked_until_month_end"] = True
-        return PortfolioDecision(
-            target_weights={DEFENSIVE: 1.0},
-            state=state,
-            reason="ma100_gate" if below_ma100 else "profit_lock",
-        )
-    return None
-
-
-@execution(id="next_open")
-def next_open(context, decision):
-    """在下一交易日开盘执行，并显式计入佣金与滑点。"""
-    return ExecutionPolicy(
-        activation="next_session_open",
-        commission_rate=0.00025,
-        slippage_rate=0.0002,
-    )
-'''
-
-
-STRATEGY_PROJECT_TEMPLATES = {
-    "common_stock_selection": {
-        "label": "普通股票选股",
-        "description": "点时普通股票池、可编辑交易状态补齐、组合与下一交易日执行。",
-        "recipe_template_id": "rq.a_share_research",
-        "source": DEFAULT_STRATEGY_SOURCE,
-    },
-    "etf_rotation": {
-        "label": "ETF 轮动",
-        "description": "固定 ETF 池、月度轮动、持有期保护与下一交易日执行。",
-        "recipe_template_id": "rq.etf_daily",
-        "source": ETF_ROTATION_EVENT_EXAMPLE_SOURCE,
-    },
-}
-
-
-def get_strategy_project_template(template_id: str) -> dict[str, str]:
-    """Return one canonical project template without exposing mutable global state."""
-
-    normalized = str(template_id).strip()
-    try:
-        return dict(STRATEGY_PROJECT_TEMPLATES[normalized])
-    except KeyError:
-        raise ValueError(f"unknown strategy project template {template_id!r}") from None
-
-
-def list_strategy_project_templates() -> list[dict[str, str]]:
-    """List the bounded set of canonical Agent project starting points."""
-
-    return [
-        {"id": template_id, "label": item["label"], "description": item["description"]}
-        for template_id, item in STRATEGY_PROJECT_TEMPLATES.items()
-    ]
-
-
-__all__ = [
-    "DEFAULT_STRATEGY_SOURCE",
-    "ETF_ROTATION_EVENT_EXAMPLE_SOURCE",
-    "STRATEGY_PROJECT_TEMPLATES",
-    "get_strategy_project_template",
-    "list_strategy_project_templates",
-]
+__all__ = ["DEFAULT_STRATEGY_SOURCE"]

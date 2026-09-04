@@ -31,12 +31,7 @@ def test_data_and_strategy_sdk_read_contracts(tmp_path, monkeypatch):
     assert set(providers.json()["profiles"]) == {"runtime"}
     assert client.get("/api/data/manifest").status_code == 404
     assert client.get("/api/strategy/fields", params={"profile": "demo"}).status_code == 422
-    templates = client.get("/api/strategy/project-templates")
-    assert templates.status_code == 200
-    assert {item["id"] for item in templates.json()["templates"]} == {
-        "common_stock_selection",
-        "etf_rotation",
-    }
+    assert client.get("/api/strategy/project-templates").status_code == 404
     projects = client.get("/api/strategy/projects")
     assert projects.status_code == 200
     assert projects.json()[0]["id"] == "sdk-v1-default"
@@ -74,7 +69,6 @@ def test_project_create_atomically_saves_strategy_and_factors(tmp_path, monkeypa
         json={
             "project_id": "new-agent-project",
             "name": "New Agent Project",
-            "template_id": "common_stock_selection",
             "data_requirements": {"fundamentals": ["roe"]},
             "factors": [
                 {
@@ -155,7 +149,6 @@ def monthly_momentum(context, state, *, top_n: int = 7):
         json={
             "project_id": "arbitrary-factor-project",
             "name": "Arbitrary Factor Project",
-            "template_id": "common_stock_selection",
             "factor_sources": [
                 '@factor(id="quality")\ndef quality(context):\n    return 1.0\n'
             ],
@@ -188,7 +181,6 @@ def test_project_create_removes_strategy_when_recipe_persistence_fails(
         json={
             "project_id": "failed-project-bundle",
             "name": "Failed Project Bundle",
-            "template_id": "common_stock_selection",
             "confirm_save": True,
             "confirm_python_execution": True,
         },
@@ -203,7 +195,7 @@ def test_project_create_removes_strategy_when_recipe_persistence_fails(
     assert operations.get_recipe_draft("failed-project-bundle") is None
 
 
-def test_explicit_project_template_migration_creates_a_new_revision(
+def test_explicit_default_project_migration_creates_a_new_revision(
     tmp_path, monkeypatch
 ):
     database = tmp_path / "project-template-migration.db"
@@ -233,9 +225,8 @@ def legacy_universe(context):
 
     monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
     response = TestClient(app).post(
-        "/api/strategy/projects/legacy-stock-project/template-migration",
+        "/api/strategy/projects/legacy-stock-project/default-migration",
         json={
-            "template_id": "common_stock_selection",
             "expected_source_sha256": legacy["draft_source_sha256"],
             "confirm_write": True,
             "confirm_python_execution": True,
@@ -562,27 +553,32 @@ def test_system_default_recipe_upgrades_only_an_untouched_previous_default(
     assert preserved["inspection"]["matched_template_id"] == "rq.a_share_daily"
 
 
-def test_strategy_clone_cst_edit_and_revision_confirmation(tmp_path, monkeypatch):
+def test_strategy_create_cst_edit_and_revision_confirmation(tmp_path, monkeypatch):
     database = tmp_path / "strategy.db"
     monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
     monkeypatch.setattr(strategy_service, "operations_store", lambda: OperationsStore(tmp_path))
     client = TestClient(app)
     denied = client.post(
-        "/api/strategy/projects/sdk-v1-default/clone",
-        json={"target_id": "custom", "confirm_save": True, "confirm_python_execution": False},
+        "/api/strategy/projects",
+        json={
+            "project_id": "custom",
+            "name": "Custom",
+            "confirm_save": True,
+            "confirm_python_execution": False,
+        },
     )
     assert denied.status_code == 409
-    cloned = client.post(
-        "/api/strategy/projects/sdk-v1-default/clone",
+    created = client.post(
+        "/api/strategy/projects",
         json={
-            "target_id": "custom",
+            "project_id": "custom",
             "name": "Custom",
             "confirm_save": True,
             "confirm_python_execution": True,
         },
     )
-    assert cloned.status_code == 201, cloned.text
-    original_hash = cloned.json()["draft_source_sha256"]
+    assert created.status_code == 201, created.text
+    original_hash = created.json()["draft_source_sha256"]
     edited = client.post(
         "/api/strategy/projects/custom/edits",
         json={
@@ -646,18 +642,18 @@ def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, mo
     }
     assert all(item["source"].startswith("@factor(") for item in templates)
 
-    cloned = client.post(
-        "/api/strategy/projects/sdk-v1-default/clone",
+    created = client.post(
+        "/api/strategy/projects",
         json={
-            "target_id": "template-project",
+            "project_id": "template-project",
             "name": "Template Project",
             "confirm_save": True,
             "confirm_python_execution": True,
         },
     )
-    assert cloned.status_code == 201, cloned.text
-    assert "@factor" not in cloned.json()["strategy_source"]
-    source_hash = cloned.json()["draft_source_sha256"]
+    assert created.status_code == 201, created.text
+    assert "@factor" not in created.json()["strategy_source"]
+    source_hash = created.json()["draft_source_sha256"]
     installed = client.post(
         "/api/strategy/projects/template-project/factor-templates/momentum_60d",
         json={
@@ -742,17 +738,17 @@ def test_strategy_and_factor_source_routes_keep_authoring_files_separate(tmp_pat
     monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
     monkeypatch.setattr(strategy_service, "operations_store", lambda: OperationsStore(tmp_path))
     client = TestClient(app)
-    cloned = client.post(
-        "/api/strategy/projects/sdk-v1-default/clone",
+    created = client.post(
+        "/api/strategy/projects",
         json={
-            "target_id": "separate-source-routes",
+            "project_id": "separate-source-routes",
             "name": "Separate Source Routes",
             "confirm_save": True,
             "confirm_python_execution": True,
         },
     )
-    assert cloned.status_code == 201, cloned.text
-    project = cloned.json()
+    assert created.status_code == 201, created.text
+    project = created.json()
 
     strategy_source = project["strategy_source"].replace("top_n: int = 10", "top_n: int = 4")
     updated = client.put(
@@ -792,16 +788,16 @@ def test_visual_settings_batch_is_one_atomic_source_edit(tmp_path, monkeypatch):
     monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
     monkeypatch.setattr(strategy_service, "operations_store", lambda: OperationsStore(tmp_path))
     client = TestClient(app)
-    cloned = client.post(
-        "/api/strategy/projects/sdk-v1-default/clone",
+    created = client.post(
+        "/api/strategy/projects",
         json={
-            "target_id": "visual-settings-project",
+            "project_id": "visual-settings-project",
             "name": "Visual Settings",
             "confirm_save": True,
             "confirm_python_execution": True,
         },
     )
-    assert cloned.status_code == 201, cloned.text
+    assert created.status_code == 201, created.text
     edits = [
         {
             "operation": "schedule",
@@ -828,7 +824,7 @@ def test_visual_settings_batch_is_one_atomic_source_edit(tmp_path, monkeypatch):
         "/api/strategy/projects/visual-settings-project/edits/preview",
         json={
             "edits": edits,
-            "expected_source_sha256": cloned.json()["draft_source_sha256"],
+            "expected_source_sha256": created.json()["draft_source_sha256"],
         },
     )
     assert preview.status_code == 200, preview.text
@@ -836,14 +832,14 @@ def test_visual_settings_batch_is_one_atomic_source_edit(tmp_path, monkeypatch):
     assert "monthly_momentum" in preview.json()["source"]
     assert "@factor" not in preview.json()["source"]
     unchanged = client.get("/api/strategy/projects/visual-settings-project").json()
-    assert unchanged["draft_source_sha256"] == cloned.json()["draft_source_sha256"]
+    assert unchanged["draft_source_sha256"] == created.json()["draft_source_sha256"]
 
     updated = client.post(
         "/api/strategy/projects/visual-settings-project/edits",
         json={
             "operation": "batch",
             "edits": edits,
-            "expected_source_sha256": cloned.json()["draft_source_sha256"],
+            "expected_source_sha256": created.json()["draft_source_sha256"],
             "confirm_write": True,
             "confirm_python_execution": True,
         },
