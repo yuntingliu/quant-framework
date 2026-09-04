@@ -1,6 +1,6 @@
 {
   "toolName": "alphalab_research_project",
-  "description": "Read a compact project summary, fetch explicitly selected project files, atomically create a complete strategy project, clone, update metadata, delete, or list factor templates.",
+  "description": "Read a compact project summary, fetch explicitly selected project files, atomically create from a canonical template, explicitly migrate old template-owned functions into a new revision, clone, update metadata, delete, or list templates.",
   "runtime": "node",
   "exposeAsTool": true,
   "inputSchema": {
@@ -8,7 +8,7 @@
     "additionalProperties": false,
     "required": ["action"],
     "properties": {
-      "action": { "type": "string", "enum": ["get", "create", "clone", "update_metadata", "delete", "list_factor_templates"] },
+      "action": { "type": "string", "enum": ["get", "create", "migrate_template", "clone", "update_metadata", "delete", "list_strategy_templates", "list_factor_templates"] },
       "project_id": { "type": "string", "minLength": 2, "maxLength": 64 },
       "source_project_id": { "type": "string", "minLength": 2, "maxLength": 64 },
       "name": { "type": "string", "minLength": 1, "maxLength": 100 },
@@ -20,11 +20,70 @@
         "uniqueItems": true,
         "items": { "type": "string", "pattern": "^(strategy\\.py|recipe\\.py|validation\\.py|factors/[A-Za-z0-9_-]+\\.py)$" }
       },
-      "strategy_source": { "type": "string", "minLength": 1, "maxLength": 300000 },
-      "factor_sources": {
+      "template_id": { "type": "string", "enum": ["common_stock_selection", "etf_rotation"] },
+      "expected_source_sha256": { "type": "string", "minLength": 64, "maxLength": 64 },
+      "function_replacements": {
+        "type": "array",
+        "maxItems": 20,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entrypoint_id", "function_source"],
+          "properties": {
+            "entrypoint_id": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "function_source": { "type": "string", "minLength": 1, "maxLength": 100000 }
+          }
+        }
+      },
+      "data_requirements": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "bars": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 100 } },
+          "fundamentals": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 100 } },
+          "instruments": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 100 } },
+          "daily_factors": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 100 } },
+          "index_components": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 100 } }
+        }
+      },
+      "factors": {
         "type": "array",
         "maxItems": 100,
-        "items": { "type": "string", "minLength": 1, "maxLength": 100000 }
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["template_id"],
+          "properties": {
+            "template_id": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "factor_id": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "maxLength": 100 },
+            "label": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "parameter_values": { "type": "object", "maxProperties": 30 },
+            "body": { "type": "string", "minLength": 1, "maxLength": 100000, "description": "Function body only. The backend keeps the selected template decorator and signature." }
+          }
+        }
+      },
+      "recipe_parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "start": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "end": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "symbols": { "type": ["array", "null"], "maxItems": 2000, "items": { "type": "string", "minLength": 1, "maxLength": 32 } }
+        }
+      },
+      "validation_parameter_edits": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entrypoint_id", "parameter", "value"],
+          "properties": {
+            "entrypoint_id": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "parameter": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "value": {}
+          }
+        }
       },
       "confirm_write": { "type": "boolean", "default": false },
       "confirm_delete": { "type": "boolean", "default": false },
@@ -32,7 +91,7 @@
     }
   },
   "outputSchema": { "type": "object" },
-  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nfunction safeText(value){return String(value||'Request failed').split(/\\r?\\n/,1)[0].replace(/[A-Za-z]:\\\\[^\\s\\\"']+/g,'<internal-path>').replace(/(^|\\s)\\/(?:[^\\/\\s]+\\/)+[^\\s\\\"']+/g,'$1<internal-path>').replace(/\\b[a-fA-F0-9]{40,64}\\b/g,'<internal-id>').slice(0,500)}\nasync function call(path,options={}){const response=await fetch(origin()+path,{headers:{Accept:'application/json','Content-Type':'application/json'},...options});if(response.status===204)return{};let payload=null;try{payload=await response.json()}catch{}if(!response.ok){const detail=payload&&payload.detail!==undefined?payload.detail:payload||{};const error=detail&&typeof detail==='object'?detail:{};throw new Error(JSON.stringify({status:'failed',error_code:String(error.code||'ALPHALAB_API_ERROR'),error_summary:safeText(error.message||detail),http_status:response.status}))}return payload}\nfunction manifest(project){const entries=project?.inspection?.entrypoints||[];return{entrypoints:entries.map(item=>({kind:item.kind,id:item.id,event:item.event||null})),factor_ids:entries.filter(item=>item.kind==='factor').map(item=>item.id),warnings_count:(project?.inspection?.warnings||[]).length}}\nfunction summary(project){return{project_id:project.id,name:project.name,description:project.description,profile:'runtime',revision:project.current_revision,editable:project.editable,dirty:project.dirty,files:(project.source_units||[]).map(item=>item.path),manifest:manifest(project)}}\nfunction writeResult(project,changedFiles){return{status:'succeeded',project_id:project.id,revision:project.current_revision,changed_files:changedFiles,validation:{valid:true,warnings_count:(project?.inspection?.warnings||[]).length},manifest:manifest(project)}}\nfunction factorPath(path){return path.startsWith('factors/')&&path.endsWith('.py')&&/^[A-Za-z0-9_-]+$/.test(path.slice(8,-3))}\nasync function readProject(id,input){const encoded=encodeURIComponent(id),base='/api/strategy/projects/'+encoded,project=await call(base),requested=Array.isArray(input.include_files)?input.include_files:[],files={};for(const path of requested){if(path==='strategy.py')files[path]=project.strategy_source;else if(path==='recipe.py'){const value=await call('/api/data-sync/recipes/'+encoded);files[path]=value?.draft?.source||null}else if(path==='validation.py'){const value=await call('/api/validation/projects/'+encoded);files[path]=value?.source||null}else if(factorPath(path)){const factorId=path.slice(8,-3),value=await call(base+'/entrypoints/'+encodeURIComponent(factorId)+'/source');files[path]=value.source}}return{status:'succeeded',...summary(project),included_files:files}}\nasync function run(input){const action=String(input.action||'');if(action==='list_factor_templates'){const value=await call('/api/strategy/factor-templates');return{status:'succeeded',templates:(value.templates||[]).map(item=>({id:item.id,label:item.label,category:item.category,description:item.description,inputs:item.inputs,requirements:item.requirements,recommended_direction:item.recommended_direction}))}}const id=String(input.project_id||'').trim();if(!id)throw new Error('project_id is required');if(action==='get')return readProject(id,input);if(action==='delete'){if(input.confirm_delete!==true)throw new Error('Deleting a research project requires explicit confirmation');await call('/api/strategy/projects/'+encodeURIComponent(id)+'?confirm_delete=true',{method:'DELETE'});return{status:'succeeded',deleted:true,project_id:id}}if(input.confirm_write!==true)throw new Error('Project mutation requires confirm_write=true');if(action==='create'){if(input.confirm_python_execution!==true)throw new Error('Project creation validates trusted local Python and requires confirmation');if(!input.name||!input.strategy_source)throw new Error('name and complete strategy_source are required');const factors=Array.isArray(input.factor_sources)?input.factor_sources:[],project=await call('/api/strategy/projects',{method:'POST',body:JSON.stringify({project_id:id,name:String(input.name),description:String(input.description||''),strategy_source:String(input.strategy_source),factor_sources:factors.map(String),profile:'runtime',settings:input.settings||{},confirm_save:true,confirm_python_execution:true})});return writeResult(project,['strategy.py',...(project.source_units||[]).filter(item=>item.kind==='factor').map(item=>item.path)])}if(action==='clone'){if(input.confirm_python_execution!==true)throw new Error('Project creation validates trusted local Python and requires confirmation');if(!input.name||!input.source_project_id)throw new Error('name and source_project_id are required for clone');const project=await call('/api/strategy/projects/'+encodeURIComponent(String(input.source_project_id))+'/clone',{method:'POST',body:JSON.stringify({target_id:id,name:String(input.name),confirm_save:true,confirm_python_execution:true})});return writeResult(project,(project.source_units||[]).map(item=>item.path))}if(action==='update_metadata'){const current=await call('/api/strategy/projects/'+encodeURIComponent(id)),project=await call('/api/strategy/projects/'+encodeURIComponent(id)+'/metadata',{method:'PUT',body:JSON.stringify({name:input.name||current.name,description:input.description===undefined?current.description:String(input.description),profile:'runtime',settings:input.settings||current.settings,confirm_write:true})});return{status:'succeeded',project_id:id,revision:project.current_revision,changed_files:[],metadata_changed:true}}throw new Error('unsupported research project action')}",
+  "code": "function origin(){return(process.env.ALPHALAB_API_ORIGIN||'http://127.0.0.1:8000').replace(/\\/+$/,'')}\nfunction safeText(value){return String(value||'Request failed').split(/\\r?\\n/,1)[0].replace(/[A-Za-z]:\\\\[^\\s\\\"']+/g,'<internal-path>').replace(/(^|\\s)\\/(?:[^\\/\\s]+\\/)+[^\\s\\\"']+/g,'$1<internal-path>').replace(/\\b[a-fA-F0-9]{40,64}\\b/g,'<internal-id>').slice(0,500)}\nasync function call(path,options={}){const response=await fetch(origin()+path,{headers:{Accept:'application/json','Content-Type':'application/json'},...options});if(response.status===204)return{};let payload=null;try{payload=await response.json()}catch{}if(!response.ok){const detail=payload&&payload.detail!==undefined?payload.detail:payload||{};const error=detail&&typeof detail==='object'?detail:{};throw new Error(JSON.stringify({status:'failed',error_code:String(error.code||'ALPHALAB_API_ERROR'),error_summary:safeText(error.message||detail),http_status:response.status}))}return payload}\nfunction manifest(project){const entries=project?.inspection?.entrypoints||[];return{entrypoints:entries.map(item=>({kind:item.kind,id:item.id,event:item.event||null})),factor_ids:entries.filter(item=>item.kind==='factor').map(item=>item.id),warnings_count:(project?.inspection?.warnings||[]).length}}\nfunction summary(project){return{project_id:project.id,name:project.name,description:project.description,profile:'runtime',revision:project.current_revision,editable:project.editable,dirty:project.dirty,files:['recipe.py',...(project.source_units||[]).map(item=>item.path),'validation.py'],manifest:manifest(project)}}\nfunction writeResult(project,changedFiles){return{status:'succeeded',project_id:project.id,revision:project.current_revision,changed_files:changedFiles,validation:{valid:true,warnings_count:(project?.inspection?.warnings||[]).length},manifest:manifest(project)}}\nfunction factorPath(path){return path.startsWith('factors/')&&path.endsWith('.py')&&/^[A-Za-z0-9_-]+$/.test(path.slice(8,-3))}\nasync function readProject(id,input){const encoded=encodeURIComponent(id),base='/api/strategy/projects/'+encoded,project=await call(base),requested=Array.isArray(input.include_files)?input.include_files:[],files={};for(const path of requested){if(path==='strategy.py')files[path]=project.strategy_source;else if(path==='recipe.py'){const value=await call('/api/data-sync/recipes/'+encoded);files[path]=value?.draft?.source||null}else if(path==='validation.py'){const value=await call('/api/validation/projects/'+encoded);files[path]=value?.source||null}else if(factorPath(path)){const factorId=path.slice(8,-3),value=await call(base+'/entrypoints/'+encodeURIComponent(factorId)+'/source');files[path]=value.source}}return{status:'succeeded',...summary(project),included_files:files}}\nasync function run(input){const action=String(input.action||'');if(action==='list_strategy_templates'){const value=await call('/api/strategy/project-templates');return{status:'succeeded',templates:(value.templates||[]).map(item=>({id:item.id,label:item.label,description:item.description}))}}if(action==='list_factor_templates'){const value=await call('/api/strategy/factor-templates');return{status:'succeeded',templates:(value.templates||[]).map(item=>({id:item.id,label:item.label,category:item.category,description:item.description,inputs:item.inputs,requirements:item.requirements,recommended_direction:item.recommended_direction}))}}const id=String(input.project_id||'').trim();if(!id)throw new Error('project_id is required');if(action==='get')return readProject(id,input);if(action==='delete'){if(input.confirm_delete!==true)throw new Error('Deleting a research project requires explicit confirmation');await call('/api/strategy/projects/'+encodeURIComponent(id)+'?confirm_delete=true',{method:'DELETE'});return{status:'succeeded',deleted:true,project_id:id}}if(input.confirm_write!==true)throw new Error('Project mutation requires confirm_write=true');if(action==='create'){if(input.confirm_python_execution!==true)throw new Error('Project creation validates trusted local Python and requires confirmation');if(!input.name||!input.template_id)throw new Error('name and template_id are required');const body={project_id:id,name:String(input.name),description:String(input.description||''),template_id:String(input.template_id),function_replacements:(input.function_replacements||[]).map(item=>({entrypoint_id:String(item.entrypoint_id),function_source:String(item.function_source)})),data_requirements:input.data_requirements||{},validation_parameter_edits:input.validation_parameter_edits||[],profile:'runtime',settings:input.settings||{},confirm_save:true,confirm_python_execution:true};if(Array.isArray(input.factors))body.factors=input.factors.map(item=>({template_id:String(item.template_id),factor_id:item.factor_id,label:item.label,parameter_values:item.parameter_values||{},body:item.body}));if(input.recipe_parameters)body.recipe_parameters=input.recipe_parameters;const project=await call('/api/strategy/projects',{method:'POST',body:JSON.stringify(body)});return writeResult(project,['recipe.py','strategy.py',...(project.source_units||[]).filter(item=>item.kind==='factor').map(item=>item.path),'validation.py'])}if(action==='migrate_template'){if(input.confirm_python_execution!==true)throw new Error('Template migration validates trusted local Python and requires confirmation');if(input.template_id!=='common_stock_selection')throw new Error('common_stock_selection template_id is required');const project=await call('/api/strategy/projects/'+encodeURIComponent(id)+'/template-migration',{method:'POST',body:JSON.stringify({template_id:'common_stock_selection',expected_source_sha256:input.expected_source_sha256||null,confirm_write:true,confirm_python_execution:true})});return writeResult(project,['strategy.py'])}if(action==='clone'){if(input.confirm_python_execution!==true)throw new Error('Project creation validates trusted local Python and requires confirmation');if(!input.name||!input.source_project_id)throw new Error('name and source_project_id are required for clone');const project=await call('/api/strategy/projects/'+encodeURIComponent(String(input.source_project_id))+'/clone',{method:'POST',body:JSON.stringify({target_id:id,name:String(input.name),confirm_save:true,confirm_python_execution:true})});return writeResult(project,['recipe.py',...(project.source_units||[]).map(item=>item.path),'validation.py'])}if(action==='update_metadata'){const current=await call('/api/strategy/projects/'+encodeURIComponent(id)),project=await call('/api/strategy/projects/'+encodeURIComponent(id)+'/metadata',{method:'PUT',body:JSON.stringify({name:input.name||current.name,description:input.description===undefined?current.description:String(input.description),profile:'runtime',settings:input.settings||current.settings,confirm_write:true})});return{status:'succeeded',project_id:id,revision:project.current_revision,changed_files:[],metadata_changed:true}}throw new Error('unsupported research project action')}",
   "timeoutMs": 180000,
   "permissions": { "network": "alphalab-api" },
   "sideEffects": "write"

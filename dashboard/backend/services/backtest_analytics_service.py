@@ -9,7 +9,7 @@ import pandas as pd
 
 from alphalab.analytics import RobustnessThresholds, equal_weight_benchmark, robustness_report
 from alphalab.strategy.config import StrategyConfig
-from alphalab.strategy.source import inspect_strategy_source
+from alphalab.strategy.source import SourceInspection, inspect_strategy_source
 from dashboard.backend.services.data_service import _engine
 from dashboard.backend.services.legacy_backtest_adapter import legacy_config, legacy_snapshot
 from dashboard.backend.services.result_service import get_backtest
@@ -22,6 +22,50 @@ def _safe(value: Any) -> float | int | None:
     if not np.isfinite(numeric):
         return None
     return int(numeric) if isinstance(value, int) else numeric
+
+
+def _return_periods_per_year(index: pd.Index) -> int:
+    """Infer the observation cadence from the frozen return dates, not rebalance timing."""
+
+    dates = pd.DatetimeIndex(pd.to_datetime(index)).drop_duplicates().sort_values()
+    if len(dates) < 2:
+        return 252
+    median_days = float(pd.Series(dates[1:] - dates[:-1]).dt.total_seconds().median()) / 86_400.0
+    if median_days <= 3.0:
+        return 252
+    if median_days <= 10.0:
+        return 52
+    if median_days <= 45.0:
+        return 12
+    if median_days <= 120.0:
+        return 4
+    return 1
+
+
+def _frozen_entrypoint_parameters(
+    manifest: list[dict[str, Any]],
+    inspection: SourceInspection,
+    kind: str,
+) -> dict[str, Any]:
+    frozen = next(
+        (
+            item.get("parameters")
+            for item in manifest
+            if item.get("kind") == kind and isinstance(item.get("parameters"), dict)
+        ),
+        None,
+    )
+    if frozen is not None:
+        return dict(frozen)
+    entrypoint = next(
+        (item for item in inspection.entrypoints if item.kind == kind),
+        None,
+    )
+    return {
+        item.name: item.default
+        for item in (entrypoint.parameters if entrypoint else ())
+        if item.editable
+    }
 
 
 def _compound_with_gaps(values: pd.Series) -> list[float | None]:
@@ -165,14 +209,12 @@ def analyze_record(record: dict) -> dict:
         if isinstance(sdk_manifest, list) and sdk_manifest:
             inspection = inspect_strategy_source(strategy_source)
             signal = next((item for item in sdk_manifest if item.get("kind") == "signal"), {})
-            execution_item = next(
-                (item for item in inspection.entrypoints if item.kind == "execution"), None
+            execution_parameters = _frozen_entrypoint_parameters(
+                sdk_manifest, inspection, "execution"
             )
-            execution_parameters = {
-                item.name: item.default
-                for item in (execution_item.parameters if execution_item else ())
-                if item.editable
-            }
+            portfolio_parameters = _frozen_entrypoint_parameters(
+                sdk_manifest, inspection, "portfolio"
+            )
             strategy_snapshot = {
                 "strategy_type": "sdk_v1",
                 "implementation": "python",
@@ -201,7 +243,11 @@ def analyze_record(record: dict) -> dict:
                 ),
                 "cost_bps": float(execution_parameters.get("commission_rate", 0.0) or 0.0)
                 * 10_000.0,
-                "max_weight": float((record.get("settings") or {}).get("max_weight", 1.0)),
+                "max_weight": float(
+                    portfolio_parameters.get(
+                        "max_weight", (record.get("settings") or {}).get("max_weight", 1.0)
+                    )
+                ),
             }
         else:
             strategy_snapshot = _persisted_strategy_snapshot(record, strategy_source)
@@ -424,7 +470,14 @@ def analyze_robustness(backtest_id: str) -> dict:
     thresholds = RobustnessThresholds(
         **{key: value for key, value in raw_thresholds.items() if key in allowed_thresholds}
     )
-    report = robustness_report(returns, benchmark, weights, config, thresholds=thresholds)
+    report = robustness_report(
+        returns,
+        benchmark,
+        weights,
+        config,
+        thresholds=thresholds,
+        return_periods_per_year=_return_periods_per_year(returns.index),
+    )
     return {
         "id": record["id"],
         "strategy_id": record.get("strategy_id"),
@@ -441,6 +494,57 @@ def analyze_signal_diagnostics(backtest_id: str) -> dict:
     record = get_backtest(backtest_id)
     if record is None:
         raise KeyError(backtest_id)
+    diagnostics = (
+        record.get("run_diagnostics")
+        if isinstance(record.get("run_diagnostics"), dict)
+        else {}
+    )
+    raw_evidence = diagnostics.get("signal_evidence")
+    evidence = raw_evidence if isinstance(raw_evidence, dict) else {}
+    sdk_rows = evidence.get("rows") if isinstance(evidence.get("rows"), list) else []
+    if isinstance(raw_evidence, dict):
+        rows = [dict(item) for item in sdk_rows if isinstance(item, dict)]
+        ic_values = [float(item["ic"]) for item in rows if item.get("ic") is not None]
+        coverage_values = [
+            float(item["coverage"]) for item in rows if item.get("coverage") is not None
+        ]
+        turnover_values = [
+            float(item["selection_turnover"])
+            for item in rows
+            if item.get("selection_turnover") is not None
+        ]
+        return {
+            "id": record["id"],
+            "periods": len(rows),
+            "evidence_periods": len(ic_values),
+            "summary": {
+                "mean_ic": _safe(np.mean(ic_values)) if ic_values else None,
+                "positive_ic_ratio": (
+                    _safe(np.mean([value > 0 for value in ic_values]))
+                    if ic_values
+                    else None
+                ),
+                "average_coverage": (
+                    _safe(np.mean(coverage_values)) if coverage_values else None
+                ),
+                "average_selection_turnover": (
+                    _safe(np.mean(turnover_values)) if turnover_values else None
+                ),
+            },
+            "rows": rows,
+            "warning": (
+                None
+                if ic_values
+                else (
+                    "该回测没有产生可用信号截面。"
+                    if not rows
+                    else "该回测只有一个可用信号截面，尚无下一截面用于计算 IC。"
+                )
+            ),
+        }
+
+    # Persisted pre-evidence Runs retain their legacy frozen adapter. New SDK
+    # Runs never reconstruct selection data from this shape.
     rows: list[dict[str, Any]] = []
     previous_selected: set[str] = set()
     for execution in record.get("executions", []):
@@ -540,14 +644,12 @@ def _config_from_record(record: dict) -> StrategyConfig:
             signal = next((item for item in sdk_manifest if item.get("kind") == "signal"), {})
             schedule = (signal.get("metadata") or {}).get("schedule") or {}
             frequency = schedule.get("frequency")
-            execution_item = next(
-                (item for item in inspection.entrypoints if item.kind == "execution"), None
+            parameters = _frozen_entrypoint_parameters(
+                sdk_manifest, inspection, "execution"
             )
-            parameters = {
-                item.name: item.default
-                for item in (execution_item.parameters if execution_item else ())
-                if item.editable
-            }
+            portfolio_parameters = _frozen_entrypoint_parameters(
+                sdk_manifest, inspection, "portfolio"
+            )
             settings = record.get("settings") if isinstance(record.get("settings"), dict) else {}
             symbols = sorted(
                 {
@@ -579,8 +681,17 @@ def _config_from_record(record: dict) -> StrategyConfig:
                         ),
                     },
                     "portfolio": {
-                        "max_weight": float(settings.get("max_weight", 1.0)),
-                        "max_gross_exposure": float(settings.get("max_gross_exposure", 1.0)),
+                        "max_weight": float(
+                            portfolio_parameters.get(
+                                "max_weight", settings.get("max_weight", 1.0)
+                            )
+                        ),
+                        "max_gross_exposure": float(
+                            portfolio_parameters.get(
+                                "max_gross_exposure",
+                                settings.get("max_gross_exposure", 1.0),
+                            )
+                        ),
                     },
                     "execution": {
                         "cost_bps": float(parameters.get("commission_rate", 0.0) or 0.0) * 10_000.0,

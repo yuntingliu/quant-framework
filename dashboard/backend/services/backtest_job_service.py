@@ -9,7 +9,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
-from threading import Lock
+from threading import Event, Lock
+from time import monotonic
 from typing import Callable, Iterator
 
 import pandas as pd
@@ -17,28 +18,15 @@ import pandas as pd
 from alphalab.dataio import DataLoadError, MissingDataError
 from alphalab.dataio.runtime import RuntimeStore
 from alphalab.store import ResultStore
-from alphalab.strategy.engine import BacktestPreflightError
 from alphalab.strategy.sdk_runtime import SdkRuntimeError
 from dashboard.backend.services import strategy_service, validation_service
+from dashboard.backend.services.result_service import (
+    build_backtest_summary,
+    get_backtest_summary,
+)
 
 BacktestRunner = Callable[..., dict]
 logger = logging.getLogger(__name__)
-
-_PREFLIGHT_DETAIL_FIELDS = {
-    "requested_start",
-    "requested_end",
-    "first_session",
-    "last_session",
-    "session_count",
-    "eligible_symbol_dates",
-    "complete_symbol_dates",
-    "coverage",
-    "missing_fields",
-    "candidate_symbol_count",
-    "listed_date_available",
-    "delisted_date_available",
-}
-
 
 def _safe_error_summary(error: Exception) -> str:
     if isinstance(error, DataLoadError) and _is_dataset_busy(error):
@@ -60,8 +48,6 @@ def _is_dataset_busy(error: Exception) -> bool:
 
 
 def _error_code(error: Exception) -> str:
-    if isinstance(error, BacktestPreflightError):
-        return error.code
     if isinstance(error, MissingDataError):
         return "INSUFFICIENT_MARKET_STATE"
     if isinstance(error, DataLoadError):
@@ -73,53 +59,20 @@ def _error_code(error: Exception) -> str:
     return "BACKTEST_FAILED"
 
 
-def _safe_error_details(error: Exception) -> dict:
-    source = error.details if isinstance(error, BacktestPreflightError) else {}
-    result: dict = {}
-    for key in _PREFLIGHT_DETAIL_FIELDS:
-        value = source.get(key)
-        if value is None or isinstance(value, (bool, int, float)):
-            if key in source:
-                result[key] = value
-        elif isinstance(value, str):
-            result[key] = _safe_error_summary(ValueError(value))
-        elif isinstance(value, (list, tuple)):
-            result[key] = [
-                _safe_error_summary(ValueError(str(item))) for item in value[:20]
-            ]
-    return result
-
-
-def _result_summary(result: dict) -> dict:
-    execution = result.get("execution") if isinstance(result.get("execution"), dict) else {}
-    warnings = (
-        result.get("warnings")
-        if isinstance(result.get("warnings"), list)
-        else execution.get("warnings")
-        if isinstance(execution.get("warnings"), list)
-        else []
-    )
-    return {
-        key: result.get(key)
-        for key in ("id", "project_id", "start_date", "end_date", "profile")
-        if result.get(key) is not None
-    } | {
-        "metrics": dict(result.get("metrics") or {}),
-        "counts": dict(result.get("counts") or {}),
-        "warnings": [_safe_error_summary(ValueError(str(item))) for item in warnings[:10]],
-        "warnings_truncated": bool(result.get("warnings_truncated")) or len(warnings) > 10,
-    }
+def _compact_result(result: dict) -> dict:
+    return build_backtest_summary(result)
 
 
 def _public_job(job: dict) -> dict:
     status = job.get("status")
     failed = status in {"failed", "interrupted"}
+    request = job.get("request") if isinstance(job.get("request"), dict) else {}
     raw_result = (
         job.get("result")
         if status == "succeeded" and isinstance(job.get("result"), dict)
         else None
     )
-    result = _result_summary(raw_result) if raw_result is not None else None
+    result = _compact_result(raw_result) if raw_result is not None else {}
     error_summary = (
         _safe_error_summary(ValueError(str(job["error_summary"])))
         if failed and job.get("error_summary")
@@ -127,21 +80,41 @@ def _public_job(job: dict) -> dict:
     )
     if not error_summary and failed and job.get("error"):
         error_summary = _safe_error_summary(ValueError(str(job["error"])))
+    error_code = (job.get("error_code") or "BACKTEST_FAILED") if failed else None
+    period = dict(result.get("period") or {})
+    if not period and (request.get("start_date") or request.get("end_date")):
+        period = {
+            "start_date": request.get("start_date"),
+            "end_date": request.get("end_date"),
+        }
     return {
         "status": status,
+        "backtest_id": result.get("backtest_id") or (
+            job.get("result_id") if status == "succeeded" else None
+        ),
+        "error_code": error_code,
+        "error_summary": error_summary,
+        "project_id": result.get("project_id") or request.get("project_id"),
+        "metrics": dict(result.get("metrics") or {}),
+        "period": period,
+        "counts": dict(result.get("counts") or {}),
+        "samples": dict(result.get("samples") or {}),
+        "warnings": list(result.get("warnings") or ()),
+        "warnings_truncated": bool(result.get("warnings_truncated", False)),
+        "research_valid": result.get("research_valid") if status == "succeeded" else None,
+        "attempted_trade_count": int(result.get("attempted_trade_count") or 0),
+        "successful_trade_count": int(result.get("successful_trade_count") or 0),
+        "execution_data_fill_count": int(result.get("execution_data_fill_count") or 0),
+        "market_state_rejection_count": int(
+            result.get("market_state_rejection_count") or 0
+        ),
+        "job_id": job.get("id"),
         "id": job.get("id"),
         "result_id": job.get("result_id") if status == "succeeded" else None,
-        "error_code": (
-            job.get("error_code") or "BACKTEST_FAILED"
-            if failed
-            else None
-        ),
-        "error_summary": error_summary,
         "error_details": dict(job.get("error_details") or {}) if failed else {},
         "log_reference": job.get("log_reference") if failed else None,
         "message": job.get("message"),
-        "request": job.get("request"),
-        "result_summary": result,
+        "request": request,
         "created_at": job.get("created_at"),
         "started_at": job.get("started_at"),
         "finished_at": job.get("finished_at"),
@@ -217,6 +190,30 @@ class BacktestJobManager:
             self._schedule(job["id"], job["request"])
         return _public_job(job) if job is not None else None
 
+    def wait(self, job_id: str, timeout_seconds: float = 25.0) -> dict | None:
+        """Wait for one persisted status transition without tying up an Agent turn loop."""
+
+        timeout = max(0.0, min(float(timeout_seconds), 30.0))
+        first = self.get(job_id)
+        if first is None or first["status"] in {"succeeded", "failed", "interrupted"}:
+            return first
+        initial_status = first["status"]
+        deadline = monotonic() + timeout
+        latest = first
+        while monotonic() < deadline:
+            Event().wait(min(0.25, max(0.0, deadline - monotonic())))
+            current = self.get(job_id)
+            if current is None:
+                return None
+            latest = current
+            if current["status"] != initial_status or current["status"] in {
+                "succeeded",
+                "failed",
+                "interrupted",
+            }:
+                return current
+        return latest
+
     def list(self, limit: int = 50) -> list[dict]:
         with self._store() as store:
             jobs = store.list_backtest_jobs(limit=limit)
@@ -280,7 +277,6 @@ class BacktestJobManager:
         except Exception as exc:
             code = _error_code(exc)
             summary = _safe_error_summary(exc)
-            details = _safe_error_details(exc)
             log_reference = f"backtest:{job_id}"
             logger.exception("Backtest job %s failed with %s", job_id, code)
             with self._store() as store:
@@ -291,16 +287,17 @@ class BacktestJobManager:
                     error=summary,
                     error_code=code,
                     error_summary=summary,
-                    error_details=details,
+                    error_details={},
                     log_reference=log_reference,
                 )
             return
         with self._store() as store:
+            summary = get_backtest_summary(str(result["id"])) or _compact_result(result)
             store.update_backtest_job(
                 job_id,
                 status="succeeded",
                 message="Backtest completed",
-                result=_result_summary(result),
+                result=summary,
                 result_id=str(result["id"]),
             )
 
@@ -345,6 +342,10 @@ def get_backtest_job(job_id: str) -> dict | None:
     return manager().get(job_id)
 
 
+def wait_backtest_job(job_id: str, timeout_seconds: float = 25.0) -> dict | None:
+    return manager().wait(job_id, timeout_seconds=timeout_seconds)
+
+
 def list_backtest_jobs(limit: int = 50) -> list[dict]:
     return manager().list(limit=max(1, min(limit, 100)))
 
@@ -355,4 +356,5 @@ __all__ = [
     "list_backtest_jobs",
     "manager",
     "submit_backtest_job",
+    "wait_backtest_job",
 ]

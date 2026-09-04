@@ -93,8 +93,7 @@ def test_tools_use_the_project_sdk_v1_contract():
     edit = tools["alphalab_strategy_source"]
     actions = set(edit["inputSchema"]["properties"]["action"]["enum"])
     assert {
-        "update_strategy",
-        "add_factor",
+        "install_factor_template",
         "update_parameter",
         "update_schedule",
         "replace_function",
@@ -107,15 +106,34 @@ def test_tools_use_the_project_sdk_v1_contract():
     project = tools["alphalab_research_project"]
     assert "include_files" in project["inputSchema"]["properties"]
     assert "include_sources" not in project["inputSchema"]["properties"]
-    assert "strategy_source" in project["inputSchema"]["properties"]
-    assert "factor_sources" in project["inputSchema"]["properties"]
+    assert "strategy_source" not in project["inputSchema"]["properties"]
+    assert "template_id" in project["inputSchema"]["properties"]
+    assert "function_replacements" in project["inputSchema"]["properties"]
+    assert "data_requirements" in project["inputSchema"]["properties"]
+    assert "factors" in project["inputSchema"]["properties"]
+    assert "recipe_parameters" in project["inputSchema"]["properties"]
+    assert "validation_parameter_edits" in project["inputSchema"]["properties"]
+    assert "factor_sources" not in project["inputSchema"]["properties"]
+    assert "list_strategy_templates" in project["inputSchema"]["properties"]["action"]["enum"]
+    assert "migrate_template" in project["inputSchema"]["properties"]["action"]["enum"]
+    assert "/api/strategy/project-templates" in project["code"]
+    assert "/template-migration" in project["code"]
     assert "included_files" in project["code"]
 
     recipe = tools["alphalab_data_recipe"]
-    assert {"get", "replace_source", "apply_template", "update_parameters", "plan", "run"} <= set(
+    assert {"get", "apply_template", "update_parameters", "plan", "run"} <= set(
         recipe["inputSchema"]["properties"]["action"]["enum"]
     )
+    assert "replace_source" not in recipe["inputSchema"]["properties"]["action"]["enum"]
+    assert "source" not in recipe["inputSchema"]["properties"]
     assert "profile" not in recipe["inputSchema"]["properties"]
+
+    assert "update_strategy" not in actions
+    assert "add_factor" not in actions
+    assert "source" not in edit["inputSchema"]["properties"]
+
+    validation = tools["alphalab_validation_source"]
+    assert "replace_source" not in validation["inputSchema"]["properties"]["action"]["enum"]
 
     data_query_actions = set(
         tools["alphalab_data_query"]["inputSchema"]["properties"]["action"]["enum"]
@@ -132,6 +150,7 @@ def test_tools_use_the_project_sdk_v1_contract():
     assert set(tools["alphalab_backtest"]["inputSchema"]["properties"]["action"]["enum"]) == {
         "run",
         "job",
+        "wait",
         "get",
         "events",
     }
@@ -163,8 +182,11 @@ def test_tools_use_the_project_sdk_v1_contract():
     assert "/events?" in backtest
     assert "Math.min(20" in backtest
     assert "while(job.status" not in backtest
-    assert "AbortSignal.timeout(30000)" in backtest
+    assert "/wait?timeout_seconds=" in backtest
+    assert "AbortSignal.timeout(timeoutMs)" in backtest
     assert "error_details:safeDetails(job.error_details)" in backtest
+    assert "result_summary" not in backtest
+    assert "market_state_rejection_count" in backtest
     assert tools["alphalab_backtest"]["timeoutMs"] == 45000
 
     analysis = tools["alphalab_backtest_analysis"]["code"]
@@ -189,7 +211,15 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "本地浏览器会话" in prompt
     assert "不得授权本轮写入、删除或 Python 执行" in prompt
     assert "普通说明、只读问答和历史复述直接 complete" in prompt
-    assert "UniverseResult(symbols=context.universe)" in prompt
+    assert 'asset_type == \"CS\"' in prompt
+    assert "create 不接受任何完整模块源码" in prompt
+    assert "common_stock_selection" in prompt
+    assert "function_replacements" in prompt
+    assert "data_requirements" in prompt
+    assert "项目模板包一次生成 recipe.py、strategy.py、factors/*.py 和 validation.py" in prompt
+    assert "不得整体替换 recipe.py" in prompt
+    assert "不得整体替换 validation.py" in prompt
+    assert "不得提交完整 strategy.py" in prompt
     assert "不得自行手写 10 至 20 只测试股票代替全市场" in prompt
     assert "项目常量池与 context.universe 的点时有效集合取交集" in prompt
     assert "不得为了填充上下文自动遍历全部页" in prompt
@@ -205,6 +235,8 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "成交日前一交易日的 raw_close 和 is_st" in prompt
     assert "limit_up 和 limit_down 同时设为 0" in prompt
     assert "状态缺失不得在信号生成前清空证券池" in prompt
+    assert "action=wait" in prompt
+    assert "migrate_template" in prompt
     assert 'workspaceCommands 必须严格写成 {"version":1' in prompt
     assert "open_widget 必须使用 widgetId，不能使用 widget" in prompt
     assert "set_focus 必须排在切换和打开之前" in prompt

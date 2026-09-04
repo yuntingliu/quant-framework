@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS backtests (
     validation_source TEXT,
     validation_revision INTEGER,
     validation_source_sha256 TEXT,
-    validation_output_json TEXT
+    validation_output_json TEXT,
+    run_diagnostics_json TEXT
 );
 
 -- Strategy SDK v1 is the sole current authoring/runtime contract. Existing

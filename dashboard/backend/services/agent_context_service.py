@@ -113,7 +113,6 @@ def _sync_job_summary(value: dict) -> dict:
 
 def _backtest_job_summary(value: dict) -> dict:
     request = value.get("request") if isinstance(value.get("request"), dict) else {}
-    result = value.get("result_summary") if isinstance(value.get("result_summary"), dict) else {}
     return {
         "status": value.get("status"),
         "id": value.get("id"),
@@ -127,8 +126,16 @@ def _backtest_job_summary(value: dict) -> dict:
             for key in ("project_id", "start_date", "end_date", "revision")
             if key in request
         },
-        "metrics": dict(result.get("metrics") or {}),
-        "counts": dict(result.get("counts") or {}),
+        "metrics": dict(value.get("metrics") or {}),
+        "counts": dict(value.get("counts") or {}),
+        "warnings": list(value.get("warnings") or ()),
+        "research_valid": value.get("research_valid"),
+        "attempted_trade_count": int(value.get("attempted_trade_count") or 0),
+        "successful_trade_count": int(value.get("successful_trade_count") or 0),
+        "execution_data_fill_count": int(value.get("execution_data_fill_count") or 0),
+        "market_state_rejection_count": int(
+            value.get("market_state_rejection_count") or 0
+        ),
         "created_at": value.get("created_at"),
         "finished_at": value.get("finished_at"),
     }

@@ -208,6 +208,8 @@ class StrategyRepository:
         name: str,
         strategy_source: str,
         factor_sources: Iterable[str] = (),
+        validation_source: str | None = None,
+        validation_inspection: Mapping[str, Any] | None = None,
         description: str = "",
         profile: str = "runtime",
         settings: Mapping[str, Any] | None = None,
@@ -229,6 +231,11 @@ class StrategyRepository:
             raise StrategySourceError(
                 "assembled factor inventory is inconsistent", phase="register"
             )
+        validation_payload = dict(validation_inspection or {})
+        if validation_source is not None:
+            validation_digest = hashlib.sha256(validation_source.encode("utf-8")).hexdigest()
+            if validation_payload.get("source_sha256") != validation_digest:
+                raise ValueError("validation inspection does not match validation source")
         with self._lock:
             try:
                 self._conn.execute("BEGIN IMMEDIATE")
@@ -249,6 +256,24 @@ class StrategyRepository:
                     ),
                 )
                 self._write_source_units(normalized, strategy_source, factors, factor_ids)
+                if validation_source is not None:
+                    self._conn.execute(
+                        """INSERT INTO validation_sources
+                           (project_id, source, source_sha256, current_revision)
+                           VALUES (?, ?, ?, 1)""",
+                        (normalized, validation_source, validation_digest),
+                    )
+                    self._conn.execute(
+                        """INSERT INTO validation_source_packages
+                           (project_id, revision, source, source_sha256, inspection_json)
+                           VALUES (?, 1, ?, ?, ?)""",
+                        (
+                            normalized,
+                            validation_source,
+                            validation_digest,
+                            _json(validation_payload),
+                        ),
+                    )
                 self._insert_package(normalized, 1, None, source, inspection)
                 self._conn.commit()
             except Exception:
@@ -904,7 +929,7 @@ class StrategyRepository:
                 {
                     "snapshot_date": [dates[-1]] * 3,
                     "symbol": ["TEST_A", "TEST_B", "511260"],
-                    "asset_type": ["ETF", "ETF", "ETF"],
+                    "asset_type": ["CS", "CS", "ETF"],
                     **{
                         field: ["TEST"] * 3
                         for field in instrument_fields

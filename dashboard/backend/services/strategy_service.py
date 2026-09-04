@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
+from datetime import date
 from typing import Any, Mapping
 
 import pandas as pd
@@ -12,29 +13,38 @@ from alphalab.analytics import (
     equal_weight_benchmark,
 )
 from alphalab.dataio import MissingDataError
-from alphalab.dataio.runtime import RuntimeStore
+from alphalab.dataio.catalog import DataCatalog
+from alphalab.dataio.recipes import inspect_data_recipe_source, render_builtin_recipe
+from alphalab.dataio.runtime import OperationsStore, RuntimeStore
 from alphalab.provenance import build_research_provenance
 from alphalab.store import ResultStore
+from alphalab.strategy.builtins import (
+    get_strategy_project_template,
+    list_strategy_project_templates,
+)
 from alphalab.strategy.engine import (
     evaluate_factor_history,
     evaluate_factor_snapshot,
-    preflight_strategy_backtest,
     preview_strategy,
     run_strategy_backtest,
 )
 from alphalab.strategy.factor_templates import (
     get_factor_template,
     install_factor_template,
+    instantiate_factor_template,
     list_factor_templates,
 )
-from alphalab.strategy.repository import StrategyRepository
+from alphalab.strategy.repository import StrategyRepository, normalize_project_id
 from alphalab.strategy.source import (
     SourceInspection,
+    StrategySourceError,
     delete_registered_function,
     factor_dependency_snippet,
     factor_field_snippet,
     insert_source,
     inspect_strategy_source,
+    merge_data_requirements,
+    migrate_strategy_template_components,
     registered_function_source,
     replace_registered_function,
     split_strategy_source,
@@ -42,13 +52,34 @@ from alphalab.strategy.source import (
     update_signal_factor_blend,
     update_signal_schedule,
 )
+from alphalab.validation.builtins import DEFAULT_VALIDATION_SOURCE
 from alphalab.validation.repository import ValidationRepository
 from alphalab.validation.runtime import execute_validation
+from alphalab.validation.source import (
+    inspect_validation_source,
+    update_validation_parameters,
+)
 from dashboard.backend.services.data_service import _engine, _profile_range
 
 
 def repository() -> StrategyRepository:
     return StrategyRepository()
+
+
+def operations_store() -> OperationsStore:
+    return OperationsStore()
+
+
+def _project_recipe_bounds() -> dict[str, str]:
+    bars = DataCatalog().status("rq.bars")
+    if bars["status"] == "ready" and bars["date_start"] and bars["date_end"]:
+        return {"start": bars["date_start"], "end": bars["date_end"]}
+    today = date.today()
+    try:
+        fallback_start = today.replace(year=today.year - 5)
+    except ValueError:
+        fallback_start = today.replace(year=today.year - 5, day=28)
+    return {"start": fallback_start.isoformat(), "end": today.isoformat()}
 
 
 def list_projects() -> list[dict[str, Any]]:
@@ -67,30 +98,170 @@ def get_project(project_id: str) -> dict[str, Any] | None:
         repo.close()
 
 
+def strategy_project_template_catalog() -> dict[str, Any]:
+    return {"templates": list_strategy_project_templates()}
+
+
 def create_project(payload: Mapping[str, Any]) -> dict[str, Any]:
+    values = dict(payload)
+    template_id = str(values.pop("template_id"))
+    replacements = list(values.pop("function_replacements", ()) or ())
+    data_requirements = dict(values.pop("data_requirements", {}) or {})
+    supplied_factors = values.pop("factors", None)
+    recipe_parameters = dict(values.pop("recipe_parameters", {}) or {})
+    validation_edits = list(values.pop("validation_parameter_edits", ()) or ())
+    template = get_strategy_project_template(template_id)
+    strategy_source, template_factors = split_strategy_source(template["source"])
+    if supplied_factors is None:
+        factor_sources = [item.source for item in template_factors]
+    else:
+        factor_sources = []
+        for spec in supplied_factors:
+            factor_spec = dict(spec)
+            factor_template_id = str(factor_spec["template_id"])
+            factor_template = get_factor_template(factor_template_id)
+            factor_sources.append(
+                instantiate_factor_template(
+                    factor_template_id,
+                    factor_id=factor_spec.get("factor_id"),
+                    label=factor_spec.get("label"),
+                    parameter_values=factor_spec.get("parameter_values"),
+                    body=factor_spec.get("body"),
+                )
+            )
+            for dataset, fields in factor_template.requirements.items():
+                current = data_requirements.setdefault(dataset, [])
+                current.extend(field for field in fields if field not in current)
+    strategy_source, _ = merge_data_requirements(strategy_source, data_requirements)
+    seen_entrypoints: set[str] = set()
+    for replacement in replacements:
+        entrypoint_id = str(replacement["entrypoint_id"]).strip()
+        if entrypoint_id in seen_entrypoints:
+            raise StrategySourceError(
+                f"template entrypoint {entrypoint_id!r} may be replaced only once",
+                phase="edit",
+            )
+        seen_entrypoints.add(entrypoint_id)
+        strategy_source, _ = replace_registered_function(
+            strategy_source,
+            entrypoint_id=entrypoint_id,
+            function_source=str(replacement["function_source"]),
+        )
+    validation_source = DEFAULT_VALIDATION_SOURCE
+    if validation_edits:
+        validation_source, validation_inspection = update_validation_parameters(
+            validation_source, validation_edits
+        )
+    else:
+        validation_inspection = inspect_validation_source(validation_source)
+
+    bounds = _project_recipe_bounds()
+    recipe_source = render_builtin_recipe(
+        template["recipe_template_id"],
+        start=str(recipe_parameters.get("start") or bounds["start"]),
+        end=str(recipe_parameters.get("end") or bounds["end"]),
+        symbols=recipe_parameters.get("symbols"),
+    )
+    inspect_data_recipe_source(recipe_source)
+
+    project_id = normalize_project_id(str(values["project_id"]))
+    values["project_id"] = project_id
+    operations = operations_store()
+    if operations.get_recipe_draft(project_id) is not None:
+        raise FileExistsError(f"project recipe already exists for {project_id!r}")
     repo = repository()
     try:
-        project = repo.create_project_from_units(**dict(payload))
-        validation_repo = ValidationRepository(repo.path)
+        project = repo.create_project_from_units(
+            **values,
+            strategy_source=strategy_source,
+            factor_sources=factor_sources,
+            validation_source=validation_source,
+            validation_inspection=validation_inspection.to_dict(),
+        )
         try:
-            validation_repo.get_or_create(project["id"])
-        finally:
-            validation_repo.close()
+            operations.save_recipe_draft(
+                project["id"],
+                recipe_source,
+                selected_template_id=template["recipe_template_id"],
+            )
+        except Exception:
+            repo.delete_project(project["id"])
+            operations.delete_recipe_draft(project["id"])
+            raise
         return project
     finally:
         repo.close()
 
 
 def clone_project(project_id: str, target_id: str, name: str | None) -> dict[str, Any]:
+    project_id = normalize_project_id(project_id)
+    target_id = normalize_project_id(target_id)
+    operations = operations_store()
+    if operations.get_recipe_draft(target_id) is not None:
+        raise FileExistsError(f"project recipe already exists for {target_id!r}")
+    source_recipe = operations.get_recipe_draft(project_id)
+    if source_recipe is None:
+        bounds = _project_recipe_bounds()
+        recipe_source = render_builtin_recipe(
+            "rq.a_share_research", start=bounds["start"], end=bounds["end"]
+        )
+        selected_template_id = "rq.a_share_research"
+    else:
+        recipe_source = str(source_recipe["source"])
+        selected_template_id = source_recipe.get("selected_template_id")
+    inspect_data_recipe_source(recipe_source)
     repo = repository()
     try:
         project = repo.clone_project(project_id, target_id, name=name)
-        validation_repo = ValidationRepository(repo.path)
         try:
-            validation_repo.clone_source(project_id, project["id"])
-        finally:
-            validation_repo.close()
+            validation_repo = ValidationRepository(repo.path)
+            try:
+                validation_repo.clone_source(project_id, project["id"])
+            finally:
+                validation_repo.close()
+            operations.save_recipe_draft(
+                project["id"],
+                recipe_source,
+                selected_template_id=selected_template_id,
+            )
+        except Exception:
+            repo.delete_project(project["id"])
+            operations.delete_recipe_draft(project["id"])
+            raise
         return project
+    finally:
+        repo.close()
+
+
+def migrate_project_template(
+    project_id: str,
+    template_id: str,
+    *,
+    expected_source_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Explicitly advance template-owned strategy functions in a new revision."""
+
+    if template_id != "common_stock_selection":
+        raise ValueError("only common_stock_selection supports component migration")
+    project = get_project(project_id)
+    if project is None:
+        raise KeyError(project_id)
+    if project.get("built_in"):
+        raise PermissionError("built-in projects cannot be edited")
+    if expected_source_sha256 and project["draft_source_sha256"] != expected_source_sha256:
+        raise RuntimeError("draft changed since it was inspected")
+    template = get_strategy_project_template(template_id)
+    migrated_source, _ = migrate_strategy_template_components(
+        project["draft_source"],
+        template["source"],
+    )
+    repo = repository()
+    try:
+        return repo.update_draft(
+            project_id,
+            migrated_source,
+            expected_source_sha256=project["draft_source_sha256"],
+        )
     finally:
         repo.close()
 
@@ -198,9 +369,13 @@ def get_revision(project_id: str, revision: int) -> dict[str, Any] | None:
 
 
 def delete_project(project_id: str) -> bool:
+    project_id = normalize_project_id(project_id)
     repo = repository()
     try:
-        return repo.delete_project(project_id)
+        deleted = repo.delete_project(project_id)
+        if deleted:
+            operations_store().delete_recipe_draft(project_id)
+        return deleted
     finally:
         repo.close()
 
@@ -528,29 +703,6 @@ def factor_history(
         repo.close()
 
 
-def preflight_project_backtest(
-    project_id: str,
-    start_date: str,
-    end_date: str,
-    profile: str,
-    revision: int | None = None,
-) -> dict[str, Any]:
-    if profile != "runtime":
-        raise ValueError("new backtests use the runtime data profile")
-    repo = repository()
-    try:
-        return preflight_strategy_backtest(
-            repo,
-            project_id,
-            start_date,
-            end_date,
-            _engine("runtime"),
-            revision=revision,
-        )
-    finally:
-        repo.close()
-
-
 def run_project_backtest(
     project_id: str,
     start_date: str,
@@ -636,6 +788,15 @@ def run_project_backtest(
         repo.close()
     metrics = dict(validation_output["performance"])
     attribution = dict(validation_output["alpha_beta"])
+    frozen_strategy_manifest = [
+        {
+            **dict(item),
+            "parameters": dict(
+                (run.package.get("parameters") or {}).get(str(item.get("id"))) or {}
+            ),
+        }
+        for item in run.package["manifest"]
+    ]
     provenance["strategy_source_package"] = run.diagnostics["strategy_source_package"]
     provenance["validation_source_package"] = {
         "revision": validation_package["revision"],
@@ -679,11 +840,12 @@ def run_project_backtest(
             strategy_project_id=run.project["id"],
             strategy_revision=run.package["revision"],
             strategy_source_sha256=run.package["source_sha256"],
-            strategy_manifest=run.package["manifest"],
+            strategy_manifest=frozen_strategy_manifest,
             validation_source=validation_package["source"],
             validation_revision=validation_package["revision"],
             validation_source_sha256=validation_package["source_sha256"],
             validation_output=validation_output,
+            run_diagnostics=_compact_run_diagnostics(run.diagnostics),
             backtest_id=backtest_id,
         )
     finally:
@@ -713,11 +875,40 @@ def run_project_backtest(
             + len(run.diagnostics.get("delisting_settlements") or ()),
             "delisting_settlements": len(run.diagnostics.get("delisting_settlements") or ()),
         },
+        **dict(run.diagnostics.get("execution_summary") or {}),
+        "warnings": list(run.diagnostics.get("warnings") or ()),
+        "research_valid": bool(run.diagnostics.get("research_valid", False)),
         "execution": run.diagnostics,
-        "strategy_manifest": run.package["manifest"],
+        "strategy_manifest": frozen_strategy_manifest,
         "attribution": attribution,
         "validation_output": validation_output,
         "provenance": provenance,
+    }
+
+
+def _compact_run_diagnostics(diagnostics: Mapping[str, Any]) -> dict[str, Any]:
+    """Persist summary diagnostics without duplicating paged daily events."""
+
+    return {
+        key: diagnostics.get(key)
+        for key in (
+            "sdk_version",
+            "project_id",
+            "revision",
+            "periods",
+            "warnings",
+            "execution_data_policy",
+            "research_valid",
+            "execution_data_exclusions",
+            "execution_data_fill",
+            "execution_summary",
+            "signal_evidence",
+        )
+        if key in diagnostics
+    } | {
+        "delisting_settlement_count": len(
+            diagnostics.get("delisting_settlements") or ()
+        )
     }
 
 
@@ -730,7 +921,10 @@ def _runtime_datasets_for_backtest(package: Mapping[str, Any]) -> tuple[str, ...
         "runtime.factor_returns",
     }
     bar_fields = set(requirements.get("bars") or ())
-    if "is_st" in bar_fields:
+    has_execution_data_fill = any(
+        item.get("kind") == "execution_data_fill" for item in package.get("manifest") or ()
+    )
+    if "is_st" in bar_fields or has_execution_data_fill:
         datasets.add("rq.is_st")
     if requirements.get("daily_factors"):
         datasets.add("rq.daily_factors")
@@ -756,11 +950,12 @@ __all__ = [
     "get_revision",
     "insertion",
     "list_projects",
+    "migrate_project_template",
     "list_revisions",
     "preview_project",
-    "preflight_project_backtest",
     "run_project_backtest",
     "save_revision",
+    "strategy_project_template_catalog",
     "structured_edit",
     "update_draft",
     "update_strategy_source",

@@ -417,7 +417,7 @@ export function ValidationWorkbenchWidget() {
         {signals ? <>
           {signals.warning ? <div className="workbench-message warning">{signals.warning}</div> : null}
           <div className="analytics-kpi-grid workbench-kpis"><MetricCard label="平均 Rank IC" value={number(signals.summary.mean_ic)} /><MetricCard label="IC 为正比例" value={percent(signals.summary.positive_ic_ratio)} /><MetricCard label="评分覆盖率" value={percent(signals.summary.average_coverage)} /><MetricCard label="选股集合换手" value={percent(signals.summary.average_selection_turnover)} /><MetricCard label="有效检验期" value={`${signals.evidence_periods}/${signals.periods}`} /></div>
-          <div className="analytics-table-wrap"><table className="analytics-table compact"><thead><tr><th>信号日</th><th>评分覆盖</th><th>Rank IC</th><th>头尾收益差</th><th>集合换手</th></tr></thead><tbody>{signals.rows.map((row) => <tr key={row.signal_date}><td>{row.signal_date}</td><td>{percent(row.coverage)}</td><td>{number(row.ic)}</td><td>{percent(row.quantile_spread)}</td><td>{percent(row.selection_turnover)}</td></tr>)}</tbody></table></div>
+          <div className="analytics-table-wrap"><table className="analytics-table compact"><thead><tr><th>信号日</th><th>下一截面</th><th>评分覆盖</th><th>入选</th><th>Rank IC</th><th>集合换手</th></tr></thead><tbody>{signals.rows.map((row) => <tr key={row.signal_date}><td>{row.signal_date}</td><td>{row.horizon_end_date || "—"}</td><td>{percent(row.coverage)}（{row.scored_count}/{row.universe_count}）</td><td>{row.selected_count}</td><td>{number(row.ic)}{row.ic_observations ? `（n=${row.ic_observations}）` : ""}</td><td>{percent(row.selection_turnover)}</td></tr>)}</tbody></table></div>
         </> : <div className="analytics-empty">该 Run 没有可用的信号诊断快照。</div>}
       </div> : null}
 

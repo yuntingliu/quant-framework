@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from threading import Event
+from threading import Event, Timer
 
 import pandas as pd
 
@@ -54,13 +54,32 @@ def test_background_backtest_job_persists_success(tmp_path):
         manager.shutdown()
 
     assert job["status"] == "succeeded"
+    assert list(job)[:5] == [
+        "status",
+        "backtest_id",
+        "error_code",
+        "error_summary",
+        "project_id",
+    ]
     assert job["result_id"] == "backtest-1"
-    assert job["result_summary"]["project_id"] == "sdk-v1-default"
-    assert job["result_summary"]["metrics"] == {"sharpe": 1.2}
-    assert job["result_summary"]["counts"] == {"events": 2500}
+    assert job["project_id"] == "sdk-v1-default"
+    assert job["metrics"] == {"sharpe": 1.2}
+    assert job["counts"] == {
+        "return_rows": 2500,
+        "weight_rows": 0,
+        "executions": 0,
+        "events": 2500,
+    }
+    assert job["warnings"] == []
+    assert job["research_valid"] is True
+    assert job["attempted_trade_count"] == 0
+    assert job["successful_trade_count"] == 0
+    assert job["execution_data_fill_count"] == 0
+    assert job["market_state_rejection_count"] == 0
     assert "result" not in job
-    assert "returns" not in job["result_summary"]
-    assert "execution" not in job["result_summary"]
+    assert "result_summary" not in job
+    assert "returns" not in job
+    assert "execution" not in job
 
 
 def test_interrupted_backtest_job_is_recovered_with_a_stable_result_id(tmp_path):
@@ -252,6 +271,12 @@ def test_failed_job_exposes_stable_safe_error_fields(tmp_path):
     assert "0123456789abcdef" not in job["error_summary"]
     assert "traceback" not in job["error_summary"]
     assert "error" not in job
+    assert job["warnings"] == []
+    assert job["research_valid"] is None
+    assert job["attempted_trade_count"] == 0
+    assert job["successful_trade_count"] == 0
+    assert job["execution_data_fill_count"] == 0
+    assert job["market_state_rejection_count"] == 0
 
 
 def test_submission_returns_before_background_backtest_finishes(tmp_path):
@@ -307,16 +332,52 @@ def test_submission_returns_before_background_backtest_finishes(tmp_path):
     assert job["status"] == "succeeded"
 
 
-def test_submission_path_does_not_run_full_range_preflight(monkeypatch):
+def test_wait_returns_when_a_running_job_reaches_terminal_state(tmp_path):
+    backtest_started = Event()
+    release_backtest = Event()
+
+    def run(*_args) -> dict:
+        backtest_started.set()
+        release_backtest.wait(timeout=5)
+        return {"id": "wait-result", "project_id": "sdk-v1-default"}
+
+    manager = BacktestJobManager(tmp_path / "wait-jobs.db", runner=run)
+    timer = None
+    try:
+        submitted = manager.submit(
+            {
+                "project_id": "sdk-v1-default",
+                "start_date": "2024-01-01",
+                "end_date": "2024-12-31",
+                "profile": "runtime",
+                "revision": 1,
+            }
+        )
+        assert backtest_started.wait(timeout=1)
+        timer = Timer(0.05, release_backtest.set)
+        timer.start()
+        started_at = time.monotonic()
+        job = manager.wait(submitted["id"], timeout_seconds=1)
+        elapsed = time.monotonic() - started_at
+    finally:
+        release_backtest.set()
+        if timer is not None:
+            timer.join(timeout=1)
+        manager.shutdown()
+
+    assert job is not None
+    assert job["status"] == "succeeded"
+    assert job["backtest_id"] == "wait-result"
+    assert elapsed < 1
+
+
+def test_submission_path_queues_the_complete_backtest_directly(monkeypatch):
     submitted_requests = []
 
     class StubManager:
         def submit(self, request: dict) -> dict:
             submitted_requests.append(request)
             return {"status": "queued", "id": "direct-job"}
-
-    def reject_preflight(*_args, **_kwargs):
-        raise AssertionError("full-range preflight must not run during submission")
 
     monkeypatch.setattr(
         strategy_service,
@@ -327,11 +388,6 @@ def test_submission_path_does_not_run_full_range_preflight(monkeypatch):
         strategy_service,
         "get_revision",
         lambda _project_id, _revision: {"revision": 3},
-    )
-    monkeypatch.setattr(
-        strategy_service,
-        "preflight_project_backtest",
-        reject_preflight,
     )
     monkeypatch.setattr(
         validation_service,
@@ -384,6 +440,17 @@ def test_backtest_summary_is_bounded_and_events_are_paged(tmp_path, monkeypatch)
                 {"date": str(date)[:10], "kind": "daily", "state_sha256": "b" * 64}
                 for date in dates
             ],
+            validation_output={"warnings": ["validation warning"]},
+            run_diagnostics={
+                "warnings": ["execution warning"],
+                "research_valid": False,
+                "execution_summary": {
+                    "attempted_trade_count": 14,
+                    "successful_trade_count": 9,
+                    "execution_data_fill_count": 27,
+                    "market_state_rejection_count": 5,
+                },
+            },
         )
     finally:
         store.close()
@@ -405,6 +472,12 @@ def test_backtest_summary_is_bounded_and_events_are_paged(tmp_path, monkeypatch)
     }
     assert len(summary["samples"]["returns"]["head"]) == 3
     assert len(summary["samples"]["returns"]["tail"]) == 3
+    assert summary["warnings"] == ["execution warning", "validation warning"]
+    assert summary["research_valid"] is False
+    assert summary["attempted_trade_count"] == 14
+    assert summary["successful_trade_count"] == 9
+    assert summary["execution_data_fill_count"] == 27
+    assert summary["market_state_rejection_count"] == 5
     assert "returns" not in summary
     assert "weights" not in summary
 

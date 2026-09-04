@@ -7,9 +7,9 @@ from fastapi.testclient import TestClient
 from alphalab import ResultStore
 from alphalab.dataio.recipes import render_builtin_recipe
 from alphalab.dataio.runtime import OperationsStore
-from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
 from alphalab.strategy.repository import StrategyRepository
-from alphalab.strategy.source import split_strategy_source
+from alphalab.strategy.source import registered_function_source, replace_registered_function
+from alphalab.validation.repository import ValidationRepository
 from dashboard.backend.main import _public_error_value, app
 from dashboard.backend.routers import backtests as backtests_router
 from dashboard.backend.services import (
@@ -31,6 +31,12 @@ def test_data_and_strategy_sdk_read_contracts(tmp_path, monkeypatch):
     assert set(providers.json()["profiles"]) == {"runtime"}
     assert client.get("/api/data/manifest").status_code == 404
     assert client.get("/api/strategy/fields", params={"profile": "demo"}).status_code == 422
+    templates = client.get("/api/strategy/project-templates")
+    assert templates.status_code == 200
+    assert {item["id"] for item in templates.json()["templates"]} == {
+        "common_stock_selection",
+        "etf_rotation",
+    }
     projects = client.get("/api/strategy/projects")
     assert projects.status_code == 200
     assert projects.json()[0]["id"] == "sdk-v1-default"
@@ -53,8 +59,14 @@ def test_data_and_strategy_sdk_read_contracts(tmp_path, monkeypatch):
 
 def test_project_create_atomically_saves_strategy_and_factors(tmp_path, monkeypatch):
     database = tmp_path / "atomic-project.db"
+    operations = OperationsStore(tmp_path)
     monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
-    strategy_source, factors = split_strategy_source(DEFAULT_STRATEGY_SOURCE)
+    monkeypatch.setattr(strategy_service, "operations_store", lambda: operations)
+    monkeypatch.setattr(
+        strategy_service,
+        "_project_recipe_bounds",
+        lambda: {"start": "2020-01-01", "end": "2025-12-31"},
+    )
     client = TestClient(app)
 
     created = client.post(
@@ -62,8 +74,40 @@ def test_project_create_atomically_saves_strategy_and_factors(tmp_path, monkeypa
         json={
             "project_id": "new-agent-project",
             "name": "New Agent Project",
-            "strategy_source": strategy_source,
-            "factor_sources": [item.source for item in factors],
+            "template_id": "common_stock_selection",
+            "data_requirements": {"fundamentals": ["roe"]},
+            "factors": [
+                {
+                    "template_id": "custom_factor",
+                    "factor_id": "quality",
+                    "label": "Quality",
+                    "body": 'return context.fundamental("roe")',
+                }
+            ],
+            "recipe_parameters": {"start": "2021-01-01", "end": "2025-06-30"},
+            "validation_parameter_edits": [
+                {
+                    "entrypoint_id": "performance",
+                    "parameter": "risk_free_rate",
+                    "value": 0.02,
+                }
+            ],
+            "function_replacements": [
+                {
+                    "entrypoint_id": "monthly_momentum",
+                    "function_source": """@signal(
+    id="monthly_momentum",
+    label="月末动量 Top N",
+    schedule=Monthly.last_trading_day(at="close"),
+)
+def monthly_momentum(context, state, *, top_n: int = 7):
+    scores = context.factor("quality").dropna()
+    return SignalResult(
+        selected=list(scores.nlargest(top_n).index), scores=scores, state=state
+    )
+""",
+                }
+            ],
             "confirm_save": True,
             "confirm_python_execution": True,
         },
@@ -76,8 +120,143 @@ def test_project_create_atomically_saves_strategy_and_factors(tmp_path, monkeypa
     assert project["dirty"] is False
     assert {item["path"] for item in project["source_units"]} == {
         "strategy.py",
-        "factors/momentum_20d.py",
+        "factors/quality.py",
     }
+    assert project["inspection"]["data_requirements"]["fundamentals"] == ["roe"]
+    assert "top_n: int = 7" in project["strategy_source"]
+    assert '@execution_data_fill(id="fill_missing_market_state"' in project["strategy_source"]
+    assert 'eq("CS")' in project["strategy_source"]
+    recipe = operations.get_recipe_draft("new-agent-project")
+    assert recipe is not None
+    assert recipe["selected_template_id"] == "rq.a_share_research"
+    assert "start: str = '2021-01-01'" in recipe["source"]
+    validation_repository = ValidationRepository(database)
+    try:
+        validation = validation_repository.get_or_create("new-agent-project")
+    finally:
+        validation_repository.close()
+    assert validation["current_revision"] == 1
+    assert "risk_free_rate: float = 0.02" in validation["source"]
+
+    arbitrary_source = client.post(
+        "/api/strategy/projects",
+        json={
+            "project_id": "arbitrary-agent-project",
+            "name": "Arbitrary Agent Project",
+            "strategy_source": project["strategy_source"],
+            "confirm_save": True,
+            "confirm_python_execution": True,
+        },
+    )
+    assert arbitrary_source.status_code == 422
+
+    arbitrary_factor = client.post(
+        "/api/strategy/projects",
+        json={
+            "project_id": "arbitrary-factor-project",
+            "name": "Arbitrary Factor Project",
+            "template_id": "common_stock_selection",
+            "factor_sources": [
+                '@factor(id="quality")\ndef quality(context):\n    return 1.0\n'
+            ],
+            "confirm_save": True,
+            "confirm_python_execution": True,
+        },
+    )
+    assert arbitrary_factor.status_code == 422
+
+
+def test_project_create_removes_strategy_when_recipe_persistence_fails(
+    tmp_path, monkeypatch
+):
+    database = tmp_path / "failed-project-bundle.db"
+    operations = OperationsStore(tmp_path)
+    monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
+    monkeypatch.setattr(strategy_service, "operations_store", lambda: operations)
+    monkeypatch.setattr(
+        strategy_service,
+        "_project_recipe_bounds",
+        lambda: {"start": "2020-01-01", "end": "2025-12-31"},
+    )
+
+    def fail_save(*_args, **_kwargs):
+        raise RuntimeError("recipe persistence failed")
+
+    monkeypatch.setattr(operations, "save_recipe_draft", fail_save)
+    response = TestClient(app).post(
+        "/api/strategy/projects",
+        json={
+            "project_id": "failed-project-bundle",
+            "name": "Failed Project Bundle",
+            "template_id": "common_stock_selection",
+            "confirm_save": True,
+            "confirm_python_execution": True,
+        },
+    )
+
+    assert response.status_code >= 400
+    repository = StrategyRepository(database)
+    try:
+        assert repository.get_project("failed-project-bundle") is None
+    finally:
+        repository.close()
+    assert operations.get_recipe_draft("failed-project-bundle") is None
+
+
+def test_explicit_project_template_migration_creates_a_new_revision(
+    tmp_path, monkeypatch
+):
+    database = tmp_path / "project-template-migration.db"
+    repository = StrategyRepository(database)
+    try:
+        project = repository.clone_project("sdk-v1-default", "legacy-stock-project")
+        source = project["draft_source"]
+        fill = registered_function_source(source, entrypoint_id="fill_missing_market_state")
+        source = source.replace(fill, "", 1)
+        source, _ = replace_registered_function(
+            source,
+            entrypoint_id="research_universe",
+            function_source='''@universe(id="legacy_universe")
+def legacy_universe(context):
+    return UniverseResult(symbols=context.universe)
+''',
+        )
+        legacy = repository.update_draft(
+            project["id"],
+            source,
+            expected_source_sha256=project["draft_source_sha256"],
+        )
+        old_revision = legacy["current_revision"]
+        old_hash = repository.get_package(project["id"], old_revision)["source_sha256"]
+    finally:
+        repository.close()
+
+    monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
+    response = TestClient(app).post(
+        "/api/strategy/projects/legacy-stock-project/template-migration",
+        json={
+            "template_id": "common_stock_selection",
+            "expected_source_sha256": legacy["draft_source_sha256"],
+            "confirm_write": True,
+            "confirm_python_execution": True,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    migrated = response.json()
+    assert migrated["current_revision"] == old_revision + 1
+    assert any(
+        item["kind"] == "execution_data_fill"
+        for item in migrated["inspection"]["entrypoints"]
+    )
+    assert 'eq("CS")' in migrated["strategy_source"]
+    repository = StrategyRepository(database)
+    try:
+        assert repository.get_package(
+            "legacy-stock-project", old_revision
+        )["source_sha256"] == old_hash
+    finally:
+        repository.close()
 
 
 def test_backtest_submission_is_runtime_only_and_returns_a_job(monkeypatch):
@@ -110,6 +289,32 @@ def test_backtest_submission_is_runtime_only_and_returns_a_job(monkeypatch):
     )
     assert accepted.status_code == 202
     assert accepted.json() == {"status": "queued", "id": "job-1"}
+
+
+def test_backtest_wait_endpoint_uses_a_bounded_server_wait(monkeypatch):
+    observed = []
+
+    def wait(job_id, timeout_seconds):
+        observed.append((job_id, timeout_seconds))
+        return {
+            "status": "running",
+            "id": job_id,
+            "warnings": [],
+            "research_valid": None,
+            "attempted_trade_count": 0,
+            "successful_trade_count": 0,
+            "execution_data_fill_count": 0,
+            "market_state_rejection_count": 0,
+        }
+
+    monkeypatch.setattr(backtests_router, "wait_backtest_job", wait)
+    response = TestClient(app).get(
+        "/api/backtests/jobs/job-1/wait?timeout_seconds=120"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "running"
+    assert observed == [("job-1", 30.0)]
 
 
 def test_public_http_errors_remove_runtime_internals():
@@ -360,6 +565,7 @@ def test_system_default_recipe_upgrades_only_an_untouched_previous_default(
 def test_strategy_clone_cst_edit_and_revision_confirmation(tmp_path, monkeypatch):
     database = tmp_path / "strategy.db"
     monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
+    monkeypatch.setattr(strategy_service, "operations_store", lambda: OperationsStore(tmp_path))
     client = TestClient(app)
     denied = client.post(
         "/api/strategy/projects/sdk-v1-default/clone",
@@ -423,14 +629,16 @@ def test_strategy_clone_cst_edit_and_revision_confirmation(tmp_path, monkeypatch
 def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, monkeypatch):
     database = tmp_path / "factor-templates.db"
     monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
+    monkeypatch.setattr(strategy_service, "operations_store", lambda: OperationsStore(tmp_path))
     client = TestClient(app)
 
     catalog = client.get("/api/strategy/factor-templates")
     assert catalog.status_code == 200, catalog.text
     templates = catalog.json()["templates"]
-    assert len(templates) == 18
+    assert len(templates) == 19
     assert {item["id"] for item in templates} >= {
         "liquidity_20d",
+        "custom_factor",
         "momentum_60d",
         "range_volatility_20d",
         "roe",
@@ -532,6 +740,7 @@ def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, mo
 def test_strategy_and_factor_source_routes_keep_authoring_files_separate(tmp_path, monkeypatch):
     database = tmp_path / "separate-source-routes.db"
     monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
+    monkeypatch.setattr(strategy_service, "operations_store", lambda: OperationsStore(tmp_path))
     client = TestClient(app)
     cloned = client.post(
         "/api/strategy/projects/sdk-v1-default/clone",
@@ -581,6 +790,7 @@ def test_strategy_and_factor_source_routes_keep_authoring_files_separate(tmp_pat
 def test_visual_settings_batch_is_one_atomic_source_edit(tmp_path, monkeypatch):
     database = tmp_path / "visual-settings.db"
     monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
+    monkeypatch.setattr(strategy_service, "operations_store", lambda: OperationsStore(tmp_path))
     client = TestClient(app)
     cloned = client.post(
         "/api/strategy/projects/sdk-v1-default/clone",
@@ -721,9 +931,21 @@ def test_complete_sdk_backtest_persists_revision_hash_and_manifest(tmp_path, mon
     assert record["strategy_revision"] == 1
     assert record["strategy_source_sha256"] == result["source_sha256"]
     assert record["strategy_manifest_json"]
+    assert record["run_diagnostics_json"]
     monkeypatch.setattr(result_service, "ResultStore", lambda: ResultStore(database))
     detail = result_service.get_backtest(result["id"])
     assert detail is not None
+    assert "events" not in detail["run_diagnostics"]
+    assert "execution_summary" in detail["run_diagnostics"]
+    assert "signal_evidence" in detail["run_diagnostics"]
+    assert all(
+        "scores" not in row
+        for row in detail["run_diagnostics"]["signal_evidence"]["rows"]
+    )
+    frozen_portfolio = next(
+        item for item in detail["strategy_manifest"] if item["kind"] == "portfolio"
+    )
+    assert frozen_portfolio["parameters"]["max_weight"] == 0.1
     analysis = backtest_analytics_service.analyze_record(detail)
     assert analysis["strategy_snapshot"]["strategy_type"] == "sdk_v1"
     assert analysis["strategy_snapshot"]["revision"] == 1

@@ -63,6 +63,23 @@ demo/default logic, or a parallel backtest path. Pre-SDK database tables are
 read only: migration is implemented directly by `StrategyRepository`, while
 historical report reconstruction stays in the analytics service.
 
+The Agent project-creation boundary accepts a canonical project-template ID,
+structured data requirements, registered-function replacements, factor-template
+instances, recipe parameters, and validation parameter edits. It does not accept
+a full from-scratch Python module. Template application and all replacements
+happen in memory before the repository records the single initial strategy and
+validation package; recipe persistence is compensated by deleting the new
+project if its separate database write fails. This restriction applies to Agent
+authoring only. The resulting `recipe.py`, `strategy.py`, `factors/*.py`, and
+`validation.py` remain visible and fully editable by the user through the
+canonical workbenches and APIs.
+
+Agent mutation tools must preserve the same boundary after creation: install a
+factor template before replacing its one registered function, use CST edits for
+strategy functions and parameters, apply or parameterize recipe templates, and
+parameterize the validation template. Do not expose whole-module writes through
+the Agent bundle; those APIs exist for direct user workbench editing.
+
 ## SDK source rules
 
 Tests and examples import the small `alphalab` facade. Project authoring is a
@@ -208,13 +225,28 @@ but multiple API services and multiple backtests must not duplicate a task or
 block one another merely because they are reading the same partitions.
 
 The Agent-facing `run` operation returns only the job ID. Polling returns task
-status plus a stable error code and bounded summary. Default result reads omit
-daily events; `/api/backtests/{id}/events` provides explicit bounded pages for
-events or executions. Public errors contain a safe summary and log reference,
-never server paths, environment hashes, or tracebacks. Terminal task state is
+status plus a stable error code and bounded summary. Prefer
+`GET /api/backtests/jobs/{id}/wait?timeout_seconds=25` while a task is running;
+it waits for a status transition instead of forcing repeated Agent turns. Job
+reads and `/api/backtests/{id}/summary` expose warnings, research validity, and
+the four execution counters at the top level. Default result reads omit daily
+events; `/api/backtests/{id}/events` provides explicit bounded pages for events
+or executions. Public errors contain a safe summary and log reference, never
+server paths, environment hashes, or tracebacks. Terminal task state is
 self-consistent: success exposes no error fields, and failure exposes no stale
-result identifier or result summary. Temporary write contention uses the
-stable `DATASET_BUSY` code rather than a market-coverage error.
+result identifier. Temporary write contention uses the stable `DATASET_BUSY`
+code rather than a market-coverage error.
+
+SDK backtests calculate compact signal evidence in the event loop. Persist
+per-rebalance counts, coverage, turnover, and next-signal rank IC, never the
+complete score vector. Robustness annualization is inferred from frozen return
+dates; signal frequency remains descriptive. Parse position limits from the
+frozen `@portfolio` signature before considering legacy project settings.
+
+Old common-stock projects advance only through the explicit
+`POST /api/strategy/projects/{id}/template-migration` operation. It migrates
+template-owned universe and execution-data-fill functions into a new revision;
+never rewrite an existing source package or frozen backtest.
 
 Runtime data-sync job endpoints follow the same boundary: task responses expose
 status, progress, a bounded request summary, stable error fields, and a log

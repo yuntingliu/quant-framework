@@ -516,6 +516,14 @@ class OperationsStore:
         assert result is not None
         return result
 
+    def delete_recipe_draft(self, project_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM data_recipe_drafts WHERE project_id=?",
+                (str(project_id).strip(),),
+            )
+        return bool(cursor.rowcount)
+
     def list_recipe_templates(self) -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(

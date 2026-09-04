@@ -75,6 +75,7 @@ def get_backtest(backtest_id: str) -> dict | None:
     record["events"] = _json_payload(record.pop("event_json", None), [])
     record["attribution"] = _json_payload(record.pop("attribution_json", None), {})
     record["validation_output"] = _json_payload(record.pop("validation_output_json", None), {})
+    record["run_diagnostics"] = _json_payload(record.pop("run_diagnostics_json", None), {})
     record["component_manifest"] = _json_payload(record.pop("component_manifest_json", None), [])
     record["strategy_manifest"] = _json_payload(record.pop("strategy_manifest_json", None), [])
     record["settings"] = _json_payload(record.pop("settings_json", None), {})
@@ -151,40 +152,138 @@ def _public_event_value(value: object) -> object:
     return value
 
 
-def get_backtest_summary(backtest_id: str) -> dict | None:
-    record = get_backtest(backtest_id)
-    if record is None:
-        return None
+def _execution_summary(record: dict) -> dict[str, int]:
+    diagnostics = record.get("run_diagnostics")
+    if not isinstance(diagnostics, dict) or not diagnostics:
+        diagnostics = record.get("execution") if isinstance(record.get("execution"), dict) else {}
+    saved = (
+        diagnostics.get("execution_summary")
+        if isinstance(diagnostics.get("execution_summary"), dict)
+        else {}
+    )
+    executions = [item for item in record.get("executions") or () if isinstance(item, dict)]
+    attempted = sum(
+        int(item.get("attempted_trade_count", item.get("target_count", 0)) or 0)
+        for item in executions
+    )
+    successful = sum(
+        int(item.get("successful_trade_count", item.get("executed_count", 0)) or 0)
+        for item in executions
+    )
+    rejected = sum(
+        int(
+            item.get(
+                "market_state_rejection_count",
+                len(item.get("missing_execution_data") or ()),
+            )
+            or 0
+        )
+        for item in executions
+    )
+    filled = sum(
+        sum(int(value or 0) for value in (item.get("execution_data_fill") or {}).get("filled", {}).values())
+        for item in executions
+    )
+    nested_fill = diagnostics.get("execution_data_fill")
+    nested_fill = nested_fill if isinstance(nested_fill, dict) else {}
+    return {
+        "attempted_trade_count": int(
+            record.get(
+                "attempted_trade_count", saved.get("attempted_trade_count", attempted)
+            )
+            or 0
+        ),
+        "successful_trade_count": int(
+            record.get(
+                "successful_trade_count", saved.get("successful_trade_count", successful)
+            )
+            or 0
+        ),
+        "execution_data_fill_count": int(
+            record.get(
+                "execution_data_fill_count",
+                saved.get("execution_data_fill_count", nested_fill.get("value_count", filled)),
+            )
+            or 0
+        ),
+        "market_state_rejection_count": int(
+            record.get(
+                "market_state_rejection_count",
+                saved.get(
+                    "market_state_rejection_count",
+                    (diagnostics.get("execution_data_exclusions") or {}).get(
+                        "symbol_date_count", rejected
+                    ),
+                ),
+            )
+            or 0
+        ),
+    }
+
+
+def build_backtest_summary(record: dict) -> dict:
+    """Build the one compact public contract used by jobs and frozen Runs."""
+
     returns = list(record.get("returns") or [])
     weights = list(record.get("weights") or [])
     executions = list(record.get("executions") or [])
     events = list(record.get("events") or [])
-    warnings = list((record.get("validation_output") or {}).get("warnings") or [])
-    return {
-        "status": "succeeded",
-        "backtest_id": record["id"],
-        "error_code": None,
-        "error_summary": None,
-        "metrics": dict(record.get("metrics") or {}),
-        "period": {
-            "start_date": record.get("start_date"),
-            "end_date": record.get("end_date"),
-        },
-        "counts": {
-            "return_rows": len(returns),
-            "weight_rows": len(weights),
-            "executions": len(executions),
-            "events": len(events),
-        },
-        "samples": {
+    diagnostics = record.get("run_diagnostics")
+    if not isinstance(diagnostics, dict) or not diagnostics:
+        diagnostics = record.get("execution") if isinstance(record.get("execution"), dict) else {}
+    warning_values = [
+        *(record.get("warnings") or ()),
+        *(diagnostics.get("warnings") or ()),
+        *((record.get("validation_output") or {}).get("warnings") or ()),
+    ]
+    warnings = list(dict.fromkeys(str(item) for item in warning_values if str(item).strip()))
+    execution_summary = _execution_summary(record)
+    raw_research_valid = record.get("research_valid", diagnostics.get("research_valid"))
+    research_valid = (
+        bool(raw_research_valid)
+        if raw_research_valid is not None
+        else execution_summary["market_state_rejection_count"] == 0
+    )
+    period = record.get("period") if isinstance(record.get("period"), dict) else {}
+    counts = record.get("counts") if isinstance(record.get("counts"), dict) else {}
+    samples = record.get("samples") if isinstance(record.get("samples"), dict) else None
+    if samples is None:
+        samples = {
             "returns": _head_tail(returns),
             "executions": _head_tail(
                 [_public_event_value(_execution_sample(item)) for item in executions]
             ),
+        }
+    return {
+        "status": "succeeded",
+        "backtest_id": record.get("backtest_id") or record.get("id"),
+        "error_code": None,
+        "error_summary": None,
+        "project_id": record.get("project_id")
+        or record.get("strategy_project_id")
+        or record.get("strategy_id"),
+        "metrics": dict(record.get("metrics") or {}),
+        "period": {
+            "start_date": period.get("start_date", record.get("start_date")),
+            "end_date": period.get("end_date", record.get("end_date")),
         },
+        "counts": {
+            "return_rows": int(counts.get("return_rows", len(returns)) or 0),
+            "weight_rows": int(counts.get("weight_rows", len(weights)) or 0),
+            "executions": int(counts.get("executions", len(executions)) or 0),
+            "events": int(counts.get("events", len(events)) or 0),
+        },
+        "samples": _public_event_value(samples),
         "warnings": [_public_event_value(str(item)) for item in warnings[:10]],
-        "warnings_truncated": len(warnings) > 10,
+        "warnings_truncated": bool(record.get("warnings_truncated")) or len(warnings) > 10,
+        "research_valid": research_valid,
+        **execution_summary,
     }
+
+
+def get_backtest_summary(backtest_id: str) -> dict | None:
+    record = get_backtest(backtest_id)
+    return build_backtest_summary(record) if record is not None else None
 
 
 def get_backtest_event_page(
@@ -503,6 +602,7 @@ def _risk_check(name: str, passed: bool, detail: str) -> dict:
 
 
 __all__ = [
+    "build_backtest_summary",
     "create_paper_order",
     "execute_paper_rebalance",
     "get_backtest",

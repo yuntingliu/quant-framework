@@ -55,7 +55,21 @@ export interface BacktestRunResult {
 
 export interface BacktestJob {
   id: string
+  job_id: string
   status: "queued" | "running" | "succeeded" | "failed" | "interrupted"
+  backtest_id: string | null
+  project_id: string
+  warnings: string[]
+  warnings_truncated: boolean
+  research_valid: boolean | null
+  attempted_trade_count: number
+  successful_trade_count: number
+  execution_data_fill_count: number
+  market_state_rejection_count: number
+  metrics: Record<string, number>
+  period: { start_date?: string; end_date?: string }
+  counts: Record<string, number>
+  samples: Record<string, unknown>
   request: {
     project_id: string
     start_date: string
@@ -64,11 +78,6 @@ export interface BacktestJob {
     revision: number
     validation_revision?: number
   }
-  result_summary: Pick<BacktestRunResult, "id" | "project_id" | "metrics"> & {
-    counts: Record<string, number>
-    warnings: string[]
-    warnings_truncated: boolean
-  } | null
   result_id: string | null
   message: string | null
   error_code: string | null
@@ -179,12 +188,14 @@ export interface BacktestSignalDiagnostics {
   }
   rows: Array<{
     signal_date: string
+    horizon_end_date?: string | null
     universe_count: number
     scored_count: number
     selected_count: number
     coverage: number | null
     ic: number | null
-    quantile_spread: number | null
+    ic_observations?: number
+    quantile_spread?: number | null
     selection_turnover: number | null
   }>
   warning: string | null
@@ -251,6 +262,7 @@ export interface BacktestRobustness {
   status: "research_candidate" | "watch" | "weak" | "invalid"
   disclaimer: string
   periods: number
+  return_periods_per_year: number
   benchmark_coverage: number
   metrics: {
     strategy: Record<string, number | null>

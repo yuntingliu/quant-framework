@@ -138,11 +138,18 @@ def robustness_report(
     config: StrategyConfig,
     *,
     thresholds: RobustnessThresholds | None = None,
+    return_periods_per_year: int | None = None,
 ) -> dict:
     """Evaluate research quality without presenting the result as trading approval."""
 
     limits = thresholds or RobustnessThresholds()
-    periods_per_year = _periods_per_year(config)
+    periods_per_year = int(
+        return_periods_per_year
+        if return_periods_per_year is not None
+        else _periods_per_year(config)
+    )
+    if periods_per_year < 1:
+        raise ValueError("return_periods_per_year must be positive")
     minimum_periods = max(limits.min_periods, periods_per_year * 2)
     strategy = _clean_series(returns)
     reference = _clean_series(benchmark).reindex(strategy.index)
@@ -249,6 +256,7 @@ def robustness_report(
         "status": status,
         "disclaimer": "Research gate only; this is not an approval for live trading.",
         "periods": int(len(strategy)),
+        "return_periods_per_year": periods_per_year,
         "benchmark_coverage": coverage,
         "metrics": {
             "strategy": _finite_dict(strategy_metrics),
@@ -343,6 +351,7 @@ def _periods_per_year(config: StrategyConfig) -> int:
 
 def _annual_rows(frame: pd.DataFrame, periods_per_year: int) -> list[dict]:
     rows = []
+    complete_year_periods = max(1, int(round(periods_per_year * 0.8)))
     for year, group in frame.groupby(frame.index.year):
         strategy = float((1.0 + group["strategy"]).prod() - 1.0)
         benchmark = float((1.0 + group["benchmark"]).prod() - 1.0)
@@ -353,7 +362,7 @@ def _annual_rows(frame: pd.DataFrame, periods_per_year: int) -> list[dict]:
                 "benchmark": benchmark,
                 "excess": strategy - benchmark,
                 "periods": int(len(group)),
-                "complete": bool(len(group) >= (40 if periods_per_year == 52 else 10)),
+                "complete": bool(len(group) >= complete_year_periods),
             }
         )
     return rows

@@ -19,6 +19,7 @@ from dashboard.backend.services.backtest_job_service import (
     get_backtest_job,
     list_backtest_jobs,
     submit_backtest_job,
+    wait_backtest_job,
 )
 from dashboard.backend.services.result_service import (
     get_backtest,
@@ -92,6 +93,17 @@ def backtest_jobs(limit: int = 20) -> list[dict]:
 @router.get("/jobs/{job_id}")
 def backtest_job(job_id: str) -> dict:
     item = get_backtest_job(job_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="backtest job not found")
+    return item
+
+
+@router.get("/jobs/{job_id}/wait")
+def wait_for_backtest_job(
+    job_id: str,
+    timeout_seconds: float = 25.0,
+) -> dict:
+    item = wait_backtest_job(job_id, timeout_seconds=max(0.0, min(timeout_seconds, 30.0)))
     if item is None:
         raise HTTPException(status_code=404, detail="backtest job not found")
     return item

@@ -8,7 +8,7 @@ import hashlib
 import math
 import symtable
 from dataclasses import asdict, dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import libcst as cst
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
@@ -562,6 +562,205 @@ def replace_registered_function(
             .visit(_FactorReferenceRenameTransformer(entrypoint_id, replacement_id))
             .code
         )
+    return updated, inspect_strategy_source(updated)
+
+
+def migrate_strategy_template_components(
+    source: str,
+    template_source: str,
+    *,
+    kinds: Iterable[str] = ("universe", "execution_data_fill"),
+) -> tuple[str, SourceInspection]:
+    """Replace explicit template-owned functions while preserving project strategy logic."""
+
+    requested = tuple(dict.fromkeys(str(kind) for kind in kinds))
+    unsupported = sorted(set(requested) - {"universe", "execution_data_fill"})
+    if unsupported:
+        raise StrategySourceError(
+            f"unsupported template migration components: {unsupported}", phase="edit"
+        )
+    current = source
+    template_inspection = inspect_strategy_source(template_source)
+    template_by_kind = {item.kind: item for item in template_inspection.entrypoints}
+    required_imports = {
+        "execution_data_fill": {
+            "Annotated",
+            "Decimal",
+            "Parameter",
+            "ROUND_HALF_UP",
+            "execution_data_fill",
+            "pd",
+        },
+        "universe": {"UniverseResult", "universe"},
+    }
+    current = _merge_named_imports(
+        current,
+        template_source,
+        set().union(*(required_imports[kind] for kind in requested)),
+    )
+    for kind in requested:
+        template_item = template_by_kind.get(kind)
+        if template_item is None:
+            raise StrategySourceError(
+                f"template has no @{kind} function", phase="edit"
+            )
+        function_source = registered_function_source(
+            template_source, entrypoint_id=template_item.id
+        )
+        inspection = inspect_strategy_source(current)
+        current_item = next((item for item in inspection.entrypoints if item.kind == kind), None)
+        if current_item is not None:
+            current, _ = replace_registered_function(
+                current,
+                entrypoint_id=current_item.id,
+                function_source=function_source,
+            )
+        else:
+            current = _insert_registered_function(current, function_source)
+    return merge_data_requirements(current, template_inspection.data_requirements)
+
+
+def _merge_named_imports(source: str, reference_source: str, names: set[str]) -> str:
+    source_tree = ast.parse(source)
+    bound = {
+        alias.asname or alias.name.split(".")[0]
+        for node in source_tree.body
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    bound.update(
+        alias.asname or alias.name
+        for node in source_tree.body
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    )
+    missing = names - bound
+    if not missing:
+        return source
+    statements: list[cst.BaseStatement] = []
+    for node in ast.parse(reference_source).body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                public_name = alias.asname or alias.name.split(".")[0]
+                if public_name in missing:
+                    suffix = f" as {alias.asname}" if alias.asname else ""
+                    statements.append(cst.parse_statement(f"import {alias.name}{suffix}\n"))
+                    missing.remove(public_name)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                public_name = alias.asname or alias.name
+                if public_name in missing:
+                    suffix = f" as {alias.asname}" if alias.asname else ""
+                    statements.append(
+                        cst.parse_statement(
+                            f"from {node.module} import {alias.name}{suffix}\n"
+                        )
+                    )
+                    missing.remove(public_name)
+    if missing:
+        raise StrategySourceError(
+            f"template imports are missing required names: {sorted(missing)}", phase="edit"
+        )
+    module = cst.parse_module(source)
+    body = list(module.body)
+    insertion_index = 0
+    if body and isinstance(body[0], cst.SimpleStatementLine):
+        first = body[0].body[0] if body[0].body else None
+        if isinstance(first, cst.Expr) and isinstance(first.value, cst.SimpleString):
+            insertion_index = 1
+    while insertion_index < len(body):
+        statement = body[insertion_index]
+        if not isinstance(statement, cst.SimpleStatementLine) or not statement.body:
+            break
+        first = statement.body[0]
+        if not (
+            isinstance(first, cst.ImportFrom)
+            and isinstance(first.module, cst.Name)
+            and first.module.value == "__future__"
+        ):
+            break
+        insertion_index += 1
+    body[insertion_index:insertion_index] = statements
+    return module.with_changes(body=tuple(body)).code
+
+
+def _insert_registered_function(source: str, function_source: str) -> str:
+    replacement_module = cst.parse_module(function_source)
+    if len(replacement_module.body) != 1 or not isinstance(
+        replacement_module.body[0], cst.FunctionDef
+    ):
+        raise StrategySourceError(
+            "template function must contain exactly one registered function", phase="edit"
+        )
+    function = replacement_module.body[0].with_changes(
+        leading_lines=(cst.EmptyLine(), cst.EmptyLine())
+    )
+    module = cst.parse_module(source)
+    body = list(module.body)
+    execution_index = next(
+        (
+            index
+            for index, statement in enumerate(body)
+            if isinstance(statement, cst.FunctionDef)
+            and _cst_public_id(statement)[0] == "execution"
+        ),
+        len(body),
+    )
+    body.insert(execution_index, function)
+    updated = module.with_changes(body=tuple(body)).code
+    inspect_strategy_source(updated)
+    return updated
+
+
+def merge_data_requirements(
+    source: str,
+    additions: Mapping[str, Iterable[str]],
+) -> tuple[str, SourceInspection]:
+    """Merge structured dataset fields into a template-owned requirement manifest."""
+
+    inspection = inspect_strategy_source(source)
+    requirements = {
+        dataset: list(fields) for dataset, fields in inspection.data_requirements.items()
+    }
+    for raw_dataset, raw_fields in additions.items():
+        dataset = str(raw_dataset).strip()
+        if not dataset:
+            raise StrategySourceError(
+                "DATA_REQUIREMENTS dataset names must not be empty", phase="edit"
+            )
+        if isinstance(raw_fields, (str, bytes)):
+            raise StrategySourceError(
+                f"DATA_REQUIREMENTS[{dataset!r}] must be a list of fields", phase="edit"
+            )
+        fields = [str(field).strip() for field in raw_fields]
+        if not all(fields):
+            raise StrategySourceError(
+                f"DATA_REQUIREMENTS[{dataset!r}] contains an invalid field", phase="edit"
+            )
+        current = requirements.setdefault(dataset, [])
+        current.extend(field for field in fields if field not in current)
+
+    module = cst.parse_module(source)
+    transformer = _NamedAssignmentTransformer(
+        "DATA_REQUIREMENTS", cst.parse_expression(repr(requirements))
+    )
+    updated_module = module.visit(transformer)
+    if not transformer.changed:
+        body = list(updated_module.body)
+        sdk_index = next(
+            (
+                index
+                for index, statement in enumerate(body)
+                if _cst_assignment_name(statement) == "SDK_VERSION"
+            ),
+            -1,
+        )
+        body.insert(
+            sdk_index + 1,
+            cst.parse_statement(f"DATA_REQUIREMENTS = {requirements!r}\n"),
+        )
+        updated_module = updated_module.with_changes(body=tuple(body))
+    updated = updated_module.code
     return updated, inspect_strategy_source(updated)
 
 
@@ -1580,6 +1779,42 @@ class _FunctionTransformer(cst.CSTTransformer):
         )
 
 
+class _NamedAssignmentTransformer(cst.CSTTransformer):
+    def __init__(self, name: str, value: cst.BaseExpression) -> None:
+        self.name = name
+        self.value = value
+        self.changed = False
+
+    def leave_Assign(self, original_node: cst.Assign, updated_node: cst.Assign) -> cst.Assign:
+        if any(
+            isinstance(target.target, cst.Name) and target.target.value == self.name
+            for target in original_node.targets
+        ):
+            self.changed = True
+            return updated_node.with_changes(value=self.value)
+        return updated_node
+
+    def leave_AnnAssign(
+        self, original_node: cst.AnnAssign, updated_node: cst.AnnAssign
+    ) -> cst.AnnAssign:
+        if isinstance(original_node.target, cst.Name) and original_node.target.value == self.name:
+            self.changed = True
+            return updated_node.with_changes(value=self.value)
+        return updated_node
+
+
+def _cst_assignment_name(statement: cst.BaseStatement) -> str | None:
+    if not isinstance(statement, cst.SimpleStatementLine) or len(statement.body) != 1:
+        return None
+    item = statement.body[0]
+    if isinstance(item, cst.Assign) and len(item.targets) == 1:
+        target = item.targets[0].target
+        return target.value if isinstance(target, cst.Name) else None
+    if isinstance(item, cst.AnnAssign) and isinstance(item.target, cst.Name):
+        return item.target.value
+    return None
+
+
 class _FactorInputsTransformer(cst.CSTTransformer):
     def leave_FunctionDef(
         self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef
@@ -1719,6 +1954,8 @@ __all__ = [
     "factor_field_snippet",
     "insert_source",
     "inspect_strategy_source",
+    "merge_data_requirements",
+    "migrate_strategy_template_components",
     "registered_function_source",
     "remove_factor_inputs_arguments",
     "replace_registered_function",

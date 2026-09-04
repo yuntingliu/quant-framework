@@ -3,6 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
+from alphalab.strategy.source import inspect_strategy_source
 from dashboard.backend.services import (
     backtest_analytics_service,
     market_analytics_service,
@@ -217,3 +219,51 @@ def test_historical_backtest_without_attribution_returns_a_complete_empty_shape(
     assert result["capm"]["betas"] == {"MKT": None}
     assert result["multi_factor"]["estimates"] == {}
     assert result["warnings"]
+
+
+def test_sdk_robustness_uses_return_calendar_and_frozen_portfolio_parameters(monkeypatch):
+    source = DEFAULT_STRATEGY_SOURCE.replace(
+        "max_weight: float = 0.10", "max_weight: float = 0.03", 1
+    )
+    inspection = inspect_strategy_source(source)
+    dates = pd.bdate_range("2024-01-02", periods=260)
+    record = {
+        "id": "sdk-daily",
+        "strategy_id": "sdk-daily",
+        "strategy_project_id": "sdk-daily",
+        "strategy_source": source,
+        "strategy_manifest": [
+            {
+                "kind": item.kind,
+                "id": item.id,
+                "metadata": item.metadata,
+                "parameters": {
+                    parameter.name: parameter.default
+                    for parameter in item.parameters
+                    if parameter.editable
+                },
+            }
+            for item in inspection.entrypoints
+        ],
+        "settings": {"max_weight": 1.0, "max_gross_exposure": 1.0},
+        "start_date": str(dates[0].date()),
+        "end_date": str(dates[-1].date()),
+        "returns": [
+            {"date": str(date.date()), "value": 0.0005, "benchmark": 0.0002}
+            for date in dates
+        ],
+        "weights": [
+            {"date": str(date.date()), "symbol": "A", "weight": 0.04}
+            for date in dates
+        ],
+    }
+    monkeypatch.setattr(backtest_analytics_service, "get_backtest", lambda _id: record)
+
+    config = backtest_analytics_service._config_from_record(record)
+    report = backtest_analytics_service.analyze_robustness("sdk-daily")
+
+    assert config.selection.signal_frequency == "monthly"
+    assert config.portfolio.max_weight == pytest.approx(0.03)
+    assert report["return_periods_per_year"] == 252
+    max_weight_check = next(item for item in report["checks"] if item["name"] == "max_weight")
+    assert max_weight_check["passed"] is False

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import re
+import textwrap
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping
 
@@ -260,6 +262,20 @@ def ma_deviation(context, *, window: int = 20):
         "资产负债或权益杠杆水平，通常以低值优先使用。",
         direction="lower",
     ),
+    _technical(
+        "custom_factor",
+        "自定义因子骨架",
+        "由项目创建器复制后，仅替换函数体和字面量参数的通用因子骨架。",
+        ("close",),
+        """
+@factor(id="custom_factor", label="自定义因子骨架")
+def custom_factor(context, *, window: int = 20):
+    '''通用因子骨架；创建项目时应为副本指定唯一 id 并替换函数体。'''
+    # 默认实现返回最新收盘价；实际研究逻辑由副本自己的函数体明确给出。
+    close = context.history("close", window=window)
+    return close.iloc[-1]
+""",
+    ),
 )
 
 _BY_ID = {item.id: item for item in FACTOR_TEMPLATES}
@@ -276,6 +292,109 @@ def get_factor_template(template_id: str) -> FactorTemplate:
         raise StrategySourceError(
             f"unknown factor template {template_id!r}", phase="edit"
         ) from None
+
+
+_PYTHON_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def instantiate_factor_template(
+    template_id: str,
+    *,
+    factor_id: str | None = None,
+    label: str | None = None,
+    parameter_values: Mapping[str, Any] | None = None,
+    body: str | None = None,
+) -> str:
+    """Create one factor unit by editing a canonical factor template copy."""
+
+    template = get_factor_template(template_id)
+    selected_id = str(factor_id or template.id).strip()
+    if not _PYTHON_IDENTIFIER.fullmatch(selected_id):
+        raise StrategySourceError(
+            "factor_id must be a valid Python identifier", phase="edit"
+        )
+    if template.id == "custom_factor" and factor_id is None:
+        raise StrategySourceError(
+            "custom_factor requires an explicit factor_id", phase="edit"
+        )
+    selected_label = str(label or (selected_id if factor_id else template.label)).strip()
+    if not selected_label:
+        raise StrategySourceError("factor label must not be empty", phase="edit")
+
+    module = cst.parse_module(template.source)
+    functions = [item for item in module.body if isinstance(item, cst.FunctionDef)]
+    if len(functions) != 1:
+        raise StrategySourceError(
+            f"factor template {template.id!r} must contain exactly one function",
+            phase="edit",
+        )
+    function = _copy_factor_function(
+        functions[0], factor_id=selected_id, label=selected_label
+    ).with_changes(leading_lines=functions[0].leading_lines)
+
+    values = dict(parameter_values or {})
+    editable = {
+        parameter.name.value: parameter
+        for parameter in function.params.kwonly_params
+        if parameter.default is not None
+    }
+    unknown = sorted(set(values) - set(editable))
+    if unknown:
+        raise StrategySourceError(
+            f"factor parameters are not template-editable: {unknown}", phase="edit"
+        )
+    if values:
+        updated_parameters = []
+        for parameter in function.params.kwonly_params:
+            if parameter.name.value not in values:
+                updated_parameters.append(parameter)
+                continue
+            literal = repr(values[parameter.name.value])
+            try:
+                ast.literal_eval(literal)
+                expression = cst.parse_expression(literal)
+            except (SyntaxError, ValueError, TypeError) as exc:
+                raise StrategySourceError(
+                    f"factor parameter {parameter.name.value!r} must be a literal",
+                    phase="edit",
+                ) from exc
+            updated_parameters.append(parameter.with_changes(default=expression))
+        function = function.with_changes(
+            params=function.params.with_changes(kwonly_params=tuple(updated_parameters))
+        )
+
+    if body is not None:
+        normalized_body = textwrap.dedent(str(body)).strip()
+        if not normalized_body:
+            raise StrategySourceError("factor template body must not be empty", phase="edit")
+        try:
+            wrapper = cst.parse_module(
+                "def _factor_template_body():\n"
+                + textwrap.indent(normalized_body, "    ")
+                + "\n"
+            )
+        except cst.ParserSyntaxError as exc:
+            raise StrategySourceError(
+                f"factor template body has invalid Python syntax: {exc}", phase="parse"
+            ) from exc
+        replacement = wrapper.body[0]
+        assert isinstance(replacement, cst.FunctionDef)
+        function = function.with_changes(body=replacement.body)
+
+    updated = module.with_changes(
+        body=tuple(function if item is functions[0] else item for item in module.body)
+    ).code
+    parsed = ast.parse(updated)
+    factor_functions = [
+        item
+        for item in parsed.body
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    if len(factor_functions) != 1:
+        raise StrategySourceError(
+            "instantiated factor template must contain exactly one function", phase="edit"
+        )
+    return updated
 
 
 class _RequirementsTransformer(cst.CSTTransformer):

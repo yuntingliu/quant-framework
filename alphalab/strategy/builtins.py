@@ -38,14 +38,27 @@ DATA_REQUIREMENTS = {
         "volume",
         "amount",
     ],
+    "instruments": ["asset_type"],
 }
 
 
 @universe(id="research_universe", label="全市场点时有效股票池")
 def research_universe(context):
     """默认使用当前日期已经上市、尚未退市且有有效行情的全部股票。"""
-    # context.universe 已按日期过滤；不要用少量手写代码代替全市场股票池。
-    return UniverseResult(symbols=context.universe)
+    # context.universe 是点时有效证券集合；这里明确只保留普通股票，避免混入 ETF。
+    instruments = context.instruments()
+    if instruments.empty or not {"symbol", "asset_type"}.issubset(instruments.columns):
+        return UniverseResult(symbols=[])
+    common_stocks = set(
+        instruments.loc[
+            instruments["asset_type"].astype(str).str.upper().eq("CS"), "symbol"
+        ]
+        .astype(str)
+        .str.upper()
+    )
+    return UniverseResult(
+        symbols=[symbol for symbol in context.universe if symbol in common_stocks]
+    )
 
 
 @factor(id="momentum_20d", label="20 日动量")
@@ -145,6 +158,18 @@ def fill_missing_market_state(
         int,
         Parameter(label="北交所新股无涨跌停交易日", minimum=0, maximum=30, step=1),
     ] = 1,
+    state_lookback_sessions: Annotated[
+        int,
+        Parameter(label="状态补齐向前查找交易日数", minimum=1, maximum=120, step=1),
+    ] = 120,
+    fill_unknown_suspension_as_tradable: Annotated[
+        bool,
+        Parameter(label="无历史停牌状态时按可交易补齐"),
+    ] = True,
+    reference_price_lookback_sessions: Annotated[
+        int,
+        Parameter(label="未复权参考价向前查找交易日数", minimum=1, maximum=500, step=1),
+    ] = 120,
 ):
     """用成交日前的未复权行情和状态补齐实际订单所需的交易状态。"""
     filled = rows.copy()
@@ -153,23 +178,37 @@ def fill_missing_market_state(
     filled["symbol"] = filled["symbol"].astype(str).str.upper()
     symbols = list(dict.fromkeys(filled["symbol"]))
 
-    # 停牌状态优先沿用上一交易日的已知值；没有历史值时继续保持缺失，交给严格引擎拒单。
-    suspended = context.history("is_suspended", window=1, symbols=symbols)
+    # 停牌状态优先沿用最近历史值；整个窗口都未知时由下方可编辑开关决定是否按未停牌补齐。
+    suspended = context.history(
+        "is_suspended", window=state_lookback_sessions, symbols=symbols
+    )
     if not suspended.empty:
-        previous_suspended = suspended.iloc[-1]
+        previous_suspended = suspended.reindex(columns=symbols).ffill().iloc[-1]
         missing = filled["is_suspended"].isna()
         filled.loc[missing, "is_suspended"] = filled.loc[missing, "symbol"].map(
             previous_suspended
         )
+    if fill_unknown_suspension_as_tradable:
+        # 已有停牌状态永不覆盖；仅对整个回看窗口都没有记录的实际订单采用可见默认值。
+        filled.loc[filled["is_suspended"].isna(), "is_suspended"] = False
 
     # 涨跌停价必须按前一交易日未复权收盘价计算，不能使用策略因子的复权 close。
-    raw_close = context.history("raw_close", window=1, symbols=symbols)
-    previous_close = (
-        raw_close.iloc[-1] if not raw_close.empty else pd.Series(index=symbols, dtype=float)
+    raw_close = context.history(
+        "raw_close", window=reference_price_lookback_sessions, symbols=symbols
     )
-    st_history = context.history("is_st", window=1, symbols=symbols)
+    previous_close = (
+        raw_close.reindex(columns=symbols).apply(pd.to_numeric, errors="coerce").ffill().iloc[-1]
+        if not raw_close.empty
+        else pd.Series(index=symbols, dtype=float)
+    )
+    previous_close = previous_close.where(previous_close.gt(0))
+    st_history = context.history(
+        "is_st", window=state_lookback_sessions, symbols=symbols
+    )
     previous_is_st = (
-        st_history.iloc[-1] if not st_history.empty else pd.Series(False, index=symbols)
+        st_history.reindex(columns=symbols).ffill().iloc[-1]
+        if not st_history.empty
+        else pd.Series(False, index=symbols)
     )
 
     instruments = context.instruments()
@@ -376,4 +415,45 @@ def next_open(context, decision):
 '''
 
 
-__all__ = ["DEFAULT_STRATEGY_SOURCE", "ETF_ROTATION_EVENT_EXAMPLE_SOURCE"]
+STRATEGY_PROJECT_TEMPLATES = {
+    "common_stock_selection": {
+        "label": "普通股票选股",
+        "description": "点时普通股票池、可编辑交易状态补齐、组合与下一交易日执行。",
+        "recipe_template_id": "rq.a_share_research",
+        "source": DEFAULT_STRATEGY_SOURCE,
+    },
+    "etf_rotation": {
+        "label": "ETF 轮动",
+        "description": "固定 ETF 池、月度轮动、持有期保护与下一交易日执行。",
+        "recipe_template_id": "rq.etf_daily",
+        "source": ETF_ROTATION_EVENT_EXAMPLE_SOURCE,
+    },
+}
+
+
+def get_strategy_project_template(template_id: str) -> dict[str, str]:
+    """Return one canonical project template without exposing mutable global state."""
+
+    normalized = str(template_id).strip()
+    try:
+        return dict(STRATEGY_PROJECT_TEMPLATES[normalized])
+    except KeyError:
+        raise ValueError(f"unknown strategy project template {template_id!r}") from None
+
+
+def list_strategy_project_templates() -> list[dict[str, str]]:
+    """List the bounded set of canonical Agent project starting points."""
+
+    return [
+        {"id": template_id, "label": item["label"], "description": item["description"]}
+        for template_id, item in STRATEGY_PROJECT_TEMPLATES.items()
+    ]
+
+
+__all__ = [
+    "DEFAULT_STRATEGY_SOURCE",
+    "ETF_ROTATION_EVENT_EXAMPLE_SOURCE",
+    "STRATEGY_PROJECT_TEMPLATES",
+    "get_strategy_project_template",
+    "list_strategy_project_templates",
+]

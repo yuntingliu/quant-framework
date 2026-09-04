@@ -18,13 +18,73 @@ from dashboard.backend.services.data_service import _profile_range, research_dat
 router = APIRouter(prefix="/api/strategy", tags=["strategy-sdk-v1"])
 
 
+class TemplateFunctionReplacement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    entrypoint_id: str = Field(min_length=1, max_length=100)
+    function_source: str = Field(min_length=1, max_length=100_000)
+
+
+class ProjectFactorTemplate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    template_id: str = Field(min_length=1, max_length=100)
+    factor_id: str | None = Field(
+        default=None, min_length=1, max_length=100, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$"
+    )
+    label: str | None = Field(default=None, min_length=1, max_length=100)
+    parameter_values: dict[str, Any] = Field(default_factory=dict, max_length=30)
+    body: str | None = Field(default=None, min_length=1, max_length=100_000)
+
+    @model_validator(mode="after")
+    def require_custom_factor_edits(self) -> "ProjectFactorTemplate":
+        if self.template_id == "custom_factor" and (
+            self.factor_id is None or self.body is None
+        ):
+            raise ValueError("custom_factor requires factor_id and body")
+        return self
+
+
+class ProjectRecipeParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    start: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    end: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    symbols: list[str] | None = Field(default=None, max_length=2_000)
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "ProjectRecipeParameters":
+        if self.start is not None:
+            date.fromisoformat(self.start)
+        if self.end is not None:
+            date.fromisoformat(self.end)
+        if self.start is not None and self.end is not None and self.start > self.end:
+            raise ValueError("recipe start must not be after end")
+        return self
+
+
+class ProjectValidationParameterEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    entrypoint_id: str = Field(min_length=1, max_length=100)
+    parameter: str = Field(min_length=1, max_length=100)
+    value: Any
+
+
 class CreateProjectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     project_id: str = Field(min_length=2, max_length=64)
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=500)
-    strategy_source: str = Field(min_length=1, max_length=300_000)
-    factor_sources: list[str] = Field(default_factory=list, max_length=100)
+    template_id: Literal["common_stock_selection", "etf_rotation"]
+    function_replacements: list[TemplateFunctionReplacement] = Field(
+        default_factory=list, max_length=20
+    )
+    data_requirements: dict[
+        Literal["bars", "fundamentals", "instruments", "daily_factors", "index_components"],
+        list[str],
+    ] = Field(default_factory=dict, max_length=5)
+    factors: list[ProjectFactorTemplate] | None = Field(default=None, max_length=100)
+    recipe_parameters: ProjectRecipeParameters | None = None
+    validation_parameter_edits: list[ProjectValidationParameterEdit] = Field(
+        default_factory=list, max_length=100
+    )
     profile: Literal["runtime"] = "runtime"
     settings: dict[str, Any] = Field(default_factory=dict)
     confirm_save: bool
@@ -36,6 +96,14 @@ class CloneRequest(BaseModel):
     target_id: str = Field(min_length=2, max_length=64)
     name: str | None = Field(default=None, min_length=1, max_length=100)
     confirm_save: bool
+    confirm_python_execution: bool
+
+
+class TemplateMigrationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    template_id: Literal["common_stock_selection"]
+    expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    confirm_write: bool
     confirm_python_execution: bool
 
 
@@ -279,6 +347,11 @@ def factor_templates() -> dict[str, Any]:
     return strategy_service.factor_template_catalog()
 
 
+@router.get("/project-templates")
+def project_templates() -> dict[str, Any]:
+    return strategy_service.strategy_project_template_catalog()
+
+
 @router.get("/projects/{project_id}")
 def project(project_id: str) -> dict[str, Any]:
     item = strategy_service.get_project(project_id)
@@ -309,6 +382,23 @@ def clone_project(project_id: str, request: CloneRequest) -> dict[str, Any]:
     )
     try:
         return strategy_service.clone_project(project_id, request.target_id, request.name)
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/template-migration")
+def migrate_project_template(project_id: str, request: TemplateMigrationRequest) -> dict[str, Any]:
+    _confirmed(request.confirm_write, "migrating strategy template components requires confirmation")
+    _confirmed(
+        request.confirm_python_execution,
+        "saving migrated strategy source runs trusted local probes and requires confirmation",
+    )
+    try:
+        return strategy_service.migrate_project_template(
+            project_id,
+            request.template_id,
+            expected_source_sha256=request.expected_source_sha256,
+        )
     except Exception as exc:
         raise _translate_error(exc) from exc
 

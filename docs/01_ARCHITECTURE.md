@@ -141,6 +141,20 @@ Runs pin that internal package; changing any source unit later cannot alter a
 historical result. Revision numbers and hashes are audit metadata, not
 user-managed authoring controls.
 
+Agent-created projects start from one canonical project-template bundle. The
+bundle selects `recipe.py`, `strategy.py`, the initial `factors/*.py`, and
+`validation.py` together. The Agent may merge structured data requirements,
+replace registered strategy functions, instantiate built-in or generic factor
+templates, and set recipe/validation parameters; it cannot submit a
+from-scratch module. Strategy and validation are inserted with the single
+initial strategy revision, while the separately stored recipe draft uses
+compensating cleanup if its write fails. The ordinary-stock bundle therefore
+always contributes the research data recipe, visible stock-type filter,
+editable `@execution_data_fill`, and canonical validation source. After
+creation, every copied file remains normal project-owned source that the user
+may edit in its workbench. Agent tools continue to expose only template and
+structured edits.
+
 `ValidationRepository` applies the same user-facing save model to
 `validation_sources` and immutable `validation_source_packages`. A Run pins
 both the strategy package and validation package before it enters the queue.
@@ -246,14 +260,25 @@ providers must supply their own instrument snapshots.
 New backtests persist `strategy_project_id`, `strategy_revision`,
 `strategy_source_sha256`, the complete source, manifest, execution audit,
 weights, returns, attribution, settings, provenance, and the pinned
-`validation_source`, revision, hash, and named outputs.
+`validation_source`, revision, hash, named outputs, and compact run diagnostics.
+Run diagnostics retain per-rebalance signal counts, coverage, next-rebalance
+rank IC, and aggregate execution counters; they never persist the full
+cross-sectional score vectors used to calculate that evidence.
 
 Agent-facing backtest submission returns only a task ID. Task polling keeps
-status and stable error fields first; the default result read contains metrics,
-counts, and small head/tail samples. Full daily and execution events are stored
-separately and are exposed to the Agent only through explicit bounded pages. A
-successful terminal transition atomically clears all earlier error metadata;
-failed transitions clear any stale result metadata.
+status and stable error fields first. Job reads and frozen summaries share the
+same top-level `warnings`, `research_valid`, attempted/successful trade, fill,
+and missing-state rejection counters. `GET .../wait` holds one request for at
+most 30 seconds or until status changes. The default result read contains
+metrics, counts, and small head/tail samples. Full daily and execution events
+are stored separately and are exposed to the Agent only through explicit
+bounded pages. A successful terminal transition atomically clears all earlier
+error metadata; failed transitions clear any stale result metadata.
+
+Template advancement is explicit. Migrating an editable common-stock project
+replaces only template-owned universe and execution-data-fill functions and
+creates a new immutable revision. Existing frozen revisions and BacktestRuns
+are never rewritten.
 
 Old pipeline tables and old BacktestRuns remain only for one-time migration and
 read-only inspection. Migration converts every recognized legacy factor into an

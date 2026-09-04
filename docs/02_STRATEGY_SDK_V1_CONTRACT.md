@@ -423,10 +423,12 @@ def major_etfs(context: UniverseContext) -> UniverseResult:
     return UniverseResult(symbols=candidates["symbol"])
 ```
 
-New ordinary stock-selection strategies default to the complete point-in-time
-universe with `UniverseResult(symbols=context.universe)`. A small hard-coded
-pool is used only when the user explicitly requests a fixed, index, sector,
-ETF, or otherwise restricted universe; fixed pools are intersected with
+`context.universe` is the complete point-in-time instrument set, not an implicit
+asset-type filter. New ordinary stock-selection strategies start from the
+`common_stock_selection` template, whose universe intersects that set with
+`context.instruments()` rows where `asset_type == "CS"`. A small hard-coded pool
+is used only when the user explicitly requests a fixed, index, sector, ETF, or
+otherwise restricted universe; fixed pools are still intersected with
 `context.universe`.
 
 The function MAY filter or rank instruments but MUST NOT introduce a symbol not
@@ -868,6 +870,11 @@ Codex and published Agents edit the same project draft as the workbenches.
 
 They MUST:
 
+- create new projects from a project-template bundle that initializes
+  `recipe.py`, `strategy.py`, `factors/*.py`, and `validation.py`; Agent create
+  requests never carry a complete module;
+- install or instantiate factor templates before changing their parameters or
+  function body, and limit recipe/validation writes to template operations;
 - inspect the current source-unit inventory, relevant unit, assembled
   inspection, and revision before editing;
 - use CST-aware source operations or replace an explicitly identified function;
@@ -1030,6 +1037,28 @@ actual order can therefore complete as a zero-trade result with explicit warning
 `INSUFFICIENT_MARKET_STATE` is reserved for a required runtime dataset or field
 with no usable coverage at all.
 
+Background job reads and frozen result summaries MUST expose one compact
+top-level contract. It always includes `warnings`, `research_valid`,
+`attempted_trade_count`, `successful_trade_count`,
+`execution_data_fill_count`, and `market_state_rejection_count`; callers do not
+unwrap a second result-summary object. While a job has no result,
+`research_valid` is `null` and all counters are zero. A wait endpoint MUST hold
+one request for no more than 30 seconds and return when the persisted status
+changes or the timeout expires.
+
+Each signal evaluation MAY use the complete in-memory score vector while the
+backtest is running, but a frozen Run stores only compact per-rebalance
+evidence: universe/scored/selected counts, coverage, selection turnover, and
+rank IC measured to the following signal date. The score vector MUST NOT be
+stored in summary diagnostics. Analytics for SDK Runs MUST consume this native
+evidence before considering a read-only legacy stage-output fallback.
+
+Return annualization MUST be selected from the frozen return index's observed
+calendar cadence. Signal or rebalance frequency describes decision timing and
+MUST NOT be reused as the return frequency. Portfolio limits for SDK analytics
+MUST come from the parsed frozen `@portfolio` keyword defaults before any
+legacy settings fallback.
+
 User exceptions fail the current operation. The runner MUST NOT silently fall
 back to an older revision, default factor, demo profile, previous output, or
 alternate implementation.
@@ -1068,7 +1097,8 @@ product cutover is atomic at the public contract level:
 3. adapt every workbench to the canonical project source;
 4. route factor, cross-section, preview, and backtest operations to the SDK
    runner;
-5. migrate current editable project definitions into SDK v1 source revisions;
+5. expose an explicit template-component migration that creates a new editable
+   project revision without modifying any historical frozen revision;
 6. retain old saved BacktestRuns as read-only frozen records;
 7. remove current active factor-expression, three-stage authoring, and Python
    Lab promotion branches;

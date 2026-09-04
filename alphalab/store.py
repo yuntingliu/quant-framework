@@ -76,6 +76,7 @@ class ResultStore:
             ("validation_revision", "INTEGER"),
             ("validation_source_sha256", "TEXT"),
             ("validation_output_json", "TEXT"),
+            ("run_diagnostics_json", "TEXT"),
         ):
             if name not in backtest_columns:
                 self._conn.execute(f"ALTER TABLE backtests ADD COLUMN {name} {sql_type}")
@@ -295,6 +296,7 @@ class ResultStore:
         validation_revision: int | None = None,
         validation_source_sha256: str | None = None,
         validation_output: dict | None = None,
+        run_diagnostics: dict | None = None,
         backtest_id: str | None = None,
     ) -> str:
         backtest_id = str(backtest_id).strip() if backtest_id is not None else _uuid()
@@ -319,8 +321,8 @@ class ResultStore:
                     settings_json, attribution_json, strategy_project_id,
                     strategy_revision, strategy_source_sha256, strategy_manifest_json,
                     validation_source, validation_revision, validation_source_sha256,
-                    validation_output_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    validation_output_json, run_diagnostics_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     backtest_id,
                     strategy_id,
@@ -352,6 +354,7 @@ class ResultStore:
                     validation_revision,
                     validation_source_sha256,
                     json.dumps(validation_output, sort_keys=True) if validation_output else None,
+                    json.dumps(run_diagnostics, sort_keys=True) if run_diagnostics else None,
                 ),
             )
             rows = []

@@ -17,20 +17,21 @@ from alphalab.strategy import repository as strategy_repository_module
 from alphalab.strategy.builtins import (
     DEFAULT_STRATEGY_SOURCE,
     ETF_ROTATION_EVENT_EXAMPLE_SOURCE,
+    list_strategy_project_templates,
 )
 from alphalab.strategy.config import ExecutionSpec
 from alphalab.strategy.engine import (
-    BacktestPreflightError,
     _apply_execution_constraints,
     _execution_data_gaps,
     _prepare_data,
+    _record_signal_evidence,
     _settle_delisted_positions,
     _trade_allowed,
-    preflight_strategy_backtest,
     run_strategy_backtest,
 )
 from alphalab.strategy.factor_templates import (
     install_factor_template,
+    instantiate_factor_template,
     list_factor_templates,
 )
 from alphalab.strategy.repository import StrategyRepository
@@ -43,6 +44,8 @@ from alphalab.strategy.source import (
     factor_field_snippet,
     insert_source,
     inspect_strategy_source,
+    merge_data_requirements,
+    migrate_strategy_template_components,
     registered_function_source,
     remove_factor_inputs_arguments,
     replace_registered_function,
@@ -51,6 +54,48 @@ from alphalab.strategy.source import (
     update_signal_factor_blend,
     update_signal_schedule,
 )
+
+
+def test_explicit_template_component_migration_preserves_old_packages(tmp_path: Path):
+    repository = StrategyRepository(tmp_path / "template-migration.db")
+    try:
+        project = repository.clone_project("sdk-v1-default", "old-stock-project")
+        source = project["draft_source"]
+        fill = registered_function_source(source, entrypoint_id="fill_missing_market_state")
+        source = source.replace(fill, "", 1)
+        source, _ = replace_registered_function(
+            source,
+            entrypoint_id="research_universe",
+            function_source='''@universe(id="legacy_universe")
+def legacy_universe(context):
+    return UniverseResult(symbols=context.universe)
+''',
+        )
+        legacy = repository.update_draft(
+            "old-stock-project",
+            source,
+            expected_source_sha256=project["draft_source_sha256"],
+        )
+        legacy_package = repository.get_package(
+            "old-stock-project", legacy["current_revision"]
+        )
+        migrated_source, inspection = migrate_strategy_template_components(
+            legacy["draft_source"], DEFAULT_STRATEGY_SOURCE
+        )
+        migrated = repository.update_draft(
+            "old-stock-project",
+            migrated_source,
+            expected_source_sha256=legacy["draft_source_sha256"],
+        )
+
+        assert migrated["current_revision"] == legacy["current_revision"] + 1
+        assert any(item.kind == "execution_data_fill" for item in inspection.entrypoints)
+        assert 'asset_type"].astype(str).str.upper().eq("CS")' in migrated["draft_source"]
+        assert repository.get_package(
+            "old-stock-project", legacy["current_revision"]
+        )["source_sha256"] == legacy_package["source_sha256"]
+    finally:
+        repository.close()
 
 
 def _payload() -> dict:
@@ -78,7 +123,7 @@ def _payload() -> dict:
             {
                 "snapshot_date": [dates[0], dates[0]],
                 "symbol": ["A", "B"],
-                "asset_type": ["ETF", "ETF"],
+                "asset_type": ["CS", "CS"],
             }
         ),
         "fundamentals": pd.DataFrame(),
@@ -89,6 +134,7 @@ def test_builtin_factor_catalog_is_native_sdk_python_and_all_templates_install(t
     templates = list_factor_templates()
     assert {item.id for item in templates} == {
         "bp",
+        "custom_factor",
         "ep",
         "gross_margin",
         "leverage",
@@ -146,7 +192,31 @@ def test_builtin_factor_catalog_is_native_sdk_python_and_all_templates_install(t
         repository.close()
 
 
+def test_factor_template_instantiation_only_replaces_template_edits() -> None:
+    source = instantiate_factor_template(
+        "custom_factor",
+        factor_id="quality_score",
+        label="质量分数",
+        parameter_values={"window": 30},
+        body='return context.fundamental("roe")',
+    )
+
+    assert "@factor(id='quality_score', label='质量分数')" in source
+    assert "def quality_score(context, *, window: int = 30):" in source
+    assert 'return context.fundamental("roe")' in source
+    assert len([node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef)]) == 1
+
+    with pytest.raises(StrategySourceError, match="requires an explicit factor_id"):
+        instantiate_factor_template("custom_factor")
+    with pytest.raises(StrategySourceError, match="not template-editable"):
+        instantiate_factor_template("momentum_20d", parameter_values={"missing": 1})
+
+
 def test_official_strategy_templates_explain_every_registered_function() -> None:
+    assert {item["id"] for item in list_strategy_project_templates()} == {
+        "common_stock_selection",
+        "etf_rotation",
+    }
     for source in (DEFAULT_STRATEGY_SOURCE, ETF_ROTATION_EVENT_EXAMPLE_SOURCE):
         tree = ast.parse(source)
         functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
@@ -235,6 +305,21 @@ def test_strategy_source_units_round_trip_without_factor_leak():
     )
     assert bundled == DEFAULT_STRATEGY_SOURCE
     assert {item.id for item in inspection.entrypoints if item.kind == "factor"} == {"momentum_20d"}
+
+
+def test_template_data_requirements_merge_without_replacing_safety_fields():
+    strategy_source, _ = split_strategy_source(DEFAULT_STRATEGY_SOURCE)
+
+    updated, inspection = merge_data_requirements(
+        strategy_source,
+        {"bars": ["close", "turnover"], "fundamentals": ["roe"]},
+    )
+
+    assert inspection.data_requirements["bars"].count("close") == 1
+    assert "turnover" in inspection.data_requirements["bars"]
+    assert inspection.data_requirements["instruments"] == ["asset_type"]
+    assert inspection.data_requirements["fundamentals"] == ["roe"]
+    assert "DATA_REQUIREMENTS" in updated
 
 
 def test_atomic_project_creation_uses_sdk_prelude_and_one_revision(tmp_path: Path):
@@ -735,8 +820,13 @@ def test_default_execution_fill_exposes_editable_market_rules():
         "beijing_limit_rate",
         "ipo_unlimited_sessions",
         "beijing_ipo_unlimited_sessions",
+        "state_lookback_sessions",
+        "fill_unknown_suspension_as_tradable",
+        "reference_price_lookback_sessions",
     }
     assert all(item.editable for item in parameters.values())
+    assert parameters["state_lookback_sessions"].default == 120
+    assert parameters["fill_unknown_suspension_as_tradable"].default is True
 
 
 def test_default_execution_fill_uses_raw_close_board_st_and_ipo_rules():
@@ -949,6 +1039,28 @@ def test_worker_uses_one_saved_factor_for_snapshot_and_event():
     assert factor["factor_id"] == "momentum_20d"
     assert "momentum_20d" in factor["invoked"]
     assert event["signal"]["scores"] == {item["symbol"]: item["value"] for item in factor["values"]}
+
+
+def test_default_stock_template_excludes_non_stock_instruments():
+    data = _payload()
+    data["instruments"].loc[data["instruments"]["symbol"].eq("B"), "asset_type"] = "ETF"
+    with SdkExecutionSession(DEFAULT_STRATEGY_SOURCE) as session:
+        session.configure(data)
+        event = session.execute(
+            "event",
+            {
+                "event": "session_close",
+                "as_of": data["sessions"][-1],
+                "available_symbols": ["A", "B"],
+                "portfolio": {},
+                "state": {},
+                "force_signal": True,
+                "limits": {"max_weight": 1.0, "max_gross_exposure": 1.0},
+            },
+        ).value
+
+    assert event["universe"] == ["A"]
+    assert set(event["signal"]["scores"]) == {"A"}
 
 
 def test_repository_atomically_creates_a_new_immutable_revision(tmp_path: Path):
@@ -1263,7 +1375,7 @@ class _SuspensionEngine:
 
     def get_instruments(self, as_of_date):
         return pd.DataFrame(
-            {"snapshot_date": [self.dates[0]], "symbol": ["A"], "asset_type": ["ETF"]}
+            {"snapshot_date": [self.dates[0]], "symbol": ["A"], "asset_type": ["CS"]}
         )
 
     def get_bars(self, symbols, start_date, end_date, **kwargs):
@@ -1300,25 +1412,13 @@ class _PartialExecutionDataEngine:
             {
                 "snapshot_date": [self.dates[0], self.dates[0]],
                 "symbol": ["A", "B"],
-                "asset_type": ["ETF", "ETF"],
+                "asset_type": ["CS", "CS"],
             }
         )
 
     def get_bars(self, symbols, start_date, end_date, **kwargs):
         return self.bars.copy()
 
-
-class _PreflightExecutionDataEngine(_PartialExecutionDataEngine):
-    def get_instruments(self, as_of_date):
-        return pd.DataFrame(
-            {
-                "snapshot_date": [self.dates[0], self.dates[0]],
-                "symbol": ["A", "B"],
-                "asset_type": ["ETF", "ETF"],
-                "listed_date": [self.dates[0], self.dates[0]],
-                "de_listed_date": [pd.NaT, pd.NaT],
-            }
-        )
 
 
 def _daily_universe_strategy_source() -> str:
@@ -1350,107 +1450,6 @@ def _without_execution_data_fill(source: str) -> str:
         1,
     )
 
-
-def test_backtest_preflight_uses_stable_data_error_codes(tmp_path: Path):
-    repository = StrategyRepository(tmp_path / "preflight-errors.db")
-    engine = _PartialExecutionDataEngine()
-    try:
-        with pytest.raises(BacktestPreflightError) as missing_settlement:
-            preflight_strategy_backtest(
-                repository,
-                "sdk-v1-default",
-                str(engine.dates[0])[:10],
-                str(engine.dates[-1])[:10],
-                engine,
-            )
-        assert missing_settlement.value.code == "MISSING_DELISTING_SETTLEMENT"
-
-        incomplete_dates = _PreflightExecutionDataEngine()
-        incomplete_dates.bars["limit_up"] = 11.0
-        with pytest.raises(BacktestPreflightError) as date_coverage:
-            preflight_strategy_backtest(
-                repository,
-                "sdk-v1-default",
-                "2023-01-01",
-                str(incomplete_dates.dates[-1])[:10],
-                incomplete_dates,
-            )
-        assert date_coverage.value.code == "INSUFFICIENT_MARKET_STATE"
-        assert date_coverage.value.details["first_session"] == "2024-01-01"
-
-        incomplete = _PreflightExecutionDataEngine()
-        partial = preflight_strategy_backtest(
-            repository,
-            "sdk-v1-default",
-            str(incomplete.dates[0])[:10],
-            str(incomplete.dates[-1])[:10],
-            incomplete,
-        )
-        assert partial["status"] == "ready"
-        assert partial["warnings"][0]["code"] == "PARTIAL_MARKET_STATE"
-        assert partial["warnings"][0]["details"]["coverage"] == 0.5
-
-        unavailable = _PreflightExecutionDataEngine()
-        unavailable.bars["limit_up"] = pd.NA
-        with pytest.raises(BacktestPreflightError) as market_state:
-            preflight_strategy_backtest(
-                repository,
-                "sdk-v1-default",
-                str(unavailable.dates[0])[:10],
-                str(unavailable.dates[-1])[:10],
-                unavailable,
-            )
-        assert market_state.value.code == "INSUFFICIENT_MARKET_STATE"
-        assert market_state.value.details["coverage"] == 0.0
-
-        missing_required_field = _PreflightExecutionDataEngine()
-        missing_required_field.bars["amount"] = pd.NA
-        with pytest.raises(BacktestPreflightError) as required_field:
-            preflight_strategy_backtest(
-                repository,
-                "sdk-v1-default",
-                str(missing_required_field.dates[0])[:10],
-                str(missing_required_field.dates[-1])[:10],
-                missing_required_field,
-            )
-        assert required_field.value.code == "INSUFFICIENT_MARKET_STATE"
-        assert "bars.amount" in required_field.value.details["missing_fields"]
-
-        no_candidates = _PreflightExecutionDataEngine()
-        no_candidates.bars["limit_up"] = 11.0
-        no_candidates.bars["is_suspended"] = True
-        with pytest.raises(BacktestPreflightError) as candidates:
-            preflight_strategy_backtest(
-                repository,
-                "sdk-v1-default",
-                str(no_candidates.dates[0])[:10],
-                str(no_candidates.dates[-1])[:10],
-                no_candidates,
-            )
-        assert candidates.value.code == "NO_TRADABLE_CANDIDATES"
-    finally:
-        repository.close()
-
-
-def test_backtest_preflight_reports_ready_before_event_loop(tmp_path: Path):
-    repository = StrategyRepository(tmp_path / "preflight-ready.db")
-    engine = _PreflightExecutionDataEngine()
-    engine.bars["limit_up"] = 11.0
-    try:
-        result = preflight_strategy_backtest(
-            repository,
-            "sdk-v1-default",
-            str(engine.dates[0])[:10],
-            str(engine.dates[-1])[:10],
-            engine,
-        )
-    finally:
-        repository.close()
-
-    assert result["status"] == "ready"
-    assert result["delisting_policy"] == "write_off_at_zero"
-    assert result["complete_market_state_symbol_dates"] == result["eligible_symbol_dates"]
-    assert result["warnings"] == []
 
 
 def test_rejected_fill_does_not_change_actual_positions(tmp_path: Path):
@@ -1522,6 +1521,38 @@ def test_equal_buy_deltas_use_symbol_as_a_deterministic_tie_breaker():
     assert executed["A"] == 0.5
     assert executed["B"] < 0.5
     assert audit["constrained_symbols"] == ["B"]
+
+
+def test_sdk_signal_evidence_resolves_ic_without_persisting_score_vectors():
+    rows: list[dict] = []
+    first = {
+        "signal_due": True,
+        "universe": ["A", "B", "C", "D"],
+        "signal": {
+            "selected": ["C", "D"],
+            "scores": {"A": 1.0, "B": 2.0, "C": 3.0, "D": 4.0},
+        },
+    }
+    pending = _record_signal_evidence(
+        first,
+        pd.Timestamp("2024-01-31"),
+        {"A": 10.0, "B": 10.0, "C": 10.0, "D": 10.0},
+        rows,
+        None,
+    )
+    pending = _record_signal_evidence(
+        first,
+        pd.Timestamp("2024-02-29"),
+        {"A": 10.1, "B": 10.2, "C": 10.3, "D": 10.4},
+        rows,
+        pending,
+    )
+
+    assert pending is not None
+    assert rows[0]["ic"] == pytest.approx(1.0)
+    assert rows[0]["ic_observations"] == 4
+    assert rows[0]["coverage"] == 1.0
+    assert "scores" not in rows[0]
 
 
 class _FutureInstrumentSnapshotEngine:

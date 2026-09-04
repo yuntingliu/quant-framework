@@ -16,15 +16,6 @@ from alphalab.strategy.repository import StrategyRepository
 from alphalab.strategy.sdk_runtime import SdkExecutionSession
 
 
-class BacktestPreflightError(MissingDataError):
-    """Stable, externally classifiable failure raised before the event loop."""
-
-    def __init__(self, code: str, message: str, *, details: Mapping[str, Any] | None = None):
-        super().__init__(message)
-        self.code = code
-        self.details = dict(details or {})
-
-
 @dataclass(frozen=True)
 class StrategyBacktestResult:
     project: dict[str, Any]
@@ -207,224 +198,6 @@ def evaluate_factor_history(
         "invoked": sorted(invoked),
     }
 
-
-def preflight_strategy_backtest(
-    repository: StrategyRepository,
-    project_id: str,
-    start_date: str,
-    end_date: str,
-    data_engine: DataEngine,
-    *,
-    revision: int | None = None,
-) -> dict[str, Any]:
-    """Validate runtime coverage and the project universe before queueing a run."""
-
-    project, package = _project_package(repository, project_id, revision)
-    start, end = pd.Timestamp(start_date), pd.Timestamp(end_date)
-    if start >= end:
-        raise ValueError("start_date must be before end_date")
-    lookback = int(project["settings"].get("lookback_days", 260))
-    try:
-        prepared = _prepare_data(
-            data_engine,
-            package,
-            start - pd.Timedelta(days=max(lookback * 2, 365)),
-            end,
-            execution_data_policy="strict",
-        )
-    except MissingDataError as exc:
-        raise BacktestPreflightError(
-            "INSUFFICIENT_MARKET_STATE",
-            "The requested backtest does not have complete runtime data coverage.",
-        ) from exc
-
-    sessions = tuple(value for value in prepared.sessions if start <= value <= end)
-    boundary_tolerance = pd.Timedelta(days=14)
-    if not sessions or (
-        sessions[0] > start + boundary_tolerance or sessions[-1] < end - boundary_tolerance
-    ):
-        raise BacktestPreflightError(
-            "INSUFFICIENT_MARKET_STATE",
-            "Runtime market dates do not cover the requested backtest boundaries.",
-            details={
-                "requested_start": start.strftime("%Y-%m-%d"),
-                "requested_end": end.strftime("%Y-%m-%d"),
-                "first_session": str(sessions[0])[:10] if sessions else None,
-                "last_session": str(sessions[-1])[:10] if sessions else None,
-            },
-        )
-    if len(sessions) < 2:
-        raise BacktestPreflightError(
-            "NO_TRADABLE_CANDIDATES",
-            "The requested date range contains fewer than two usable trading sessions.",
-            details={"session_count": len(sessions)},
-        )
-    listed_field = next(
-        (field for field in ("listed_date", "list_date") if field in prepared.instruments),
-        None,
-    )
-    delisted_field = next(
-        (field for field in ("de_listed_date", "delisted_date") if field in prepared.instruments),
-        None,
-    )
-    if listed_field is None or delisted_field is None:
-        raise BacktestPreflightError(
-            "MISSING_DELISTING_SETTLEMENT",
-            "Instrument listing and delisting dates are required for zero-value delisting settlement.",
-            details={
-                "listed_date_available": listed_field is not None,
-                "delisted_date_available": delisted_field is not None,
-            },
-        )
-    missing_coverage = _missing_required_coverage(
-        prepared,
-        package,
-        start=start,
-        end=end,
-    )
-    if missing_coverage:
-        raise BacktestPreflightError(
-            "INSUFFICIENT_MARKET_STATE",
-            "Required strategy or execution fields have no usable runtime coverage.",
-            details={"missing_fields": missing_coverage},
-        )
-
-    bars_by_date = {
-        pd.Timestamp(date): frame.drop_duplicates("symbol", keep="last").set_index("symbol")
-        for date, frame in prepared.bars.groupby("date")
-        if start <= pd.Timestamp(date) <= end
-    }
-    eligible_pairs = 0
-    complete_pairs = 0
-    tradable_pairs = 0
-    candidate_symbols: set[str] = set()
-    latest_request: tuple[pd.Timestamp, list[str]] | None = None
-    missing_fields: set[str] = set()
-    required_bar_fields = tuple(
-        dict.fromkeys(
-            [
-                *(package.get("data_requirements", {}).get("bars") or ()),
-                "open",
-                "close",
-                "volume",
-                "amount",
-            ]
-        )
-    )
-    for current_date in sessions:
-        rows = bars_by_date.get(current_date, pd.DataFrame())
-        listed_symbols = set(_available_symbols(prepared.instruments, current_date))
-        row_symbols = (
-            set(rows.index.astype(str).str.upper()) if rows.index.name == "symbol" else set()
-        )
-        available = sorted(listed_symbols & row_symbols)
-        eligible_pairs += len(available)
-        gaps = _execution_data_gaps(rows, available)
-        required_gaps = _required_bar_value_gaps(
-            rows,
-            available,
-            required_bar_fields,
-        )
-        gaps = {
-            symbol: tuple(sorted(set(gaps.get(symbol, ())) | set(required_gaps.get(symbol, ()))))
-            for symbol in set(gaps) | set(required_gaps)
-        }
-        for fields in gaps.values():
-            missing_fields.update(fields)
-        complete = [symbol for symbol in available if symbol not in gaps]
-        complete_pairs += len(complete)
-        tradable = [
-            symbol
-            for symbol in complete
-            if _trade_allowed(
-                rows,
-                symbol,
-                "open",
-                side="buy",
-                strict_execution_data=True,
-            )
-        ]
-        tradable_pairs += len(tradable)
-        candidate_symbols.update(tradable)
-        if tradable:
-            latest_request = (current_date, tradable)
-
-    if eligible_pairs == 0:
-        raise BacktestPreflightError(
-            "NO_TRADABLE_CANDIDATES",
-            "No tradable candidates overlap the requested dates and instrument universe.",
-            details={"session_count": len(sessions), "eligible_symbol_dates": eligible_pairs},
-        )
-    coverage_details = {
-        "eligible_symbol_dates": eligible_pairs,
-        "complete_symbol_dates": complete_pairs,
-        "coverage": float(complete_pairs / eligible_pairs),
-        "missing_fields": sorted(missing_fields),
-    }
-    if complete_pairs == 0:
-        raise BacktestPreflightError(
-            "INSUFFICIENT_MARKET_STATE",
-            "No candidate has complete suspension and price-limit state in the requested range.",
-            details=coverage_details,
-        )
-    warnings: list[dict[str, Any]] = []
-    if complete_pairs != eligible_pairs:
-        warnings.append(
-            {
-                "code": "PARTIAL_MARKET_STATE",
-                "message": (
-                    "Some full-universe symbol dates lack suspension, price-limit, or required "
-                    "bar values. The strict event engine will exclude them conservatively."
-                ),
-                "details": coverage_details,
-            }
-        )
-    if latest_request is None or not candidate_symbols:
-        raise BacktestPreflightError(
-            "NO_TRADABLE_CANDIDATES",
-            "No tradable candidates overlap the requested dates and instrument universe.",
-            details={"session_count": len(sessions), "eligible_symbol_dates": eligible_pairs},
-        )
-
-    as_of, available = latest_request
-    with SdkExecutionSession(package["source"], timeout_seconds=20.0) as session:
-        session.configure(_static_payload(prepared))
-        result = session.execute(
-            "signal",
-            _event_request(
-                project,
-                as_of,
-                available,
-                event="session_close",
-                portfolio={},
-                state={},
-                last_decision=None,
-                force_signal=True,
-            ),
-        )
-    project_universe = result.value.get("universe") or []
-    if not project_universe:
-        raise BacktestPreflightError(
-            "NO_TRADABLE_CANDIDATES",
-            "The saved project universe has no tradable candidates in the requested runtime data.",
-            details={"candidate_symbol_count": len(candidate_symbols)},
-        )
-    return {
-        "status": "ready",
-        "project_id": project_id,
-        "start_date": start.strftime("%Y-%m-%d"),
-        "end_date": end.strftime("%Y-%m-%d"),
-        "session_count": len(sessions),
-        "eligible_symbol_dates": eligible_pairs,
-        "complete_market_state_symbol_dates": complete_pairs,
-        "tradable_symbol_dates": tradable_pairs,
-        "candidate_symbol_count": len(candidate_symbols),
-        "project_universe_count": len(project_universe),
-        "delisting_policy": "write_off_at_zero",
-        "warnings": warnings,
-    }
-
-
 def run_strategy_backtest(
     repository: StrategyRepository,
     project_id: str,
@@ -465,13 +238,21 @@ def run_strategy_backtest(
                 "revision": package["revision"],
                 "warnings": ["insufficient sessions"],
                 "execution_data_policy": execution_data_policy,
-                "research_valid": execution_data_policy == "strict",
+                "research_valid": False,
                 "execution_data_exclusions": {
                     "symbol_date_count": 0,
                     "unique_symbol_count": 0,
                     "symbols_sample": [],
                     "samples": [],
                 },
+                "execution_data_fill": {"value_count": 0, "fields": {}},
+                "execution_summary": {
+                    "attempted_trade_count": 0,
+                    "successful_trade_count": 0,
+                    "execution_data_fill_count": 0,
+                    "market_state_rejection_count": 0,
+                },
+                "signal_evidence": {"rows": [], "periods": 0, "evidence_periods": 0},
             },
         )
 
@@ -492,6 +273,8 @@ def run_strategy_backtest(
     weights: dict[pd.Timestamp, dict[str, float]] = {}
     executions: list[dict[str, Any]] = []
     event_diagnostics: list[dict[str, Any]] = []
+    signal_evidence_rows: list[dict[str, Any]] = []
+    pending_signal_evidence: dict[str, Any] | None = None
     delisting_settlements: list[dict[str, Any]] = []
     warnings: set[str] = set()
     execution_exclusion_count = 0
@@ -603,7 +386,7 @@ def run_strategy_backtest(
                 )
 
             if _event_needed(run_manifest, "session_open", current_date, prepared.sessions):
-                state, last_decision, open_decision = _run_event(
+                state, last_decision, open_decision, event_value = _run_event(
                     session,
                     project,
                     current_date,
@@ -616,6 +399,17 @@ def run_strategy_backtest(
                     state,
                     last_decision,
                     seed + session_index,
+                    include_value=True,
+                )
+                event_diagnostics.append(
+                    _compact_event_diagnostic(current_date, "session_open", event_value)
+                )
+                pending_signal_evidence = _record_signal_evidence(
+                    event_value,
+                    current_date,
+                    open_prices,
+                    signal_evidence_rows,
+                    pending_signal_evidence,
                 )
                 if open_decision:
                     pending_open, pending_close = _queue_decision(
@@ -704,13 +498,14 @@ def run_strategy_backtest(
                     include_value=True,
                 )
                 event_diagnostics.append(
-                    {
-                        "date": str(current_date)[:10],
-                        "signal_due": event_value.get("signal_due", False),
-                        "invoked": event_value.get("invoked", []),
-                        "state_sha256": event_value.get("state_sha256"),
-                        "decision_reason": (event_value.get("decision") or {}).get("reason"),
-                    }
+                    _compact_event_diagnostic(current_date, "session_close", event_value)
+                )
+                pending_signal_evidence = _record_signal_evidence(
+                    event_value,
+                    current_date,
+                    close_prices,
+                    signal_evidence_rows,
+                    pending_signal_evidence,
                 )
                 if close_decision:
                     pending_open, pending_close = _queue_decision(
@@ -745,6 +540,12 @@ def run_strategy_backtest(
             "CUSTOM_EXECUTION_DATA_FILL: project Python filled "
             f"{execution_fill_count} missing execution-state values"
         )
+    attempted_trade_count = sum(
+        int(item.get("attempted_trade_count") or 0) for item in executions
+    )
+    successful_trade_count = sum(
+        int(item.get("successful_trade_count") or 0) for item in executions
+    )
     return StrategyBacktestResult(
         project=project,
         package=package,
@@ -782,6 +583,19 @@ def run_strategy_backtest(
             "execution_data_fill": {
                 "value_count": execution_fill_count,
                 "fields": dict(sorted(execution_fill_fields.items())),
+            },
+            "execution_summary": {
+                "attempted_trade_count": attempted_trade_count,
+                "successful_trade_count": successful_trade_count,
+                "execution_data_fill_count": execution_fill_count,
+                "market_state_rejection_count": execution_exclusion_count,
+            },
+            "signal_evidence": {
+                "rows": signal_evidence_rows,
+                "periods": len(signal_evidence_rows),
+                "evidence_periods": sum(
+                    1 for item in signal_evidence_rows if item.get("ic") is not None
+                ),
             },
         },
     )
@@ -1129,119 +943,6 @@ def _execution_data_gaps(
     return gaps
 
 
-def _required_bar_value_gaps(
-    rows: pd.DataFrame,
-    symbols: Sequence[str],
-    fields: Sequence[str],
-) -> dict[str, tuple[str, ...]]:
-    """Return required bar values that are null or non-finite for each row."""
-
-    if not symbols:
-        return {}
-    frame = rows.reset_index() if rows.index.name == "symbol" else rows.copy()
-    if frame.empty or "symbol" not in frame:
-        return {str(symbol).upper(): ("market_row",) for symbol in symbols}
-    frame["symbol"] = frame["symbol"].astype(str).str.upper()
-    indexed = frame.drop_duplicates("symbol", keep="last").set_index("symbol")
-    gaps: dict[str, tuple[str, ...]] = {}
-    for raw_symbol in symbols:
-        symbol = str(raw_symbol).upper()
-        if symbol not in indexed.index:
-            gaps[symbol] = ("market_row",)
-            continue
-        row = indexed.loc[symbol]
-        missing: list[str] = []
-        for field in fields:
-            value = pd.to_numeric(pd.Series([row.get(field)]), errors="coerce").iloc[0]
-            if pd.isna(value) or not math.isfinite(float(value)):
-                missing.append(field)
-            elif field in {"open", "high", "low", "close"} and float(value) <= 0:
-                missing.append(field)
-        if missing:
-            gaps[symbol] = tuple(missing)
-    return gaps
-
-
-def _missing_required_coverage(
-    prepared: PreparedRunData,
-    package: Mapping[str, Any],
-    *,
-    start: pd.Timestamp,
-    end: pd.Timestamp,
-) -> list[str]:
-    """Find required datasets or fields with no usable value in the run range."""
-
-    requirements = package.get("data_requirements") or {}
-    missing: list[str] = []
-    bars = prepared.bars.loc[
-        pd.to_datetime(prepared.bars["date"], errors="coerce").between(start, end)
-    ]
-    bar_fields = tuple(
-        dict.fromkeys(
-            [
-                *(requirements.get("bars") or ()),
-                "open",
-                "close",
-                "volume",
-                "amount",
-            ]
-        )
-    )
-    for field in bar_fields:
-        values = (
-            pd.to_numeric(bars[field], errors="coerce") if field in bars else pd.Series(dtype=float)
-        )
-        if values.empty or not (values.notna() & np.isfinite(values)).any():
-            missing.append(f"bars.{field}")
-
-    for field in requirements.get("fundamentals") or ():
-        values = (
-            pd.to_numeric(prepared.fundamentals[field], errors="coerce")
-            if field in prepared.fundamentals
-            else pd.Series(dtype=float)
-        )
-        if values.empty or not (values.notna() & np.isfinite(values)).any():
-            missing.append(f"fundamentals.{field}")
-
-    lifecycle_fields = {"listed_date", "list_date", "delisted_date", "de_listed_date"}
-    for field in requirements.get("instruments") or ():
-        if field in lifecycle_fields:
-            continue
-        values = (
-            prepared.instruments[field]
-            if field in prepared.instruments
-            else pd.Series(dtype=object)
-        )
-        if values.empty or values.dropna().empty:
-            missing.append(f"instruments.{field}")
-
-    daily = prepared.daily_factors
-    for field in requirements.get("daily_factors") or ():
-        values = (
-            pd.to_numeric(
-                daily.loc[daily["field"].astype(str).eq(str(field)), "value"],
-                errors="coerce",
-            )
-            if {"field", "value"}.issubset(daily.columns)
-            else pd.Series(dtype=float)
-        )
-        if values.empty or not (values.notna() & np.isfinite(values)).any():
-            missing.append(f"daily_factors.{field}")
-
-    components = prepared.index_components
-    for index_symbol in requirements.get("index_components") or ():
-        available = (
-            components.loc[
-                components["index_symbol"].astype(str).str.upper().eq(str(index_symbol).upper()),
-                "symbol",
-            ]
-            if {"index_symbol", "symbol"}.issubset(components.columns)
-            else pd.Series(dtype=object)
-        )
-        if available.dropna().empty:
-            missing.append(f"index_components.{index_symbol}")
-    return sorted(missing)
-
 
 def _limits(project: Mapping[str, Any]) -> dict[str, float]:
     settings = project.get("settings") or {}
@@ -1437,6 +1138,11 @@ def _execute_target(
     current = {
         symbol: float(value / nav) for symbol, value in asset_values.items() if value > 1e-12
     }
+    attempted_trade_count = sum(
+        1
+        for symbol in set(requested_target) | set(current)
+        if abs(float(requested_target.get(symbol, 0.0)) - float(current.get(symbol, 0.0))) > 1e-12
+    )
     execution_spec = ExecutionSpec(
         cost_bps=float(policy.get("commission_rate", 0.0)) * 10_000.0,
         slippage_bps=float(policy.get("slippage_rate", 0.0)) * 10_000.0,
@@ -1505,6 +1211,11 @@ def _execute_target(
         entry_date,
         SimpleNamespace(execution=execution_spec),
     )
+    successful_trade_count = sum(
+        1
+        for symbol in set(executed) | set(current)
+        if abs(float(executed.get(symbol, 0.0)) - float(current.get(symbol, 0.0))) > 1e-12
+    )
     total_cost = float(audit["total_cost"]) * nav
     next_values = {symbol: weight * nav for symbol, weight in executed.items()}
     next_cash = nav - sum(next_values.values()) - total_cost
@@ -1538,10 +1249,119 @@ def _execute_target(
                 for symbol, fields in sorted(missing_execution_data.items())
             ],
             "execution_data_fill": fill_audit,
+            "attempted_trade_count": attempted_trade_count,
+            "successful_trade_count": successful_trade_count,
+            "market_state_rejection_count": len(missing_execution_data),
             "decision_reason": decision.get("reason"),
             "state_committed": True,
         },
     )
+
+
+def _compact_event_diagnostic(
+    current_date: pd.Timestamp,
+    event: str,
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Keep event audit small while retaining the SDK-native event identity."""
+
+    return {
+        "date": str(current_date)[:10],
+        "event": event,
+        "signal_due": bool(value.get("signal_due", False)),
+        "invoked": list(value.get("invoked") or ()),
+        "state_sha256": value.get("state_sha256"),
+        "decision_reason": (value.get("decision") or {}).get("reason"),
+    }
+
+
+def _record_signal_evidence(
+    event_value: Mapping[str, Any],
+    current_date: pd.Timestamp,
+    prices: Mapping[str, float],
+    rows: list[dict[str, Any]],
+    pending: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Resolve prior-signal IC and retain only compact evidence for the new signal."""
+
+    signal = event_value.get("signal")
+    if not event_value.get("signal_due") or not isinstance(signal, Mapping):
+        return pending
+    raw_scores = signal.get("scores")
+    scores: dict[str, float] = {}
+    if isinstance(raw_scores, Mapping):
+        for symbol, raw_value in raw_scores.items():
+            try:
+                value = float(raw_value)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(value):
+                scores[str(symbol).upper()] = value
+    selected = {
+        str(symbol).upper()
+        for symbol in signal.get("selected") or ()
+        if isinstance(symbol, str)
+    }
+    if pending is not None:
+        prior_scores = pending["scores"]
+        prior_prices = pending["prices"]
+        paired = sorted(set(prior_scores) & set(prior_prices) & set(prices))
+        forward_returns = {
+            symbol: float(prices[symbol] / prior_prices[symbol] - 1.0)
+            for symbol in paired
+            if prior_prices[symbol] > 0
+            and math.isfinite(float(prices[symbol]))
+            and math.isfinite(float(prior_prices[symbol]))
+        }
+        paired = sorted(set(prior_scores) & set(forward_returns))
+        correlation: float | None = None
+        if len(paired) >= 3:
+            ranked_scores = pd.Series({symbol: prior_scores[symbol] for symbol in paired}).rank()
+            ranked_returns = pd.Series(
+                {symbol: forward_returns[symbol] for symbol in paired}
+            ).rank()
+            value = ranked_scores.corr(ranked_returns)
+            if pd.notna(value) and math.isfinite(float(value)):
+                correlation = float(value)
+        pending_row = pending["row"]
+        pending_row["horizon_end_date"] = str(current_date)[:10]
+        pending_row["ic_observations"] = len(paired)
+        pending_row["ic"] = correlation
+
+    universe = {
+        str(symbol).upper()
+        for symbol in event_value.get("universe") or ()
+        if isinstance(symbol, str)
+    }
+    previous_selected = pending["selected"] if pending is not None else set()
+    denominator = len(selected) + len(previous_selected)
+    turnover = (
+        len(selected.symmetric_difference(previous_selected)) / denominator
+        if previous_selected and denominator
+        else None
+    )
+    row = {
+        "signal_date": str(current_date)[:10],
+        "horizon_end_date": None,
+        "universe_count": len(universe),
+        "scored_count": len(scores),
+        "selected_count": len(selected),
+        "coverage": float(len(scores) / len(universe)) if universe else None,
+        "ic": None,
+        "ic_observations": 0,
+        "selection_turnover": float(turnover) if turnover is not None else None,
+    }
+    rows.append(row)
+    return {
+        "scores": scores,
+        "prices": {
+            symbol: float(prices[symbol])
+            for symbol in scores
+            if symbol in prices and prices[symbol] > 0 and math.isfinite(float(prices[symbol]))
+        },
+        "selected": selected,
+        "row": row,
+    }
 
 
 def _fill_execution_state(
@@ -1986,12 +1806,10 @@ def _execution_cost(
 
 
 __all__ = [
-    "BacktestPreflightError",
     "PreparedRunData",
     "StrategyBacktestResult",
     "evaluate_factor_history",
     "evaluate_factor_snapshot",
     "preview_strategy",
-    "preflight_strategy_backtest",
     "run_strategy_backtest",
 ]
