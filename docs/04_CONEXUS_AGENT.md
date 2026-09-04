@@ -35,11 +35,12 @@ The current tool contract lets the Agent:
    performance, attribution, robustness and signals, compare candidates, and
    create or update a durable report Document.
 
-These capabilities are exposed through eleven AlphaLab intent-level tools plus
-the native Conexus graph tools rather than
-one tool per backend endpoint. Each mutable or executable tool uses a closed
-`action` enum, so consolidation does not weaken write, delete, or trusted-local
-Python confirmation boundaries:
+These capabilities are exposed through eleven AlphaLab intent-level Tool nodes
+plus the native Conexus node-capability tools rather than one tool per backend
+endpoint. The Agent discovers connected nodes with `find`/`observe` and invokes
+each AlphaLab node with `use(node_id, "tool.invoke", input)`. Each mutable or
+executable AlphaLab tool uses a closed `action` enum, so consolidation does not
+weaken write, delete, or trusted-local Python confirmation boundaries:
 
 ```text
 alphalab_get_workspace_context
@@ -54,17 +55,16 @@ alphalab_validation_source
 alphalab_backtest
 alphalab_backtest_analysis
 
-web_search
-
-list_nodes / observe_nodes / describe_node_type / create_nodes / update_nodes / delete_node
+find / observe / create / edit / use / request_user_input / complete
 ```
 
-`web_search` is deliberately added to the Agent's explicit allowlist instead
-of enabling every Conexus host default. Search snippets are leads, not verified
-factor definitions. Before implementing a discovered factor, the Agent checks
-the original or authoritative source, records its URL and retrieval date, and
-verifies formula, lag/point-in-time requirements, and runtime data coverage.
-Shell and browser-control tools remain unavailable.
+Web Search is a runtime-managed node discovered with `find` and invoked through
+its declared capability with `use`; it is not a legacy direct Agent tool name.
+Search snippets are leads, not verified factor definitions. Before implementing
+a discovered factor, the Agent checks the original or authoritative source,
+records its URL and retrieval date, and verifies formula, lag/point-in-time
+requirements and runtime data coverage. Shell and browser-control capabilities
+remain unavailable.
 
 Strategy saves automatically run the existing probes and record an immutable
 internal source package. The Agent never exposes a separate save-revision
@@ -143,12 +143,13 @@ genuinely new research subject. Request IDs, hashes, job IDs, and other audit
 details are not part of report Markdown. Historical BacktestRuns always use
 their frozen strategy and validation snapshots.
 
-The run's `summary`, Decision Notebook, Workspace Result, and Workspace Commands
-are submitted together through `commit_harness_outputs`. A Document descriptor
-always carries version, current request ID, kind, report node ID, title, and
-sources. Generic node tools may change report Documents but may not partially
-update the three Harness output nodes. The frontend rejects the whole command
-batch when `open_result` does not match a valid descriptor from the same request.
+The Decision Notebook, Workspace Result, and Workspace Commands are written in
+one atomic `edit` batch; the Agent then calls `complete` with the final summary.
+A Document descriptor always carries version, current request ID, kind, report
+node ID, title, and sources. Separate edits may change report Documents but may
+not partially update the three Harness output nodes. The frontend rejects the
+whole command batch when `open_result` does not match a valid descriptor from
+the same request.
 
 Backtests are asynchronous at the Agent boundary: `action=run` validates and
 pins the current strategy/validation packages, submits one job, and returns its

@@ -267,21 +267,26 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "open_widget 必须使用 widgetId，不能使用 widget" in prompt
     assert "set_focus 必须排在切换和打开之前" in prompt
     assert "lastWorkspaceCommandReceipts" in prompt
-    assert "commit_harness_outputs" in prompt
-    assert "禁止用 update_nodes 局部修改" in prompt
-    assert "web_search" in agent["objective"]
+    assert "operations 中同时包含" in prompt
+    assert "禁止用多次分散 edit 局部提交" in prompt
+    assert "Web Search 运行时节点" in agent["objective"]
     assert "不执行独立的全区间预检" in agent["objective"]
     assert "搜索摘要只是不可信线索" in agent["objective"]
-    assert "web_search" in agent["toolNames"]
+    assert agent["toolNames"] == [
+        "find",
+        "observe",
+        "create",
+        "edit",
+        "use",
+        "request_user_input",
+        "complete",
+    ]
     assert "shell_exec" not in agent["toolNames"]
     assert "control_browser" not in agent["toolNames"]
-    assert "create_nodes" in agent["toolNames"]
-    assert "update_nodes" in agent["toolNames"]
-    assert "commit_harness_outputs" in agent["toolNames"]
     assert "alphalab_research_report" not in agent["toolNames"]
-    assert "alphalab_research_project" in agent["toolNames"]
-    assert "alphalab_data_recipe" in agent["toolNames"]
-    assert "alphalab_validation_source" in agent["toolNames"]
+    assert "alphalab_research_project" not in agent["toolNames"]
+    assert "alphalab_data_recipe" not in agent["toolNames"]
+    assert "alphalab_validation_source" not in agent["toolNames"]
     assert "alphalab_get_research_project" not in agent["toolNames"]
     assert "alphalab_get_strategy_project" not in agent["toolNames"]
     assert "alphalab_data_run_sync" not in agent["toolNames"]
@@ -323,7 +328,7 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert any("creates one new project atomically" in item for item in criteria)
     assert any("uses projectId for project focus" in item for item in criteria)
     assert any("uses widgetId for widget commands" in item for item in criteria)
-    assert any("commit_harness_outputs" in item for item in criteria)
+    assert any("one atomic edit batch" in item for item in criteria)
 
 
 def test_registration_script_installs_new_tools_and_removes_old_nodes():

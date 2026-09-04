@@ -285,7 +285,7 @@
         "Trusted-local Python was described accurately as process-contained but not sandboxed.",
         "Factor evaluation, signal preview, portfolio decisions, event handlers, and backtests load one StrategySourcePackage without translation or fallback.",
         "The decisionNotebook output is updated before completion.",
-        "The Agent atomically commits summary, decisionNotebook, workspaceResult, and workspaceCommands through commit_harness_outputs; it never partially updates the three Harness output nodes through update_nodes.",
+        "The Agent writes decisionNotebook, workspaceResult, and workspaceCommands through one atomic edit batch, then completes with the final summary; it never partially updates the three Harness output nodes through separate edits.",
         "A requested report updates a matching AlphaLab report Document when one exists and creates a new Document only for a genuinely new research subject.",
         "Interactive table data is included in workspaceResult only when sorting, filtering, or CSV export is useful.",
         "Structured charts are included only when they materially improve interpretation and every plotted series is grounded in current tool results.",
