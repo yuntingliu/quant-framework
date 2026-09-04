@@ -568,6 +568,9 @@ def test_rq_acquirer_filters_b_shares_without_filtering_etfs() -> None:
                     "order_book_id": symbols,
                     "symbol": symbols,
                     "listed_date": pd.Timestamp("2020-01-01"),
+                    "board_type": (
+                        ["MainBoard"] * len(symbols) if type == "CS" else [1] * len(symbols)
+                    ),
                 }
             )
 
@@ -585,6 +588,7 @@ def test_rq_acquirer_filters_b_shares_without_filtering_etfs() -> None:
         {"symbol": "600000.SH", "asset_type": "CS"},
         {"symbol": "510300.SH", "asset_type": "ETF"},
     ]
+    assert frame["board_type"].tolist() == ["MainBoard", "1"]
 
 
 def test_rq_acquirer_enforces_stock_and_quarter_batch_limits() -> None:

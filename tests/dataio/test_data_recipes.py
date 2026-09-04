@@ -24,7 +24,7 @@ from alphalab.dataio.recipes import (
     render_builtin_recipe,
     update_recipe_parameters,
 )
-from alphalab.dataio.runtime import OperationsStore
+from alphalab.dataio.runtime import OperationsStore, RuntimeStore
 from alphalab.dataio.sync import SyncJobManager
 
 
@@ -125,6 +125,45 @@ def test_visible_recipe_instrument_normalizer_keeps_only_a_shares_for_cs() -> No
 
     assert stocks["symbol"].tolist() == ["600000.SH"]
     assert funds["symbol"].tolist() == ["600000.SH", "900901.SH", "510300.SH"]
+
+
+def test_instrument_normalizer_stabilizes_board_type_across_stocks_and_etfs(
+    tmp_path,
+) -> None:
+    stocks = normalize_rq_instruments(
+        pd.DataFrame(
+            {
+                "order_book_id": ["600000.XSHG"],
+                "listed_date": [pd.Timestamp("2020-01-01")],
+                "board_type": ["MainBoard"],
+            }
+        ),
+        snapshot_date="2026-08-24",
+        asset_type="CS",
+    )
+    funds = normalize_rq_instruments(
+        pd.DataFrame(
+            {
+                "order_book_id": ["510300.XSHG"],
+                "listed_date": [pd.Timestamp("2020-01-01")],
+                "board_type": [1],
+            }
+        ),
+        snapshot_date="2026-08-24",
+        asset_type="ETF",
+    )
+
+    assert stocks.loc[0, "board_type"] == "MainBoard"
+    assert funds.loc[0, "board_type"] == "1"
+    assert isinstance(funds.loc[0, "board_type"], str)
+
+    store = RuntimeStore(tmp_path)
+    store.write("rq.instruments", stocks)
+    store.write("rq.instruments", funds)
+    persisted = store.read("rq.instruments").set_index("symbol")
+
+    assert persisted.loc["600000.SH", "board_type"] == "MainBoard"
+    assert persisted.loc["510300.SH", "board_type"] == "1"
 
 
 def test_manual_recipe_logic_is_custom_and_static_errors_have_a_phase() -> None:

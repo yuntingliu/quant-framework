@@ -16,10 +16,10 @@ from alphalab.dataio.rq_frames import (
     normalize_rq_bars,
     normalize_rq_daily_factor,
     normalize_rq_index_components,
+    normalize_rq_instruments,
     normalize_rq_market_state,
     require_same_keys,
 )
-from alphalab.dataio.symbols import is_a_share_symbol
 from alphalab.utils.env import load_env_files
 
 _BAR_FIELDS = ("open", "high", "low", "close", "volume", "amount")
@@ -230,6 +230,7 @@ class RQDataProvider:
         else:
             rq = self.client.connect()
             frames: list[pd.DataFrame] = []
+            snapshot_date = pd.Timestamp.now().normalize().strftime("%Y-%m-%d")
             for instrument_type in self.instrument_types:
                 try:
                     raw = rq.all_instruments(
@@ -238,10 +239,13 @@ class RQDataProvider:
                     )
                 except Exception as exc:
                     raise DataLoadError("RQData instrument request failed") from exc
-                frame = _reset_index(pd.DataFrame(raw))
-                if not frame.empty:
-                    frame["__requested_asset_type"] = instrument_type
-                    frames.append(frame)
+                normalized = normalize_rq_instruments(
+                    raw,
+                    snapshot_date=snapshot_date,
+                    asset_type=instrument_type,
+                )
+                if not normalized.empty:
+                    frames.append(normalized)
             if not frames:
                 self._instrument_cache = pd.DataFrame(
                     columns=[
@@ -253,39 +257,7 @@ class RQDataProvider:
                     ]
                 )
                 return self._instrument_cache.copy()
-            frame = pd.concat(frames, ignore_index=True)
-            columns = _columns(frame)
-            symbol_column = columns.get("order_book_id") or columns.get("symbol")
-            if symbol_column is None:
-                raise DataValidationError("RQData instruments do not include order_book_id")
-            out = pd.DataFrame(
-                {
-                    "snapshot_date": pd.Timestamp.now().normalize(),
-                    "retrieved_at": pd.Timestamp.now(tz="UTC").tz_localize(None),
-                    "symbol": frame[symbol_column].map(_from_rq_symbol),
-                    "asset_type": frame["__requested_asset_type"],
-                    "listed_date": _optional_datetime(
-                        frame,
-                        columns,
-                        "listed_date",
-                        "listed_at",
-                    ),
-                    "de_listed_date": _optional_datetime(
-                        frame,
-                        columns,
-                        "de_listed_date",
-                        "de_listed_at",
-                    ),
-                }
-            )
-            for source_column in frame.columns:
-                target = str(source_column).strip().lower()
-                if source_column == symbol_column or not target or target in out.columns:
-                    continue
-                out[target] = frame[source_column].to_numpy()
-            is_common_stock = out["asset_type"].astype(str).str.upper().eq("CS")
-            out = out.loc[~is_common_stock | out["symbol"].map(is_a_share_symbol)].copy()
-            out = out.dropna(subset=["symbol"])
+            out = pd.concat(frames, ignore_index=True).dropna(subset=["symbol"])
             self._instrument_cache = out.drop_duplicates("symbol", keep="last")
             out = self._instrument_cache.copy()
         if asof_date is not None:

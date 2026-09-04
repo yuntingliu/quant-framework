@@ -140,7 +140,14 @@ def test_rq_provider_supports_etf_and_lof_instrument_scopes() -> None:
         def all_instruments(self, **kwargs):
             self.instrument_calls.append(kwargs)
             symbol = "510300.XSHG" if kwargs["type"] == "ETF" else "160105.XSHE"
-            return pd.DataFrame({"order_book_id": [symbol], "exchange": ["XSHG"]})
+            board_type = 1 if kwargs["type"] == "ETF" else "Fund"
+            return pd.DataFrame(
+                {
+                    "order_book_id": [symbol],
+                    "exchange": ["XSHG"],
+                    "board_type": [board_type],
+                }
+            )
 
     module = FundRQData()
     client = RQDataClient(
@@ -159,6 +166,7 @@ def test_rq_provider_supports_etf_and_lof_instrument_scopes() -> None:
         {"symbol": "510300.SH", "asset_type": "ETF"},
         {"symbol": "160105.SZ", "asset_type": "LOF"},
     ]
+    assert instruments["board_type"].tolist() == ["1", "Fund"]
 
 
 def test_rq_fundamentals_are_point_in_time_and_batched() -> None:

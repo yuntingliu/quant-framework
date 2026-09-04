@@ -30,9 +30,10 @@ yield curve is converted from an annual yield to the monthly `rf` return.
 Daily synchronization requests `get_price(fields=None)` and preserves every
 field returned by the installed RQ SDK in addition to the canonical OHLCV names
 and unadjusted OHLC. Instrument snapshots likewise retain provider metadata
-columns. Numeric market and canonical PIT fields are discovered from Parquet
-metadata and become safe factor-expression inputs without a frontend whitelist
-update.
+columns, while categorical `board_type` is normalized to a nullable string
+across stocks and ETFs before publication. Numeric market and canonical PIT
+fields are discovered from Parquet metadata and become safe factor-expression
+inputs without a frontend whitelist update.
 
 The built-in bar recipe declares unadjusted OHLC as required persisted columns.
 If an older `rq.bars` partition only contains `raw_close`, its date watermark is

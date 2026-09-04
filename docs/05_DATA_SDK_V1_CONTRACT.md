@@ -41,6 +41,12 @@ The normalizer preserves the adjusted provider schema and adds unadjusted
 matching unadjusted execution price; factor research continues to use adjusted
 OHLC.
 
+Instrument normalization also gives provider classification fields a stable
+cross-asset representation. In particular, `board_type` is a nullable string
+for both stocks and ETFs even when RQData returns an integer ETF code. A dated
+`rq.instruments` partition can therefore merge different asset types without
+creating an object column that Parquet cannot encode consistently.
+
 Production recipes place those visible RQ calls inside
 `context.sync_batches(...)`. The helper uses persisted per-symbol watermarks,
 listing dates, an explicit overlap, and optional field companions to return

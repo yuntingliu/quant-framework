@@ -14,9 +14,10 @@ from alphalab.dataio.rq_frames import (
     normalize_rq_bars,
     normalize_rq_daily_factor,
     normalize_rq_index_components,
+    normalize_rq_instruments,
     normalize_rq_market_state,
 )
-from alphalab.dataio.symbols import is_a_share_symbol, to_framework_symbol, to_rq_symbol
+from alphalab.dataio.symbols import to_framework_symbol, to_rq_symbol
 
 RQ_FACTOR_ALIASES = {
     "float_market_cap": "a_share_market_val_in_circulation",
@@ -94,53 +95,22 @@ class RQAcquirer:
                     market=market,
                 )
             )
-            typed = _reset(pd.DataFrame(raw))
-            if not typed.empty:
-                typed["__requested_asset_type"] = instrument_type
-                frames.append(typed)
+            normalized = normalize_rq_instruments(
+                raw,
+                snapshot_date=snapshot_date,
+                asset_type=instrument_type,
+            )
+            if not normalized.empty:
+                frames.append(normalized)
         if not frames:
             raise DataLoadError(
                 f"RQData returned no instruments for types {list(instrument_types)}"
             )
-        frame = pd.concat(frames, ignore_index=True)
-        columns = _columns(frame)
-        symbol_column = columns.get("order_book_id") or columns.get("symbol")
-        if symbol_column is None:
-            raise DataValidationError("RQ instruments do not include order_book_id")
-        output = pd.DataFrame(
-            {
-                "snapshot_date": pd.Timestamp(snapshot_date).normalize(),
-                "retrieved_at": pd.Timestamp.now(tz="UTC").tz_localize(None),
-                "symbol": frame[symbol_column].map(to_framework_symbol),
-                "asset_type": frame["__requested_asset_type"],
-                "name": _series(frame, columns, "symbol", "display_name", "name"),
-                "listed_date": pd.to_datetime(
-                    _series(frame, columns, "listed_date", "listed_at"),
-                    errors="coerce",
-                ),
-                "de_listed_date": pd.to_datetime(
-                    _series(frame, columns, "de_listed_date", "de_listed_at"),
-                    errors="coerce",
-                ),
-                "status": _series(frame, columns, "status"),
-                "is_st": _series(frame, columns, "is_st"),
-                "industry": _series(
-                    frame,
-                    columns,
-                    "industry",
-                    "industry_name",
-                    "sector_code",
-                ),
-            }
+        return (
+            pd.concat(frames, ignore_index=True)
+            .dropna(subset=["symbol"])
+            .drop_duplicates(["snapshot_date", "symbol"])
         )
-        for source_column in frame.columns:
-            target = str(source_column).strip().lower()
-            if source_column == symbol_column or not target or target in output.columns:
-                continue
-            output[target] = frame[source_column].to_numpy()
-        is_common_stock = output["asset_type"].astype(str).str.upper().eq("CS")
-        output = output.loc[~is_common_stock | output["symbol"].map(is_a_share_symbol)].copy()
-        return output.dropna(subset=["symbol"]).drop_duplicates(["snapshot_date", "symbol"])
 
     def daily_bars(
         self,

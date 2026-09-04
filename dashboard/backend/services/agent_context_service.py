@@ -21,7 +21,14 @@ _catalog_cached_value: dict | None = None
 def _safe_error_summary(value: object) -> str | None:
     if value in (None, ""):
         return None
-    summary = str(value).splitlines()[0]
+    lines = [line.strip() for line in str(value).splitlines() if line.strip()]
+    if not lines:
+        return None
+    summary = (
+        lines[-1]
+        if any(line.startswith("Traceback (most recent call last)") for line in lines)
+        else lines[0]
+    )
     summary = re.sub(r"[A-Za-z]:\\[^\s\"']+", "<internal-path>", summary)
     summary = re.sub(
         r"(?<![:/\w])/(?!/)(?:[^/\s]+/)+[^\s\"']+",

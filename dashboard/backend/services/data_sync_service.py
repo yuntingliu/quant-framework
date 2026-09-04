@@ -44,7 +44,17 @@ _PREVIOUS_DEFAULT_RECIPE_ID = "rq.a_share_daily"
 def _safe_error_summary(value: object) -> str | None:
     if value in (None, ""):
         return None
-    summary = str(value).splitlines()[0]
+    lines = [line.strip() for line in str(value).splitlines() if line.strip()]
+    if not lines:
+        return None
+    # Recipe subprocess failures retain an internal traceback for operators.
+    # The useful public cause is its final exception line, not the generic
+    # ``Traceback (most recent call last)`` header.
+    summary = (
+        lines[-1]
+        if any(line.startswith("Traceback (most recent call last)") for line in lines)
+        else lines[0]
+    )
     summary = re.sub(r"[A-Za-z]:\\[^\s\"']+", "<internal-path>", summary)
     summary = re.sub(
         r"(?<![:/\w])/(?!/)(?:[^/\s]+/)+[^\s\"']+",

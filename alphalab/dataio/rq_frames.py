@@ -71,6 +71,12 @@ def normalize_rq_instruments(
         if source_column == symbol_column or not target or target in output.columns:
             continue
         output[target] = frame[source_column].to_numpy()
+    # RQData exposes board_type as text for common stocks but as an integer
+    # classification for ETFs.  Instrument snapshots share one dated Parquet
+    # partition, so normalize this categorical provider field before a stock
+    # snapshot and an ETF row are merged.
+    if "board_type" in output:
+        output["board_type"] = output["board_type"].astype("string")
     if str(asset_type).upper() == "CS":
         output = output.loc[output["symbol"].map(is_a_share_symbol)].copy()
     return output.dropna(subset=["symbol"]).drop_duplicates(["snapshot_date", "symbol"])

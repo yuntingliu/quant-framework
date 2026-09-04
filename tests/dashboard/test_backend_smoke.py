@@ -397,6 +397,26 @@ def test_public_sync_job_is_status_only_and_sanitized():
     }
 
 
+def test_public_sync_job_reports_the_terminal_traceback_cause():
+    value = data_sync_service._public_job(
+        {
+            "id": "sync-2",
+            "status": "failed",
+            "error": (
+                "Traceback (most recent call last):\n"
+                '  File "/srv/releases/worker.py", line 10, in run\n'
+                "pyarrow.lib.ArrowTypeError: Conversion failed for column board_type"
+            ),
+            "request": {"project_id": "project"},
+        }
+    )
+
+    assert value["error_summary"] == (
+        "pyarrow.lib.ArrowTypeError: Conversion failed for column board_type"
+    )
+    assert "/srv/" not in value["error_summary"]
+
+
 def test_sdk_documentation_uses_one_versioned_guide() -> None:
     client = TestClient(app)
 
