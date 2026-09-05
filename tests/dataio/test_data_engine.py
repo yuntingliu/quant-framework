@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pandas as pd
 
-from alphalab.dataio import DataEngine, LocalParquetInstrumentProvider, create_default_engine
+from alphalab.dataio import (
+    DataEngine,
+    LocalParquetInstrumentProvider,
+    create_default_engine,
+    create_runtime_engine,
+)
+from alphalab.dataio.runtime import RuntimeStore
 
 
 def test_default_engine_reads_generic_local_parquet(tmp_path):
@@ -75,3 +81,26 @@ def test_instrument_master_keeps_asset_slices_from_different_snapshots(tmp_path)
 
     assert engine.get_instruments(None)["symbol"].tolist() == ["000001.SZ"]
     assert set(engine.get_instrument_master()["symbol"]) == {"510300.SH", "000001.SZ"}
+
+
+def test_runtime_instrument_provider_uses_rq_type_when_asset_type_is_null(tmp_path):
+    RuntimeStore(tmp_path).write(
+        "rq.instruments",
+        pd.DataFrame(
+            {
+                "snapshot_date": pd.to_datetime(["2026-08-25", "2026-08-25"]),
+                "symbol": ["000001.SZ", "510300.SH"],
+                "asset_type": [None, "ETF"],
+                "type": ["CS", "ETF"],
+                "listed_date": pd.to_datetime(["1991-04-03", "2012-05-28"]),
+                "de_listed_date": [pd.NaT, pd.NaT],
+            }
+        ),
+    )
+
+    instruments = create_runtime_engine(tmp_path).get_instrument_master()
+
+    assert instruments.set_index("symbol")["asset_type"].to_dict() == {
+        "000001.SZ": "CS",
+        "510300.SH": "ETF",
+    }

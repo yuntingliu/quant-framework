@@ -718,8 +718,11 @@ class RuntimeStore:
         *,
         dimension: tuple[str, str] | None = None,
         required_columns: tuple[str, ...] = (),
+        start_date: str | pd.Timestamp | None = None,
+        end_date: str | pd.Timestamp | None = None,
+        available_from: dict[str, Any] | None = None,
     ) -> dict[str, pd.Timestamp]:
-        """Return latest stored date per symbol when the persisted schema is current."""
+        """Return latest valid stored date per symbol for the requested interval."""
 
         spec = self.catalog.spec(dataset)
         if spec.date_column is None:
@@ -728,20 +731,29 @@ class RuntimeStore:
         result: dict[str, pd.Timestamp] = {}
         files = self.catalog.files(dataset)
         required = set(required_columns)
-        if required and any(
-            not required.issubset(set(pq.ParquetFile(path).schema.names)) for path in files
-        ):
-            # A schema upgrade must replay the requested interval instead of
-            # trusting date watermarks written by the older payload shape.
-            return {}
+        invalid_symbols: set[str] = set()
+        first_dates: dict[str, pd.Timestamp] = {}
+        lower = pd.Timestamp(start_date).normalize() if start_date is not None else None
+        upper = pd.Timestamp(end_date).normalize() if end_date is not None else None
+        listed = {
+            str(symbol).strip().upper(): pd.Timestamp(value).normalize()
+            for symbol, value in dict(available_from or {}).items()
+            if value is not None and not pd.isna(value)
+        }
         for path in files:
-            columns = [date_column, "symbol"]
+            schema = set(pq.ParquetFile(path).schema.names)
+            columns = [date_column, "symbol", *(column for column in required if column in schema)]
             if dimension is not None:
                 columns.append(dimension[0])
             try:
                 frame = pd.read_parquet(path, columns=list(dict.fromkeys(columns)))
             except (KeyError, ValueError):
                 continue
+            frame[date_column] = pd.to_datetime(frame[date_column], errors="coerce")
+            if lower is not None:
+                frame = frame.loc[frame[date_column].ge(lower)]
+            if upper is not None:
+                frame = frame.loc[frame[date_column].le(upper)]
             if dimension is not None:
                 name, value = dimension
                 if name not in frame:
@@ -749,7 +761,24 @@ class RuntimeStore:
                 frame = frame.loc[frame[name].astype(str).eq(str(value))]
             if frame.empty or "symbol" not in frame:
                 continue
-            frame[date_column] = pd.to_datetime(frame[date_column], errors="coerce")
+            normalized_symbols = frame["symbol"].astype(str).str.upper()
+            if required:
+                if not required.issubset(schema):
+                    invalid_symbols.update(normalized_symbols)
+                    continue
+                invalid = frame[list(required)].isna().any(axis=1)
+                invalid_symbols.update(normalized_symbols.loc[invalid])
+                frame = frame.loc[~invalid]
+            for symbol, earliest in (
+                frame.dropna(subset=[date_column, "symbol"])
+                .groupby("symbol")[date_column]
+                .min()
+                .items()
+            ):
+                key = str(symbol).upper()
+                timestamp = pd.Timestamp(earliest).normalize()
+                if key not in first_dates or timestamp < first_dates[key]:
+                    first_dates[key] = timestamp
             for symbol, latest in (
                 frame.dropna(subset=[date_column, "symbol"])
                 .groupby("symbol")[date_column]
@@ -760,6 +789,16 @@ class RuntimeStore:
                 timestamp = pd.Timestamp(latest).normalize()
                 if key not in result or timestamp > result[key]:
                     result[key] = timestamp
+        for symbol in invalid_symbols:
+            result.pop(symbol, None)
+        if lower is not None:
+            # Trading calendars and initial suspensions can delay the first row,
+            # but a missing full month means the requested history is incomplete.
+            tolerance = pd.Timedelta(days=31)
+            for symbol in list(result):
+                expected = max(lower, listed.get(symbol, lower))
+                if first_dates.get(symbol, expected) > expected + tolerance:
+                    result.pop(symbol, None)
         return result
 
     def dimension_watermarks(self, dataset: str, dimension: str) -> dict[str, pd.Timestamp]:

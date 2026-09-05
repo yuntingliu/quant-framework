@@ -817,10 +817,21 @@ class SyncJobManager:
 
 
 def _run_recipe_job(root: Path, job_id: str) -> dict:
+    # The workstation and the private Agent API are separate processes over the
+    # same runtime. Both may discover a persisted queued job during lazy manager
+    # initialization, so claim the shared execution lane before inspecting its
+    # status and skip work another process already completed.
+    with RuntimeStore(root).dataset_lock("sync-job-queue", timeout_seconds=1800.0):
+        return _run_recipe_job_exclusive(root, job_id)
+
+
+def _run_recipe_job_exclusive(root: Path, job_id: str) -> dict:
     operations = OperationsStore(root)
     job = operations.get_job(job_id)
     if job is None:
         raise KeyError(job_id)
+    if job["status"] in {"succeeded", "failed", "cancelled", "interrupted"}:
+        return job
     request = dict(job["request"])
     source = str(request.get("recipe_source") or "")
     operations.update_job(

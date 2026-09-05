@@ -1810,6 +1810,30 @@ def test_backtest_uses_listing_intervals_when_instrument_snapshot_is_later(
     assert result.benchmark_symbols == ("A", "B")
 
 
+def test_strict_backtest_with_no_selected_candidates_is_not_research_valid(tmp_path: Path):
+    source = _daily_universe_strategy_source().replace(
+        "symbols=[symbol for symbol in context.universe if symbol in common_stocks]",
+        "symbols=[]",
+    )
+    engine = _PartialExecutionDataEngine()
+    repository = StrategyRepository(tmp_path / "no-candidates.db")
+    try:
+        repository.create_project("no-candidates", name="No candidates", source=source)
+        result = run_strategy_backtest(
+            repository,
+            "no-candidates",
+            engine.dates[0].strftime("%Y-%m-%d"),
+            engine.dates[-1].strftime("%Y-%m-%d"),
+            engine,
+        )
+    finally:
+        repository.close()
+
+    assert result.diagnostics["execution_summary"]["attempted_trade_count"] == 0
+    assert result.diagnostics["research_valid"] is False
+    assert "NO_TRADABLE_CANDIDATES" in result.diagnostics["research_invalid_reasons"]
+
+
 def test_strict_backtest_excludes_candidates_with_missing_execution_data(tmp_path: Path):
     engine = _PartialExecutionDataEngine()
     repository = StrategyRepository(tmp_path / "strict-data.db")

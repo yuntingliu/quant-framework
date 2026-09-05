@@ -578,6 +578,10 @@ def run_strategy_backtest(
         research_invalid_reasons.append("ILLUSTRATIVE_EXECUTION_DATA")
     if execution_summary["market_state_rejection_count"]:
         research_invalid_reasons.append("MISSING_EXECUTION_STATE")
+    if signal_evidence_rows and not any(
+        int(item.get("selected_count") or 0) > 0 for item in signal_evidence_rows
+    ):
+        research_invalid_reasons.append("NO_TRADABLE_CANDIDATES")
     if execution_fidelity["persistent_exit_failure_symbols"]:
         research_invalid_reasons.append("PERSISTENT_EXIT_FAILURE")
     if (
@@ -602,6 +606,10 @@ def run_strategy_backtest(
         warnings.add(
             "LOW_EXECUTION_FIDELITY: the actual portfolio repeatedly remained materially "
             "different from the requested target"
+        )
+    if "NO_TRADABLE_CANDIDATES" in research_invalid_reasons:
+        warnings.add(
+            "NO_TRADABLE_CANDIDATES: no signal period produced a tradable target portfolio"
         )
     return StrategyBacktestResult(
         project=project,

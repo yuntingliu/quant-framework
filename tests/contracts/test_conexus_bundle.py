@@ -138,6 +138,8 @@ def test_sdk_skill_is_a_single_injected_command_guide():
     assert "conversationHistory 是 server-shared" in prompt
     assert "不得授权本轮写入、删除、取消或 Python 执行" in prompt
     assert "operations 中同时包含" in prompt
+    assert "set.content" in prompt
+    assert "禁止只更新 data 而留下旧 content" in prompt
     assert "lastWorkspaceCommandReceipts" in prompt
     assert agent["toolNames"] == [
         "find",

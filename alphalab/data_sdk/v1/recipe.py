@@ -263,6 +263,9 @@ class DataRecipeContext:
                     candidate,
                     dimension=dimension,
                     required_columns=required if candidate == dataset_id else (),
+                    start_date=requested_start,
+                    end_date=requested_end,
+                    available_from=listed,
                 )
                 for candidate in (dataset_id, *companion_ids)
             ]
