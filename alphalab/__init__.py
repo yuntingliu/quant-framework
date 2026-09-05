@@ -16,6 +16,7 @@ from alphalab.store import ResultStore
 from alphalab.strategy.engine import (
     StrategyBacktestResult,
     evaluate_factor_history,
+    evaluate_factor_research,
     evaluate_factor_snapshot,
     preview_strategy,
     run_strategy_backtest,
@@ -35,6 +36,7 @@ __all__ = [
     "create_rq_engine_from_env",
     "create_runtime_engine",
     "evaluate_factor_history",
+    "evaluate_factor_research",
     "evaluate_factor_snapshot",
     "inspect_strategy_source",
     "preview_strategy",

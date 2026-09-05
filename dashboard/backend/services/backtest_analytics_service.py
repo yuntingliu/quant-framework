@@ -620,6 +620,28 @@ def analyze_signal_diagnostics(backtest_id: str) -> dict:
     }
 
 
+def analyze_validation(backtest_id: str) -> dict:
+    """Return named validation outputs frozen with one BacktestRun."""
+
+    record = get_backtest(backtest_id)
+    if record is None:
+        raise KeyError(backtest_id)
+    outputs = record.get("validation_output")
+    if not isinstance(outputs, dict) or not outputs:
+        return {
+            "id": record["id"],
+            "available_analyses": [],
+            "outputs": {},
+            "warnings": ["This historical backtest has no frozen validation output"],
+        }
+    return {
+        "id": record["id"],
+        "available_analyses": sorted(str(name) for name in outputs),
+        "outputs": outputs,
+        "warnings": [],
+    }
+
+
 def _finite_mapping(value: Any) -> dict[str, float]:
     if not isinstance(value, dict):
         return {}

@@ -160,6 +160,10 @@ def test_tools_use_the_project_sdk_v1_contract():
         "market_risk"
         in tools["alphalab_backtest_analysis"]["inputSchema"]["properties"]["action"]["enum"]
     )
+    assert (
+        "validation"
+        in tools["alphalab_backtest_analysis"]["inputSchema"]["properties"]["action"]["enum"]
+    )
     data_limit = tools["alphalab_data_query"]["inputSchema"]["properties"]["limit"]
     assert data_limit["maximum"] == 50
     assert data_limit["default"] == 10
@@ -171,6 +175,8 @@ def test_tools_use_the_project_sdk_v1_contract():
     assert factor["inputSchema"]["properties"]["sample_size"]["maximum"] == 10
     assert "statistics" in factor["code"]
     assert "sampledSnapshots" in factor["code"]
+    assert "research" in factor["inputSchema"]["properties"]["action"]["enum"]
+    assert "sampledEvidence" in factor["code"]
 
     preview = tools["alphalab_strategy_preview"]["code"]
     assert "universe_count" in preview

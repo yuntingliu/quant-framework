@@ -51,6 +51,38 @@ interface FactorHistoryResult {
   revision?: number
   source_sha256?: string
 }
+interface FactorResearchResult {
+  factor_id: string
+  status: "sufficient" | "insufficient"
+  frequency: string
+  periods: number
+  summary: {
+    mean_rank_ic: number | null
+    icir: number | null
+    newey_west_t_stat: number | null
+    positive_ic_ratio: number | null
+    average_coverage: number | null
+    average_top_turnover: number | null
+    bootstrap_mean_ic_95: { lower: number | null; upper: number | null }
+    long_short: Record<string, number | null>
+  }
+  stability: {
+    split_date: string | null
+    development: { periods: number; mean_rank_ic: number | null }
+    validation: { periods: number; mean_rank_ic: number | null }
+  }
+  point_in_time_audit: Record<string, boolean | string>
+  rows: Array<{
+    signal_date: string
+    entry_date: string
+    exit_date: string
+    observations: number
+    coverage: number
+    rank_ic: number
+    long_short: number
+  }>
+  warnings: string[]
+}
 
 interface FactorTemplate {
   id: string
@@ -258,9 +290,10 @@ function FactorMarketBrowser({ fields }: { fields: FieldCatalog | null }) {
   )
 }
 
-function FactorResultPanels({ snapshot, history }: {
+function FactorResultPanels({ snapshot, history, research }: {
   snapshot: FactorSnapshotResult | null
   history: FactorHistoryResult | null
+  research: FactorResearchResult | null
 }) {
   const latest = snapshot?.values ?? history?.snapshots?.at(-1)?.values ?? []
   const finite = latest
@@ -271,7 +304,7 @@ function FactorResultPanels({ snapshot, history }: {
   const minimum = values.length ? Math.min(...values) : null
   const maximum = values.length ? Math.max(...values) : null
   const historyRows = history?.snapshots ?? []
-  if (!snapshot && !history) return <div className="analytics-empty">运行最近截面或历史检验后，这里显示覆盖率、分布和高低分证券。</div>
+  if (!snapshot && !history && !research) return <div className="analytics-empty">运行最近截面、历史检验或研究证据后，这里显示覆盖率、预测能力和高低分证券。</div>
 
   return (
     <div className="factor-results-grid">
@@ -299,6 +332,21 @@ function FactorResultPanels({ snapshot, history }: {
           {(snapshot?.invoked || history?.invoked)?.length ? <div className="mt-3 text-xs text-muted-foreground">依赖链：{(snapshot?.invoked || history?.invoked)?.join(" → ")}</div> : null}
         </div>
       </section>
+      {research ? <section className="factor-lab-panel embedded">
+        <header className="factor-panel-header"><span><strong>研究证据</strong><small>下一交易日开盘起算 · 70/30 时序留出</small></span><Badge variant={research.status === "sufficient" ? "secondary" : "outline"}>{research.status}</Badge></header>
+        <div className="factor-panel-scroll">
+          {research.warnings.map((warning) => <div className="workbench-message warning" key={warning}>{warning}</div>)}
+          <div className="stage-kpi-grid three">
+            <div><span>平均 Rank IC</span><strong>{displayValue(research.summary.mean_rank_ic)}</strong></div>
+            <div><span>ICIR</span><strong>{displayValue(research.summary.icir)}</strong></div>
+            <div><span>NW t 值</span><strong>{displayValue(research.summary.newey_west_t_stat)}</strong></div>
+            <div><span>评分覆盖</span><strong>{typeof research.summary.average_coverage === "number" ? `${(research.summary.average_coverage * 100).toFixed(1)}%` : "—"}</strong></div>
+            <div><span>开发期 IC</span><strong>{displayValue(research.stability.development.mean_rank_ic)}</strong></div>
+            <div><span>验证期 IC</span><strong>{displayValue(research.stability.validation.mean_rank_ic)}</strong></div>
+          </div>
+          <div className="analytics-table-wrap mt-3"><table className="analytics-table compact"><thead><tr><th>信号日</th><th>入场/退出</th><th>覆盖</th><th>Rank IC</th><th>多空收益</th></tr></thead><tbody>{research.rows.slice(-12).reverse().map((row) => <tr key={row.signal_date}><td>{row.signal_date}</td><td>{row.entry_date} → {row.exit_date}</td><td>{(row.coverage * 100).toFixed(1)}%（n={row.observations}）</td><td>{displayValue(row.rank_ic)}</td><td>{(row.long_short * 100).toFixed(2)}%</td></tr>)}</tbody></table></div>
+        </div>
+      </section> : null}
     </div>
   )
 }
@@ -320,6 +368,7 @@ export function FactorWorkbenchWidget() {
   const [error, setError] = useState("")
   const [snapshot, setSnapshot] = useState<FactorSnapshotResult | null>(null)
   const [history, setHistory] = useState<FactorHistoryResult | null>(null)
+  const [research, setResearch] = useState<FactorResearchResult | null>(null)
   const [templateQuery, setTemplateQuery] = useState("")
   const [templateCategory, setTemplateCategory] = useState<"all" | "technical" | "fundamental">("all")
   const [installingTemplate, setInstallingTemplate] = useState("")
@@ -345,7 +394,7 @@ export function FactorWorkbenchWidget() {
   }, [templateCategory, templateQuery, templatesQuery.data?.templates])
 
   useEffect(() => {
-    setSnapshot(null); setHistory(null)
+    setSnapshot(null); setHistory(null); setResearch(null)
     if (!projectProfile) return
     void api.get<FieldCatalog>(`/strategy/fields?profile=${projectProfile}`).then((value) => {
       setFields(value); setStartDate(value.start_date); setEndDate(value.end_date)
@@ -399,6 +448,7 @@ export function FactorWorkbenchWidget() {
     setSelectedFactor(factorId)
     setSnapshot(null)
     setHistory(null)
+    setResearch(null)
   }
   async function addFactor() {
     if (!project?.editable || busy) return
@@ -417,7 +467,7 @@ export function FactorWorkbenchWidget() {
       setSavedFactorSource("")
       setSelectedFactor(added.factor.id)
       setWorkspaceView("build")
-      setSnapshot(null); setHistory(null)
+      setSnapshot(null); setHistory(null); setResearch(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -484,24 +534,28 @@ export function FactorWorkbenchWidget() {
       setFactorSource("")
       setSavedFactorSource("")
       setSelectedFactor(nextFactor?.id ?? "")
-      setSnapshot(null); setHistory(null)
+      setSnapshot(null); setHistory(null); setResearch(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setBusy(false)
     }
   }
-  async function evaluate(mode: "snapshot" | "history") {
+  async function evaluate(mode: "snapshot" | "history" | "research") {
     if (!project || project.dirty || factorDirty || !activeFactor) return
     if (!await confirm({
-      title: mode === "history" ? "运行因子历史检验" : "运行因子截面检验",
+      title: mode === "research" ? "运行因子研究证据" : mode === "history" ? "运行因子历史检验" : "运行因子截面检验",
       description: `将运行当前已保存的 @factor ${activeFactor.id}。本机 Python 不是安全沙箱。`,
       confirmText: "确认运行",
     })) return
     setBusy(true); setError("")
     try {
       const endpoint = `/strategy/projects/${project.id}/factors/${activeFactor.id}/${mode}`
-      if (mode === "history") setHistory(await api.post<FactorHistoryResult>(endpoint, {
+      if (mode === "research") setResearch(await api.post<FactorResearchResult>(endpoint, {
+        profile: project.profile, start_date: startDate, end_date: endDate, revision: project.current_revision,
+        frequency: "monthly", quantiles: 5, horizons: [1, 3, 6], parameters: {}, confirm_python_execution: true,
+      }))
+      else if (mode === "history") setHistory(await api.post<FactorHistoryResult>(endpoint, {
         profile: project.profile, start_date: startDate, end_date: endDate, revision: project.current_revision,
         frequency: "monthly", parameters: {}, confirm_python_execution: true,
       }))
@@ -564,8 +618,8 @@ export function FactorWorkbenchWidget() {
           </div></TabsContent>
 
           <TabsContent className="factor-workbench-content" value="results"><div className="factor-final-validation">
-            <div className="factor-final-validation-intro"><div><FlaskConical size={16} /><span><strong>单因子检验</strong><small>选择一个已保存因子，运行截面或历史检验。</small></span></div><div className="factor-validation-controls"><label className="factor-validation-control"><span>检验因子</span><select value={activeFactor?.id ?? ""} disabled={busy || factorDirty || factors.length === 0} onChange={(event) => selectProjectFactor(event.target.value)}>{factors.map((factor) => <option key={factor.id} value={factor.id}>{factor.label ? `${factor.label} (${factor.id})` : factor.id}</option>)}</select></label><label className="factor-validation-control"><span>开始</span><Input className="h-8" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label className="factor-validation-control"><span>结束</span><Input className="h-8" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label><Button size="sm" variant="outline" disabled={busy || hasUnsavedChanges || !activeFactor} onClick={() => void evaluate("snapshot")}><Play />截面检验</Button><Button size="sm" disabled={busy || hasUnsavedChanges || !activeFactor} onClick={() => void evaluate("history")}><Play />历史检验</Button></div></div>
-            <FactorResultPanels snapshot={snapshot} history={history} />
+            <div className="factor-final-validation-intro"><div><FlaskConical size={16} /><span><strong>单因子检验</strong><small>选择一个已保存因子，运行截面、历史分布或点时研究证据。</small></span></div><div className="factor-validation-controls"><label className="factor-validation-control"><span>检验因子</span><select value={activeFactor?.id ?? ""} disabled={busy || factorDirty || factors.length === 0} onChange={(event) => selectProjectFactor(event.target.value)}>{factors.map((factor) => <option key={factor.id} value={factor.id}>{factor.label ? `${factor.label} (${factor.id})` : factor.id}</option>)}</select></label><label className="factor-validation-control"><span>开始</span><Input className="h-8" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label className="factor-validation-control"><span>结束</span><Input className="h-8" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label><Button size="sm" variant="outline" disabled={busy || hasUnsavedChanges || !activeFactor} onClick={() => void evaluate("snapshot")}><Play />截面检验</Button><Button size="sm" variant="outline" disabled={busy || hasUnsavedChanges || !activeFactor} onClick={() => void evaluate("history")}><Play />历史分布</Button><Button size="sm" disabled={busy || hasUnsavedChanges || !activeFactor} onClick={() => void evaluate("research")}><Play />研究证据</Button></div></div>
+            <FactorResultPanels snapshot={snapshot} history={history} research={research} />
           </div></TabsContent>
         </Tabs>
       </div>

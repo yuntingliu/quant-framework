@@ -275,8 +275,11 @@ Harness output nodes.
 
 Validation source routes are under `/api/validation`. `validation.py` must
 declare `VALIDATION_SDK_VERSION = 1` and provide `performance` and `alpha_beta`
-`@analysis` functions. Each receives one `ValidationContext`; keyword-only
-literal defaults are form-editable. Saving requires `confirm_write`. Execution
+`@analysis` functions. Each receives one `ValidationContext`, including the
+read-only `run_diagnostics` captured by the same Run; keyword-only literal
+defaults are form-editable. The default source also provides `risk` and
+`research_quality`, while historical APIs read only persisted named outputs.
+Saving requires `confirm_write`. Execution
 uses the already confirmed backtest job's trusted-local Python boundary and
 must retain timeout and JSON-output limits.
 

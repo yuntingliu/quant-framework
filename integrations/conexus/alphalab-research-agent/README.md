@@ -9,9 +9,10 @@ project contract. One project contains:
 - `validation.py` for performance, Alpha/Beta, and custom post-run research.
 
 The Agent can create a project from the system default, inspect and edit those
-canonical files, synchronize and validate runtime data, evaluate factors,
-preview the saved strategy, run and compare pinned event backtests, and persist
-the final report. Strategy saves automatically record the internal immutable
+canonical files, synchronize and validate runtime data, evaluate factor research
+with next-open evidence, preview the saved strategy, run and compare pinned event
+backtests, inspect their frozen named validation outputs, and persist the final
+report. Strategy saves automatically record the internal immutable
 source package; no separate revision operation is exposed.
 
 Source writes and trusted-local Python execution retain explicit current-user

@@ -159,9 +159,12 @@ edits.
 `ValidationRepository` applies the same user-facing save model to
 `validation_sources` and immutable `validation_source_packages`. A Run pins
 both the strategy package and validation package before it enters the queue.
-The default `validation.py` visibly implements headline performance metrics and
-CAPM/multi-factor OLS with Newey-West errors. Its keyword-only literal defaults
-are CST-projected into the visual panel; custom Python stays intact.
+The default `validation.py` visibly implements headline performance metrics,
+CAPM/multi-factor OLS with Newey-West errors, historical tail risk and
+concentration, and research-evidence quality. Its keyword-only literal defaults
+are CST-projected into the visual panel; custom Python stays intact. Existing
+user projects are not rewritten; they receive the new source only through an
+explicit migration that creates a new validation revision.
 
 ## Runtime and event engine
 
@@ -175,11 +178,12 @@ surfaces capability-sensitive imports and calls, and every execution endpoint
 requires explicit `confirm_python_execution=true`. Docker is not used.
 
 After the event engine has produced returns, benchmark returns, weights,
-factor returns, executions, and settings, the pinned `validation.py` runs in a
+factor returns, executions, settings, and bounded run diagnostics, the pinned `validation.py` runs in a
 separate local Python subprocess with a timeout and JSON-output size limit.
 `ValidationContext` exposes copies of those frozen inputs and no engine mutation
-API. This process boundary contains crashes; it does not restrict filesystem or
-network permissions of trusted local code.
+API. Historical validation endpoints return the stored named outputs and never
+re-execute them against current source. This process boundary contains crashes;
+it does not restrict filesystem or network permissions of trusted local code.
 
 The backtest engine enumerates provider sessions and applies this sequence:
 
