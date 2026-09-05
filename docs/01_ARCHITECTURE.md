@@ -152,9 +152,11 @@ single initial strategy revision, while the separately stored recipe draft uses
 compensating cleanup if its write fails. The default project therefore always
 contributes the research data recipe, visible stock-type filter, editable
 `@execution_data_fill`, and canonical validation source. After creation, every
-copied file remains normal project-owned source that the user may edit in its
-workbench. Agent tools continue to expose only factor-template and structured
-edits.
+copied file remains normal project-owned source that the user or Agent may edit
+through the canonical project-file facade. Agent writes accept only the four
+project path forms, run the same validation and probes as the workbenches, and
+record the same immutable packages; they never expose an arbitrary filesystem
+path.
 
 `ValidationRepository` applies the same user-facing save model to
 `validation_sources` and immutable `validation_source_packages`. A Run pins

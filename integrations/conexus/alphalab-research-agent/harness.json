@@ -275,6 +275,7 @@
     "verification": {
       "successCriteria": [
         "The final answer is grounded in AlphaLab API results or clearly marked as a hypothesis.",
+        "The staged Agent received the bundled AlphaLab SDK skill and uses only the alphalab_project_files and alphalab_project_run logical tools for AlphaLab work.",
         "A request to create or implement a strategy creates one new project atomically and all later tool calls and set_focus commands use the project_id returned by that creation.",
         "Any backtest or signal action was explicitly requested by the user.",
         "Backtest run immediately returns a task ID and starts the background run without a separate full-range preflight.",

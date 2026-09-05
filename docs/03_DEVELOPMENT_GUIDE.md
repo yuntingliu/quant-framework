@@ -74,11 +74,14 @@ write fails. This restriction applies to Agent authoring only. The resulting
 `recipe.py`, `strategy.py`, `factors/*.py`, and `validation.py` remain visible
 and fully editable by the user through the canonical workbenches and APIs.
 
-Agent mutation tools must preserve the same boundary after creation: install a
-factor template before replacing its one registered function, use CST edits for
-strategy functions and parameters, apply or parameterize recipe templates, and
-parameterize the validation template. Do not expose whole-module writes through
-the Agent bundle; those APIs exist for direct user workbench editing.
+The Agent boundary exposes one project-file facade. It may replace a complete
+project-owned `recipe.py`, `strategy.py`, `validation.py`, or single-function
+`factors/<factor_id>.py`, but must call the same canonical save APIs used by the
+workbenches so assembly, static validation, probes, optimistic concurrency, and
+immutable package recording are unchanged. It must reject every path outside
+those four forms. New projects still start atomically from `sdk-v1-default`,
+and additional factors should be copied from maintained factor templates before
+code-level edits when a suitable template exists.
 
 ## SDK source rules
 
@@ -239,10 +242,13 @@ self-consistent: success exposes no error fields, and failure exposes no stale
 result identifier. Temporary write contention uses the stable `DATASET_BUSY`
 code rather than a market-coverage error.
 
-Every action-union Agent tool uses conditional JSON Schema requirements for its
-selected action. Its outer runtime boundary converts both local validation and
-HTTP failures into a structured safe error result; uncaught JavaScript errors
-must never expose temporary module paths or stacks.
+The Agent bundle exposes two compact command tools. Their schemas contain only
+the command, an args object, and explicit top-level confirmation flags; the
+injected AlphaLab SDK skill owns the command-specific argument guide. Runtime
+dispatch validates required arguments before contacting the API, and its outer
+boundary converts both local validation and HTTP failures into a structured safe
+error result. Uncaught JavaScript errors must never expose temporary module
+paths or stacks.
 
 SDK backtests calculate compact signal evidence in the event loop. Persist
 per-rebalance counts, coverage, turnover, and next-signal rank IC, never the

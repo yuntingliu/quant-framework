@@ -133,17 +133,8 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   delete_node: { zh: "删除研究报告", en: "Delete research report" },
   commit_harness_outputs: { zh: "原子提交研究结果", en: "Commit research outputs atomically" },
   list_nodes: { zh: "检查工作台节点", en: "Inspect workspace nodes" },
-  alphalab_get_workspace_context: { zh: "读取项目与数据目录", en: "Read project and data catalog" },
-  alphalab_research_project: { zh: "研究项目", en: "Research project" },
-  alphalab_data_recipe: { zh: "数据配方", en: "Data recipe" },
-  alphalab_data_sync_job: { zh: "数据同步任务", en: "Data sync job" },
-  alphalab_data_query: { zh: "查询运行时数据", en: "Query runtime data" },
-  alphalab_strategy_source: { zh: "策略源码", en: "Strategy source" },
-  alphalab_factor_evaluation: { zh: "因子检验", en: "Factor evaluation" },
-  alphalab_strategy_preview: { zh: "策略预览", en: "Strategy preview" },
-  alphalab_validation_source: { zh: "验证源码", en: "Validation source" },
-  alphalab_backtest: { zh: "完整策略回测", en: "Strategy backtest" },
-  alphalab_backtest_analysis: { zh: "回测分析", en: "Backtest analysis" },
+  alphalab_project_files: { zh: "读取或修改项目文件", en: "Read or edit project files" },
+  alphalab_project_run: { zh: "运行量化研究", en: "Run quantitative research" },
 }
 
 function decisionNotebookFromCheckpoint(
