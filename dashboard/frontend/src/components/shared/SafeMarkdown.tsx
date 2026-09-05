@@ -5,6 +5,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize"
 import remarkGfm from "remark-gfm"
 
 import { cn } from "@/lib/utils"
+import "./SafeMarkdown.css"
 
 const safeDocumentSchema = {
   ...defaultSchema,
@@ -18,14 +19,14 @@ const safeDocumentSchema = {
 
 export function SafeMarkdown({ children, className }: { children: string; className?: string }) {
   return (
-    <div className={cn("prose prose-sm max-w-none break-words dark:prose-invert", className)}>
+    <div className={cn("safe-markdown min-w-0 max-w-none break-words", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw, [rehypeSanitize, safeDocumentSchema]]}
         components={{
           a: ({ children: linkChildren, ...props }) => <a {...props} target="_blank" rel="noreferrer">{linkChildren}</a>,
           table: ({ children: tableChildren, ...props }) => (
-            <div className="max-w-full overflow-auto">
+            <div className="safe-markdown-table max-w-full overflow-x-auto">
               <table {...props}>{tableChildren}</table>
             </div>
           ),

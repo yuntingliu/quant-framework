@@ -1,0 +1,119 @@
+/* Scoped document typography: Tailwind's reset removes native heading,
+   list and table presentation. Keep reports, chat and SDK docs consistent. */
+.safe-markdown {
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+.safe-markdown :where(h1, h2, h3, h4, h5, h6) {
+  margin: 1.75em 0 0.75em;
+  font-weight: 600;
+  line-height: 1.4;
+  text-wrap: pretty;
+}
+
+.safe-markdown h1 { font-size: 1.875em; font-weight: 700; }
+.safe-markdown h2 { font-size: 1.5em; }
+.safe-markdown h3 { font-size: 1.25em; }
+.safe-markdown h4 { font-size: 1.125em; }
+.safe-markdown h5 { font-size: 1em; }
+.safe-markdown h6 { font-size: 0.925em; color: hsl(var(--muted-foreground)); }
+
+.safe-markdown :where(h1, h2) {
+  padding-bottom: 0.4em;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.safe-markdown :where(p, ul, ol, blockquote, pre, details, .safe-markdown-table) {
+  margin: 1em 0;
+}
+
+.safe-markdown > :first-child { margin-top: 0; }
+.safe-markdown > :last-child { margin-bottom: 0; }
+.safe-markdown strong { font-weight: 600; }
+
+.safe-markdown ul { list-style-type: disc; }
+.safe-markdown ol { list-style-type: decimal; }
+.safe-markdown :where(ul, ol) { padding-left: 1.75em; }
+.safe-markdown li { margin: 0.35em 0; padding-left: 0.25em; }
+.safe-markdown li :where(ul, ol, p) { margin: 0.4em 0; }
+.safe-markdown ul ul { list-style-type: circle; }
+.safe-markdown ul ul ul { list-style-type: square; }
+.safe-markdown .task-list-item { list-style: none; }
+.safe-markdown input[type="checkbox"] { margin-right: 0.5em; }
+
+.safe-markdown a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.safe-markdown a:hover { text-decoration-thickness: 2px; }
+
+.safe-markdown blockquote {
+  border-left: 3px solid hsl(var(--border));
+  padding: 0.25em 1em;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.35);
+}
+
+.safe-markdown blockquote > :first-child { margin-top: 0; }
+.safe-markdown blockquote > :last-child { margin-bottom: 0; }
+
+.safe-markdown code {
+  border-radius: 0.25rem;
+  padding: 0.15em 0.35em;
+  background: hsl(var(--muted));
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.9em;
+}
+
+.safe-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  padding: 1em;
+  background: hsl(var(--muted) / 0.5);
+  line-height: 1.6;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.safe-markdown pre code {
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.safe-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid hsl(var(--border));
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+}
+
+.safe-markdown :where(th, td) {
+  min-width: 6rem;
+  border: 1px solid hsl(var(--border));
+  padding: 0.6em 0.85em;
+  vertical-align: top;
+  text-align: left;
+}
+
+.safe-markdown th {
+  background: hsl(var(--muted));
+  font-weight: 600;
+}
+
+.safe-markdown tbody tr:nth-child(even) { background: hsl(var(--muted) / 0.3); }
+.safe-markdown td > :first-child { margin-top: 0; }
+.safe-markdown td > :last-child { margin-bottom: 0; }
+.safe-markdown hr { margin: 2em 0; border-top: 1px solid hsl(var(--border)); }
+.safe-markdown img { max-width: 100%; height: auto; border-radius: var(--radius); }
+.safe-markdown details { border: 1px solid hsl(var(--border)); border-radius: var(--radius); padding: 0.75em 1em; }
+.safe-markdown summary { cursor: pointer; font-weight: 600; }
