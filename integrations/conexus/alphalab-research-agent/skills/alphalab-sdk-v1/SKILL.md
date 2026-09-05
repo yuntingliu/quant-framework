@@ -87,6 +87,13 @@ individual project file.
 
 ## Project-run commands
 
+- `workspace.outputs.prepare`: `request_id` from the current workspace context,
+  and `outputs` with `summary`, `decisionNotebook`, `workspaceResult`, and
+  `workspaceCommands`. This performs no writes or Python execution. The server
+  validates the one Harness output schema, request/report links, and command
+  order, then returns complete `operations` with derived display content.
+  On failure correct the reported fields and prepare again. Pass successful
+  operations unchanged to one atomic `edit`; only then `complete`.
 - `workspace.context`: optional `backtest_limit`, `sync_job_limit`.
 - `recipe.plan`, `recipe.sync`: `project_id`; require
   `confirm_python_execution=true`. `recipe.sync` returns a job ID.
@@ -143,10 +150,22 @@ performance when execution failed because data was missing.
 
 Backtests have no separate full-range preflight. Submit once, query once, then
 use `backtest.wait` until terminal. Read the compact summary before analysis.
-Warnings, `research_valid`, invalid reasons, attempted and successful trade
+Warnings, `execution_reliable`, `execution_invalid_reasons`, `research_valid`,
+`research_invalid_reasons`, `research_assessment`, attempted and successful trade
 counts, fill counts, synthetic-state counts, and rejection classes are
 authoritative top-level evidence. Never infer success from truncated event
 text, and never fetch all daily events into model context.
+
+Execution reliability is an engine-owned check of execution inputs, not a
+profitability test or a promise that provider data are perfect. Research quality
+belongs to the frozen `@analysis(id="research_quality")` in `validation.py`.
+Its default treats normal suspension/price-limit execution shortfalls as
+warnings, not automatic research failure. Users can enable `require_target_tracking`
+or `require_successful_exits` and edit their thresholds. A passing assessment
+does not establish alpha. An old/custom validation file without this analysis
+returns `research_valid=null` and `RESEARCH_QUALITY_NOT_EVALUATED`; explicitly
+add the analysis through `files.write` when requested, preserving its other code.
+Never rewrite historical frozen results or present their old assessment as a new one.
 
 `@execution_data_fill` is visible project code. The default implementation
 uses prior-session raw, unadjusted prices and instrument state to fill only
@@ -156,6 +175,12 @@ engine compares raw execution prices with raw price limits; adjusted prices
 remain the return and valuation coordinate. Delisted held securities settle at
 zero value. Missing state may warn or reject affected orders, but unrelated
 symbols must not block the entire run.
+
+The default execution policy attempts each target once at the next open. Failed
+buys leave cash; failed sells retain the actual position until another explicit
+decision. `fallback_candidates=()` declares no replacements. Ordered candidates
+can be supplied in project code; cross-day retries require explicit `@on_event`
+decisions. Do not silently add retries or reallocate the missing weights.
 
 Signal evidence is computed compactly at rebalance cross-sections. Annualize
 from the realized return series calendar, not the signal rebalance frequency,

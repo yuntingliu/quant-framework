@@ -32,6 +32,7 @@ def execute_validation(
     factor_returns: pd.DataFrame,
     executions: list[dict] | tuple[dict, ...],
     settings: Mapping[str, Any],
+    diagnostics: Mapping[str, Any] | None = None,
     timeout_seconds: int = DEFAULT_VALIDATION_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Execute trusted project code outside the API process.
@@ -49,6 +50,7 @@ def execute_validation(
         "factor_returns": pd.DataFrame(factor_returns).copy(),
         "executions": list(executions),
         "settings": dict(settings),
+        "diagnostics": dict(diagnostics or {}),
         "entrypoints": [
             {"id": item.id, "function": item.function} for item in inspection.entrypoints
         ],
@@ -99,7 +101,24 @@ def execute_validation(
             raise ValidationRuntimeError(f"@analysis(id={required!r}) must return a dictionary")
     _validate_performance_output(outputs["performance"])
     _validate_attribution_output(outputs["alpha_beta"])
+    if "research_quality" in outputs:
+        _validate_research_quality_output(outputs["research_quality"])
     return outputs
+
+
+def _validate_research_quality_output(output: Any) -> None:
+    if not isinstance(output, dict) or not isinstance(output.get("passed"), bool):
+        raise ValidationRuntimeError("research_quality.passed must be a boolean")
+    if len(json.dumps(output, ensure_ascii=False).encode("utf-8")) > 16_000:
+        raise ValidationRuntimeError("research_quality must be compact evidence under 16000 bytes")
+    for name in ("reasons", "warnings"):
+        values = output.get(name)
+        if not isinstance(values, list) or len(values) > 50 or not all(
+            isinstance(value, str) and 0 < len(value) <= 1000 for value in values
+        ):
+            raise ValidationRuntimeError(f"research_quality.{name} must be a bounded list of strings")
+    if output["passed"] == bool(output["reasons"]):
+        raise ValidationRuntimeError("research_quality.passed must agree with its failure reasons")
 
 
 def _validate_performance_output(output: dict[str, Any]) -> None:

@@ -19,8 +19,24 @@ from dashboard.backend.services.agent_conversation_service import (
     MAX_CONVERSATION_BYTES,
     AgentConversationStore,
 )
+from dashboard.backend.services.workspace_output_service import (
+    prepare_workspace_outputs,
+    validate_workspace_delivery,
+)
 
 router = APIRouter(prefix="/api/conexus", tags=["conexus"])
+
+
+class PrepareOutputsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(min_length=1, max_length=200)
+    outputs: dict[str, Any]
+
+
+@router.post("/outputs/prepare")
+def prepare_outputs(request: PrepareOutputsRequest) -> dict[str, Any]:
+    return prepare_workspace_outputs(request.request_id, request.outputs)
 
 _DEFAULT_WEB_ORIGIN = "http://127.0.0.1:3000"
 _DEFAULT_PUBLICATION_SLUG = "alphalab-research-agent"
@@ -242,12 +258,18 @@ async def create_run(request: Request) -> Response:
 
 @router.get("/workspace")
 async def publication_workspace(request: Request) -> Response:
-    return await _forward(
+    response = await _forward(
         request,
         "GET",
         f"/api/public/harnesses/{_path_segment(_publication_slug())}/workspace",
         authorization="workspace",
     )
+    if response.status_code == 200:
+        payload = json.loads(response.body)
+        if isinstance(payload.get("workspace"), dict):
+            payload["workspace"] = validate_workspace_delivery(payload["workspace"])
+            return JSONResponse(payload)
+    return response
 
 
 @router.get("/runs/{run_id}")

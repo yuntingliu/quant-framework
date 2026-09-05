@@ -255,7 +255,18 @@ def performance(context: ValidationContext, *, periods_per_year: int = 252) -> d
 `context` 提供策略收益、基准收益、持仓、成交、因子收益和运行元数据。官方验证模块注册：
 
 - `performance`：总收益、年化收益、年化波动、Sharpe 和最大回撤。
+- `research_quality`：项目可编辑的研究质量标准，返回 `passed`、`reasons`、`warnings`，以及阈值和证据。
 - `alpha_beta`：月度 CAPM、多因子回归、Newey-West 标准误、相关矩阵和警告。
+
+`context.diagnostics` 提供冻结的执行数据检查和紧凑信号证据副本；`context.executions` 提供每次调仓的实际成交、目标偏差和拒单记录。修改这些副本不会改变引擎或历史结果。
+
+### 执行数据与研究评价
+
+`execution_reliable` 表示引擎的执行数据检查是否通过，不保证供应商数据绝对准确，也不表示策略盈利。`research_valid` 来自本次冻结的 `research_quality`；普通停牌、涨跌停造成的持仓偏差默认只警告。需要严格跟踪目标时，可在项目 `validation.py` 中开启 `require_target_tracking=True` 或 `require_successful_exits=True`，并编辑偏差阈值及连续次数。连续次数统计调仓截面，不是逐日持仓。
+
+旧项目没有 `research_quality` 时，新回测返回未评价（`research_valid=null`）；用户或 Agent 可明确添加该函数，保留其他自定义验证代码。已有冻结回测保留原来的评价。
+
+默认 `strategy.py` 在下一开盘只尝试一次：买不到留现金，卖不出保留持仓，等待下一次明确决策。`fallback_candidates=()` 表示没有候补；可修改为事先确定的有序证券列表。跨日补单需要在 `@on_event` 中显式返回新目标，系统不自动补单或重新分配资金。
 
 ### 参数与输出
 

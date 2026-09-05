@@ -263,10 +263,14 @@ def build_backtest_summary(record: dict) -> dict:
     diagnostics = record.get("run_diagnostics")
     if not isinstance(diagnostics, dict) or not diagnostics:
         diagnostics = record.get("execution") if isinstance(record.get("execution"), dict) else {}
+    validation_output = record.get("validation_output") or {}
+    assessment = validation_output.get("research_quality", record.get("research_assessment"))
+    execution_reliable = record.get("execution_reliable", diagnostics.get("execution_reliable"))
     warning_values = [
         *(record.get("warnings") or ()),
         *(diagnostics.get("warnings") or ()),
         *((record.get("validation_output") or {}).get("warnings") or ()),
+        *((assessment or {}).get("warnings") or ()),
     ]
     warnings = list(dict.fromkeys(str(item) for item in warning_values if str(item).strip()))
     execution_summary = _execution_summary(record)
@@ -282,6 +286,13 @@ def build_backtest_summary(record: dict) -> dict:
     ]
     if raw_research_valid is None and not research_invalid_reasons:
         research_invalid_reasons = ["UNVERIFIED_EXECUTION_FIDELITY"]
+    if isinstance(assessment, dict):
+        research_valid = assessment["passed"]
+        research_invalid_reasons = list(assessment["reasons"])
+    elif execution_reliable is not None:
+        # New runs of old/custom validation source have no implicit hidden quality evaluator.
+        research_valid = None
+        research_invalid_reasons = ["RESEARCH_QUALITY_NOT_EVALUATED"]
     execution_fidelity = diagnostics.get("execution_fidelity")
     if not isinstance(execution_fidelity, dict):
         execution_fidelity = {}
@@ -319,6 +330,11 @@ def build_backtest_summary(record: dict) -> dict:
         "warnings_truncated": bool(record.get("warnings_truncated")) or len(warnings) > 10,
         "research_valid": research_valid,
         "research_invalid_reasons": research_invalid_reasons,
+        "research_assessment": _public_event_value(assessment),
+        "execution_reliable": execution_reliable,
+        "execution_invalid_reasons": list(record.get(
+            "execution_invalid_reasons", diagnostics.get("execution_invalid_reasons")
+        ) or []),
         "execution_fidelity": _public_event_value(execution_fidelity),
         **execution_summary,
     }

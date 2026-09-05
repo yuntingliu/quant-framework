@@ -272,7 +272,8 @@ cross-sectional score vectors used to calculate that evidence.
 
 Agent-facing backtest submission returns only a task ID. Task polling keeps
 status and stable error fields first. Job reads and frozen summaries share the
-same top-level `warnings`, `research_valid`, research-invalid reasons,
+same top-level `warnings`, `execution_reliable`, execution-invalid reasons,
+`research_valid`, research-invalid reasons, and frozen `research_assessment`,
 execution fidelity, attempted/successful trade counts, synthetic-state counts,
 and missing-state, suspension, price-limit, capacity, and cash rejection
 counters. Filled execution-state values retain their `provider`,
@@ -283,11 +284,22 @@ are stored separately and are exposed to the Agent only through explicit
 bounded pages. A successful terminal transition atomically clears all earlier
 error metadata; failed transitions clear any stale result metadata.
 
-Harness outputs are committed once through Conexus's atomic output boundary.
+Execution reliability describes the engine's input checks; it does not judge
+strategy performance. The project-owned `@analysis(id="research_quality")`
+owns execution-quality thresholds. Default ordinary trading shortfalls produce
+warnings while strict tracking and exit requirements are opt-in parameters.
+Existing custom validation files without that analysis are explicitly unassessed
+on new runs. Historical stored assessments are never re-evaluated implicitly.
+
+Harness outputs are prepared by `workspace.outputs.prepare` using the single
+published Harness JSON schema. The server checks request/report relationships
+and derives display content before returning one atomic Conexus edit batch.
 The Agent may create or update report Documents, but it never partially mutates
 the Decision Notebook, Workspace Result, or Workspace Commands output nodes.
 An `open_result` command is accepted only when the same atomic output contains a
 complete current-request Document descriptor for that exact report node.
+The workspace delivery proxy validates the outputs again, blocks invalid
+navigation, and derives display text even if preparation was bypassed.
 
 Default advancement is explicit. Migrating an editable project replaces only
 default-owned universe and execution-data-fill functions and creates a new

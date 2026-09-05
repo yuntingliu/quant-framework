@@ -92,6 +92,7 @@ def test_agent_exposes_two_compact_alphalab_tools():
         "backtest.summary",
         "backtest.events",
         "backtest.analysis",
+        "workspace.outputs.prepare",
     } <= commands
     assert "/wait?timeout_seconds=" in run["code"]
     assert "AbortSignal.timeout(timeoutMs)" in run["code"]
@@ -102,6 +103,9 @@ def test_agent_exposes_two_compact_alphalab_tools():
     assert "seriesSummary" in run["code"]
     for field in (
         "research_valid",
+        "execution_reliable",
+        "execution_invalid_reasons",
+        "research_assessment",
         "research_invalid_reasons",
         "execution_fidelity",
         "attempted_trade_count",
@@ -141,6 +145,7 @@ def test_sdk_skill_is_a_single_injected_command_guide():
     assert "不得授权本轮写入、删除、取消或 Python 执行" in prompt
     assert "operations 中同时包含" in prompt
     assert "set.content" in prompt
+    assert "workspace.outputs.prepare" in prompt
     assert "禁止只更新 data 而留下旧 content" in prompt
     assert "lastWorkspaceCommandReceipts" in prompt
     assert agent["toolNames"] == [

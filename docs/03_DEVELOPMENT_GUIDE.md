@@ -267,17 +267,21 @@ reference. Recipe source, captured output, and stored traceback details remain
 internal. The old bundled-data manifest endpoint is not part of the runtime API.
 
 Reports are Conexus Document nodes, read through `/api/conexus/workspace` and
-mutated by the published Agent through `create_nodes` and `update_nodes`.
+mutated by the published Agent through `create` and `edit`.
 AlphaLab does not keep a second Markdown copy in SQLite. Report IDs are stable
 Document node IDs; the Agent updates an existing matching report and creates a
 new one only for a new research subject. The current report history is global
 to the AlphaLab publication and is not partitioned by project. Report Markdown
 must remain domain-facing and omit hashes and execution identifiers.
 
-The published Agent submits `summary`, Decision Notebook, Workspace Result, and
-Workspace Commands together through `commit_harness_outputs`. Generic node
-tools modify report Documents only; they never partially update the bound
-Harness output nodes.
+The published Agent validates `summary`, Decision Notebook, Workspace Result,
+and Workspace Commands through `workspace.outputs.prepare` on the existing run
+tool. `/api/conexus/outputs/prepare` reads the Harness output schema, validates
+cross-output relationships, and derives display content. The Agent passes its
+returned operations unchanged to one atomic `edit`, then calls `complete`.
+The workspace delivery proxy revalidates before exposing commands to browsers;
+invalid output yields an explicit delivery error while report history remains
+readable. Do not add field aliases or silently turn invalid commands into success.
 
 Validation source routes are under `/api/validation`. `validation.py` must
 declare `VALIDATION_SDK_VERSION = 1` and provide `performance` and `alpha_beta`
@@ -285,6 +289,16 @@ declare `VALIDATION_SDK_VERSION = 1` and provide `performance` and `alpha_beta`
 literal defaults are form-editable. Saving requires `confirm_write`. Execution
 uses the already confirmed backtest job's trusted-local Python boundary and
 must retain timeout and JSON-output limits.
+
+New default validation files include `research_quality`; this project-owned
+analysis controls research thresholds and returns a validated `passed`, `reasons`,
+and `warnings` object. Engine-owned `execution_reliable` remains independent of
+project judgments. In new runs, old/custom source lacking the analysis yields
+`research_valid=null` with `RESEARCH_QUALITY_NOT_EVALUATED`; add it only through
+an explicit project source edit. Keep frozen historical assessments unchanged.
+Default strategy targets execute once: failed buys leave cash, failed sells
+remain held, and no retry or redistribution is implicit. Candidate replacements
+and retry event handlers belong visibly in project strategy code.
 
 Data recipe routes are under `/api/data-sync/recipes`. Source and no-code
 parameter writes require `confirm_write`; invoking recipe source requires

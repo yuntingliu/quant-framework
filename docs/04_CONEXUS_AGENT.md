@@ -157,13 +157,18 @@ genuinely new research subject. Request IDs, hashes, job IDs, and other audit
 details are not part of report Markdown. Historical BacktestRuns always use
 their frozen strategy and validation snapshots.
 
-The Decision Notebook, Workspace Result, and Workspace Commands are written in
-one atomic `edit` batch; the Agent then calls `complete` with the final summary.
+The Agent first calls `workspace.outputs.prepare` with the current request ID
+and complete outputs. The server validates the canonical Harness schema and
+cross-output relationships, then derives matching content and returns the three
+patch operations. The Decision Notebook, Workspace Result, and Workspace Commands
+are written in that one atomic `edit` batch; the Agent then calls `complete`.
 A Document descriptor always carries version, current request ID, kind, report
 node ID, title, and sources. Separate edits may change report Documents but may
 not partially update the three Harness output nodes. The frontend rejects the
 whole command batch when `open_result` does not match a valid descriptor from
 the same request.
+The delivery proxy also validates all three output nodes, suppresses invalid
+navigation with an explicit error, and derives current display content.
 
 Backtests are asynchronous at the Agent boundary: `backtest.run` validates and
 pins the current strategy/validation packages, submits one job, and returns its

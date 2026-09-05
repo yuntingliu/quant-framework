@@ -121,6 +121,12 @@ export interface PublishedHarnessWorkspaceNode extends PublishedHarnessWorkspace
 }
 
 export interface PublishedHarnessWorkspaceSnapshot {
+  outputValidation?: {
+    status: "succeeded" | "failed"
+    error_code?: string
+    error_summary?: string
+    errors?: string[]
+  }
   workspaceId: string
   slug: string
   releaseChecksum?: string

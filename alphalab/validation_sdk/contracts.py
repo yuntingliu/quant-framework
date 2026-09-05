@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, TypeVar
 
@@ -34,6 +35,7 @@ class ValidationContext:
     factor_returns: pd.DataFrame
     executions: tuple[dict[str, Any], ...]
     settings: Mapping[str, Any]
+    diagnostics: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ValidationContext":
@@ -42,6 +44,7 @@ class ValidationContext:
             benchmark_returns=pd.Series(payload["benchmark_returns"]).copy(),
             weights=pd.DataFrame(payload["weights"]).copy(),
             factor_returns=pd.DataFrame(payload["factor_returns"]).copy(),
-            executions=tuple(dict(item) for item in payload.get("executions", ())),
-            settings=MappingProxyType(dict(payload.get("settings", {}))),
+            executions=tuple(deepcopy(item) for item in payload.get("executions", ())),
+            settings=MappingProxyType(deepcopy(dict(payload.get("settings", {})))),
+            diagnostics=MappingProxyType(deepcopy(dict(payload.get("diagnostics", {})))),
         )

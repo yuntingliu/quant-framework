@@ -767,11 +767,22 @@ def run_project_backtest(
                 factor_returns=attribution_factors,
                 executions=run.executions,
                 settings=dict(run.project["settings"]),
+                diagnostics=_compact_run_diagnostics(run.diagnostics),
             )
     finally:
         repo.close()
     metrics = dict(validation_output["performance"])
     attribution = dict(validation_output["alpha_beta"])
+    research_assessment = validation_output.get("research_quality")
+    research_valid = research_assessment["passed"] if research_assessment is not None else None
+    research_invalid_reasons = (
+        list(research_assessment["reasons"])
+        if research_assessment is not None else ["RESEARCH_QUALITY_NOT_EVALUATED"]
+    )
+    run_warnings = list(dict.fromkeys([
+        *run.diagnostics.get("warnings", []),
+        *(research_assessment or {}).get("warnings", []),
+    ]))
     frozen_strategy_manifest = [
         {
             **dict(item),
@@ -860,9 +871,12 @@ def run_project_backtest(
             "delisting_settlements": len(run.diagnostics.get("delisting_settlements") or ()),
         },
         **dict(run.diagnostics.get("execution_summary") or {}),
-        "warnings": list(run.diagnostics.get("warnings") or ()),
-        "research_valid": bool(run.diagnostics.get("research_valid", False)),
-        "research_invalid_reasons": list(run.diagnostics.get("research_invalid_reasons") or ()),
+        "warnings": run_warnings,
+        "execution_reliable": run.diagnostics["execution_reliable"],
+        "execution_invalid_reasons": list(run.diagnostics["execution_invalid_reasons"]),
+        "research_valid": research_valid,
+        "research_invalid_reasons": research_invalid_reasons,
+        "research_assessment": research_assessment,
         "execution_fidelity": dict(run.diagnostics.get("execution_fidelity") or {}),
         "execution": run.diagnostics,
         "strategy_manifest": frozen_strategy_manifest,
@@ -884,8 +898,8 @@ def _compact_run_diagnostics(diagnostics: Mapping[str, Any]) -> dict[str, Any]:
             "periods",
             "warnings",
             "execution_data_policy",
-            "research_valid",
-            "research_invalid_reasons",
+            "execution_reliable",
+            "execution_invalid_reasons",
             "execution_data_exclusions",
             "execution_data_fill",
             "execution_summary",

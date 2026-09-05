@@ -513,3 +513,32 @@ def test_backtest_summary_is_bounded_and_events_are_paged(tmp_path, monkeypatch)
     assert len(page["rows"]) == 2
     assert "source_sha256" not in page["rows"][0]
     assert "traceback" not in page["rows"][0]
+
+
+def test_project_quality_and_execution_reliability_survive_summary_and_job_boundary():
+    from dashboard.backend.services.backtest_job_service import _public_job
+    from dashboard.backend.services.result_service import build_backtest_summary
+
+    assessment = {
+        "passed": True, "reasons": [], "warnings": ["LOW_EXECUTION_FIDELITY"],
+        "thresholds": {"require_target_tracking": False},
+    }
+    record = {
+        "id": "quality-run", "run_diagnostics": {
+            "execution_reliable": True, "execution_invalid_reasons": [],
+            "execution_summary": {"attempted_trade_count": 10, "successful_trade_count": 6},
+        },
+        "validation_output": {"research_quality": assessment},
+    }
+    summary = build_backtest_summary(record)
+    job = _public_job({"id": "quality-job", "status": "succeeded", "result": summary})
+    for key in ("research_valid", "research_assessment", "execution_reliable", "execution_invalid_reasons", "warnings"):
+        assert job[key] == summary[key]
+    assert summary["research_valid"] is True
+    assert summary["warnings"] == ["LOW_EXECUTION_FIDELITY"]
+    assert summary["research_assessment"] == assessment
+    record["validation_output"] = {}
+    unassessed = build_backtest_summary(record)
+    assert unassessed["research_valid"] is None
+    assert unassessed["research_invalid_reasons"] == ["RESEARCH_QUALITY_NOT_EVALUATED"]
+    assert unassessed["execution_reliable"] is True

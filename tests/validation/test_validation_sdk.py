@@ -16,12 +16,13 @@ from alphalab.validation.source import (
     inspect_validation_source,
     update_validation_parameters,
 )
+from alphalab.validation_sdk import ValidationContext
 
 
 def test_default_validation_source_exposes_visible_metrics_and_alpha_beta() -> None:
     inspection = inspect_validation_source(DEFAULT_VALIDATION_SOURCE)
 
-    assert [item.id for item in inspection.entrypoints] == ["performance", "alpha_beta"]
+    assert [item.id for item in inspection.entrypoints] == ["performance", "research_quality", "alpha_beta"]
     assert "np.linalg.lstsq" in DEFAULT_VALIDATION_SOURCE
     assert "_newey_west_covariance" in DEFAULT_VALIDATION_SOURCE
     tree = ast.parse(DEFAULT_VALIDATION_SOURCE)
@@ -138,6 +139,63 @@ def test_validation_runtime_returns_json_outputs_from_local_python() -> None:
     assert outputs["performance"]["n_periods"] == 520
     assert outputs["alpha_beta"]["observations"] == 24
     assert "MKT" in outputs["alpha_beta"]["capm"]["betas"]
+
+
+def test_quality_standard_is_editable_and_normal_rejections_are_warnings() -> None:
+    dates = pd.date_range("2025-02-05", periods=3, freq="B")
+    executions = [
+        {"attempted_trade_count": 10, "successful_trade_count": 6,
+         "target_weight_deviation": 0.4, "execution_fidelity": 0.6,
+         "limit_up_rejection_count": 4, "exit_failure_symbols": ["A"]}
+        for _ in range(3)
+    ]
+    payload = dict(
+        returns=pd.Series(0.01, index=dates), benchmark_returns=pd.Series(0.0, index=dates),
+        weights=pd.DataFrame(), factor_returns=pd.DataFrame(), executions=executions,
+        settings={}, diagnostics={"execution_reliable": True},
+    )
+    normal = execute_validation(DEFAULT_VALIDATION_SOURCE, **payload)["research_quality"]
+    assert normal["passed"] is True
+    assert normal["reasons"] == []
+    assert any("LOW_EXECUTION_FIDELITY" in warning for warning in normal["warnings"])
+    assert normal["evidence"]["persistent_tracking_error_periods"] == 3
+    assert normal["evidence"]["persistent_exit_failure_symbols"] == ["A"]
+    strict_source, _ = update_validation_parameters(DEFAULT_VALIDATION_SOURCE, [
+        {"entrypoint_id": "research_quality", "parameter": "require_target_tracking", "value": True},
+        {"entrypoint_id": "research_quality", "parameter": "require_successful_exits", "value": True},
+    ])
+    strict = execute_validation(strict_source, **payload)["research_quality"]
+    assert strict["passed"] is False
+    assert strict["reasons"] == ["LOW_EXECUTION_FIDELITY", "PERSISTENT_EXIT_FAILURE"]
+    assert normal["thresholds"]["require_target_tracking"] is False
+
+
+def test_quality_cannot_hide_missing_execution_data_and_context_is_copied() -> None:
+    payload = dict(
+        returns=pd.Series([0.0]), benchmark_returns=pd.Series([0.0]),
+        weights=pd.DataFrame(), factor_returns=pd.DataFrame(),
+        executions=[{"attempted_trade_count": 1, "successful_trade_count": 1, "nested": {"value": 1}}],
+        settings={}, diagnostics={"execution_reliable": False, "signal_evidence": {"rows": []}},
+    )
+    context = ValidationContext.from_payload(payload)
+    context.executions[0]["nested"]["value"] = 2
+    context.diagnostics["signal_evidence"]["rows"].append({})
+    assert payload["executions"][0]["nested"]["value"] == 1
+    assert payload["diagnostics"]["signal_evidence"]["rows"] == []
+    namespace = {}
+    exec(DEFAULT_VALIDATION_SOURCE, namespace)
+    assessment = namespace["research_quality"](context)
+    assert assessment["passed"] is False
+    assert assessment["reasons"] == ["UNRELIABLE_EXECUTION_DATA"]
+
+
+def test_quality_boundary_rejects_contradictory_project_verdict():
+    from alphalab.validation.runtime import _validate_research_quality_output
+
+    with pytest.raises(ValidationRuntimeError, match="agree"):
+        _validate_research_quality_output({"passed": True, "reasons": ["FAILED"], "warnings": []})
+    with pytest.raises(ValidationRuntimeError, match="compact"):
+        _validate_research_quality_output({"passed": True, "reasons": [], "warnings": [], "scores": [1] * 10_000})
 
 
 def test_validation_contract_and_output_boundary_reject_invalid_code() -> None:
