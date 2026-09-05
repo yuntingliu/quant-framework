@@ -134,6 +134,8 @@ def test_sdk_skill_is_a_single_injected_command_guide():
     agent = _load(BUNDLE / "agents/AlphaLab-Research-Agent.agent.json")
     prompt = agent["systemPrompt"]
     assert prompt.count("{{ALPHALAB_SDK_SKILL}}") == 1
+    assert prompt.count("{{ALPHALAB_WORKSPACE_COMMAND_SCHEMA}}") == 1
+    assert "每条导航命令必须使用 type 作为动作字段，不得使用 command" in prompt
     assert "两个逻辑工具 alphalab_project_files 与 alphalab_project_run" in prompt
     assert "conversationHistory 是 server-shared" in prompt
     assert "不得授权本轮写入、删除、取消或 Python 执行" in prompt
@@ -164,6 +166,8 @@ def test_harness_output_and_workspace_command_contracts_are_unchanged():
     commands = outputs["workspaceCommands"]
     assert commands["required"] == ["version", "requestId", "commands"]
     properties = commands["properties"]["commands"]["items"]["properties"]
+    assert commands["properties"]["commands"]["items"]["required"] == ["type"]
+    assert "command" not in properties
     assert "widgetId" in properties
     assert "widget" not in properties
     assert "projectId" in properties
@@ -192,6 +196,7 @@ def test_registration_injects_skill_and_replaces_old_tool_nodes():
     assert "skills/alphalab-sdk-v1/SKILL.md" in source
     assert "sdkSkillPlaceholder" in source
     assert ".replace(sdkSkillPlaceholder, sdkSkill.trim())" in source
+    assert ".replace(workspaceCommandSchemaPlaceholder, JSON.stringify(workspaceCommandSchema))" in source
 
     for filename in (
         "Research-Project.tool.json",

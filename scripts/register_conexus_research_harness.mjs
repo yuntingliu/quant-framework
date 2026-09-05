@@ -18,6 +18,7 @@ const resultId = "alphalab-workspace-result-v1"
 const sdkSkillRelativePath = "skills/alphalab-sdk-v1/SKILL.md"
 const agentRelativePath = "agents/AlphaLab-Research-Agent.agent.json"
 const sdkSkillPlaceholder = "{{ALPHALAB_SDK_SKILL}}"
+const workspaceCommandSchemaPlaceholder = "{{ALPHALAB_WORKSPACE_COMMAND_SCHEMA}}"
 
 const toolNodes = [
   ["alphalab-tool-project-files-v1", "AlphaLab Project Files", "Project-Files.tool.json"],
@@ -47,15 +48,24 @@ await rm(stagedBundleAbsolutePath, { recursive: true, force: true })
 await cp(sourceBundlePath, stagedBundleAbsolutePath, { recursive: true, force: true })
 const stagedAgentPath = resolve(stagedBundleAbsolutePath, agentRelativePath)
 const stagedSkillPath = resolve(stagedBundleAbsolutePath, sdkSkillRelativePath)
-const [agentSource, sdkSkill] = await Promise.all([
+const [agentSource, sdkSkill, harnessSource] = await Promise.all([
   readFile(stagedAgentPath, "utf8"),
   readFile(stagedSkillPath, "utf8"),
+  readFile(resolve(stagedBundleAbsolutePath, "harness.json"), "utf8"),
 ])
 const agent = JSON.parse(agentSource)
+const harness = JSON.parse(harnessSource)
+const exposure = harness.template.manifest.exposures.find((item) => item.nodeId === agentId)
+const workspaceCommandSchema = exposure?.outputSchema?.properties?.workspaceCommands
+if (!workspaceCommandSchema || !agent.systemPrompt?.includes(workspaceCommandSchemaPlaceholder)) {
+  throw new Error("AlphaLab workspace command schema or prompt placeholder is missing")
+}
 if (!agent.systemPrompt?.includes(sdkSkillPlaceholder)) {
   throw new Error(`AlphaLab Agent prompt is missing ${sdkSkillPlaceholder}`)
 }
-agent.systemPrompt = agent.systemPrompt.replace(sdkSkillPlaceholder, sdkSkill.trim())
+agent.systemPrompt = agent.systemPrompt
+  .replace(sdkSkillPlaceholder, sdkSkill.trim())
+  .replace(workspaceCommandSchemaPlaceholder, JSON.stringify(workspaceCommandSchema))
 await writeFile(stagedAgentPath, `${JSON.stringify(agent, null, 2)}\n`, "utf8")
 
 const ownedNodeIds = new Set([
