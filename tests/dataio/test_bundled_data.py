@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from alphalab.strategy.repository import StrategyRepository
+from alphalab import StrategyRepository
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -65,7 +65,7 @@ def test_bundled_database_upgrades_to_the_sdk_contract(tmp_path):
     # The tracked database is a frozen historical fixture. Current tables are
     # created and old custom projects migrated only in a writable local copy.
     db_path = tmp_path / "alphalab.db"
-    shutil.copy2(ROOT / "data" / "app" / "alphalab.db", db_path)
+    shutil.copy2(ROOT / "tests" / "fixtures" / "legacy_app.db", db_path)
     repository = StrategyRepository(db_path)
     try:
         project = repository.get_project("sdk-v1-default")

@@ -40,7 +40,7 @@ export function ModeSidebar({
       )}
     >
       <div className={cn("flex h-12 shrink-0 items-center border-b border-border", collapsed ? "justify-center px-2" : "gap-2 px-3")}>
-        <img className="h-8 w-8 shrink-0" src="/alphalab-logo.png" alt="" aria-hidden="true" />
+        <img className="h-8 w-8 shrink-0" src={`${import.meta.env.BASE_URL}alphalab-logo.png`} alt="" aria-hidden="true" />
         {!collapsed && (
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-bold text-foreground">AlphaLab</div>

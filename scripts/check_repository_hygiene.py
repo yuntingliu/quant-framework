@@ -12,7 +12,7 @@ SECRET_ASSIGNMENT = re.compile(
     r"[ \t]*=[ \t]*(?![ \t]*(?:$|<|\"\"|'')).+?$"
 )
 PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
-LOCAL_PREFIXES = ("data/runtime/", "data/cache/", ".pytest_cache/")
+LOCAL_PREFIXES = ("data/app/", "data/runtime/", "data/cache/", ".pytest_cache/")
 
 
 def main() -> int:

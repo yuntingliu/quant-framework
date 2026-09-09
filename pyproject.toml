@@ -42,7 +42,7 @@ dev = [
 ]
 dashboard = [
     "fastapi>=0.100.0",
-    "uvicorn>=0.23.0",
+    "uvicorn[standard]>=0.23.0",
     "httpx>=0.24.0",
 ]
 rq = [
@@ -50,7 +50,7 @@ rq = [
 ]
 all = [
     "fastapi>=0.100.0",
-    "uvicorn>=0.23.0",
+    "uvicorn[standard]>=0.23.0",
     "httpx>=0.24.0",
     "rqdatac>=3.4,<4",
 ]

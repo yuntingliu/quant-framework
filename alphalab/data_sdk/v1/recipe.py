@@ -277,7 +277,7 @@ class DataRecipeContext:
                 effective = max(
                     effective,
                     min(pd.Timestamp(value) for value in values if value is not None)
-                    - pd.Timedelta(days=int(overlap_days)),
+                    - pd.Timedelta(int(overlap_days), unit="D"),
                 )
             if effective > requested_end:
                 continue
@@ -289,7 +289,7 @@ class DataRecipeContext:
             while cursor <= requested_end:
                 chunk_end = min(
                     requested_end,
-                    cursor + pd.Timedelta(days=int(chunk_days) - 1),
+                    cursor + pd.Timedelta(int(chunk_days) - 1, unit="D"),
                 )
                 for offset in range(0, len(group_symbols), int(batch_size)):
                     planned.append(
@@ -299,7 +299,7 @@ class DataRecipeContext:
                             symbols=tuple(group_symbols[offset : offset + int(batch_size)]),
                         )
                     )
-                cursor = chunk_end + pd.Timedelta(days=1)
+                cursor = chunk_end + pd.Timedelta(1, unit="D")
         return tuple(planned)
 
     def watermark(

@@ -629,7 +629,7 @@ def _check_bounds(
     as_of_date: str | None,
     fail_on_gap: bool,
 ) -> None:
-    tolerance = pd.Timedelta(days=7)
+    tolerance = pd.Timedelta(7, unit="D")
     if start_date and metrics.get("start_date"):
         expected = pd.Timestamp(start_date).normalize()
         actual = pd.Timestamp(metrics["start_date"]).normalize()

@@ -155,7 +155,7 @@ def build_sync_plan(
     bars_start = start
     bars_watermark = store.operations.watermark("rq.bars")
     if bars_watermark and not request.force:
-        bars_start = max(start, pd.Timestamp(bars_watermark) - pd.Timedelta(days=7))
+        bars_start = max(start, pd.Timestamp(bars_watermark) - pd.Timedelta(7, unit="D"))
 
     start_quarter = _date_quarter(start)
     end_quarter = _date_quarter(end)
@@ -193,7 +193,7 @@ def build_sync_plan(
             watermark = store.operations.watermark(dataset)
             state_start = start
             if watermark and not request.force:
-                state_start = max(start, pd.Timestamp(watermark) - pd.Timedelta(days=1))
+                state_start = max(start, pd.Timestamp(watermark) - pd.Timedelta(1, unit="D"))
             steps.append(
                 {
                     "dataset": dataset,
@@ -210,7 +210,7 @@ def build_sync_plan(
             field: (
                 start
                 if request.force or field not in field_watermarks
-                else max(start, field_watermarks[field] - pd.Timedelta(days=1))
+                else max(start, field_watermarks[field] - pd.Timedelta(1, unit="D"))
             ).strftime("%Y-%m-%d")
             for field in request.daily_factors
         }
@@ -998,7 +998,7 @@ def _symbol_sync_groups(
                 effective = max(
                     base,
                     min(pd.Timestamp(value) for value in values if value is not None)
-                    - pd.Timedelta(days=overlap_days),
+                    - pd.Timedelta(overlap_days, unit="D"),
                     default,
                 )
         grouped.setdefault(effective.strftime("%Y-%m-%d"), []).append(symbol)

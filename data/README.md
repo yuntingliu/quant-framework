@@ -19,6 +19,12 @@ python scripts\build_example_data.py `
 Only the canonical files listed in `manifest.json` are tracked. Raw vendor
 files, credentials, caches, logs, and runtime artifacts remain excluded.
 
+`data/app/alphalab.db` is an ignored local application database, initialized
+from the schema and default templates on first use. It is never copied from
+the historical migration fixture in `tests/fixtures/legacy_app.db`. Before
+updating an older checkout that tracks `data/app/alphalab.db`, stop the backend
+and back up that database; restore it after updating to retain local projects.
+
 RQ runtime downloads use `data/runtime/`. That directory contains partitioned
 parquet files plus `app/dataio.db` for checksums, watermarks, quality runs,
 sync jobs, and checkpoints. It is always ignored and must remain absent from

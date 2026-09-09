@@ -54,7 +54,7 @@ def evaluate_factor(
     if not symbols:
         return _empty_result(factor, frequency, quantiles, "empty universe")
 
-    warmup = (start - pd.Timedelta(days=max(lookback_days * 2, 400))).strftime("%Y-%m-%d")
+    warmup = (start - pd.Timedelta(max(lookback_days * 2, 400), unit="D")).strftime("%Y-%m-%d")
     bars = engine.get_bars(
         symbols,
         warmup,

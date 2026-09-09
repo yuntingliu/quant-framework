@@ -553,7 +553,6 @@ def build(source_root: Path, target_root: Path, symbol_count: int = 300) -> dict
         target_data / "market" / "bars.parquet",
         target_data / "fundamentals" / "fundamentals.parquet",
         target_data / "factors" / "factor_returns.parquet",
-        target_data / "app" / "alphalab.db",
     ]
     manifest = {
         "bundle": "alphalab-real-example",
@@ -582,7 +581,7 @@ def build(source_root: Path, target_root: Path, symbol_count: int = 300) -> dict
         "files": {
             path.relative_to(target_root).as_posix(): {
                 "bytes": path.stat().st_size,
-                ("seed_sha256" if path.suffix == ".db" else "sha256"): _sha256(path),
+                "sha256": _sha256(path),
             }
             for path in files
         },

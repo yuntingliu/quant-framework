@@ -20,6 +20,25 @@ from alphalab.utils.paths import DATA_DIR, REPO_ROOT
 _RQ_KEYS = ("RQ_USER", "RQ_PASSWORD", "RQ_HOST")
 
 
+def serve_workbench(*, host: str = "127.0.0.1", port: int = 8000) -> None:
+    """Serve the built browser workbench through the existing backend."""
+
+    if not 1 <= port <= 65535:
+        raise RuntimeError("Port must be between 1 and 65535.")
+    index = Path(REPO_ROOT) / "dashboard" / "frontend" / "dist" / "index.html"
+    if not index.is_file():
+        raise RuntimeError(
+            "Frontend build is missing. Run npm --prefix dashboard/frontend ci, "
+            "then npm --prefix dashboard/frontend run build."
+        )
+    try:
+        import uvicorn
+    except ImportError as exc:
+        raise RuntimeError('Install the backend first: python -m pip install -e ".[dashboard,dev]"') from exc
+    print(f"AlphaLab: http://{host}:{port}/app/", flush=True)
+    uvicorn.run("dashboard.backend.main:app", host=host, port=port)
+
+
 def doctor_report() -> dict[str, Any]:
     """Return bounded readiness checks for the one supported local runtime."""
 
@@ -77,7 +96,9 @@ def _executable_check(
 
 
 def _command_check(command: str, arguments: list[str]) -> dict[str, Any]:
-    executable = shutil.which(command)
+    suffix = ".exe" if os.name == "nt" else ""
+    adjacent = Path(sys.executable).with_name(f"{command}{suffix}")
+    executable = str(adjacent) if adjacent.is_file() else shutil.which(command)
     if executable is None:
         return {"status": "missing", "version": None, "executable": None}
     result = _run_version(executable, arguments)
@@ -127,8 +148,7 @@ def _demo_data_check() -> dict[str, Any]:
         if not path.is_file():
             failures.append(f"missing:{relative}")
             continue
-        # Seeded SQLite state is intentionally mutable after first launch.  Only
-        # immutable bundled artifacts use ``sha256`` as an ongoing integrity gate.
+        # The manifest contains immutable samples, never the local app database.
         expected = metadata.get("sha256")
         if expected and _sha256(path) != expected:
             failures.append(f"checksum:{relative}")
@@ -166,4 +186,4 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-__all__ = ["doctor_report"]
+__all__ = ["doctor_report", "serve_workbench"]

@@ -24,9 +24,10 @@ from alphalab.strategy.source import (
     assemble_strategy_source,
     inspect_strategy_source,
 )
+from alphalab.utils.paths import RUNTIME_DIR
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-MIRROR_ROOT = PROJECT_ROOT / "data" / "runtime" / "editor"
+MIRROR_ROOT = RUNTIME_DIR / "editor"
 MAX_LSP_MESSAGE_BYTES = 4_000_000
 _SAFE_DOCUMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 

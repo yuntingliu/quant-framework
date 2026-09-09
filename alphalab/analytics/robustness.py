@@ -43,7 +43,7 @@ def equal_weight_benchmark(
     """Build a same-universe benchmark on the strategy execution calendar."""
 
     start = pd.Timestamp(start_date)
-    warmup = (start - pd.Timedelta(days=warmup_days)).strftime("%Y-%m-%d")
+    warmup = (start - pd.Timedelta(warmup_days, unit="D")).strftime("%Y-%m-%d")
     bars = engine.get_bars(
         symbols,
         warmup,

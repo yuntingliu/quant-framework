@@ -73,7 +73,7 @@ def preview_strategy(
     prepared = _prepare_data(
         data_engine,
         package,
-        as_of - pd.Timedelta(days=max(lookback * 2, 365)),
+        as_of - pd.Timedelta(max(lookback * 2, 365), unit="D"),
         as_of,
     )
     available = _available_symbols(prepared.instruments, as_of, _rows_on(prepared.bars, as_of))
@@ -121,7 +121,7 @@ def evaluate_factor_snapshot(
     prepared = _prepare_data(
         data_engine,
         package,
-        as_of - pd.Timedelta(days=max(lookback * 2, 365)),
+        as_of - pd.Timedelta(max(lookback * 2, 365), unit="D"),
         as_of,
     )
     available = _available_symbols(prepared.instruments, as_of, _rows_on(prepared.bars, as_of))
@@ -173,7 +173,7 @@ def evaluate_factor_history(
     prepared = _prepare_data(
         data_engine,
         package,
-        start - pd.Timedelta(days=max(lookback * 2, 365)),
+        start - pd.Timedelta(max(lookback * 2, 365), unit="D"),
         end,
     )
     evaluation_dates = _evaluation_dates(prepared.sessions, start, end, frequency)
@@ -243,7 +243,7 @@ def evaluate_factor_research(
     prepared = _prepare_data(
         data_engine,
         package,
-        start - pd.Timedelta(days=max(lookback * 2, 365)),
+        start - pd.Timedelta(max(lookback * 2, 365), unit="D"),
         end,
     )
     evaluation_dates = _evaluation_dates(prepared.sessions, start, end, frequency)
@@ -314,7 +314,7 @@ def run_strategy_backtest(
     prepared = _prepare_data(
         data_engine,
         package,
-        start - pd.Timedelta(days=max(lookback * 2, 365)),
+        start - pd.Timedelta(max(lookback * 2, 365), unit="D"),
         end,
         execution_data_policy=execution_data_policy,
     )

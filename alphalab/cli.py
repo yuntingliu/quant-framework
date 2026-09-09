@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Sequence
 from typing import Any
 
@@ -42,6 +43,9 @@ def build_parser() -> argparse.ArgumentParser:
     dev = commands.add_parser("dev", help="Inspect the local development runtime")
     dev_commands = dev.add_subparsers(dest="dev_command", required=True)
     dev_commands.add_parser("doctor", help="Report local runtime readiness")
+    serve = dev_commands.add_parser("serve", help="Serve the built workbench and API locally")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
     return parser
 
 
@@ -69,6 +73,15 @@ def _add_sync_arguments(parser: argparse.ArgumentParser) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "dev" and args.dev_command == "serve":
+        from alphalab.devtools import serve_workbench
+
+        try:
+            serve_workbench(host=args.host, port=args.port)
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        return 0
     if args.command == "dev" and args.dev_command == "doctor":
         from alphalab.devtools import doctor_report
 

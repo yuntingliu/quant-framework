@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ComponentType } from "react"
+import { useQuery } from "@tanstack/react-query"
 import {
   ArrowRight,
   BarChart3,
@@ -24,7 +25,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useStrategySdk, type SdkEntrypoint } from "@/contexts/StrategySdkContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
 import { useConfirm } from "@/hooks/useConfirm"
-import { api, type BacktestRecord } from "@/lib/api"
+import { api, type BacktestRecord, type ProviderStatus } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import type { WorkspaceMode } from "@/layouts/presets"
 import { Widget } from "@/widgets/Widget"
@@ -142,6 +143,15 @@ export function ProjectWorkbenchWidget() {
   const [runsLoading, setRunsLoading] = useState(false)
   const [runsError, setRunsError] = useState("")
   const [runsRefreshKey, setRunsRefreshKey] = useState(0)
+  const dataStatus = useQuery({
+    queryKey: ["project-data-status"],
+    queryFn: () => api.get<ProviderStatus>("/data/providers"),
+    refetchInterval: 15000,
+  })
+  const hasBars = dataStatus.data?.datasets["rq.bars"]?.status === "ready"
+  const dataLabel = dataStatus.isError ? "数据状态读取失败"
+    : !dataStatus.data ? "正在检查数据"
+      : hasBars ? "已有行情，需检查研究范围" : "尚未同步行情"
 
   useEffect(() => {
     setName(sdk.project?.name ?? "")
@@ -296,7 +306,7 @@ export function ProjectWorkbenchWidget() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight text-foreground">{project.name}</h1>
-                    <Badge variant={project.inspection.valid ? "success" : "warning"}>{project.inspection.valid ? "策略可运行" : "需要检查"}</Badge>
+                    <Badge variant={project.inspection.valid ? "success" : "warning"}>{project.inspection.valid ? "源码检查通过" : "源码需要检查"}</Badge>
                     {project.dirty ? <Badge variant="warning">有未保存修改</Badge> : <Badge variant="outline">已保存</Badge>}
                     {project.built_in ? <Badge variant="secondary">系统模板</Badge> : null}
                   </div>
@@ -311,8 +321,8 @@ export function ProjectWorkbenchWidget() {
             <section className="grid gap-3 md:grid-cols-3" aria-label="项目摘要">
               <OverviewMetric
                 icon={project.inspection.valid ? ShieldCheck : CircleDashed}
-                label="策略契约"
-                value={project.inspection.valid ? "验证通过" : "需要检查"}
+                label="源码契约"
+                value={project.inspection.valid ? "源码检查通过" : "需要检查"}
                 tone={project.inspection.valid ? "success" : "warning"}
               />
               <OverviewMetric
@@ -327,12 +337,26 @@ export function ProjectWorkbenchWidget() {
               />
             </section>
 
+            <section className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card/60 p-4" aria-label="研究数据状态">
+              <Database className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium">{dataLabel}</div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {!project.editable ? "系统模板只读，请先新建研究项目。" : ""}
+                  源码检查只验证代码契约。因子评估和回测还需要覆盖所选标的、日期、预热区间和字段的研究数据，请先到数据工作台检查并同步。
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => project.editable ? switchMode("data") : setCreating(true)}>
+                {project.editable ? "检查研究数据" : "新建研究项目"} <ArrowRight />
+              </Button>
+            </section>
+
             <section className="rounded-xl border border-border bg-card/60 p-4 shadow-sm">
               <h2 className="mb-3 text-sm font-semibold text-foreground">研究路径</h2>
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-                <WorkflowStep icon={Database} title="数据" status="检查研究数据" mode="data" />
+                <WorkflowStep icon={Database} title="数据" status={dataLabel} mode="data" />
                 <WorkflowStep icon={Layers3} title="因子" status={byKind.factor.length > 0 ? `${byKind.factor.length} 个因子` : "待添加因子"} mode="factor" ready={byKind.factor.length > 0} />
-                <WorkflowStep icon={Code2} title="策略" status={project.inspection.valid && !project.dirty ? "已保存并通过验证" : project.dirty ? "存在未保存修改" : "需要检查"} mode="strategy" ready={project.inspection.valid && !project.dirty} />
+                <WorkflowStep icon={Code2} title="策略" status={project.inspection.valid && !project.dirty ? "已保存，源码检查通过" : project.dirty ? "存在未保存修改" : "需要检查"} mode="strategy" ready={project.inspection.valid && !project.dirty} />
                 <WorkflowStep icon={BarChart3} title="验证" status={runs.length > 0 ? `${runs.length} 次历史 Run` : "尚未运行回测"} mode="validation" ready={runs.length > 0} />
                 <WorkflowStep icon={FileChartColumn} title="报告" status="查看研究成果" mode="report" />
               </div>

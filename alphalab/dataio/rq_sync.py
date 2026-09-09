@@ -532,9 +532,9 @@ def _date_chunks(start: str, end: str, days: int) -> Iterator[tuple[str, str]]:
     if cursor > final:
         raise ValueError("start must be on or before end")
     while cursor <= final:
-        chunk_end = min(final, cursor + pd.Timedelta(days=days - 1))
+        chunk_end = min(final, cursor + pd.Timedelta(days - 1, unit="D"))
         yield cursor.strftime("%Y-%m-%d"), chunk_end.strftime("%Y-%m-%d")
-        cursor = chunk_end + pd.Timedelta(days=1)
+        cursor = chunk_end + pd.Timedelta(1, unit="D")
 
 
 def _calendar_days(start: str, end: str) -> int:

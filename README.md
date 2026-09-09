@@ -11,22 +11,30 @@ Codex edits, tests, previews, and backtests all modify or invoke that same sourc
 
 ## Quick start
 
+For student installations on macOS or Windows, follow
+[Local deployment](docs/07_LOCAL_DEPLOYMENT.md). The browser workbench uses one
+Python process after building the frontend; Electron is optional.
+
 Windows PowerShell:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dashboard,dev,rq]"
 
-python -m uvicorn dashboard.backend.main:app --reload --port 8000
+.\.venv\Scripts\python.exe -m alphalab.cli dev doctor
 ```
 
-In another terminal:
+Build the browser UI and start the local service:
 
 ```powershell
-cd dashboard\frontend
-npm install
-npm run dev
+npm --prefix dashboard/frontend ci
+npm --prefix dashboard/frontend run build
+.\.venv\Scripts\alphalab.exe dev serve
 ```
+
+Open <http://127.0.0.1:8000/app/>. On later launches, only `alphalab dev serve`
+is needed with the virtual environment activated. For frontend development use
+`npm --prefix dashboard/frontend run dev:web` alongside the backend.
 
 The workstation exposes the single `runtime` data profile. Configure
 `RQ_USER`, `RQ_PASSWORD`, and `RQ_HOST` in an untracked `.env`, then use the

@@ -43,8 +43,7 @@ data/*
 !data/fundamentals/fundamentals.parquet
 !data/factors/
 !data/factors/factor_returns.parquet
-!data/app/
-!data/app/alphalab.db
+data/app/
 data/runtime/
 logs/
 artifacts/

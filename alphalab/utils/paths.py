@@ -13,8 +13,8 @@ PACKAGE_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = PACKAGE_DIR.parent
 
 DATA_DIR = REPO_ROOT / "data"
-APP_DATA_DIR = DATA_DIR / "app"
-CACHE_DIR = DATA_DIR / "cache"
+APP_DATA_DIR = Path(os.environ.get("ALPHALAB_APP_DATA_DIR", DATA_DIR / "app")).expanduser()
+CACHE_DIR = Path(os.environ.get("ALPHALAB_CACHE_DIR", DATA_DIR / "cache")).expanduser()
 MARKET_DIR = DATA_DIR / "market"
 FUNDAMENTAL_DIR = DATA_DIR / "fundamentals"
 FACTOR_DIR = DATA_DIR / "factors"
