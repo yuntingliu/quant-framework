@@ -24,7 +24,7 @@ AlphaLab 把一项量化研究拆成五个可保存、可检查、可复现的�
 
 ### 推荐工作流
 
-1. 新建项目会一次复制与项目类型匹配的 `recipe.py`、`strategy.py`、因子和 `validation.py` 模板；先在数据工作台预览计划，再同步并检查覆盖范围。
+1. 新建项目从只读 `sdk-v1-default` 复制 `recipe.py`、`strategy.py`、因子和 `validation.py`；先检查数据配方的模板、标的和日期，再同步并检查覆盖范围。当前数据页提供连接测试与运行同步；需要计划时使用 CLI、项目配方 API 或 Agent。
 2. 在因子工作台从默认因子库或通用因子骨架复制模板，保存后做截面和历史检验。
 3. 在策略工作台配置选股、仓位、持有期风控和成交规则，然后运行可视化预览。
 4. 在验证工作台设置样本区间与验证参数，保存源码后运行回测。
@@ -62,6 +62,49 @@ def momentum_20d(context, *, window: int = 20):
         return close.mean(axis=0) * float("nan")
     return close.iloc[-1] / close.iloc[0] - 1.0
 ```
+
+<a id="beginner-factor-reading"></a>
+
+### 第一次读 Python：这段因子在做什么
+
+上面的代码是一个完整因子函数，放在因子工作台对应的 `factors/momentum_20d.py` 中。
+项目从默认模板创建后已经包含同名因子，第一次练习直接阅读现有函数，不要重复添加同名注册。
+不要把这段函数当作完整 `strategy.py`，也不用在终端单独运行因子文件；系统会把因子和策略组装后调用。
+
+可以先把函数理解成一个小机器：输入当前能看到的历史价格，输出每只股票的分数。
+
+| 写法 | 读法 | 在这个函数里的作用 |
+| --- | --- | --- |
+| `@factor(...)` | 给下一段函数贴上“因子”标签 | 系统通过 `id` 找到它，`label` 是给人看的名称 |
+| `def momentum_20d(...)` | 定义一个叫这个名字的函数 | 写规则，系统在需要时调用 |
+| `context` | 当前评估时点的数据访问对象 | 提供截至此刻可见的历史数据 |
+| `*` | 后面的参数要写名字再传入 | 例如 `window=20`，减少参数位置歧义 |
+| `window: int = 20` | 窗口是整数，没指定时用 20 | 一个可被表单识别的默认参数 |
+| `close = ...` | 把右侧结果记作 `close` | 之后复用同一张价格表 |
+| `if ...` | 条件成立时执行缩进下的内容 | 历史不足时提前返回缺失值 |
+| `return ...` | 把结果交给调用方 | 返回带证券索引的因子分数 |
+
+Python 用缩进表示代码属于哪一层，复制时保留缩进。以 `#` 开头的是注释；三引号中的文字是函数说明。
+这些说明帮助人理解选择，实际计算由其他语句完成。
+
+`context.history("close", window=21)` 返回一张表：行是日期，列是证券代码。这里的
+`DataFrame` 就是 pandas 的二维表格；最后每个证券留下一个分数，组成一维 `Series`。
+
+```text
+价格节点：P0 ─ P1 ─ P2 ─ … ─ P20
+收益区间：   1    2        …   20
+```
+
+21 个价格节点之间恰好有 20 段收益。`close.iloc[0]` 取第一行，`close.iloc[-1]` 取最后一行；
+Python 的位置索引从 0 开始，`-1` 表示倒数第一项。两行相除会按证券对应计算。
+起点价格 10、终点价格 12，就得到 `12 / 10 - 1 = 0.2`，即 20%。
+
+历史不足时，`close.mean(axis=0) * float("nan")` 生成带相同证券索引的一列缺失值。
+`NaN` 表示缺失或无法计算；填成 0 会把“不知道”伪装成“收益正好为零”。
+对单只证券缺少端点价格等情况，也应保留缺失值供后续过滤和覆盖率检查。
+
+最后核对调用位置：函数的默认值是 20，但策略可能显式调用 `window=60`。显式参数优先；
+修改默认值之前，先看 `strategy.py` 中 `context.factor(...)` 或 `context.combine_factors(...)` 的参数。
 
 ### 注册与参数
 
@@ -213,6 +256,47 @@ def fill_missing_market_state(
 秩 IC；完整股票评分只在当次回测进程内计算，不进入摘要。稳健性分析根据收益日期判断
 日频、周频或月频年化，调仓频率不再代替收益频率。
 
+<a id="beginner-fixed-universe"></a>
+
+### 五只股票入门实验：只替换标的池函数
+
+这个例子配合根目录教学文档的首次实验使用。先新建可编辑项目，在数据配方中填入同一组股票，
+同步所需行情、证券资料和交易状态。股票代码只用来演示固定范围，不表达投资判断。
+
+在**策略工作台右侧的 `strategy.py`** 中，找到 `@universe(id="research_universe", ...)`
+及其下面的整个 `research_universe` 函数。把这一处装饰器和函数替换为下面的完整片段；
+保留文件顶部的导入、`SDK_VERSION`、`DATA_REQUIREMENTS`，以及其余所有注册函数：
+
+```python
+@universe(id="research_universe", label="五只股票教学池")
+def research_universe(context):
+    """返回教学名单中当前评估时点有效的证券。"""
+    requested = {
+        "000001.SZ",
+        "000002.SZ",
+        "600000.SH",
+        "600036.SH",
+        "601318.SH",
+    }
+    # 固定研究范围仍要与当前有效证券相交，不能提前纳入尚未上市的标的。
+    symbols = [symbol for symbol in context.universe if symbol in requested]
+    return UniverseResult(symbols=symbols)
+```
+
+默认 `strategy.py` 已从公共 SDK 导入 `universe` 和 `UniverseResult`，所以这个替换不需要新增导入。
+这不是独立策略模块，不能用它覆盖整个 `strategy.py`；项目中也只能保留一个 `@universe`。
+
+`requested` 是这次实验事先写下的固定集合；`context.universe` 是当前时点有效的证券列表。
+`[symbol for symbol in ... if ...]` 表示逐个检查并留下满足条件的代码。最后用 `UniverseResult`
+把结果交给引擎。即使本地共享仓库还有其他证券，本策略也只会从交集里选择。
+
+保存成功后，把“月末动量 Top N”的 `top_n` 改为 `2` 并统一应用，保留 20 日因子窗口、
+`max_weight=0.10` 与下一交易日开盘执行。先检验已有的动量因子，再预览策略、运行回测。
+若预览候选不在上述名单，检查当前项目和保存状态；候选少于五只时，检查当时的数据与有效性。
+
+这里只因为实验明确指定了固定股票池才缩小范围。默认普通股票研究仍使用完整点时股票池，
+不能把这份练习名单当作全市场策略的默认实现。
+
 ### 状态管理
 
 `state` 是跨事件保存的普通可序列化字典。把止盈锁定、峰值收益或冷却期等策略状态写回返回对象；不要用模块全局变量保存回测状态。持仓真相来自 `context.portfolio`，不要在 `state` 中复制一套虚拟持仓。
@@ -246,6 +330,9 @@ weight = min(max_weight, 1.0 / len(selected)) if selected else 0.0
 数据配方是完整、可编辑的 Python 同步程序。内置模板直接调用 `rq.*`，再通过 `context` 预览步骤、分批增量同步、规范化和发布数据；后端不会按模板名偷偷替换源码逻辑。
 
 ### 基本结构
+
+下面只说明数据配方的控制流程，**不能直接替换完整同步配方**。正式运行请先复制工作台内置模板，
+保留证券资料、交易状态、研究与未复权价格、规范化和覆盖检查等完整步骤，再按需修改。
 
 ```python
 from alphalab.data_sdk.v1 import data_recipe, rq
@@ -300,6 +387,9 @@ def research_data(context, *, start: str, end: str, symbols=None):
 仍保留运行时的内容，需要重新运行才能验证修改。
 
 ### 分析入口
+
+下面只展示一个分析函数的写法，不是完整 `validation.py`。完整模块必须提供 `performance`
+和 `alpha_beta` 入口，并满足其输出契约；首次使用应保留项目自带模块，在理解后逐处修改。
 
 ```python
 from alphalab.validation_sdk import ValidationContext, analysis

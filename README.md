@@ -5,7 +5,10 @@ a unified Python strategy SDK, point-in-time factor evaluation, a stateful daily
 event backtester, immutable source revisions, a FastAPI/React workstation, and
 an optional Conexus research Agent.
 
-The core idea is simple: one strategy project has one complete Python module.
+**中文零基础教程：[从第一个实验到读懂整个项目](文档.md)**，涵盖安装、首次研究、后端、前端、Agent 与贡献流程。
+
+The core idea is simple: one strategy project has one assembled Python runtime
+module, authored as `strategy.py` plus individual `factors/*.py` units.
 The parameter forms, factor editor, signal model, event logic, execution policy,
 Codex edits, tests, previews, and backtests all modify or invoke that same source.
 
@@ -138,11 +141,12 @@ rejected.
 - Project/Data: metadata, data profile, requirements, and `@universe`.
 - Factor: edit `@factor` functions, insert data fields/dependencies, run frozen
   snapshot and history evaluations.
-- Strategy: edit schedule, signal, portfolio, event handlers, execution, or the
-  full module.
-- Validation: select an immutable revision, preview it, run the full event
-  backtest, and inspect frozen results.
-- Report: persist Agent documents and evidence tied to a Run.
+- Strategy: edit schedule, signal, portfolio, event handlers, and execution in
+  `strategy.py`, or preview the saved strategy.
+- Validation: select a project, edit its `validation.py`, run the full event
+  backtest using automatically pinned sources, and inspect frozen results.
+- Report: read durable Conexus Agent documents backed by frozen Run evidence.
+  Reports currently share one publication-wide history.
 
 Recognized form fields edit exact Python syntax nodes with LibCST. Arbitrary
 Python remains editable as custom source. There is no expression-to-Python

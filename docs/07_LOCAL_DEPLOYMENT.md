@@ -44,7 +44,7 @@ py -3.12 -m venv .venv
 ```
 
 Windows 直接调用虚拟环境中的程序即可，无须更改 PowerShell 执行策略。
-`dashboard` 包含 HTTP 和 WebSocket 服务依赖；`dev` 提供 Python 编辑器使用的
+`app` 包含 HTTP 和 WebSocket 服务依赖；`dev` 提供 Python 编辑器使用的
 Pyrefly、Ruff 和测试工具；`rq` 安装 RQData 客户端。
 
 ## 3. 从源码构建网页
