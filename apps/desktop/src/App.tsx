@@ -7,6 +7,7 @@ import { GlobalFilterProvider } from "./contexts/GlobalFilterContext"
 import { AgentPromptProvider } from "./contexts/AgentPromptContext"
 import { ConfirmProvider } from "./hooks/useConfirm"
 import Workspace from "./Workspace"
+import { DesktopTitleBar } from "./workspace/DesktopTitleBar"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -22,7 +23,7 @@ function App() {
     <ErrorBoundary fallbackTitle="Application Error">
       <QueryClientProvider client={queryClient}>
         <LanguageProvider>
-          <ThemeProvider defaultTheme="dark">
+          <ThemeProvider>
             <GlobalFilterProvider>
               <AgentPromptProvider>
                 <ConfirmProvider>
@@ -32,8 +33,11 @@ function App() {
                       className: "bg-card text-card-foreground border-border",
                     }}
                   />
-                  <div className="h-screen w-screen overflow-hidden">
-                    <Workspace />
+                  <div className="flex h-screen w-screen flex-col overflow-hidden">
+                    <DesktopTitleBar />
+                    <div className="min-h-0 flex-1">
+                      <Workspace />
+                    </div>
                   </div>
                 </ConfirmProvider>
               </AgentPromptProvider>

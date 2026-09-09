@@ -37,12 +37,16 @@ const electronPlugins = isWebOnly
           },
           vite: {
             build: {
+              // Sandboxed preloads require CommonJS, even in this ESM package.
+              lib: false,
               outDir: path.join(buildRoot, 'electron'),
               emptyOutDir: false,
               rollupOptions: {
                 external: ['electron'],
+                input: 'electron/preload.ts',
                 output: {
                   format: 'cjs',
+                  inlineDynamicImports: true,
                   entryFileNames: 'preload.cjs',
                 },
               },

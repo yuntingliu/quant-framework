@@ -13,6 +13,12 @@ function getArgumentValue(name: string, fallback: string): string {
 const apiOrigin = getArgumentValue('alphalab-api-origin', 'http://127.0.0.1:8000')
 const apiBase = getArgumentValue('alphalab-api-base', `${apiOrigin}/api`)
 
+contextBridge.exposeInMainWorld('desktop', {
+  setTheme: (theme: 'light' | 'dark') => ipcRenderer.invoke('window:setTheme', theme),
+  showMenu: (menu: 'file' | 'view' | 'tools', x: number, y: number, language: 'zh' | 'en') =>
+    ipcRenderer.invoke('window:showMenu', menu, x, y, language),
+})
+
 contextBridge.exposeInMainWorld('api', {
   // App config
   getConfig: () => ipcRenderer.invoke('app:getConfig'),

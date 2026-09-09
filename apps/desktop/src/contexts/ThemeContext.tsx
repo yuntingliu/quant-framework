@@ -4,7 +4,7 @@ type Theme = "light" | "dark"
 
 const THEME_KEY = "alphalab-theme"
 const THEME_DEFAULT_VERSION_KEY = "alphalab-theme-default-version"
-const THEME_DEFAULT_VERSION = "3"
+const THEME_DEFAULT_VERSION = "4"
 
 interface ThemeContextType {
   theme: Theme
@@ -24,7 +24,7 @@ function normalizeTheme(value: unknown, fallback: Theme): Theme {
 
 export function ThemeProvider({
   children,
-  defaultTheme = "dark",
+  defaultTheme = "light",
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(() => {
     try {
@@ -48,8 +48,11 @@ export function ThemeProvider({
     } else {
       root.classList.remove("dark")
     }
-    localStorage.setItem(THEME_KEY, theme)
-    localStorage.setItem(THEME_DEFAULT_VERSION_KEY, THEME_DEFAULT_VERSION)
+    root.style.colorScheme = theme
+    try {
+      localStorage.setItem(THEME_KEY, theme)
+      localStorage.setItem(THEME_DEFAULT_VERSION_KEY, THEME_DEFAULT_VERSION)
+    } catch { /* Theme switching also works when storage is unavailable. */ }
   }, [theme])
 
   const toggleTheme = () => {

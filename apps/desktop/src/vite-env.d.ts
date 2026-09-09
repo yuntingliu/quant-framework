@@ -8,6 +8,10 @@ declare module "monaco-editor/esm/vs/basic-languages/python/python.js" {
 }
 
 interface Window {
+  desktop?: {
+    setTheme: (theme: "light" | "dark") => Promise<void>
+    showMenu: (menu: "file" | "view" | "tools", x: number, y: number, language: "zh" | "en") => Promise<void>
+  }
   api?: {
     getApiBase?: () => string
     onBackendStdout?: (cb: (data: string) => void) => () => void

@@ -75,6 +75,21 @@
   }
 }
 
+/* Native window buttons occupy the area outside this safe title-bar region. */
+.desktop-titlebar {
+  height: env(titlebar-area-height, 36px);
+  -webkit-app-region: drag;
+}
+
+.desktop-titlebar-content {
+  margin-left: env(titlebar-area-x, 0px);
+  width: env(titlebar-area-width, 100%);
+}
+
+.desktop-titlebar-action {
+  -webkit-app-region: no-drag;
+}
+
 /* ── Financial Typography ──────────────────────────────────── */
 .font-tabular {
   font-variant-numeric: tabular-nums lining-nums;

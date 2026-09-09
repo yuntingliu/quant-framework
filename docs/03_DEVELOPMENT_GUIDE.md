@@ -317,6 +317,17 @@ Do not implement a second arbitrary-Python runner for data acquisition.
 
 ## Frontend conventions
 
+The workbench defaults to light mode. Theme-default version 4 switches existing
+profiles to light once; later manual theme changes remain persistent. Electron
+uses the shared React `DesktopTitleBar` with native window controls overlaid in
+the reserved CSS safe area. The title bar follows the workbench theme and the
+125% desktop zoom. A separate row above the workbench provides File, View, and
+Tools menus; the sidebar navigation, collapse controls, and workspace toolbar
+keep their existing positions. Browser mode omits this desktop-only bar.
+The sandboxed Electron preload must compile as CommonJS in both development and
+production; disable the plugin's ESM library preset and use an explicit Rollup
+input with CommonJS output.
+
 All six workbenches use the selected project from `StrategySdkContext`. A strategy-source edit saves
 `strategy.py`; parameter and schedule forms call the CST edit endpoint. Every source
 save or structured edit automatically validates and records the internal source

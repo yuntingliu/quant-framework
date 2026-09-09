@@ -1,7 +1,8 @@
 /**
  * AlphaLab desktop main process.
  */
-import { app, BrowserWindow, Menu, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron'
+import type { IpcMainInvokeEvent } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import path from 'path'
 import fs from 'fs'
@@ -14,6 +15,12 @@ const DIST = path.join(__dirname, '../web')
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
 const IS_DEV = !!VITE_DEV_SERVER_URL
 const DEFAULT_BACKEND_PORT = 8000
+const DEFAULT_ZOOM = 1.25
+const TITLE_BAR_HEIGHT = 36
+const WINDOW_COLORS = {
+  light: { color: '#ffffff', symbolColor: '#171c26', background: '#f9f8f6' },
+  dark: { color: '#151820', symbolColor: '#e0e6eb', background: '#0e1015' },
+}
 
 let mainWindow: BrowserWindow | null = null
 let pythonProcess: ChildProcess | null = null
@@ -91,30 +98,34 @@ function stopBackend(): void {
   pythonProcess = null
 }
 
-function buildMenu(): void {
+function buildMenu(language: 'zh' | 'en' = 'en'): void {
   const root = getProjectRoot()
+  const zh = language === 'zh'
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
-      label: 'File',
+      id: 'file',
+      label: zh ? '文件' : 'File',
       submenu: [
-        { label: 'Open Project Folder', click: () => shell.openPath(root) },
-        { label: 'Open Project Data', click: () => shell.openPath(path.join(root, 'data', 'app')) },
+        { label: zh ? '打开项目文件夹' : 'Open Project Folder', click: () => shell.openPath(root) },
+        { label: zh ? '打开项目数据' : 'Open Project Data', click: () => shell.openPath(path.join(root, 'data', 'app')) },
         { type: 'separator' },
-        { role: 'quit' },
+        { role: 'quit', label: zh ? '退出' : 'Quit' },
       ],
     },
     {
-      label: 'View',
+      id: 'view',
+      label: zh ? '视图' : 'View',
       submenu: [
-        { role: 'reload' },
-        { role: 'toggleDevTools' },
-        { role: 'togglefullscreen' },
+        { role: 'reload', label: zh ? '重新加载' : 'Reload' },
+        { role: 'toggleDevTools', label: zh ? '开发者工具' : 'Toggle Developer Tools' },
+        { role: 'togglefullscreen', label: zh ? '全屏' : 'Toggle Full Screen' },
       ],
     },
     {
-      label: 'Tools',
+      id: 'tools',
+      label: zh ? '工具' : 'Tools',
       submenu: [
-        { label: 'API Docs', click: () => shell.openExternal(`http://127.0.0.1:${backendPort}/docs`) },
+        { label: zh ? 'API 文档' : 'API Docs', click: () => shell.openExternal(`http://127.0.0.1:${backendPort}/docs`) },
       ],
     },
   ]))
@@ -127,9 +138,16 @@ function createWindow(): void {
     height: 920,
     minWidth: 960,
     minHeight: 680,
-    title: 'AlphaLab Barebone',
+    title: 'AlphaLab Quant Workstation',
+    backgroundColor: WINDOW_COLORS.light.background,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: WINDOW_COLORS.light.color,
+      symbolColor: WINDOW_COLORS.light.symbolColor,
+      height: Math.round(TITLE_BAR_HEIGHT * DEFAULT_ZOOM),
+    },
     webPreferences: {
-      zoomFactor: 1.25,
+      zoomFactor: DEFAULT_ZOOM,
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
@@ -139,6 +157,7 @@ function createWindow(): void {
       ],
     },
   })
+  mainWindow.setMenuBarVisibility(false)
 
   if (VITE_DEV_SERVER_URL) {
     const url = new URL(VITE_DEV_SERVER_URL)
@@ -157,6 +176,42 @@ function createWindow(): void {
     mainWindow = null
   })
 }
+
+function senderWindow(event: IpcMainInvokeEvent): BrowserWindow {
+  if (!mainWindow || event.sender !== mainWindow.webContents
+    || event.senderFrame !== mainWindow.webContents.mainFrame) {
+    throw new Error('Window controls are only available to the main window')
+  }
+  return mainWindow
+}
+
+ipcMain.handle('window:setTheme', (event, theme: unknown) => {
+  const window = senderWindow(event)
+  if (theme !== 'light' && theme !== 'dark') throw new Error('Unsupported theme')
+  const colors = WINDOW_COLORS[theme]
+  window.setBackgroundColor(colors.background)
+  if (process.platform !== 'darwin') {
+    window.setTitleBarOverlay({ color: colors.color, symbolColor: colors.symbolColor })
+  }
+})
+
+ipcMain.handle('window:showMenu', (event, menu: unknown, x: unknown, y: unknown, language: unknown) => {
+  const window = senderWindow(event)
+  if (menu !== 'file' && menu !== 'view' && menu !== 'tools') throw new Error('Unsupported menu')
+  if (language !== 'zh' && language !== 'en') throw new Error('Unsupported language')
+  if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
+    throw new Error('Invalid menu position')
+  }
+  const zoom = window.webContents.getZoomFactor()
+  const [width, height] = window.getContentSize()
+  buildMenu(language)
+  window.setMenuBarVisibility(false)
+  Menu.getApplicationMenu()?.getMenuItemById(menu)?.submenu?.popup({
+    window,
+    x: Math.max(0, Math.min(width, Math.round(x * zoom))),
+    y: Math.max(0, Math.min(height, Math.round(y * zoom))),
+  })
+})
 
 app.whenReady().then(async () => {
   await startBackend()
