@@ -371,7 +371,12 @@ contract diagnostics expose `ValidationContext` and `@analysis`, not trading
 Context methods.
 
 Monaco and the language clients are lazy-loaded. `vite.config.ts` must retain ES
-worker output. Pyrefly and Ruff come from the active backend Python environment
+worker output. Once an editable project is selected, idle time and navigation
+hover/focus can preload the editor module. Monaco must become editable before
+waiting for capability discovery or language-server connections. Coverage
+queries must reuse file-versioned summaries, and a single-security chart must
+filter runtime partitions before materializing full pandas frames.
+Pyrefly and Ruff come from the active backend Python environment
 installed by the `dev` extra. Their process commands are resolved server-side
 from a fixed allowlist; never accept a client-supplied executable or argument
 list. LSP mirrors belong only under ignored `data/runtime/editor/`, must stay

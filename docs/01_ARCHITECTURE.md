@@ -245,6 +245,13 @@ leave the unfilled portion in the actual portfolio.
 
 ## Data boundary
 
+Workbench coverage reads cache small per-file date/symbol summaries, keyed by
+the absolute path, size, and modification/change timestamps. Added, replaced,
+and removed partitions are discovered on the next request; full market frames
+are never retained in this cache. Runtime market queries filter securities and
+dates in Arrow before creating pandas frames, while keeping schema unions,
+state joins, duplicate precedence, and resampling in the provider boundary.
+
 `DataEngine` remains provider-first. Current Strategy SDK projects use the
 RQ-backed research store as their single data profile; the workbenches do not
 offer a Demo/Runtime switch. The bundled deterministic sample remains only as

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
+from threading import RLock
 from typing import Literal
 
 import pandas as pd
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from alphalab.utils.paths import RUNTIME_DIR
@@ -143,6 +146,64 @@ DATASET_SPECS: tuple[DatasetSpec, ...] = (
 DATASETS = {spec.id: spec for spec in DATASET_SPECS}
 
 
+@dataclass(frozen=True)
+class _FileCoverage:
+    rows: int
+    start: pd.Timestamp | None
+    end: pd.Timestamp | None
+    symbols: frozenset[str]
+    dated_symbols: frozenset[str]
+
+
+_COVERAGE_LOCK = RLock()
+
+
+@lru_cache(maxsize=512)
+def _file_coverage(
+    path: Path, size: int, modified_ns: int, changed_ns: int, date_column: str | None,
+) -> _FileCoverage:
+    """Cache small coverage summaries, never full research data frames.
+
+    File identity changes invalidate entries after publication, including atomic
+    replacement. Callers serialize cache misses so simultaneous workbench reads
+    do not decode the same partition more than once.
+    """
+    with pq.ParquetFile(path) as parquet:
+        names = parquet.schema_arrow.names
+        columns = [name for name in (date_column, "symbol") if name and name in names]
+        table = parquet.read(columns=columns)
+        start = end = None
+        if date_column and date_column in names:
+            dates = pd.to_datetime(table[date_column].unique().to_pandas(), errors="coerce").dropna()
+            if not dates.empty:
+                start, end = pd.Timestamp(dates.min()), pd.Timestamp(dates.max())
+        symbols = frozenset(
+            str(value).upper() for value in table["symbol"].unique().to_pylist()
+            if value is not None
+        ) if "symbol" in names else frozenset()
+        dated_symbols = symbols
+        if date_column and date_column in names and "symbol" in names:
+            # Market symbol discovery excludes rows with an unusable date, just
+            # like the provider's normalized bars view.
+            date_values = table[date_column].unique()
+            parsed = pd.to_datetime(date_values.to_pandas(), errors="coerce")
+            if parsed.isna().any():
+                valid_values = date_values.filter(parsed.notna().to_numpy())
+                valid_rows = table.filter(pc.is_in(table[date_column], value_set=valid_values))
+                dated_symbols = frozenset(
+                    str(value).upper() for value in valid_rows["symbol"].unique().to_pylist()
+                    if value is not None
+                )
+        return _FileCoverage(parquet.metadata.num_rows, start, end, symbols, dated_symbols)
+
+
+def _coverage(path: Path, date_column: str | None) -> _FileCoverage:
+    resolved = path.resolve()
+    stat = resolved.stat()
+    with _COVERAGE_LOCK:
+        return _file_coverage(resolved, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, date_column)
+
+
 class DataCatalog:
     def __init__(self, root: str | Path | None = None):
         self.root = Path(root) if root is not None else RUNTIME_DIR
@@ -158,6 +219,14 @@ class DataCatalog:
 
     def files(self, dataset: str) -> list[Path]:
         return sorted(self.path(dataset).rglob("*.parquet"))
+
+    def symbols(self, dataset: str, *, dated_only: bool = False) -> list[str]:
+        spec = self.spec(dataset)
+        symbols: set[str] = set()
+        for path in self.files(dataset):
+            coverage = _coverage(path, spec.date_column)
+            symbols.update(coverage.dated_symbols if dated_only else coverage.symbols)
+        return sorted(symbols)
 
     def status(self, dataset: str) -> dict:
         spec = self.spec(dataset)
@@ -178,31 +247,18 @@ class DataCatalog:
         if not files:
             return {**base, "status": "missing"}
         try:
-            rows = sum(int(pq.ParquetFile(path).metadata.num_rows) for path in files)
+            rows = 0
             date_start: pd.Timestamp | None = None
             date_end: pd.Timestamp | None = None
             symbols: set[str] = set()
             for path in files:
-                schema = pq.read_schema(path)
-                columns: list[str] = []
-                if spec.date_column and spec.date_column in schema.names:
-                    columns.append(spec.date_column)
-                if "symbol" in schema.names:
-                    columns.append("symbol")
-                if not columns:
-                    continue
-                frame = pd.read_parquet(path, columns=columns)
-                if spec.date_column and spec.date_column in frame:
-                    dates = pd.to_datetime(frame[spec.date_column], errors="coerce").dropna()
-                    if not dates.empty:
-                        current_start = pd.Timestamp(dates.min())
-                        current_end = pd.Timestamp(dates.max())
-                        date_start = (
-                            current_start if date_start is None else min(date_start, current_start)
-                        )
-                        date_end = current_end if date_end is None else max(date_end, current_end)
-                if "symbol" in frame:
-                    symbols.update(frame["symbol"].dropna().astype(str).str.upper())
+                coverage = _coverage(path, spec.date_column)
+                rows += coverage.rows
+                if coverage.start is not None:
+                    date_start = coverage.start if date_start is None else min(date_start, coverage.start)
+                if coverage.end is not None:
+                    date_end = coverage.end if date_end is None else max(date_end, coverage.end)
+                symbols.update(coverage.symbols)
             return {
                 **base,
                 "status": "ready",

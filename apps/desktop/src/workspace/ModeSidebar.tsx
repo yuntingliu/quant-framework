@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import {
   Languages,
   Moon,
@@ -11,6 +12,7 @@ import { useTheme } from "@/contexts/ThemeContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
 import type { WorkspaceMode } from "@/layouts/presets"
 import { cn } from "@/lib/utils"
+import { preloadPythonEditor } from "@/components/python/pythonEditorLoader"
 
 import { MODE_CONFIG, WORKSPACE_MODES } from "./modes"
 
@@ -31,6 +33,16 @@ export function ModeSidebar({
   const { language, toggleLanguage, t } = useLanguage()
   const { theme, toggleTheme } = useTheme()
   const projectReady = Boolean(selectedStrategy && selectedStrategyEditable && selectedStrategyRevision != null)
+
+  useEffect(() => {
+    if (!projectReady) return
+    if (!window.requestIdleCallback) {
+      const timer = window.setTimeout(preloadPythonEditor, 1000)
+      return () => window.clearTimeout(timer)
+    }
+    const idle = window.requestIdleCallback(preloadPythonEditor, { timeout: 2000 })
+    return () => window.cancelIdleCallback(idle)
+  }, [projectReady])
 
   return (
     <aside
@@ -70,6 +82,8 @@ export function ModeSidebar({
                     : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
               )}
               onClick={() => onSwitchMode(mode)}
+              onPointerEnter={() => { if (!disabled && mode !== "project" && mode !== "report") preloadPythonEditor() }}
+              onFocus={() => { if (!disabled && mode !== "project" && mode !== "report") preloadPythonEditor() }}
               title={disabled ? t("sidebar.projectRequired") : t(detailKey)}
             >
               <Icon className={cn("h-4 w-4 shrink-0", isActive && !disabled && "text-primary")} />

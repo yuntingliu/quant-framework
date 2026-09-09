@@ -174,9 +174,12 @@ export function startPythonEditorRuntime() {
     // colors; Pyrefly layers semantic tokens, navigation and completion on top.
     monaco.languages.setLanguageConfiguration("python", pythonLanguageConfiguration)
     monaco.languages.setMonarchTokensProvider("python", pythonLanguage)
+    // Editing is available as soon as Monaco is ready; tool discovery and LSP
+    // connections enrich it independently of the backend's response time.
+    updateSnapshot({ initialized: true })
     let capabilities: PythonEditorCapabilities | null = null
     try {
-      capabilities = await api.get<PythonEditorCapabilities>("/python-editor/capabilities")
+      capabilities = await api.get<PythonEditorCapabilities>("/python-editor/capabilities", { timeoutMs: 10_000 })
     } catch {
       updateSnapshot({ initialized: true, pyrefly: "error", ruff: "error" })
       return snapshot

@@ -678,19 +678,22 @@ async function fetchJSON<T>(url: string, options?: ApiRequestInit): Promise<T> {
       signal: requestSignal.signal,
     }).finally(requestSignal.cleanup)
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: response.statusText }))
-      const detail = error.detail ?? error.message
+      const fallback = [502, 503, 504].includes(response.status)
+        ? `数据服务暂时不可用（${response.status}），请稍后重试。`
+        : `API Error: ${response.status}`
+      const error = await response.json().catch(() => null)
+      const detail = error?.detail ?? error?.message
       if (typeof detail === "string") {
-        throw new Error(detail || `API Error: ${response.status}`)
+        throw new Error(detail || fallback)
       }
       if (detail && typeof detail === "object") {
         const message = typeof detail.message === "string"
           ? detail.message
-          : `API Error: ${response.status}`
+          : fallback
         const suffix = detail.error ? `: ${detail.error}` : ""
         throw new Error(`${message}${suffix}`)
       }
-      throw new Error(`API Error: ${response.status}`)
+      throw new Error(fallback)
     }
     if (response.status === 204) return undefined as T
     return response.json() as Promise<T>

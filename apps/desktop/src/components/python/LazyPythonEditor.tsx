@@ -1,10 +1,11 @@
 import { forwardRef, lazy, Suspense } from "react"
 
 import type { PythonEditorHandle, PythonEditorProps } from "./PythonEditor"
+import { loadPythonEditor } from "./pythonEditorLoader"
 
 
 const MonacoPythonEditor = lazy(async () => {
-  const module = await import("./PythonEditor")
+  const module = await loadPythonEditor()
   return { default: module.PythonEditor }
 })
 

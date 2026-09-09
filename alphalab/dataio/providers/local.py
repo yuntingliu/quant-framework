@@ -14,6 +14,10 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.dataset as ds
+import pyarrow.parquet as pq
 
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.errors import MissingDataError
@@ -75,7 +79,12 @@ class LocalParquetMarketDataProvider:
         freq: str = "1d",
         fields: Optional[list[str]] = None,
     ) -> pd.DataFrame:
-        df = self._load()
+        return self._select_bars(self._load(), symbols, start, end, freq, fields)
+
+    def _select_bars(
+        self, df: pd.DataFrame, symbols: list[str], start: str, end: str,
+        freq: str, fields: Optional[list[str]],
+    ) -> pd.DataFrame:
         if df.empty:
             cols = ["date", "symbol"] + (fields or ["open", "high", "low", "close", "volume"])
             return pd.DataFrame(columns=list(dict.fromkeys(cols)))
@@ -120,7 +129,7 @@ class LocalParquetMarketDataProvider:
         existing = {key: value for key, value in agg.items() if key in df.columns}
         return (
             df.set_index("date")
-            .groupby("symbol", group_keys=False)
+            .groupby("symbol")
             .resample(rule)
             .agg(existing)
             .reset_index()
@@ -346,11 +355,48 @@ class PartitionedParquetMarketDataProvider(LocalParquetMarketDataProvider):
     def _load(self) -> pd.DataFrame:
         if self._cache is not None:
             return self._cache
+        self._cache = self._load_range()
+        return self._cache
+
+    def get_symbols(self, universe: str = "all") -> list[str]:
+        return self.catalog.symbols("rq.bars", dated_only=True)
+
+    def get_latest_date(self) -> str | None:
+        return self.catalog.status("rq.bars")["date_end"]
+
+    def get_bars(
+        self, symbols: list[str], start: str, end: str, freq: str = "1d",
+        fields: Optional[list[str]] = None,
+    ) -> pd.DataFrame:
+        frame = self._cache if self._cache is not None else self._load_range(symbols, start, end)
+        return self._select_bars(frame, symbols, start, end, freq, fields)
+
+    @staticmethod
+    def _read_partition(
+        path: Path, symbols: list[str] | None, start: str | None, end: str | None,
+    ) -> pd.DataFrame:
+        if symbols is None:
+            return pd.read_parquet(path)
+        schema = pq.read_schema(path)
+        if not {"date", "symbol"}.issubset(schema.names):
+            return pd.read_parquet(path)
+        # Normalize the stored symbol before filtering, retaining support for
+        # local partitions with lower-case exchange suffixes.
+        predicate = pc.utf8_upper(ds.field("symbol").cast(pa.string())).isin(_normal_symbols(symbols))
+        date_type = schema.field("date").type
+        if pa.types.is_timestamp(date_type) or pa.types.is_date(date_type):
+            predicate = predicate & (ds.field("date") >= pd.Timestamp(start)) & (ds.field("date") <= pd.Timestamp(end))
+        # Arrow filters before materializing pandas frames and skips date row
+        # groups outside the request. Mixed schemas remain a per-file union.
+        return pq.read_table(path, filters=predicate, partitioning=None).to_pandas()
+
+    def _load_range(
+        self, symbols: list[str] | None = None, start: str | None = None, end: str | None = None,
+    ) -> pd.DataFrame:
         files = self.catalog.files("rq.bars")
         if not files:
-            self._cache = pd.DataFrame(columns=["date", "symbol", "close"])
-            return self._cache
-        frame = pd.concat((pd.read_parquet(path) for path in files), ignore_index=True)
+            return pd.DataFrame(columns=["date", "symbol", "close"])
+        frame = pd.concat((self._read_partition(path, symbols, start, end) for path in files), ignore_index=True)
         frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
         frame["symbol"] = frame["symbol"].astype(str).str.upper()
         for dataset, field in (("rq.paused", "paused"), ("rq.is_st", "is_st")):
@@ -358,7 +404,7 @@ class PartitionedParquetMarketDataProvider(LocalParquetMarketDataProvider):
             if not state_files:
                 continue
             state = pd.concat(
-                (pd.read_parquet(path) for path in state_files), ignore_index=True
+                (self._read_partition(path, symbols, start, end) for path in state_files), ignore_index=True
             )
             if not {"date", "symbol", field}.issubset(state.columns):
                 continue
@@ -369,13 +415,12 @@ class PartitionedParquetMarketDataProvider(LocalParquetMarketDataProvider):
             frame = frame.merge(state, on=["date", "symbol"], how="left")
         if "paused" in frame:
             frame["is_suspended"] = frame["paused"].astype("boolean")
-        self._cache = (
+        return (
             frame.dropna(subset=["date", "symbol"])
             .drop_duplicates(["date", "symbol"], keep="last")
             .sort_values(["date", "symbol"])
             .reset_index(drop=True)
         )
-        return self._cache
 
 
 class PartitionedParquetInstrumentProvider(LocalParquetInstrumentProvider):
