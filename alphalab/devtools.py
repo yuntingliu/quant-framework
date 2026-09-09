@@ -20,7 +20,7 @@ from alphalab.utils.paths import DATA_DIR, REPO_ROOT
 _RQ_KEYS = ("RQ_USER", "RQ_PASSWORD", "RQ_HOST")
 
 
-def serve_workbench(*, host: str = "127.0.0.1", port: int = 8000) -> None:
+def serve_workbench(*, host: str = "127.0.0.1", port: int = 8000, agent: str = "local", agent_port: int = 0) -> None:
     """Serve the built browser workbench through the existing backend."""
 
     if not 1 <= port <= 65535:
@@ -36,7 +36,13 @@ def serve_workbench(*, host: str = "127.0.0.1", port: int = 8000) -> None:
     except ImportError as exc:
         raise RuntimeError('Install the backend first: python -m pip install -e ".[dashboard,dev]"') from exc
     print(f"AlphaLab: http://{host}:{port}/app/", flush=True)
-    uvicorn.run("dashboard.backend.main:app", host=host, port=port)
+    os.environ["ALPHALAB_AGENT_MODE"] = agent
+    if agent == "local":
+        from alphalab.local_agent import serve_with_local_agent
+
+        serve_with_local_agent(Path(REPO_ROOT), host=host, port=port, agent_port=agent_port)
+    else:
+        uvicorn.run("dashboard.backend.main:app", host=host, port=port)
 
 
 def doctor_report() -> dict[str, Any]:

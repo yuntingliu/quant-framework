@@ -46,6 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve = dev_commands.add_parser("serve", help="Serve the built workbench and API locally")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--agent", choices=["local", "remote", "off"], default="local")
+    serve.add_argument("--agent-port", type=int, default=0, help="Local Conexus port; 0 selects an available port")
     return parser
 
 
@@ -77,7 +79,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from alphalab.devtools import serve_workbench
 
         try:
-            serve_workbench(host=args.host, port=args.port)
+            serve_workbench(host=args.host, port=args.port, agent=args.agent, agent_port=args.agent_port)
         except RuntimeError as exc:
             print(str(exc), file=sys.stderr)
             return 2

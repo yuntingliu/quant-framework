@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url"
 
 const alphalabRoot = resolve(process.env.ALPHALAB_SOURCE_ROOT || process.env.ALPHALAB_PROJECT_ROOT || process.cwd())
 const projectRoot = resolve(process.env.CONEXUS_PROJECT_ROOT || alphalabRoot)
-const conexusRoot = resolve(process.env.CONEXUS_ROOT || resolve(alphalabRoot, "..", "Conexus"))
+const conexusRoot = resolve(process.env.CONEXUS_ROOT || resolve(alphalabRoot, "..", "Conexus", "source"))
 const hostingModule = resolve(
   conexusRoot,
   "apps",

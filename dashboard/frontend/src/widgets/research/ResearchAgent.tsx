@@ -397,10 +397,10 @@ export function ResearchAgentPanel() {
   const copy = language === "zh" ? {
     title: "AI 研究代理",
     newChat: "新会话",
-    empty: "发送研究问题，Agent 会调用已发布的 AlphaLab Research Harness。",
+    empty: "发送研究问题，Agent 会调用 AlphaLab 研究工具。",
     placeholder: agent.run?.pendingInteraction ? "回答 Agent 的问题…" : "输入研究问题…",
     running: "Agent 正在运行…",
-    unavailable: "Conexus Research Agent 尚未运行或尚未发布。",
+    unavailable: "Conexus Research Agent 尚未启动或尚未配置。",
     notConfigured: "状态：not_configured",
     retry: "重试",
     tools: "工具执行",
@@ -412,10 +412,10 @@ export function ResearchAgentPanel() {
   } : {
     title: "AI Research Agent",
     newChat: "New chat",
-    empty: "Send a research request to the published AlphaLab Research Harness.",
+    empty: "Send a research request to the AlphaLab Research Agent.",
     placeholder: agent.run?.pendingInteraction ? "Answer the Agent…" : "Enter a research request…",
     running: "Agent is running…",
-    unavailable: "The Conexus Research Agent is not running or has not been published.",
+    unavailable: "The Conexus Research Agent is not running or is not configured.",
     notConfigured: "Status: not_configured",
     retry: "Retry",
     tools: "Tool activity",
@@ -430,7 +430,9 @@ export function ResearchAgentPanel() {
     return (
       <div className="flex h-full items-center justify-center p-3">
         <div className="space-y-2 rounded border border-rose-500/30 bg-rose-500/5 p-3 text-xs text-rose-700 dark:text-rose-300">
-          <div>{copy.unavailable}</div>
+          <div>{agent.status.error === "model_not_configured"
+            ? (language === "zh" ? "本地 Agent 已启动。请按本地部署说明配置模型服务地址和模型名称，再重启 AlphaLab。本机模型服务可不填 API Key。" : "The local Agent is running. Configure the model endpoint and model name using the local deployment guide, then restart AlphaLab. A loopback model endpoint does not require an API key.")
+            : copy.unavailable}</div>
           <div className="font-mono text-[10px] opacity-80">{copy.notConfigured}</div>
           <button className="rounded border border-current px-2 py-1" onClick={() => void agent.reloadStatus()}>{copy.retry}</button>
         </div>

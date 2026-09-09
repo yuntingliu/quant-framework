@@ -534,7 +534,7 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
         return
       }
       const nextManifest = await readManifest(signal)
-      if (nextManifest.identityPolicy !== "enterprise" || nextManifest.billingPolicy !== "publisher") {
+      if (nextStatus.mode === "published_harness" && (nextManifest.identityPolicy !== "enterprise" || nextManifest.billingPolicy !== "publisher")) {
         throw new Error("Hosted AlphaLab Agent must use enterprise service identity with publisher billing.")
       }
       selectRunExposure(nextManifest)

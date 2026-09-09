@@ -1,0 +1,2 @@
+# The verified upstream export uses canonical LF bytes on every platform.
+integrations/conexus/core/** text eol=lf

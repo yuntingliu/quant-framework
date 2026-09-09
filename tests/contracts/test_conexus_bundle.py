@@ -311,11 +311,13 @@ def test_agent_and_harness_expose_only_six_workbench_modes():
     assert "web-research" in harness["template"]["manifest"]["capabilities"]
     assert "web research" in harness["template"]["manifest"]["triggers"]
     exposure = harness["template"]["manifest"]["exposures"][0]
-    assert "workspaceDocument" not in exposure["outputSchema"]["properties"]
-    document_result = exposure["outputSchema"]["properties"]["workspaceResult"]["oneOf"][1]
+    assert not {"inputs", "outputs", "inputSchema", "outputSchema"}.intersection(exposure)
+    output_schema = _load(BUNDLE / "workspace-output.schema.json")
+    assert "workspaceDocument" not in output_schema["properties"]
+    document_result = output_schema["properties"]["workspaceResult"]["oneOf"][1]
     assert "reportId" in document_result["required"]
     assert "projectId" not in document_result["properties"]
-    commands = exposure["outputSchema"]["properties"]["workspaceCommands"]
+    commands = output_schema["properties"]["workspaceCommands"]
     assert commands["required"] == ["version", "requestId", "commands"]
     command_properties = commands["properties"]["commands"]["items"]["properties"]
     assert "widgetId" in command_properties

@@ -42,11 +42,12 @@ def test_serve_requires_frontend_build(tmp_path, monkeypatch, capsys):
 
 
 def test_serve_uses_existing_backend(tmp_path, monkeypatch):
+    monkeypatch.setenv("ALPHALAB_AGENT_MODE", "off")
     index = tmp_path / "dashboard/frontend/dist/index.html"
     index.parent.mkdir(parents=True)
     index.write_text("<html></html>", encoding="utf-8")
     monkeypatch.setattr("alphalab.devtools.REPO_ROOT", tmp_path)
     calls = []
     monkeypatch.setattr("uvicorn.run", lambda *args, **kwargs: calls.append((args, kwargs)))
-    assert main(["dev", "serve", "--port", "8100"]) == 0
+    assert main(["dev", "serve", "--port", "8100", "--agent", "off"]) == 0
     assert calls == [(("dashboard.backend.main:app",), {"host": "127.0.0.1", "port": 8100})]

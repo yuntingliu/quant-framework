@@ -1,0 +1,14 @@
+{
+  "name": "conexus-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=22.18"},
+  "workspaces": ["packages/*", "apps/local-host"],
+  "scripts": {
+    "build": "npm run build --workspace @conexus/runtime-protocol && npm run build --workspace @conexus/runtime-core && npm run build --workspace @conexus/node-host-runtime",
+    "test": "npm run build && npm test --workspace @conexus/runtime-core && npm test --workspace @conexus/node-host-runtime && npm test --workspace @conexus/local-host && npm run check:boundaries",
+    "start": "npm start --workspace @conexus/local-host",
+    "check:boundaries": "node scripts/check-open-core-boundaries.mjs"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "repository": "Conexus Core",
+  "revision": "dcc74445382d73be7f1ff06b7bde147c95e7240d",
+  "packages": [
+    "apps/local-host",
+    "packages/node-host-runtime",
+    "packages/runtime-core",
+    "packages/runtime-protocol"
+  ],
+  "host": "apps/local-host/src",
+  "layoutVersion": 2,
+  "licenseStatus": "pending-owner-selection"
+}

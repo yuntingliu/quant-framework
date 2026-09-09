@@ -6,7 +6,10 @@ The public contract is [02_STRATEGY_SDK_V1_CONTRACT.md](02_STRATEGY_SDK_V1_CONTR
 ## Setup
 
 Student deployment and the single-process browser launcher are documented in
-[Local deployment](07_LOCAL_DEPLOYMENT.md).
+[Local deployment](07_LOCAL_DEPLOYMENT.md). That launcher also starts the included
+local Conexus Host. Build its verified source snapshot with
+`python scripts/build_conexus_runtime.py`; use `--agent off` for Python-only manual
+workbench development or `--agent remote` for an existing external service.
 
 ```powershell
 python -m venv .venv

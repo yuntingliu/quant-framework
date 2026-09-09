@@ -200,6 +200,24 @@ report.
 
 ## Registration and publication
 
+Local deployment uses the included Conexus Core and `@conexus/local-host`:
+
+```powershell
+python scripts\build_conexus_runtime.py
+alphalab dev serve
+```
+
+The launcher assembles the research graph and starts the local service itself.
+It needs no Canvas registration or enterprise publication. Configure a model
+endpoint using [Local deployment](07_LOCAL_DEPLOYMENT.md). The core source is
+pinned under `integrations/conexus/core`; execution, graph mutations and durable
+reports remain Conexus-owned. AlphaLab's structured workspace payload schemas
+live in `workspace-output.schema.json`, not on a Harness exposure.
+
+The following administration helpers apply only to an existing private Conexus
+Web/Canvas deployment used with `--agent remote`. Its source and UI are not
+included in the local runtime.
+
 Refresh the local canvas and staged bundle with:
 
 ```powershell

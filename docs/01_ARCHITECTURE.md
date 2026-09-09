@@ -14,6 +14,14 @@ The normative API is [02_STRATEGY_SDK_V1_CONTRACT.md](02_STRATEGY_SDK_V1_CONTRAC
 
 ## System shape
 
+The local launcher composes the Python workbench with the included Conexus
+`local-host`. `integrations/conexus/core` is a verified upstream source snapshot;
+`runtime/conexus` is its generated Node runtime. Agent execution remains in the
+Conexus core; AlphaLab supplies the research graph, Python API tools and optional
+direct search adapter. Reports and Run state persist under the local runtime data
+directory. The included core has no Canvas UI or enterprise application dependency.
+The existing remote service mode is selected explicitly with `--agent remote`.
+
 ```text
 Data recipe ── execute/sync ── canonical research store
                                       │

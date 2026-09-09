@@ -1,6 +1,7 @@
 export interface ConexusStatus {
   available: boolean
-  mode?: "published_harness" | "not_configured"
+  mode?: "published_harness" | "local_harness" | "not_configured"
+  model_configured?: boolean
   publication?: string
   error?: string
 }
@@ -14,8 +15,8 @@ export interface HostedHarnessExposure {
 }
 
 export interface HostedHarnessManifest {
-  identityPolicy: "enterprise"
-  billingPolicy: "publisher" | "consumer"
+  identityPolicy?: "enterprise"
+  billingPolicy?: "publisher" | "consumer"
   exposures: HostedHarnessExposure[]
   defaultExposureId?: string
 }

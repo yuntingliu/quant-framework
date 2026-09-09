@@ -1,0 +1,11 @@
+{
+  "schema": "conexus.open-core-export.v1",
+  "packages": ["packages/runtime-protocol", "packages/runtime-core", "packages/node-host-runtime", "apps/local-host"],
+  "licenseStatus": "pending-owner-selection",
+  "files": [
+    "docs/open-core/README.md",
+    "docs/open-core/ARCHITECTURE.md",
+    "scripts/check-open-core-boundaries.mjs",
+    "open-core.manifest.json"
+  ]
+}

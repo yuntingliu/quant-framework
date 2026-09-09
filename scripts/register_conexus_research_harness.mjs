@@ -119,7 +119,7 @@ const nodes = [
       description: "Optional published research Harness backed by AlphaLab FastAPI.",
       purpose: "primary",
       hostingSlug: "alphalab-research-agent",
-      hostingAccessPolicy: "anonymous",
+      hostingIdentityPolicy: "enterprise",
       hostingBillingPolicy: "publisher",
       backingPath: `${stagedBundlePath}/harness.json`,
     },

@@ -1,0 +1,38 @@
+{
+  "name": "@conexus/runtime-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/tools/browser.d.ts",
+      "import": "./dist/tools/browser.js"
+    },
+    "./node-catalog": {
+      "types": "./dist/canvas/node-catalog.d.ts",
+      "import": "./dist/canvas/node-catalog.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "npm run build && node --test \"dist/**/*.test.js\""
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "@conexus/runtime-protocol": "file:../runtime-protocol"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^5.9.3"
+  }
+}

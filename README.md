@@ -166,7 +166,8 @@ python -m pytest tests -q --basetemp=data\pytest
 python scripts\check_facade_imports.py
 python scripts\build_example_data.py --source-root <local-source>
 
-node scripts\register_conexus_research_harness.mjs
+python scripts\build_conexus_runtime.py
+alphalab dev serve
 ```
 
 Architecture and contribution rules:
@@ -176,6 +177,11 @@ Architecture and contribution rules:
 - [Development guide](docs/03_DEVELOPMENT_GUIDE.md)
 - [Data operations](docs/04_DATA_OPERATIONS.md)
 - [Conexus Agent](docs/04_CONEXUS_AGENT.md)
+- [Local deployment with Conexus Core](docs/07_LOCAL_DEPLOYMENT.md)
+
+The local deployment includes Conexus Core and its single-user service, with no
+Canvas editor or enterprise components. Its source provenance and pending license
+status are recorded in [Third-party source](THIRD_PARTY.md).
 
 Local data, SQLite databases, caches, test scratch, and generated frontend
 artifacts must stay out of Git. The repository does not push remotely unless

@@ -1,8 +1,9 @@
 # AlphaLab 本地部署（macOS / Windows）
 
-本地浏览器版包含 Python 后端、策略运行环境和网页工作台。前端构建一次后，
-日常使用只需启动一个 Python 服务，访问 `http://127.0.0.1:8000/app/`。
-Conexus Agent 是可选的外部服务；未配置时仍可手动编辑项目、同步数据和运行回测。
+本地浏览器版包含 Python 后端、策略运行环境、网页工作台和 Conexus 核心。
+日常使用一条命令同时启动 Python 与本地 Node Agent 服务，访问
+`http://127.0.0.1:8000/app/`。不需要 Conexus 云账号、企业凭证或 Canvas 编辑器。
+尚未配置模型时仍可手动编辑项目、同步数据和运行回测。
 
 ## 1. 取得部署版本
 
@@ -11,12 +12,14 @@ Conexus Agent 是可选的外部服务；未配置时仍可手动编辑项目、
 Git 用户可用 `git branch --show-current` 和 `git rev-parse --short HEAD` 记录版本。
 不要用新版本目录覆盖旧目录里的 `.env`、`.venv` 或 `data`。
 
-环境要求：Python 3.12；从源码构建网页时需要 Node.js 22（至少 22.18）或 24，及 npm。
+环境要求：Python 3.12；Node.js 22（至少 22.18）或 24，及 npm。
 仓库 `.node-version` 指定 Node 22。不要混用 Intel 和 Apple Silicon 的 Python、Node
 与虚拟环境；切换架构后重新创建 `.venv` 和安装前端依赖。
 
-若收到的部署包已经包含 `dashboard/frontend/dist/index.html`，可以跳过 Node 安装
-和第 3 步。该网页构建产物可用于 macOS 和 Windows；Python 环境仍须在各自电脑创建。
+若部署包已包含 `dashboard/frontend/dist/index.html` 和 `runtime/conexus/UPSTREAM.json`，
+可以跳过第 3 步。Node 仍用于本地 Agent；首次启动自动安装该平台的 Agent 依赖。
+构建产物可用于 macOS 和 Windows；Python 环境仍须在各自电脑创建。
+只使用手动工作台时，可用 `alphalab dev serve --agent off`；已有网页构建的该模式不需要 Node。
 
 ## 2. 安装 Python 环境
 
@@ -53,9 +56,13 @@ node --version
 npm --version
 npm --prefix dashboard/frontend ci
 npm --prefix dashboard/frontend run build
+python scripts/build_conexus_runtime.py
 ```
 
 `npm ci` 严格使用锁文件。`build` 默认只构建浏览器版。
+`build_conexus_runtime.py` 验证仓库内 `integrations/conexus/core` 的来源和文件校验值，
+安装并编译核心，再生成忽略目录 `runtime/conexus`。无须访问 Conexus 私有仓库。
+Windows 的 `python` 可替换为 `.\.venv\Scripts\python.exe`。
 若 Electron 下载失败，浏览器部署可跳过其二进制下载后重试安装：
 
 ```bash
@@ -101,13 +108,35 @@ Windows：
 `http://127.0.0.1:8100/app/`。不要为释放端口而结束不明进程。
 服务默认只监听本机 `127.0.0.1`。
 
+Agent 服务自动选择另一个空闲本机端口，工具会收到实际 Python API 地址。
+需要固定端口时加 `--agent-port 8787`；不能与 Python 端口相同。
+停止启动器时会同时关闭本地 Agent；其日志在 `data/runtime/conexus/host.log`。
+本地工作区一次执行一个 Run。中途退出的任务在重启后标记为取消，不自动重复执行工具。
+
+### 配置模型
+
+把 `.env.example` 复制为 `.env`，填写 `CONEXUS_MODEL_BASE_URL` 和 `CONEXUS_MODEL_ID`，
+再重启 AlphaLab。服务地址使用兼容 Chat Completions 的接口根路径，末尾通常为 `/v1`。
+使用远程模型服务时，还需填写 `CONEXUS_MODEL_API_KEY`；本机回环地址的模型服务可留空。
+例如远程 OpenRouter 的根路径为 `https://openrouter.ai/api/v1`，模型名称使用账号可用的实际 ID。
+
+使用本机模型时，Conexus 无需云端模型账号。模型服务和模型文件需自行安装；部署包不包含模型权重。
+选择远程模型时，研究请求会发送给所配置的服务。RQ 数据同步和网页检索也各自需要网络。
+可选 `BRAVE_SEARCH_API_KEY` 用于直接访问 [Brave Web Search](https://api-dashboard.search.brave.com/documentation/services/web-search)；
+未配置时仍可调用 AlphaLab 研究、数据和回测工具。
+
+已有外部 Conexus 服务时，显式使用 `--agent remote`，并填写 `CONEXUS_WEB_ORIGIN`、
+`CONEXUS_PUBLICATION_SLUG`、`CONEXUS_PUBLICATION_WORKSPACE_TOKEN`。本地模式会自动配置自己的
+服务地址和访问凭据，浏览器不会收到工作区凭据。部署包包含的核心与本地服务处于开源准备阶段；
+Canvas 和企业版不在包内，许可证状态见根目录 `THIRD_PARTY.md`。
+
 ## 5. 安装成功与研究数据就绪是两件事
 
 `doctor` 输出中的 `python`、`node`、`frontend`、`pyrefly`、`ruff` 帮助检查安装；
 `rq` 和 `runtime_execution` 检查数据配置与基本数据集。
 首次安装未配置 RQ 或尚未同步数据时，总状态 `degraded`、退出码 1 是预期现象，
-请继续检查对应条目。已有网页构建的部署包不需要 Node；doctor 的 Node 缺失提示
-也不影响该包启动。doctor 中数据集存在不保证特定研究范围的覆盖完整。
+请继续检查对应条目。Node 缺失时只能启动已有网页构建的 `--agent off` 模式。
+doctor 中数据集存在不保证特定研究范围的覆盖完整。
 
 首页“源码检查通过”表示代码满足策略契约。首页单独展示行情是否已同步，
 并提供“检查研究数据”入口。即使已有行情，评估和回测仍需要所选标的、日期、
@@ -139,6 +168,8 @@ npm --prefix dashboard/frontend run lint
 npm --prefix dashboard/frontend run build
 npm --prefix dashboard/frontend audit
 npm --prefix dashboard/frontend audit --omit=dev
+npm --prefix integrations/conexus/core test
+npm --prefix runtime/conexus audit --omit=dev
 git diff --check
 git status --short
 ```
@@ -147,6 +178,8 @@ git status --short
 完整测试使用临时数据库、缓存与数据目录，不应修改自己的项目数据库。
 数据存放位置：`data/app/` 为项目和结果，`data/runtime/` 为下载的数据、同步任务与
 编辑器镜像，`data/cache/` 为缓存。这些目录均不进入 Git。
+本地 Agent 的报告、图状态、Run 记录和凭据在 `data/runtime/conexus/`；它们不是
+`runtime/conexus/` 中可重新构建的程序文件。AlphaLab 聊天历史另存于其本地运行目录。
 测试中的 `tests/fixtures/legacy_app.db` 是只读历史迁移样本，不能当作运行数据库。
 
 升级旧版本前先停止服务，备份整个 `data/app/`、`data/runtime/` 和 `.env` 到项目
@@ -172,13 +205,24 @@ python -m uvicorn dashboard.backend.main:app --reload --host 127.0.0.1 --port 80
 
 ## 8. 维护者生成学生部署包
 
-前端构建并通过上述检查后，在 Git 工作区运行：
+前端和 Conexus 核心均构建并通过上述检查后，在 Git 工作区运行：
 
 ```bash
 python scripts/build_local_bundle.py
 ```
 
 产物为忽略目录下的 `artifacts/AlphaLab-local-deployment.zip` 和校验文件。
-包内含当前源码、冻结测试样本和已构建网页，排除本地运行数据库、下载数据、
+包内含当前源码、Conexus 核心源码及编译结果、冻结测试样本和已构建网页，排除本地运行数据库、下载数据、
 凭据、缓存、虚拟环境与 `node_modules`。`LOCAL_BUILD.json` 记录基础提交和逐文件
 SHA-256，包含未提交的本地源码修改。学生解压后按第 2、4、5 步操作即可。
+构建器校验运行包的核心版本和目录边界；若残留企业 Web Host 或其他未审查文件，会拒绝打包。
+
+维护者升级核心时，在 Conexus 的拆分分支生成无 Git 历史的导出目录，然后运行：
+
+```bash
+python scripts/sync_conexus_core.py --export-root <core-export-directory>
+python scripts/build_conexus_runtime.py
+```
+
+同步器仅接受干净提交的四个已审查核心包，并逐文件校验。核心修复应先进入 Conexus，
+再通过导出更新 AlphaLab；不在两边维护不同的执行引擎。

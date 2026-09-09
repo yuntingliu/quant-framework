@@ -148,6 +148,8 @@ async def _forward(
     *,
     authorization: Literal["request", "workspace"] = "request",
 ) -> Response:
+    if os.getenv("ALPHALAB_AGENT_MODE") == "off":
+        return _unavailable_response()
     if authorization == "workspace" and not _workspace_token():
         return JSONResponse(
             status_code=503,
@@ -176,6 +178,8 @@ async def _forward(
 
 @router.get("/status")
 async def conexus_status() -> dict:
+    if os.getenv("ALPHALAB_AGENT_MODE") == "off":
+        return {"available": False, "mode": "not_configured", "error": "agent_disabled"}
     slug = _publication_slug()
     if not _workspace_token():
         return {
@@ -186,6 +190,14 @@ async def conexus_status() -> dict:
         }
     try:
         await _fetch_json(f"/api/public/harnesses/{_path_segment(slug)}/descriptor")
+        if os.getenv("ALPHALAB_AGENT_MODE") == "local":
+            health = await _fetch_json("/health")
+            ready = bool(health.get("modelConfigured"))
+            return {
+                "available": ready, "mode": "local_harness", "publication": slug,
+                "model_configured": ready,
+                **({} if ready else {"error": "model_not_configured"}),
+            }
         return {
             "available": True,
             "mode": "published_harness",
@@ -271,6 +283,8 @@ async def answer_interaction(run_id: str, interaction_id: str, request: Request)
 
 @router.get("/runs/{run_id}/events")
 async def run_events(run_id: str, request: Request) -> Response:
+    if os.getenv("ALPHALAB_AGENT_MODE") == "off":
+        return _unavailable_response()
     client = httpx.AsyncClient(timeout=None, trust_env=False)
     upstream_request = client.build_request(
         "GET",

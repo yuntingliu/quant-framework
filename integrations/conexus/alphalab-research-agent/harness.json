@@ -1,6 +1,5 @@
 {
   "summary": "面向 AlphaLab Strategy SDK v1 的可发布 Agent，以同一份版本化 Python 源码覆盖数据、因子、策略、验证、回测归因与报告。",
-  "entryNodeId": "alphalab-research-agent-v1",
   "template": {
     "name": "AlphaLab Research Agent",
     "summary": "Published conversational research Agent for the AlphaLab workstation.",
@@ -30,246 +29,117 @@
       "version": 1,
       "defaultExposureId": "alphalab-research-agent",
       "permissions": [
-        { "kind": "model", "required": true },
-        { "kind": "network", "required": true }
+        {
+          "kind": "model",
+          "required": true
+        },
+        {
+          "kind": "network",
+          "required": true
+        }
       ],
       "dependencies": [
-        { "kind": "model", "name": "openrouter" },
-        { "kind": "runtime", "name": "conexus.runtime.v1" }
+        {
+          "kind": "model",
+          "name": "configured-model"
+        },
+        {
+          "kind": "runtime",
+          "name": "conexus.runtime.v1"
+        }
       ],
-      "capabilities": ["quant-research", "web-research", "research-project-management", "data-recipe-authoring", "data-operations", "data-job-control", "market-data", "fundamentals", "factor-returns", "sdk-factor-authoring", "sdk-factor-evaluation", "market-risk-factor-evaluation", "point-in-time-context", "stateful-strategy", "portfolio-construction", "execution-modeling", "strategy-source-pinning", "validation-source-authoring", "python-strategy-review", "event-backtest", "backtest-analysis", "factor-attribution", "robustness", "backtest-comparison", "experiment-loop", "report-history", "decision-notebook", "workspace-control", "research-document", "research-table", "research-chart"],
-      "triggers": ["research", "web research", "factor paper", "public factor", "research project", "data recipe", "data status", "data sync", "data job", "fundamentals", "signal research", "factor returns", "factor evaluation", "custom factor", "custom signal", "stateful strategy", "market risk data", "stock selection", "create project", "edit strategy", "validation python", "portfolio construction", "execution policy", "Python strategy", "backtest", "alpha beta", "factor attribution", "robustness", "compare backtests", "strategy risk", "quantitative report", "chart"],
-      "tags": ["alphalab", "quant", "published-agent"],
+      "capabilities": [
+        "quant-research",
+        "web-research",
+        "research-project-management",
+        "data-recipe-authoring",
+        "data-operations",
+        "data-job-control",
+        "market-data",
+        "fundamentals",
+        "factor-returns",
+        "sdk-factor-authoring",
+        "sdk-factor-evaluation",
+        "market-risk-factor-evaluation",
+        "point-in-time-context",
+        "stateful-strategy",
+        "portfolio-construction",
+        "execution-modeling",
+        "strategy-source-pinning",
+        "validation-source-authoring",
+        "python-strategy-review",
+        "event-backtest",
+        "backtest-analysis",
+        "factor-attribution",
+        "robustness",
+        "backtest-comparison",
+        "experiment-loop",
+        "report-history",
+        "decision-notebook",
+        "workspace-control",
+        "research-document",
+        "research-table",
+        "research-chart"
+      ],
+      "triggers": [
+        "research",
+        "web research",
+        "factor paper",
+        "public factor",
+        "research project",
+        "data recipe",
+        "data status",
+        "data sync",
+        "data job",
+        "fundamentals",
+        "signal research",
+        "factor returns",
+        "factor evaluation",
+        "custom factor",
+        "custom signal",
+        "stateful strategy",
+        "market risk data",
+        "stock selection",
+        "create project",
+        "edit strategy",
+        "validation python",
+        "portfolio construction",
+        "execution policy",
+        "Python strategy",
+        "backtest",
+        "alpha beta",
+        "factor attribution",
+        "robustness",
+        "compare backtests",
+        "strategy risk",
+        "quantitative report",
+        "chart"
+      ],
+      "tags": [
+        "alphalab",
+        "quant",
+        "published-agent"
+      ],
       "exposures": [
         {
           "id": "alphalab-research-agent",
           "name": "AlphaLab Research Agent",
           "description": "Run the conversational AlphaLab research workflow.",
           "nodeId": "alphalab-research-agent-v1",
-          "surfaces": ["agent_tool", "page", "api"],
-          "inputs": [
-        {
-          "key": "request",
-          "label": "Research request",
-          "description": "The user's research question or requested AlphaLab action.",
-          "type": "text",
-          "required": true,
-          "nodeId": "alphalab-research-agent-v1",
-          "port": "task"
-        }
-      ],
-          "outputs": [
-        {
-          "key": "summary",
-          "label": "Research answer",
-          "description": "Final Agent response.",
-          "type": "json",
-          "nodeId": "alphalab-research-agent-v1",
-          "port": "summary"
-        },
-        {
-          "key": "decisionNotebook",
-          "label": "Decision notebook",
-          "description": "Structured classification, base case, risk case, next action, and candidates.",
-          "type": "json",
-          "nodeId": "alphalab-decision-notebook-v1",
-          "port": "data"
-        },
-        {
-          "key": "workspaceResult",
-          "label": "Workspace result",
-          "description": "Descriptor for the report Document changed by this run, with optional interactive table and chart attachments.",
-          "type": "json",
-          "nodeId": "alphalab-workspace-result-v1",
-          "port": "data"
-        },
-        {
-          "key": "workspaceCommands",
-          "label": "Workspace commands",
-          "description": "Validated navigation, selection, refresh, and layout commands consumed by the AlphaLab frontend.",
-          "type": "json",
-          "nodeId": "alphalab-workspace-commands-v1",
-          "port": "data"
-        }
+          "surfaces": [
+            "agent_tool",
+            "page",
+            "api"
           ],
-          "inputSchema": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["request"],
-        "properties": {
-          "request": { "type": "string", "minLength": 1, "maxLength": 100000 }
-        }
-      },
-          "outputSchema": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["summary", "decisionNotebook", "workspaceResult", "workspaceCommands"],
-        "properties": {
-          "summary": { "type": "string" },
-          "decisionNotebook": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["classification", "baseCase", "riskCase", "nextAction", "candidateExpressions"],
-            "properties": {
-              "classification": { "type": "string", "minLength": 1, "maxLength": 120 },
-              "baseCase": { "type": "string", "maxLength": 20000 },
-              "riskCase": { "type": "string", "maxLength": 20000 },
-              "nextAction": { "type": "string", "maxLength": 20000 },
-              "candidateExpressions": {
-                "type": "array",
-                "maxItems": 100,
-                "items": { "type": "string", "maxLength": 2000 }
-              }
-            }
-          },
-          "workspaceResult": {
-            "oneOf": [
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["version", "requestId", "kind"],
-                "properties": {
-                  "version": { "const": 1 },
-                  "requestId": { "type": "string", "minLength": 1, "maxLength": 200 },
-                  "kind": { "const": "none" }
-                }
-              },
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["version", "reportId", "requestId", "kind", "title", "sources"],
-                "properties": {
-                  "version": { "const": 1 },
-                  "reportId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,199}$" },
-                  "requestId": { "type": "string", "minLength": 1, "maxLength": 200 },
-                  "kind": { "const": "document" },
-                  "title": { "type": "string", "minLength": 1, "maxLength": 200 },
-                  "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
-                  "sources": {
-                    "type": "array",
-                    "maxItems": 20,
-                    "items": { "type": "string", "minLength": 1, "maxLength": 500 }
-                  },
-                  "generatedAt": { "type": "string", "minLength": 1, "maxLength": 100 },
-                  "columns": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 30,
-                    "items": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "required": ["key", "label"],
-                      "properties": {
-                        "key": { "type": "string", "minLength": 1, "maxLength": 80 },
-                        "label": { "type": "string", "minLength": 1, "maxLength": 120 },
-                        "format": { "type": "string", "enum": ["text", "number", "percent", "date", "datetime"] }
-                      }
-                    }
-                  },
-                  "rows": {
-                    "type": "array",
-                    "maxItems": 1000,
-                    "items": {
-                      "type": "object",
-                      "additionalProperties": {
-                        "type": ["string", "number", "boolean", "null"]
-                      }
-                    }
-                  },
-                  "charts": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 6,
-                    "items": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "required": ["id", "type", "title", "xKey", "series", "rows"],
-                      "properties": {
-                        "id": { "type": "string", "minLength": 1, "maxLength": 80 },
-                        "type": { "type": "string", "enum": ["line", "bar", "area", "scatter", "pie"] },
-                        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
-                        "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
-                        "xKey": { "type": "string", "minLength": 1, "maxLength": 80 },
-                        "xLabel": { "type": "string", "minLength": 1, "maxLength": 120 },
-                        "yLabel": { "type": "string", "minLength": 1, "maxLength": 120 },
-                        "series": {
-                          "type": "array",
-                          "minItems": 1,
-                          "maxItems": 12,
-                          "items": {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": ["key", "label"],
-                            "properties": {
-                              "key": { "type": "string", "minLength": 1, "maxLength": 80 },
-                              "label": { "type": "string", "minLength": 1, "maxLength": 120 },
-                              "format": { "type": "string", "enum": ["number", "percent"] },
-                              "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" }
-                            }
-                          }
-                        },
-                        "rows": {
-                          "type": "array",
-                          "minItems": 1,
-                          "maxItems": 500,
-                          "items": {
-                            "type": "object",
-                            "maxProperties": 13,
-                            "additionalProperties": {
-                              "type": ["string", "number", "boolean", "null"]
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "dependentRequired": { "columns": ["rows"], "rows": ["columns"] }
-              }
-            ]
-          },
-          "workspaceCommands": {
-            "type": "object",
-            "description": "Frontend command batch. Always include version=1 and the current requestId. open_widget uses widgetId (never widget); set_focus must precede mode/widget commands when opening a project.",
-            "additionalProperties": false,
-            "required": ["version", "requestId", "commands"],
-            "properties": {
-              "version": { "const": 1 },
-              "requestId": { "type": "string", "minLength": 1, "maxLength": 200 },
-              "commands": {
-                "type": "array",
-                "maxItems": 20,
-                "items": {
-                  "type": "object",
-                  "required": ["type"],
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "enum": ["switch_mode", "open_widget", "open_result", "close_widget", "set_focus", "set_link_symbol", "show_right_rail", "refresh_data", "save_layout", "reset_layout"]
-                    },
-                    "mode": { "type": "string", "enum": ["project", "data", "factor", "strategy", "validation", "report"] },
-                    "widgetId": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Required for open_widget and close_widget. The field name is widgetId, never widget." },
-                    "resultId": { "type": "string", "minLength": 1, "maxLength": 200 },
-                    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
-                    "symbol": { "type": ["string", "null"], "maxLength": 200 },
-                    "projectId": { "type": ["string", "null"], "maxLength": 200 },
-                    "backtestId": { "type": ["string", "null"], "maxLength": 200 },
-                    "date": { "type": ["string", "null"], "maxLength": 200 },
-                    "group": { "type": "string", "enum": ["a", "b", "c", "d"] },
-                    "open": { "type": "boolean" }
-                  },
-                  "additionalProperties": false
-                }
-              }
-            }
-          }
-        }
-          }
+          "nodeType": "agent"
         }
       ]
     },
     "runtime": {
-      "policy": { "maxAttempts": 1, "allowParallel": false },
+      "policy": {
+        "maxAttempts": 1,
+        "allowParallel": false
+      },
       "isolation": "none"
     },
     "verification": {
