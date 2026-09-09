@@ -31,9 +31,9 @@ def test_public_facade_is_small_and_sdk_native():
 
 
 def test_frontend_has_six_views_over_one_sdk_source():
-    presets = (ROOT / "dashboard/frontend/src/layouts/presets.ts").read_text(encoding="utf-8")
-    modes = (ROOT / "dashboard/frontend/src/workspace/modes.ts").read_text(encoding="utf-8")
-    components = (ROOT / "dashboard/frontend/src/widgets/registry/components.tsx").read_text(
+    presets = (ROOT / "apps/desktop/src/layouts/presets.ts").read_text(encoding="utf-8")
+    modes = (ROOT / "apps/desktop/src/workspace/modes.ts").read_text(encoding="utf-8")
+    components = (ROOT / "apps/desktop/src/widgets/registry/components.tsx").read_text(
         encoding="utf-8"
     )
     assert (
@@ -49,17 +49,17 @@ def test_frontend_has_six_views_over_one_sdk_source():
 
 
 def test_workbenches_share_the_strategy_sdk_context():
-    workspace = (ROOT / "dashboard/frontend/src/Workspace.tsx").read_text(encoding="utf-8")
-    context = (ROOT / "dashboard/frontend/src/contexts/StrategySdkContext.tsx").read_text(
+    workspace = (ROOT / "apps/desktop/src/Workspace.tsx").read_text(encoding="utf-8")
+    context = (ROOT / "apps/desktop/src/contexts/StrategySdkContext.tsx").read_text(
         encoding="utf-8"
     )
-    factor = (ROOT / "dashboard/frontend/src/widgets/factors/FactorWorkbench.tsx").read_text(
+    factor = (ROOT / "apps/desktop/src/widgets/factors/FactorWorkbench.tsx").read_text(
         encoding="utf-8"
     )
-    strategy = (ROOT / "dashboard/frontend/src/widgets/strategy/StrategyWorkbench.tsx").read_text(
+    strategy = (ROOT / "apps/desktop/src/widgets/strategy/StrategyWorkbench.tsx").read_text(
         encoding="utf-8"
     )
-    validation = (ROOT / "dashboard/frontend/src/widgets/backtest/BacktestWorkbench.tsx").read_text(
+    validation = (ROOT / "apps/desktop/src/widgets/backtest/BacktestWorkbench.tsx").read_text(
         encoding="utf-8"
     )
     assert "<StrategySdkProvider>" in workspace
@@ -70,7 +70,7 @@ def test_workbenches_share_the_strategy_sdk_context():
         and "useStrategySdk" in validation
     )
     assert '"/pipeline/projects"' not in (
-        ROOT / "dashboard/frontend/src/workspace/Toolbar.tsx"
+        ROOT / "apps/desktop/src/workspace/Toolbar.tsx"
     ).read_text(encoding="utf-8")
     assert "context.history" in factor and "context.factor" in factor
     assert "structuredEdit" in strategy
@@ -95,16 +95,16 @@ def test_workbenches_share_the_strategy_sdk_context():
 
 
 def test_strategy_save_hides_internal_revision_workflow():
-    context = (ROOT / "dashboard/frontend/src/contexts/StrategySdkContext.tsx").read_text(
+    context = (ROOT / "apps/desktop/src/contexts/StrategySdkContext.tsx").read_text(
         encoding="utf-8"
     )
-    factor = (ROOT / "dashboard/frontend/src/widgets/factors/FactorWorkbench.tsx").read_text(
+    factor = (ROOT / "apps/desktop/src/widgets/factors/FactorWorkbench.tsx").read_text(
         encoding="utf-8"
     )
-    strategy = (ROOT / "dashboard/frontend/src/widgets/strategy/StrategyWorkbench.tsx").read_text(
+    strategy = (ROOT / "apps/desktop/src/widgets/strategy/StrategyWorkbench.tsx").read_text(
         encoding="utf-8"
     )
-    backtest = (ROOT / "dashboard/frontend/src/widgets/backtest/BacktestWorkbench.tsx").read_text(
+    backtest = (ROOT / "apps/desktop/src/widgets/backtest/BacktestWorkbench.tsx").read_text(
         encoding="utf-8"
     )
 
@@ -122,7 +122,7 @@ def test_strategy_save_hides_internal_revision_workflow():
 
 
 def test_active_backend_mounts_only_sdk_strategy_authoring():
-    main = (ROOT / "dashboard/backend/main.py").read_text(encoding="utf-8")
+    main = (ROOT / "apps/api/main.py").read_text(encoding="utf-8")
     assert "app.include_router(strategy.router)" in main
     assert "app.include_router(pipeline.router)" not in main
     assert "app.include_router(factor_research.router)" not in main
@@ -132,8 +132,8 @@ def test_active_backend_mounts_only_sdk_strategy_authoring():
 def test_no_separate_python_lab_runtime_remains():
     assert not (ROOT / "alphalab/python_lab/runtime.py").exists()
     assert not (ROOT / "alphalab/python_lab/__init__.py").exists()
-    assert not (ROOT / "dashboard/backend/routers/python_lab.py").exists()
-    assert not (ROOT / "dashboard/frontend/src/widgets/python/PythonLabWorkbench.tsx").exists()
+    assert not (ROOT / "apps/api/routers/python_lab.py").exists()
+    assert not (ROOT / "apps/desktop/src/widgets/python/PythonLabWorkbench.tsx").exists()
     assert "ALPHALAB_PYTHON_LAB" not in (ROOT / ".env.example").read_text(encoding="utf-8")
 
 
@@ -172,15 +172,15 @@ def test_strategy_contract_is_declared_implemented():
 
 
 def test_frontend_uses_runtime_and_server_shared_agent_state_only():
-    profile = (ROOT / "dashboard/frontend/src/lib/data-profile.ts").read_text(encoding="utf-8")
-    agent = (ROOT / "dashboard/frontend/src/hooks/usePublishedAgent.ts").read_text(encoding="utf-8")
-    prompt = (ROOT / "dashboard/frontend/src/widgets/research/ResearchAgent.tsx").read_text(
+    profile = (ROOT / "apps/desktop/src/lib/data-profile.ts").read_text(encoding="utf-8")
+    agent = (ROOT / "apps/desktop/src/hooks/usePublishedAgent.ts").read_text(encoding="utf-8")
+    prompt = (ROOT / "apps/desktop/src/widgets/research/ResearchAgent.tsx").read_text(
         encoding="utf-8"
     )
-    commands = (ROOT / "dashboard/frontend/src/workspace/agentCommands.ts").read_text(
+    commands = (ROOT / "apps/desktop/src/workspace/agentCommands.ts").read_text(
         encoding="utf-8"
     )
-    backend = (ROOT / "dashboard/backend/main.py").read_text(encoding="utf-8")
+    backend = (ROOT / "apps/api/main.py").read_text(encoding="utf-8")
 
     assert 'export type DataProfile = "runtime"' in profile
     assert 'return "runtime"' in profile
@@ -191,9 +191,9 @@ def test_frontend_uses_runtime_and_server_shared_agent_state_only():
     assert "selectedProjectId" in prompt
     assert "projectId" in commands
     assert "strategyId" not in commands
-    workspace = (ROOT / "dashboard/frontend/src/Workspace.tsx").read_text(encoding="utf-8")
+    workspace = (ROOT / "apps/desktop/src/Workspace.tsx").read_text(encoding="utf-8")
     strategy_context = (
-        ROOT / "dashboard/frontend/src/contexts/StrategySdkContext.tsx"
+        ROOT / "apps/desktop/src/contexts/StrategySdkContext.tsx"
     ).read_text(encoding="utf-8")
     assert "await openStrategyProject(projectId)" in workspace
     assert "projectReadyRef.current" in workspace

@@ -37,7 +37,7 @@ def main() -> int:
             raise SystemExit(f"Invalid export file: {name}")
         if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             raise SystemExit(f"Export file changed: {name}")
-    destination = ROOT / "integrations/conexus/core"
+    destination = ROOT / "vendor/conexus"
     destination.mkdir(parents=True, exist_ok=True)
     old = destination / "EXPORT.json"
     if old.is_file():

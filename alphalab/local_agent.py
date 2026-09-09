@@ -39,7 +39,7 @@ def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[s
     major, minor, *_ = (int(part) for part in version.split("."))
     if (major, minor) < (22, 18):
         raise RuntimeError("The local Agent requires Node.js 22.18+ or 24.")
-    runtime = root / "runtime/conexus"
+    runtime = root / "build/conexus"
     if not (runtime / "UPSTREAM.json").is_file():
         raise RuntimeError(
             "Bundled Conexus runtime is missing. Use the full deployment package, or run "
@@ -50,7 +50,7 @@ def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[s
         print("Installing local Agent dependencies for this platform...", flush=True)
         result = subprocess.run([npm, "ci", "--omit=dev", "--no-fund"], cwd=runtime)
         if result.returncode:
-            raise RuntimeError("Local Agent dependency installation failed; retry npm ci in runtime/conexus.")
+            raise RuntimeError("Local Agent dependency installation failed; retry npm ci in build/conexus.")
     port = agent_port or _free_port()
     if not 1 <= port <= 65535 or port == api_port:
         raise RuntimeError("Agent port must be valid and different from the AlphaLab port.")
@@ -141,7 +141,7 @@ def serve_with_local_agent(root: Path, *, host: str, port: int, agent_port: int 
     import uvicorn
 
     with local_agent(root, api_port=port, agent_port=agent_port) as child:
-        server = uvicorn.Server(uvicorn.Config("dashboard.backend.main:app", host=host, port=port))
+        server = uvicorn.Server(uvicorn.Config("apps.api.main:app", host=host, port=port))
         stopped = threading.Event()
 
         def monitor() -> None:

@@ -16,7 +16,7 @@ Git 用户可用 `git branch --show-current` 和 `git rev-parse --short HEAD` �
 仓库 `.node-version` 指定 Node 22。不要混用 Intel 和 Apple Silicon 的 Python、Node
 与虚拟环境；切换架构后重新创建 `.venv` 和安装前端依赖。
 
-若部署包已包含 `dashboard/frontend/dist/index.html` 和 `runtime/conexus/UPSTREAM.json`，
+若部署包已包含 `build/web/index.html` 和 `build/conexus/UPSTREAM.json`，
 可以跳过第 3 步。Node 仍用于本地 Agent；首次启动自动安装该平台的 Agent 依赖。
 构建产物可用于 macOS 和 Windows；Python 环境仍须在各自电脑创建。
 只使用手动工作台时，可用 `alphalab dev serve --agent off`；已有网页构建的该模式不需要 Node。
@@ -30,7 +30,7 @@ python3.12 --version
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e ".[dashboard,dev,rq]"
+python -m pip install -e ".[app,dev,rq]"
 python -c "import alphalab; print(alphalab.__version__)"
 ```
 
@@ -39,7 +39,7 @@ Windows PowerShell：
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e ".[dashboard,dev,rq]"
+.\.venv\Scripts\python.exe -m pip install -e ".[app,dev,rq]"
 .\.venv\Scripts\python.exe -c "import alphalab; print(alphalab.__version__)"
 ```
 
@@ -54,33 +54,37 @@ Pyrefly、Ruff 和测试工具；`rq` 安装 RQData 客户端。
 ```bash
 node --version
 npm --version
-npm --prefix dashboard/frontend ci
-npm --prefix dashboard/frontend run build
+npm --prefix apps/desktop ci
+npm --prefix apps/desktop run build
 python scripts/build_conexus_runtime.py
 ```
 
 `npm ci` 严格使用锁文件。`build` 默认只构建浏览器版。
-`build_conexus_runtime.py` 验证仓库内 `integrations/conexus/core` 的来源和文件校验值，
-安装并编译核心，再生成忽略目录 `runtime/conexus`。无须访问 Conexus 私有仓库。
+`build_conexus_runtime.py` 验证仓库内 `vendor/conexus` 的来源和文件校验值，
+在 `build/conexus-source` 中安装依赖并编译核心，再生成 `build/conexus`。
+`vendor/conexus` 保持为经过校验的源码。无须访问 Conexus 私有仓库。
 Windows 的 `python` 可替换为 `.\.venv\Scripts\python.exe`。
 若 Electron 下载失败，浏览器部署可跳过其二进制下载后重试安装：
 
 ```bash
 # macOS
-ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm --prefix dashboard/frontend ci
+ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm --prefix apps/desktop ci
 ```
 
 ```powershell
 # Windows
 $env:ELECTRON_SKIP_BINARY_DOWNLOAD = "1"
-npm --prefix dashboard/frontend ci
+npm --prefix apps/desktop ci
 Remove-Item Env:ELECTRON_SKIP_BINARY_DOWNLOAD
 ```
 
-之后照常运行 `npm --prefix dashboard/frontend run build`。
+之后照常运行 `npm --prefix apps/desktop run build`。
 需要桌面开发时，先安装 Electron 二进制
-（`node dashboard/frontend/node_modules/electron/install.js`），再使用
+（`node apps/desktop/node_modules/electron/install.js`），再使用
 `dev:desktop` / `build:desktop`。`pack` 为桌面打包命令，不是本地浏览器部署步骤。
+
+网页构建输出在 `build/web`，Electron 主进程和 preload 在 `build/electron`。
+`npm --prefix apps/desktop run pack` 的桌面产物在 `artifacts/desktop`。
 
 ## 4. 启动与停止
 
@@ -94,8 +98,8 @@ alphalab dev serve
 Windows：
 
 ```powershell
-.\.venv\Scripts\alphalab.exe dev doctor
-.\.venv\Scripts\alphalab.exe dev serve
+.\.venv\Scripts\python.exe -m alphalab.cli dev doctor
+.\.venv\Scripts\python.exe -m alphalab.cli dev serve
 ```
 
 网页：<http://127.0.0.1:8000/app/>；API 文档：<http://127.0.0.1:8000/docs>。
@@ -103,6 +107,15 @@ Windows：
 首次访问会自动创建本地数据库和系统策略模板。
 终端按 `Control+C` / `Ctrl+C` 停止。下次使用只需进入目录，macOS 激活 `.venv`，
 再运行 `alphalab dev serve`，不需要重新安装或构建。
+
+需要 Electron 窗口时，保持后端终端运行，在另一个终端从项目根目录执行：
+
+```powershell
+npm --prefix apps/desktop run dev:desktop
+```
+
+每个服务只启动一次。关闭窗口后若开发服务仍占用 5173，在其终端按 `Ctrl+C`。
+后端终端的 `Ctrl+C` 会同时停止本地 Agent。桌面默认缩放为 125%。
 
 若 8000 端口被其他程序占用，使用 `alphalab dev serve --port 8100`，并打开
 `http://127.0.0.1:8100/app/`。不要为释放端口而结束不明进程。
@@ -159,17 +172,17 @@ macOS 激活虚拟环境后运行；Windows 将 `python` 替换为
 `.\.venv\Scripts\python.exe`：
 
 ```bash
-python -m pytest tests -q --basetemp=data/pytest
+python -m pytest tests -q
 python scripts/check_facade_imports.py
 python scripts/check_repository_hygiene.py
-python -m ruff check alphalab dashboard/backend tests scripts
-npm --prefix dashboard/frontend test
-npm --prefix dashboard/frontend run lint
-npm --prefix dashboard/frontend run build
-npm --prefix dashboard/frontend audit
-npm --prefix dashboard/frontend audit --omit=dev
-npm --prefix integrations/conexus/core test
-npm --prefix runtime/conexus audit --omit=dev
+python -m ruff check alphalab apps/api tests scripts
+npm --prefix apps/desktop test
+npm --prefix apps/desktop run lint
+npm --prefix apps/desktop run build
+npm --prefix apps/desktop audit
+npm --prefix apps/desktop audit --omit=dev
+npm --prefix build/conexus-source test
+npm --prefix build/conexus audit --omit=dev
 git diff --check
 git status --short
 ```
@@ -179,7 +192,7 @@ git status --short
 数据存放位置：`data/app/` 为项目和结果，`data/runtime/` 为下载的数据、同步任务与
 编辑器镜像，`data/cache/` 为缓存。这些目录均不进入 Git。
 本地 Agent 的报告、图状态、Run 记录和凭据在 `data/runtime/conexus/`；它们不是
-`runtime/conexus/` 中可重新构建的程序文件。AlphaLab 聊天历史另存于其本地运行目录。
+`build/conexus/` 中可重新构建的程序文件。AlphaLab 聊天历史另存于其本地运行目录。
 测试中的 `tests/fixtures/legacy_app.db` 是只读历史迁移样本，不能当作运行数据库。
 
 升级旧版本前先停止服务，备份整个 `data/app/`、`data/runtime/` 和 `.env` 到项目
@@ -193,10 +206,10 @@ git status --short
 终端一启动后端（macOS 使用已激活的 `python`，Windows 使用 `.venv` 中的 Python）：
 
 ```bash
-python -m uvicorn dashboard.backend.main:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn apps.api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-终端二运行 `npm --prefix dashboard/frontend run dev:web`，打开
+终端二运行 `npm --prefix apps/desktop run dev:web`，打开
 <http://127.0.0.1:5173>。Vite 将 API 和 WebSocket 代理到 8000。
 若修改后端端口，在启动 Vite 的同一终端设置 `ALPHALAB_API_ORIGIN` 指向该地址。
 多个分支请分别建立 worktree、虚拟环境并分配端口。

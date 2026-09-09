@@ -4,6 +4,34 @@
 本地 Agent 使用 Conexus Core `dcc74445382d73be7f1ff06b7bde147c95e7240d`。
 操作说明见 [本地部署](07_LOCAL_DEPLOYMENT.md)。
 
+## 2026-09-09 项目目录整理
+
+本轮基于 `deploy/local` 的 `eb93df7`，保留 Electron 的 125% 默认缩放。
+API 和桌面源码分别迁入 `apps/api`、`apps/desktop`；Conexus 上游源码迁入
+`vendor/conexus`，112 个上游文件校验值均未改变。主要构建输出统一在 `build`，
+部署包保存在 `artifacts`，Python 应用依赖使用 `app` extra。
+
+删除空的旧 `panda_quantflow` Git 子模块引用，以及绕过本地 Agent、使用旧路径的
+两份启动脚本。研究流程笔记移入 `docs/guides`，外部部署示例移入
+`examples/deployment`。本机清理了旧目录、pytest/browser 诊断残留和旧构建产物；
+数据库、配置、旧研究工作区与有价值的历史备份保存在 `data/backups`。
+
+验证结果：
+
+- Python 完整测试 274 passed；6 条第三方弃用警告。
+- 前端 14 项测试、ESLint、网页与 Electron TypeScript 构建通过。
+- Conexus 核心 188 项、OS 适配器 13 项、本地 Host 4 项测试及边界检查通过。
+- Ruff、编译、公共接口、仓库卫生与 `pip check` 通过；前端及运行包依赖审计无漏洞。
+- Electron 实际从 `apps/desktop` 启动并显示工作台；Windows 桌面包构建成功，
+  ASAR 内的主进程、preload 和网页入口已核对。此项未验证独立桌面安装器，
+  完整本地部署仍使用源码包及部署指南中的 Python/Node 环境。
+- 部署 ZIP 逐文件哈希检查通过，不含用户状态或 `node_modules`；从独立解压目录
+  启动网页、Python API 和本地 Agent，确认仅初始化一个系统项目，随后正常清理进程。
+- 现有项目源码、策略/验证版本记录与 `.env` 配置同整理前备份一致。
+
+初次 Python 检查因指定的测试临时目录缺少父目录而产生初始化错误；修正测试命令后
+完整复跑通过。没有修改数据或屏蔽测试来绕过错误。
+
 ## 2026-09-09 同步 dongfang 更新
 
 部署分支合并至 `dongfang` 的 `4adc0ef`，保留本地 Conexus 核心与数据隔离。

@@ -4,7 +4,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-const entry = resolve(sourceRoot, 'runtime/conexus/apps/local-host/src/index.mjs')
+const entry = resolve(sourceRoot, 'build/conexus/apps/local-host/src/index.mjs')
 const { createLocalHost, createLocalRuntime, createModelCompletion, compileHarnessWorkspace } = await import(pathToFileURL(entry).href)
 
 async function webSearch(params) {

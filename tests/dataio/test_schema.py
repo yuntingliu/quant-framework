@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from alphalab.dataio.schema import DatasetField, discover_parquet_fields
-from dashboard.backend.routers import strategy
+from apps.api.routers import strategy
 
 
 def test_parquet_schema_discovery_unions_partition_columns_without_loading_rows(tmp_path):

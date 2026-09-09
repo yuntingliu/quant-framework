@@ -216,7 +216,7 @@ alphalab dev serve
 The launcher assembles the research graph and starts the local service itself.
 It needs no Canvas registration or enterprise publication. Configure a model
 endpoint using [Local deployment](07_LOCAL_DEPLOYMENT.md). The core source is
-pinned under `integrations/conexus/core`; execution, graph mutations and durable
+pinned under `vendor/conexus`; execution, graph mutations and durable
 reports remain Conexus-owned. AlphaLab's structured workspace payload schemas
 live in `workspace-output.schema.json`, not on a Harness exposure.
 

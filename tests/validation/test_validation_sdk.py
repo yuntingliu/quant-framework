@@ -17,7 +17,7 @@ from alphalab.validation.source import (
     update_validation_parameters,
 )
 from alphalab.validation_sdk import ValidationContext
-from dashboard.backend.services import validation_service
+from apps.api.services import validation_service
 
 
 def test_default_validation_source_exposes_visible_metrics_and_alpha_beta() -> None:

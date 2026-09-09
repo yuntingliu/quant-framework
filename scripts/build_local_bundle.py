@@ -10,7 +10,7 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_DIRS = {"alphalab", "dashboard", "docs", "examples", "integrations", "scripts", "tests"}
+SOURCE_DIRS = {"alphalab", "apps", "docs", "examples", "integrations", "vendor", "scripts", "tests"}
 SOURCE_FILES = {"AGENTS.md", "README.md", "THIRD_PARTY.md", "pyproject.toml", ".env.example", ".gitignore", ".gitattributes", ".node-version"}
 SAMPLE_FILES = {
     "data/README.md",
@@ -22,7 +22,7 @@ SAMPLE_FILES = {
 
 
 def runtime_bundle_files(root: Path) -> set[str]:
-    runtime = root / "runtime/conexus"
+    runtime = root / "build/conexus"
     upstream = json.loads((runtime / "UPSTREAM.json").read_text(encoding="utf-8"))
     lock = json.loads((root / "integrations/conexus/runtime.lock.json").read_text(encoding="utf-8"))
     owners = {"packages/runtime-protocol", "packages/runtime-core", "packages/node-host-runtime", "apps/local-host"}
@@ -46,10 +46,10 @@ def runtime_bundle_files(root: Path) -> set[str]:
 
 
 def main() -> int:
-    frontend = ROOT / "dashboard/frontend/dist"
+    frontend = ROOT / "build/web"
     if not (frontend / "index.html").is_file():
-        raise SystemExit("Run npm --prefix dashboard/frontend run build first.")
-    runtime = ROOT / "runtime/conexus"
+        raise SystemExit("Run npm --prefix apps/desktop run build first.")
+    runtime = ROOT / "build/conexus"
     if not (runtime / "UPSTREAM.json").is_file():
         raise SystemExit("Build the pinned Conexus runtime before creating the deployment package.")
     candidates = subprocess.check_output(

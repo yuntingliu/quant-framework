@@ -187,7 +187,7 @@ def _source_fingerprint(root: Path) -> dict:
         root / "pyproject.toml",
         root / "alphalab" / "schema.sql",
         *(root / "alphalab").rglob("*.py"),
-        *(root / "dashboard" / "backend").rglob("*.py"),
+        *(root / "apps" / "api").rglob("*.py"),
     ]
     files = _fingerprint_files(paths, root)
     return {

@@ -1,0 +1,36 @@
+appId: com.alphalab.dashboard
+productName: AlphaLab
+directories:
+  output: ../../artifacts/desktop
+extraMetadata:
+  main: electron/main.mjs
+win:
+  target:
+    - target: dir
+      arch:
+        - x64
+  signAndEditExecutable: false
+  forceCodeSigning: false
+mac:
+  category: public.app-category.finance
+  target:
+    - target: dir
+      arch:
+        - x64
+        - arm64
+  darkModeSupport: true
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+files:
+  - from: ../../build/web
+    to: web
+  - from: ../../build/electron
+    to: electron
+  - "!node_modules/**/*"
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+asar: true

@@ -14,9 +14,32 @@ The normative API is [02_STRATEGY_SDK_V1_CONTRACT.md](02_STRATEGY_SDK_V1_CONTRAC
 
 ## System shape
 
+The repository separates application code, reusable research code, vendored
+dependencies, generated programs, and persistent user data:
+
+| Directory | Responsibility |
+| --- | --- |
+| `apps/api/` | FastAPI routes and workbench services; Python import `apps.api` |
+| `apps/desktop/` | React workbench and Electron shell, including the Vite configuration |
+| `alphalab/` | Public SDKs, acquisition, strategy execution, validation, and persistence |
+| `integrations/conexus/` | AlphaLab-owned Agent graph, tools, prompts, and local-host adapter |
+| `vendor/conexus/` | Verified upstream source snapshot; changes enter through the export importer |
+| `build/web/`, `build/electron/` | Generated browser and desktop entrypoints |
+| `build/conexus-source/`, `build/conexus/` | Disposable core compilation workspace and runnable Agent distribution |
+| `data/app/`, `data/runtime/`, `data/cache/` | Persistent application state, downloaded research data, and caches |
+| `data/backups/` | Local migration backups and archived historical workspaces |
+| `artifacts/` | Shareable deployment archives and desktop packages |
+| `examples/deployment/` | Optional deployment examples, including the external Conexus host |
+
+The `app` Python extra installs the API dependencies. Python application code is
+packaged as `apps.api`; frontend dependencies remain local to `apps/desktop`.
+Desktop package identity stays unchanged so existing Electron preferences keep
+using the same user-data directory. Directory cleanup never rewrites project
+databases, frozen runs, downloaded data, or Agent history.
+
 The local launcher composes the Python workbench with the included Conexus
-`local-host`. `integrations/conexus/core` is a verified upstream source snapshot;
-`runtime/conexus` is its generated Node runtime. Agent execution remains in the
+`local-host`. `vendor/conexus` is a verified upstream source snapshot;
+`build/conexus` is its generated Node runtime. Agent execution remains in the
 Conexus core; AlphaLab supplies the research graph, Python API tools and optional
 direct search adapter. Reports and Run state persist under the local runtime data
 directory. The included core has no Canvas UI or enterprise application dependency.
@@ -350,17 +373,17 @@ and cannot create a second authoritative result.
 | `alphalab/validation_sdk/` | Small public `ValidationContext` and `@analysis` facade |
 | `alphalab/validation/` | Default validation.py, AST/CST contract, persistence, and bounded local runner |
 | `docs/06_ALPHALAB_SDK_GUIDE.md` | Canonical versioned user guide for every AlphaLab SDK workbench |
-| `dashboard/backend/routers/strategy.py` | Current source/project/evaluation API |
-| `dashboard/backend/routers/validation.py` | Validation source and no-code parameter API |
-| `dashboard/backend/routers/backtests.py` | Confirmed background backtest jobs and frozen results |
-| `dashboard/backend/routers/conexus.py` | Same-origin proxy for durable published-Harness runs and workspace Documents |
-| `dashboard/backend/services/agent_conversation_service.py` | Server-side shared Agent conversation history and concurrent snapshot merging |
-| `dashboard/backend/routers/python_editor.py` | Fixed Pyrefly/Ruff WebSocket bridge and editor document endpoints |
-| `dashboard/backend/routers/sdk_docs.py` | Read-only topic API backed by the canonical SDK guide |
-| `dashboard/backend/services/python_editor_service.py` | Local server discovery, ignored source mirrors, framing, and SDK diagnostics |
-| `dashboard/frontend/src/contexts/StrategySdkContext.tsx` | Shared project, draft, revision, and hash state |
-| `dashboard/frontend/src/components/python/` | Lazy shared Monaco model, LSP runtime, AlphaLab completion, and Problems UI |
-| `dashboard/frontend/src/components/shared/SdkDocumentation.tsx` | Shared factor/strategy/data/validation/report documentation drawer |
+| `apps/api/routers/strategy.py` | Current source/project/evaluation API |
+| `apps/api/routers/validation.py` | Validation source and no-code parameter API |
+| `apps/api/routers/backtests.py` | Confirmed background backtest jobs and frozen results |
+| `apps/api/routers/conexus.py` | Same-origin proxy for durable published-Harness runs and workspace Documents |
+| `apps/api/services/agent_conversation_service.py` | Server-side shared Agent conversation history and concurrent snapshot merging |
+| `apps/api/routers/python_editor.py` | Fixed Pyrefly/Ruff WebSocket bridge and editor document endpoints |
+| `apps/api/routers/sdk_docs.py` | Read-only topic API backed by the canonical SDK guide |
+| `apps/api/services/python_editor_service.py` | Local server discovery, ignored source mirrors, framing, and SDK diagnostics |
+| `apps/desktop/src/contexts/StrategySdkContext.tsx` | Shared project, draft, revision, and hash state |
+| `apps/desktop/src/components/python/` | Lazy shared Monaco model, LSP runtime, AlphaLab completion, and Problems UI |
+| `apps/desktop/src/components/shared/SdkDocumentation.tsx` | Shared factor/strategy/data/validation/report documentation drawer |
 | `integrations/conexus/alphalab-research-agent/` | SDK-aware bounded Agent tools and prompt |
 
 The package facade in `alphalab/__init__.py` intentionally exports only data,

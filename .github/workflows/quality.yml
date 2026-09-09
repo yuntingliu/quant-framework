@@ -3,7 +3,7 @@ name: quality
 on:
   pull_request:
   push:
-    branches: [main, dongfang, dev_liu]
+    branches: [main, dongfang, dev_liu, deploy/local]
 
 permissions:
   contents: read
@@ -29,15 +29,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install Python
-        run: python -m pip install -e ".[dev,dashboard]"
+        run: python -m pip install -e ".[dev,app]"
       - name: Python quality
         shell: bash
         run: |
           python -m pytest tests -q
           python scripts/check_facade_imports.py
-          python -m ruff check alphalab dashboard/backend tests scripts
+          python -m ruff check alphalab apps/api tests scripts
           python scripts/check_repository_hygiene.py
-          python -m compileall -q alphalab dashboard/backend scripts
+          python -m compileall -q alphalab apps/api scripts
           git diff --check
           git diff --exit-code
 
@@ -50,15 +50,15 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
-          cache-dependency-path: dashboard/frontend/package-lock.json
+          cache-dependency-path: apps/desktop/package-lock.json
       - name: Frontend quality
         run: |
-          npm --prefix dashboard/frontend ci
-          npm --prefix dashboard/frontend audit
-          npm --prefix dashboard/frontend audit --omit=dev
-          npm --prefix dashboard/frontend test
-          npm --prefix dashboard/frontend run lint
-          npm --prefix dashboard/frontend run build
+          npm --prefix apps/desktop ci
+          npm --prefix apps/desktop audit
+          npm --prefix apps/desktop audit --omit=dev
+          npm --prefix apps/desktop test
+          npm --prefix apps/desktop run lint
+          npm --prefix apps/desktop run build:desktop
 
   local-agent:
     runs-on: ${{ matrix.os }}
@@ -75,9 +75,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
-      - run: python -m pip install -e ".[dev,dashboard]"
+      - run: python -m pip install -e ".[dev,app]"
       - run: python scripts/build_conexus_runtime.py
-      - run: npm --prefix integrations/conexus/core test
-      - run: npm --prefix runtime/conexus audit --omit=dev
-      - run: python -m pytest tests/dashboard/test_local_agent_integration.py tests/contracts/test_conexus_distribution.py -q
+      - run: npm --prefix build/conexus-source test
+      - run: npm --prefix build/conexus audit --omit=dev
+      - run: python -m pytest tests/api/test_local_agent_integration.py tests/contracts/test_conexus_distribution.py -q
       - run: git diff --exit-code

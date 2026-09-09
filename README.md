@@ -19,7 +19,7 @@ Windows PowerShell:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dashboard,dev,rq]"
+.\.venv\Scripts\python.exe -m pip install -e ".[app,dev,rq]"
 
 .\.venv\Scripts\python.exe -m alphalab.cli dev doctor
 ```
@@ -27,14 +27,25 @@ python -m venv .venv
 Build the browser UI and start the local service:
 
 ```powershell
-npm --prefix dashboard/frontend ci
-npm --prefix dashboard/frontend run build
-.\.venv\Scripts\alphalab.exe dev serve
+npm --prefix apps/desktop ci
+npm --prefix apps/desktop run build
+.\.venv\Scripts\python.exe scripts/build_conexus_runtime.py
+.\.venv\Scripts\python.exe -m alphalab.cli dev serve
 ```
 
 Open <http://127.0.0.1:8000/app/>. On later launches, only `alphalab dev serve`
 is needed with the virtual environment activated. For frontend development use
-`npm --prefix dashboard/frontend run dev:web` alongside the backend.
+`npm --prefix apps/desktop run dev:web` alongside the backend.
+
+For the Electron desktop window, run `npm --prefix apps/desktop run dev:desktop`
+in a second terminal while the backend is running. The same UI is used by the
+browser and desktop; Electron defaults to 125% zoom.
+
+Application code lives in `apps/api` and `apps/desktop`; `alphalab` contains the
+reusable research core. AlphaLab's Agent integration is in `integrations/conexus`,
+and the verified Conexus dependency is in `vendor/conexus`. Generated programs
+live in `build`, user data in `data`, and distributable packages in `artifacts`.
+See [Architecture](docs/01_ARCHITECTURE.md) for the directory responsibilities.
 
 The workstation exposes the single `runtime` data profile. Configure
 `RQ_USER`, `RQ_PASSWORD`, and `RQ_HOST` in an untracked `.env`, then use the

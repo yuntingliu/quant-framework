@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> int:
-    source = ROOT / "integrations/conexus/core"
+    source = ROOT / "vendor/conexus"
     metadata = json.loads((source / "EXPORT.json").read_text(encoding="utf-8"))
     lock = json.loads((ROOT / "integrations/conexus/runtime.lock.json").read_text(encoding="utf-8"))
     if metadata["sourceRevision"] != lock["revision"] or lock["layoutVersion"] != 2:
@@ -25,25 +25,32 @@ def main() -> int:
     node = shutil.which("node")
     if not npm or not node:
         raise SystemExit("Node.js 22.18+ and npm are required.")
-    subprocess.run([node, "scripts/check-open-core-boundaries.mjs"], cwd=source, check=True)
-    subprocess.run([npm, "ci", "--no-fund"], cwd=source, check=True)
-    subprocess.run([npm, "run", "build"], cwd=source, check=True)
-    target = (ROOT / "runtime/conexus").resolve()
-    # This directory is generated exclusively by this builder. Validate before replacing it,
-    # including removal of the old private-host prototype from earlier local experiments.
-    if not target.is_relative_to((ROOT / "runtime").resolve()):
-        raise SystemExit("Runtime output escaped its generated directory.")
+    build_root = (ROOT / "build").resolve()
+    workspace = (build_root / "conexus-source").resolve()
+    target = (build_root / "conexus").resolve()
+    if not workspace.is_relative_to(build_root) or not target.is_relative_to(build_root):
+        raise SystemExit("Conexus output escaped its generated directory.")
+    # Keep the verified vendor snapshot read-only; npm and TypeScript work in build/.
+    if workspace.exists():
+        shutil.rmtree(workspace)
+    for name in [*metadata["files"], "EXPORT.json"]:
+        destination = workspace / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / name, destination)
+    subprocess.run([node, "scripts/check-open-core-boundaries.mjs"], cwd=workspace, check=True)
+    subprocess.run([npm, "ci", "--no-fund"], cwd=workspace, check=True)
+    subprocess.run([npm, "run", "build"], cwd=workspace, check=True)
     if target.exists():
         shutil.rmtree(target)
     target.mkdir(parents=True)
     for name in ("package.json", "package-lock.json"):
-        shutil.copy2(source / name, target / name)
+        shutil.copy2(workspace / name, target / name)
     for owner in lock["packages"]:
         destination = target / owner
         destination.mkdir(parents=True)
-        shutil.copy2(source / owner / "package.json", destination / "package.json")
+        shutil.copy2(workspace / owner / "package.json", destination / "package.json")
         output = "src" if owner == "apps/local-host" else "dist"
-        shutil.copytree(source / owner / output, destination / output,
+        shutil.copytree(workspace / owner / output, destination / output,
                         ignore=shutil.ignore_patterns("*.test.*", "*.map", "*.d.ts"))
     (target / "UPSTREAM.json").write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
     subprocess.run([npm, "ci", "--omit=dev", "--no-fund"], cwd=target, check=True)

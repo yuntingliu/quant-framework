@@ -16,7 +16,7 @@ def test_distribution_rejects_private_host_and_unreviewed_runtime_files(tmp_path
         "layoutVersion": 2, "revision": "test",
         "packages": ["packages/runtime-protocol", "packages/runtime-core", "packages/node-host-runtime", "apps/local-host"],
     }
-    runtime = tmp_path / "runtime/conexus"
+    runtime = tmp_path / "build/conexus"
     runtime.mkdir(parents=True)
     pin = tmp_path / "integrations/conexus/runtime.lock.json"
     pin.parent.mkdir(parents=True)
@@ -25,7 +25,7 @@ def test_distribution_rejects_private_host_and_unreviewed_runtime_files(tmp_path
     local_host = runtime / "apps/local-host/src/index.mjs"
     local_host.parent.mkdir(parents=True)
     local_host.write_text("export {}", encoding="utf-8")
-    assert "runtime/conexus/apps/local-host/src/index.mjs" in module.runtime_bundle_files(tmp_path)
+    assert "build/conexus/apps/local-host/src/index.mjs" in module.runtime_bundle_files(tmp_path)
     private = runtime / "apps/web/server-dist/auth/enterprise-credential-store.js"
     private.parent.mkdir(parents=True)
     private.write_text("export {}", encoding="utf-8")

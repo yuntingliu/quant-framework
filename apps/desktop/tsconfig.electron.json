@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "../../build/cache/tsconfig.electron.tsbuildinfo"
+  },
+  "include": ["electron/**/*.ts"]
+}

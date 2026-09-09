@@ -40,7 +40,7 @@ dev = [
     "pyrefly>=0.30.0",
     "ruff>=0.5.3",
 ]
-dashboard = [
+app = [
     "jsonschema>=4.20.0,<5",
     "fastapi>=0.100.0",
     "uvicorn[standard]>=0.23.0",
@@ -66,7 +66,7 @@ alphalab = "alphalab.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["alphalab*", "dashboard*"]
+include = ["alphalab*", "apps", "apps.api*"]
 
 [tool.setuptools.package-data]
 "alphalab" = ["schema.sql"]
@@ -74,6 +74,7 @@ include = ["alphalab*", "dashboard*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+cache_dir = "build/cache/pytest"
 
 [tool.black]
 line-length = 100
@@ -82,6 +83,7 @@ target-version = ["py310", "py311", "py312"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+cache-dir = "build/cache/ruff"
 extend-exclude = [
     "artifacts",
     "build",
@@ -91,9 +93,8 @@ extend-exclude = [
     "outputs",
     "results",
     "scratch",
-    "dashboard/frontend/node_modules",
-    "dashboard/frontend/dist",
-    "dashboard/frontend/dist-electron",
+    "apps/desktop/node_modules",
+    "vendor",
 ]
 
 [tool.ruff.lint]

@@ -13,16 +13,16 @@ workbench development or `--agent remote` for an existing external service.
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dashboard,dev]"
-cd dashboard\frontend
+.\.venv\Scripts\python.exe -m pip install -e ".[app,dev]"
+cd apps\desktop
 npm ci
 ```
 
 Run the backend and frontend in separate terminals:
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn dashboard.backend.main:app --reload --host 127.0.0.1 --port 8000
-cd dashboard\frontend
+.\.venv\Scripts\python.exe -m uvicorn apps.api.main:app --reload --host 127.0.0.1 --port 8000
+cd apps\desktop
 npm run dev:web
 ```
 
@@ -347,7 +347,7 @@ defaults; preview and sync execute the current editor source after saving it.
 Keep the official RQData Python documentation link next to the editor.
 
 All Python workbench inputs use
-`dashboard/frontend/src/components/python/PythonEditor`. Do not instantiate a
+`apps/desktop/src/components/python/PythonEditor`. Do not instantiate a
 second Monaco runtime. The Strategy Workbench uses the project's `strategy.py`
 model; the Validation Workbench uses its independent `validation.py` model.
 The Factor Workbench uses one persistent factor source
@@ -389,12 +389,12 @@ must never be tracked. The historical database in `tests/fixtures/` is read only
 migration tests copy it before use. Check the working tree after running tests.
 
 ```powershell
-python -m pytest tests -q --basetemp=data\pytest
+python -m pytest tests -q
 python scripts\check_facade_imports.py
 python scripts\check_repository_hygiene.py
-python -m ruff check alphalab dashboard\backend tests scripts
-python -m compileall -q alphalab dashboard\backend
-cd dashboard\frontend
+python -m ruff check alphalab apps\api tests scripts
+python -m compileall -q alphalab apps\api
+cd apps\desktop
 npm run lint
 npm test
 npm run build

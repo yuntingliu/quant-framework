@@ -25,16 +25,16 @@ def serve_workbench(*, host: str = "127.0.0.1", port: int = 8000, agent: str = "
 
     if not 1 <= port <= 65535:
         raise RuntimeError("Port must be between 1 and 65535.")
-    index = Path(REPO_ROOT) / "dashboard" / "frontend" / "dist" / "index.html"
+    index = Path(REPO_ROOT) / "build" / "web" / "index.html"
     if not index.is_file():
         raise RuntimeError(
-            "Frontend build is missing. Run npm --prefix dashboard/frontend ci, "
-            "then npm --prefix dashboard/frontend run build."
+            "Frontend build is missing. Run npm --prefix apps/desktop ci, "
+            "then npm --prefix apps/desktop run build."
         )
     try:
         import uvicorn
     except ImportError as exc:
-        raise RuntimeError('Install the backend first: python -m pip install -e ".[dashboard,dev]"') from exc
+        raise RuntimeError('Install the backend first: python -m pip install -e ".[app,dev]"') from exc
     print(f"AlphaLab: http://{host}:{port}/app/", flush=True)
     os.environ["ALPHALAB_AGENT_MODE"] = agent
     if agent == "local":
@@ -42,7 +42,7 @@ def serve_workbench(*, host: str = "127.0.0.1", port: int = 8000, agent: str = "
 
         serve_with_local_agent(Path(REPO_ROOT), host=host, port=port, agent_port=agent_port)
     else:
-        uvicorn.run("dashboard.backend.main:app", host=host, port=port)
+        uvicorn.run("apps.api.main:app", host=host, port=port)
 
 
 def doctor_report() -> dict[str, Any]:
@@ -168,13 +168,13 @@ def _demo_data_check() -> dict[str, Any]:
 
 
 def _frontend_check() -> dict[str, Any]:
-    frontend = Path(REPO_ROOT) / "dashboard" / "frontend"
+    frontend = Path(REPO_ROOT) / "apps" / "desktop"
     source_ready = (frontend / "package.json").is_file() and (frontend / "src").is_dir()
     return {
         "status": "ready" if source_ready else "missing",
         "source": "ready" if source_ready else "missing",
         "dependencies": "ready" if (frontend / "node_modules").is_dir() else "missing",
-        "build": "ready" if (frontend / "dist" / "index.html").is_file() else "missing",
+        "build": "ready" if (Path(REPO_ROOT) / "build" / "web" / "index.html").is_file() else "missing",
     }
 
 

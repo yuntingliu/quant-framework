@@ -1,0 +1,1 @@
+"""AlphaLab application entrypoints."""

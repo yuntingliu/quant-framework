@@ -29,10 +29,6 @@ dist/
 *.tsbuildinfo
 
 node_modules/
-dashboard/frontend/node_modules/
-dashboard/frontend/dist/
-dashboard/frontend/dist-electron/
-dashboard/frontend/release/
 
 data/*
 !data/README.md
@@ -59,4 +55,3 @@ pytest-cache-files-*/
 
 .conexus/
 /workspace/
-/runtime/

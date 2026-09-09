@@ -12,7 +12,10 @@ SECRET_ASSIGNMENT = re.compile(
     r"[ \t]*=[ \t]*(?![ \t]*(?:$|<|\"\"|'')).+?$"
 )
 PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
-LOCAL_PREFIXES = ("data/app/", "data/runtime/", "data/cache/", ".pytest_cache/")
+LOCAL_PREFIXES = (
+    "data/app/", "data/runtime/", "data/cache/", "data/backups/",
+    "build/", "artifacts/", ".pytest_cache/",
+)
 
 
 def main() -> int:
@@ -24,6 +27,9 @@ def main() -> int:
         normalized = relative.replace("\\", "/")
         if normalized == ".env" or normalized.startswith(LOCAL_PREFIXES):
             failures.append(f"tracked local state: {normalized}")
+            continue
+        if "node_modules" in Path(normalized).parts or "__pycache__" in Path(normalized).parts:
+            failures.append(f"tracked generated dependency or cache: {normalized}")
             continue
         path = ROOT / relative
         try:
