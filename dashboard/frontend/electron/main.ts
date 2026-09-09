@@ -129,6 +129,7 @@ function createWindow(): void {
     minHeight: 680,
     title: 'AlphaLab Barebone',
     webPreferences: {
+      zoomFactor: 1.25,
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
