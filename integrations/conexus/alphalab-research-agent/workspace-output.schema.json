@@ -408,7 +408,69 @@
                 "type": "boolean"
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "switch_mode"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "mode"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "enum": [
+                        "open_widget",
+                        "close_widget"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "widgetId"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "open_result"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "resultId"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "set_link_symbol"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "group",
+                    "symbol"
+                  ]
+                }
+              }
+            ]
           }
         }
       }

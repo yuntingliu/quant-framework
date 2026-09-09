@@ -24,6 +24,26 @@ def _normal_symbols(symbols: list[str]) -> list[str]:
     return [str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()]
 
 
+def _normalize_instrument_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Normalize persisted RQ master columns at the provider boundary."""
+
+    value = frame.copy()
+    value["symbol"] = value["symbol"].astype(str).str.upper()
+    for column in ("snapshot_date", "listed_date", "de_listed_date"):
+        if column in value:
+            value[column] = pd.to_datetime(value[column], errors="coerce")
+    if "type" in value:
+        provider_type = value["type"].astype("string").str.strip().str.upper()
+        if "asset_type" not in value:
+            value["asset_type"] = provider_type
+        else:
+            asset_type = value["asset_type"].astype("string").str.strip().str.upper()
+            value["asset_type"] = asset_type.where(
+                asset_type.notna() & asset_type.ne(""), provider_type
+            )
+    return value.dropna(subset=["symbol"]).reset_index(drop=True)
+
+
 class LocalParquetMarketDataProvider:
     """Market data provider backed by one long-table parquet file."""
 
@@ -133,11 +153,7 @@ class LocalParquetInstrumentProvider:
         frame = pd.read_parquet(self.path).copy()
         if "symbol" not in frame:
             raise MissingDataError(f"Instrument file must include symbol: {self.path}")
-        frame["symbol"] = frame["symbol"].astype(str).str.upper()
-        for column in ("snapshot_date", "listed_date", "de_listed_date"):
-            if column in frame:
-                frame[column] = pd.to_datetime(frame[column], errors="coerce")
-        self._cache = frame.dropna(subset=["symbol"]).reset_index(drop=True)
+        self._cache = _normalize_instrument_frame(frame)
         return self._cache
 
     def _bundled_instrument_snapshot(self) -> pd.DataFrame:
@@ -381,11 +397,7 @@ class PartitionedParquetInstrumentProvider(LocalParquetInstrumentProvider):
             )
             return self._cache
         frame = pd.concat((pd.read_parquet(path) for path in files), ignore_index=True)
-        frame["symbol"] = frame["symbol"].astype(str).str.upper()
-        for column in ("snapshot_date", "listed_date", "de_listed_date"):
-            if column in frame:
-                frame[column] = pd.to_datetime(frame[column], errors="coerce")
-        self._cache = frame.dropna(subset=["symbol"]).reset_index(drop=True)
+        self._cache = _normalize_instrument_frame(frame)
         return self._cache
 
 

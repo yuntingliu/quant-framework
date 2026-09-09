@@ -156,14 +156,16 @@ def _validate_bars(
     invalid_price_count = invalid_activity_count = invalid_ohlc_count = 0
     for frame in _partitions(store, "rq.bars"):
         frame = _filter_symbols(frame, symbols)
+        frame, normalized_dates, invalid_dates = _bounded_daily_frame(
+            frame, start_date, as_of_date
+        )
+        invalid_date_count += invalid_dates
         if frame.empty:
             continue
         missing = required - set(frame)
         if missing:
             missing_columns.update(missing)
             continue
-        normalized_dates = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
-        invalid_date_count += int(normalized_dates.isna().sum())
         dates.update(normalized_dates.dropna().tolist())
         observed_symbols.update(frame["symbol"].dropna().astype(str).str.upper())
         duplicate_count += int(frame.duplicated(["date", "symbol"]).sum())
@@ -241,15 +243,17 @@ def _validate_market_state(
     state_keys: set[tuple[pd.Timestamp, str]] = set()
     for frame in _partitions(store, dataset):
         frame = _filter_symbols(frame, symbols)
+        frame, normalized_dates, invalid_dates = _bounded_daily_frame(
+            frame, start_date, as_of_date
+        )
+        invalid_date_count += invalid_dates
         if frame.empty:
             continue
         missing = required - set(frame)
         if missing:
             missing_columns.update(missing)
             continue
-        normalized_dates = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
         normalized_symbols = frame["symbol"].astype(str).str.upper()
-        invalid_date_count += int(normalized_dates.isna().sum())
         dates.update(normalized_dates.dropna().tolist())
         observed_symbols.update(normalized_symbols.dropna())
         duplicate_count += int(frame.duplicated(["date", "symbol"]).sum())
@@ -309,14 +313,16 @@ def _validate_daily_factors(
     duplicate_count = invalid_date_count = invalid_value_count = 0
     for frame in _partitions(store, "rq.daily_factors"):
         frame = _filter_symbols(frame, symbols)
+        frame, normalized_dates, invalid_dates = _bounded_daily_frame(
+            frame, start_date, as_of_date
+        )
+        invalid_date_count += invalid_dates
         if frame.empty:
             continue
         missing = required - set(frame)
         if missing:
             missing_columns.update(missing)
             continue
-        normalized_dates = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
-        invalid_date_count += int(normalized_dates.isna().sum())
         dates.update(normalized_dates.dropna().tolist())
         normalized_symbols = frame["symbol"].astype(str).str.upper()
         observed_symbols.update(normalized_symbols.dropna())
@@ -567,6 +573,23 @@ def _filter_symbols(frame: pd.DataFrame, symbols: set[str] | None) -> pd.DataFra
     if symbols is None or "symbol" not in frame:
         return frame
     return frame.loc[frame["symbol"].astype(str).str.upper().isin(symbols)]
+
+
+def _bounded_daily_frame(
+    frame: pd.DataFrame,
+    start: str | None,
+    end: str | None,
+) -> tuple[pd.DataFrame, pd.Series, int]:
+    if "date" not in frame:
+        return frame, pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]"), 0
+    dates = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
+    selected = dates.notna()
+    if start:
+        selected &= dates.ge(pd.Timestamp(start).normalize())
+    if end:
+        selected &= dates.le(pd.Timestamp(end).normalize())
+    bounded = frame.loc[selected]
+    return bounded, dates.loc[bounded.index], int(dates.isna().sum())
 
 
 def _coerce_boolean(values: pd.Series) -> pd.Series:

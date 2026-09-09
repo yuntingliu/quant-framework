@@ -114,10 +114,16 @@ export function ValidationWorkbenchWidget() {
   const resultsSection = useRef<HTMLElement>(null)
   const projectId = project?.id
   const projectProfile = project?.profile
+  const selectedBacktestRef = useRef(selectedBacktest)
+
+  useEffect(() => { selectedBacktestRef.current = selectedBacktest }, [selectedBacktest])
 
   useEffect(() => {
+    let current = true
     setValidation(null); setSource(""); setValidationParameters({})
     setAnalysis(null); setSignals(null); setAttribution(null); setRobustness(null); setFrozenValidation(null)
+    setRuns([]); setJobs([]); setActiveJobId(null); setError("")
+    setProfileBounds(null); setStartDate(""); setEndDate("")
     if (!projectId || !projectProfile) return
     void Promise.all([
       api.get<ValidationWorkspace>(`/validation/projects/${projectId}`),
@@ -125,6 +131,7 @@ export function ValidationWorkbenchWidget() {
       api.get<BacktestRecord[]>("/backtests?limit=50"),
       api.get<BacktestJob[]>("/backtests/jobs?limit=20"),
     ]).then(([validationWorkspace, profile, runRows, jobRows]) => {
+      if (!current) return
       const projectRuns = runRows.filter((item) => item.strategy_id === projectId)
       setValidation(validationWorkspace)
       setSource(validationWorkspace.source)
@@ -134,55 +141,52 @@ export function ValidationWorkbenchWidget() {
       setRuns(projectRuns); setJobs(jobRows)
       const active = jobRows.find((item) => item.request?.project_id === projectId && (item.status === "queued" || item.status === "running"))
       setActiveJobId(active?.id ?? null)
-      if (!selectedBacktest || !projectRuns.some((item) => item.id === selectedBacktest)) {
+      if (!projectRuns.some((item) => item.id === selectedBacktestRef.current)) {
         setSelectedBacktest(projectRuns[0]?.id ?? null)
       }
-    }).catch((reason: Error) => setError(reason.message))
-  }, [
-    projectId,
-    projectProfile,
-    project?.current_revision,
-    project?.draft_source_sha256,
-    project?.strategy_source,
-    selectedBacktest,
-    setSelectedBacktest,
-  ])
+    }).catch((reason: Error) => { if (current) setError(reason.message) })
+    return () => { current = false }
+  }, [projectId, projectProfile, setSelectedBacktest])
 
   useEffect(() => {
     if (!activeJobId) return
+    let current = true
     const timer = window.setInterval(() => {
-      void api.get<BacktestJob>(`/backtests/jobs/${activeJobId}`).then((job) => {
+      void api.get<BacktestJob>(`/backtests/jobs/${activeJobId}`).then(async (job) => {
+        if (!current) return
         setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)])
         if (job.status === "succeeded" && job.result_id) {
+          const rows = await api.get<BacktestRecord[]>("/backtests?limit=50")
+          if (!current) return
+          setRuns(rows.filter((item) => item.strategy_id === projectId))
           setActiveJobId(null)
           setSelectedBacktest(job.result_id)
           setTab("performance")
           window.setTimeout(() => resultsSection.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0)
-          void api.get<BacktestRecord[]>("/backtests?limit=50").then((rows) => {
-            setRuns(rows.filter((item) => item.strategy_id === project?.id))
-          })
         } else if (job.status === "failed" || job.status === "interrupted") {
           setActiveJobId(null)
           setError(job.error_summary || job.message || "回测未完成")
         }
-      }).catch((reason: Error) => { setActiveJobId(null); setError(reason.message) })
+      }).catch((reason: Error) => { if (current) { setActiveJobId(null); setError(reason.message) } })
     }, 1500)
-    return () => window.clearInterval(timer)
-  }, [activeJobId, project?.id, setSelectedBacktest])
+    return () => { current = false; window.clearInterval(timer) }
+  }, [activeJobId, projectId, setSelectedBacktest])
 
+  const currentRunId = runs.find((run) => run.id === selectedBacktest && run.strategy_id === projectId)?.id
   useEffect(() => {
-    if (!selectedBacktest) {
-      setAnalysis(null); setSignals(null); setAttribution(null); setRobustness(null); setFrozenValidation(null)
+    setAnalysis(null); setSignals(null); setAttribution(null); setRobustness(null); setFrozenValidation(null)
+    if (!currentRunId) {
+      setLoadingResult(false)
       return
     }
     let current = true
     setLoadingResult(true); setError("")
     void Promise.allSettled([
-      api.get<BacktestAnalysis>(`/backtests/${selectedBacktest}/analysis`),
-      api.get<BacktestSignalDiagnostics>(`/backtests/${selectedBacktest}/signals`),
-      api.get<BacktestAttribution>(`/backtests/${selectedBacktest}/attribution`),
-      api.get<BacktestRobustness>(`/backtests/${selectedBacktest}/robustness`),
-      api.get<BacktestValidation>(`/backtests/${selectedBacktest}/validation`),
+      api.get<BacktestAnalysis>(`/backtests/${currentRunId}/analysis`),
+      api.get<BacktestSignalDiagnostics>(`/backtests/${currentRunId}/signals`),
+      api.get<BacktestAttribution>(`/backtests/${currentRunId}/attribution`),
+      api.get<BacktestRobustness>(`/backtests/${currentRunId}/robustness`),
+      api.get<BacktestValidation>(`/backtests/${currentRunId}/validation`),
     ]).then(([analysisResult, signalResult, attributionResult, robustnessResult, validationResult]) => {
       if (!current) return
       if (analysisResult.status === "rejected") {
@@ -195,7 +199,7 @@ export function ValidationWorkbenchWidget() {
       setFrozenValidation(validationResult.status === "fulfilled" ? validationResult.value : null)
     }).finally(() => { if (current) setLoadingResult(false) })
     return () => { current = false }
-  }, [selectedBacktest])
+  }, [currentRunId])
 
   const localDirty = Boolean(validation && source !== validation.source)
   const visualEdits = useMemo(() => validation?.inspection.entrypoints.flatMap((entrypoint) =>
@@ -222,6 +226,21 @@ export function ValidationWorkbenchWidget() {
   })) ?? [], [analysis])
   const activeJob = jobs.find((item) => item.id === activeJobId)
   const invalidRange = Boolean(startDate && endDate && startDate > endDate)
+  const workspaceReady = !sdk.loading && validation?.project_id === projectId && Boolean(startDate && endDate)
+
+  async function selectProject(nextId: string) {
+    if (nextId === projectId || busy || sdk.loading) return
+    if ((localDirty || visualDirty) && !await confirm({
+      title: "切换回测策略",
+      description: "当前验证代码或参数尚未保存，切换后将丢弃这些修改。",
+      confirmText: "放弃修改并切换",
+      tone: "danger",
+    })) return
+    setBusy(true); setError("")
+    try { await sdk.openProject(nextId) }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setBusy(false) }
+  }
 
   function beginResize(event: ReactPointerEvent<HTMLButtonElement>) {
     const container = authoringSplit.current
@@ -241,7 +260,7 @@ export function ValidationWorkbenchWidget() {
   }
 
   async function runBacktest() {
-    if (!project || hasUnsavedChanges || invalidRange) return
+    if (!project || !workspaceReady || hasUnsavedChanges || invalidRange) return
     if (!await confirm({
       title: "运行完整事件回测",
       description: `运行当前已保存的“${project.name}”。将调用受信任的本机 Python；它不是安全沙箱。`,
@@ -297,7 +316,7 @@ export function ValidationWorkbenchWidget() {
     if (!project || !validation?.editable || localDirty || visualDirty) return
     if (!await confirm({
       title: "迁移到最新验证模板",
-      description: "这会用当前官方 performance、alpha_beta、risk 和 research_quality 模板创建一个新的 validation.py revision；历史 Run 不会重算。",
+      description: "这会用当前官方收益、归因、尾部风险、研究质量标准和研究证据模板保存新的验证代码；历史回测不会重算。",
       confirmText: "创建新 revision",
       tone: "danger",
     })) return
@@ -325,6 +344,15 @@ export function ValidationWorkbenchWidget() {
           <section className="backtest-config-pane">
             <header className="backtest-authoring-pane-header"><strong>回测配置</strong></header>
             <div className="backtest-config-pane-body">
+              <div className="backtest-setup-card">
+                <label className="space-y-2 text-xs">
+                  <span className="block font-medium">回测策略</span>
+                  <select aria-label="回测策略" className="w-full" value={project.id} disabled={busy || sdk.loading} onChange={(event) => void selectProject(event.target.value)}>
+                    {sdk.projects.map((item) => <option key={item.id} value={item.id}>{item.name}{item.built_in ? "（系统模板）" : ""}</option>)}
+                  </select>
+                </label>
+                <p className="text-xs text-muted-foreground">使用所选项目已保存的策略和验证代码，历史回测随项目切换。</p>
+              </div>
               <div className="backtest-setup-card">
                 <div className="backtest-setup-card-heading"><strong>回测样本</strong></div>
                 <div className="backtest-run-controls">
@@ -368,7 +396,7 @@ export function ValidationWorkbenchWidget() {
             </div>
             <footer className="backtest-run-footer">
               {invalidRange || hasUnsavedChanges ? <span className="warning">{invalidRange ? "开始日期必须早于结束日期" : project.dirty ? "请先保存策略修改" : visualDirty ? "请先应用验证参数" : "请先保存右侧 Python"}</span> : <span />}
-              <div className="backtest-run-actions"><button className="primary-command" type="button" disabled={busy || Boolean(activeJobId) || hasUnsavedChanges || invalidRange} onClick={() => void runBacktest()}><Play />{activeJobId ? "回测运行中" : "运行回测"}</button></div>
+              <div className="backtest-run-actions"><button className="primary-command" type="button" disabled={busy || !workspaceReady || Boolean(activeJobId) || hasUnsavedChanges || invalidRange} onClick={() => void runBacktest()}><Play />{activeJobId ? "回测运行中" : "运行回测"}</button></div>
             </footer>
           </section>
 
@@ -483,12 +511,18 @@ export function ValidationWorkbenchWidget() {
 
 function FrozenValidationPanels({ value }: { value: BacktestValidation }) {
   const risk = value.outputs.risk as Record<string, unknown> | undefined
-  const quality = value.outputs.research_quality as Record<string, unknown> | undefined
+  const assessment = value.outputs.research_quality as Record<string, unknown> | undefined
+  const quality = (value.outputs.research_evidence ?? (assessment?.status ? assessment : undefined)) as Record<string, unknown> | undefined
   const portfolio = risk?.portfolio as Record<string, unknown> | undefined
   const checks = quality?.checks as Record<string, boolean> | undefined
-  const additional = value.available_analyses.filter((name) => !["performance", "alpha_beta", "risk", "research_quality"].includes(name))
+  const additional = value.available_analyses.filter((name) => !["performance", "alpha_beta", "risk", "research_quality", "research_evidence"].includes(name))
   return <>
     {value.warnings.map((warning) => <div key={warning} className="workbench-message warning">{warning}</div>)}
+    {typeof assessment?.passed === "boolean" ? <section className="mb-4">
+      <div className="backtest-section-heading"><div><strong>研究质量标准</strong><span>按本次回测保存的项目阈值评价实际成交。</span></div><Badge variant={assessment.passed ? "secondary" : "destructive"}>{assessment.passed ? "通过" : "未通过"}</Badge></div>
+      {(assessment.reasons as string[] | undefined)?.map((reason) => <div key={reason} className="workbench-message error">{reason}</div>)}
+      {(assessment.warnings as string[] | undefined)?.map((warning) => <div key={warning} className="workbench-message warning">{warning}</div>)}
+    </section> : null}
     {risk ? <section className="mb-4">
       <div className="backtest-section-heading"><div><strong>冻结尾部风险</strong><span>由该 Run 当时固定的 validation.py 计算。</span></div><Badge variant={risk.status === "sufficient" ? "secondary" : "outline"}>{String(risk.status)}</Badge></div>
       {(risk.warnings as string[] | undefined)?.map((warning) => <div key={warning} className="workbench-message warning">{warning}</div>)}
@@ -504,6 +538,6 @@ function FrozenValidationPanels({ value }: { value: BacktestValidation }) {
       <div className="backtest-section-heading"><div><strong>{name}</strong><span>项目自定义冻结分析</span></div></div>
       <pre className="overflow-auto rounded-md border bg-muted/30 p-3 text-xs">{JSON.stringify(value.outputs[name], null, 2)}</pre>
     </section>)}
-    {!risk && !quality ? <div className="analytics-empty">该历史 Run 的验证模板尚未包含 risk 或 research_quality；已有分析：{value.available_analyses.join("、") || "无"}。</div> : null}
+    {!risk && !quality && !assessment ? <div className="analytics-empty">该历史回测尚未包含风险或研究证据分析；已有分析：{value.available_analyses.join("、") || "无"}。</div> : null}
   </>
 }

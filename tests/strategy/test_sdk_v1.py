@@ -1630,7 +1630,7 @@ def test_execution_rejections_are_classified_by_system_cause():
     )
 
 
-def test_execution_fidelity_flags_repeated_exit_shortfalls():
+def test_execution_fidelity_reports_facts_without_hidden_quality_thresholds():
     executions = [
         {
             "attempted_trade_count": 1,
@@ -1653,8 +1653,10 @@ def test_execution_fidelity_flags_repeated_exit_shortfalls():
     fidelity = _execution_fidelity_summary(executions)
     summary = _aggregate_execution_summary(executions)
 
-    assert fidelity["persistent_exit_failure_symbols"] == ["510500.SH"]
-    assert fidelity["persistent_tracking_error_periods"] == 2
+    assert fidelity == {
+        "mean": 0.0, "minimum": 0.0, "attempted_period_count": 2,
+        "maximum_target_weight_deviation": 0.5,
+    }
     assert summary["limit_down_rejection_count"] == 2
     assert summary["attempted_trade_count"] == 2
 
@@ -1805,9 +1807,34 @@ def test_backtest_uses_listing_intervals_when_instrument_snapshot_is_later(
 
     assert len(result.returns) == len(engine.dates)
     assert result.executions
-    assert result.diagnostics["research_valid"] is False
+    assert result.diagnostics["execution_reliable"] is False
     assert result.diagnostics["warnings"]
     assert result.benchmark_symbols == ("A", "B")
+
+
+def test_strict_backtest_with_no_candidates_reports_evidence_for_project_validation(tmp_path: Path):
+    source = _daily_universe_strategy_source().replace(
+        "symbols=[symbol for symbol in context.universe if symbol in common_stocks]",
+        "symbols=[]",
+    )
+    engine = _PartialExecutionDataEngine()
+    repository = StrategyRepository(tmp_path / "no-candidates.db")
+    try:
+        repository.create_project("no-candidates", name="No candidates", source=source)
+        result = run_strategy_backtest(
+            repository,
+            "no-candidates",
+            engine.dates[0].strftime("%Y-%m-%d"),
+            engine.dates[-1].strftime("%Y-%m-%d"),
+            engine,
+        )
+    finally:
+        repository.close()
+
+    assert result.diagnostics["execution_summary"]["attempted_trade_count"] == 0
+    assert "research_valid" not in result.diagnostics
+    assert all(row["selected_count"] == 0 for row in result.diagnostics["signal_evidence"]["rows"])
+    assert any("NO_TRADABLE_CANDIDATES" in item for item in result.diagnostics["warnings"])
 
 
 def test_strict_backtest_excludes_candidates_with_missing_execution_data(tmp_path: Path):
@@ -1835,8 +1862,8 @@ def test_strict_backtest_excludes_candidates_with_missing_execution_data(tmp_pat
     assert exclusions["symbol_date_count"] == len(engine.dates) - 1
     assert exclusions["unique_symbol_count"] == 1
     assert exclusions["symbols_sample"] == ["A"]
-    assert result.diagnostics["research_valid"] is False
-    assert "LOW_EXECUTION_FIDELITY" in result.diagnostics["research_invalid_reasons"]
+    assert result.diagnostics["execution_reliable"] is False
+    assert result.diagnostics["execution_invalid_reasons"] == ["MISSING_EXECUTION_STATE"]
     assert any(
         warning.startswith("PARTIAL_MARKET_STATE:") for warning in result.diagnostics["warnings"]
     )

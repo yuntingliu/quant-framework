@@ -150,23 +150,19 @@ def test_no_legacy_executable_strategy_runtime_remains():
 def test_strategy_authoring_units_assemble_into_one_runtime_package():
     schema = (ROOT / "alphalab/schema.sql").read_text(encoding="utf-8")
     source = (ROOT / "alphalab/strategy/source.py").read_text(encoding="utf-8")
-    edit_tool = (
-        ROOT / "integrations/conexus/alphalab-research-agent/tools/Strategy-Source.tool.json"
+    project_files_tool = (
+        ROOT / "integrations/conexus/alphalab-research-agent/tools/Project-Files.tool.json"
     ).read_text(encoding="utf-8")
 
     assert "strategy_source_units" in schema
     assert "strategy_source_package_units" in schema
     assert "def split_strategy_source(" in source
     assert "def assemble_strategy_source(" in source
-    assert '"install_factor_template"' in edit_tool
-    assert '"add_factor"' not in edit_tool
-    assert "/factor-templates/" in edit_tool
-
-    project_tool = (
-        ROOT / "integrations/conexus/alphalab-research-agent/tools/Research-Project.tool.json"
-    ).read_text(encoding="utf-8")
-    assert '"migrate_default"' in project_tool
-    assert "/default-migration" in project_tool
+    assert '"files.install_factor_template"' in project_files_tool
+    assert "/factor-templates/" in project_files_tool
+    assert '"projects.migrate_default"' in project_files_tool
+    assert "/default-migration" in project_files_tool
+    assert "Unsupported project file path" in project_files_tool
 
 
 def test_strategy_contract_is_declared_implemented():

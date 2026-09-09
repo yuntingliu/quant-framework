@@ -456,6 +456,9 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
     ]
     if (changed.length === 0) return []
     const workspace = await readWorkspace(signal)
+    if (workspace.outputValidation?.status === "failed") {
+      setError(workspace.outputValidation.error_summary ?? "Workspace output validation failed.")
+    }
     return changedWorkspaceNodesForRun(completed, workspace)
   }, [])
 

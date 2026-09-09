@@ -15,19 +15,14 @@ const agentId = "alphalab-research-agent-v1"
 const notebookId = "alphalab-decision-notebook-v1"
 const commandsId = "alphalab-workspace-commands-v1"
 const resultId = "alphalab-workspace-result-v1"
+const sdkSkillRelativePath = "skills/alphalab-sdk-v1/SKILL.md"
+const agentRelativePath = "agents/AlphaLab-Research-Agent.agent.json"
+const sdkSkillPlaceholder = "{{ALPHALAB_SDK_SKILL}}"
+const workspaceCommandSchemaPlaceholder = "{{ALPHALAB_WORKSPACE_COMMAND_SCHEMA}}"
 
 const toolNodes = [
-  ["alphalab-tool-workspace-context-v1", "AlphaLab Workspace Context", "Get-Workspace-Context.tool.json"],
-  ["alphalab-tool-research-project-v1", "AlphaLab Research Project", "Research-Project.tool.json"],
-  ["alphalab-tool-data-recipe-v1", "AlphaLab Data Recipe", "Data-Recipe.tool.json"],
-  ["alphalab-tool-data-sync-job-v1", "AlphaLab Data Sync Job", "Data-Sync-Job.tool.json"],
-  ["alphalab-tool-data-query-v1", "AlphaLab Data Query", "Data-Query.tool.json"],
-  ["alphalab-tool-edit-strategy-source-v1", "AlphaLab Strategy Source", "Strategy-Source.tool.json"],
-  ["alphalab-tool-evaluate-strategy-factor-v1", "AlphaLab Factor Evaluation", "Factor-Evaluation.tool.json"],
-  ["alphalab-tool-preview-strategy-v1", "AlphaLab Strategy Preview", "Strategy-Preview.tool.json"],
-  ["alphalab-tool-validation-source-v1", "AlphaLab Validation Source", "Validation-Source.tool.json"],
-  ["alphalab-tool-backtest-v1", "AlphaLab Backtest", "Backtest.tool.json"],
-  ["alphalab-tool-analyze-backtest-v1", "AlphaLab Backtest Analysis", "Backtest-Analysis.tool.json"],
+  ["alphalab-tool-project-files-v1", "AlphaLab Project Files", "Project-Files.tool.json"],
+  ["alphalab-tool-project-run-v1", "AlphaLab Project Run", "Project-Run.tool.json"],
 ]
 
 await mkdir(resolve(projectRoot, ".conexus"), { recursive: true })
@@ -51,6 +46,25 @@ if (
 await mkdir(resolve(stagedBundleAbsolutePath, ".."), { recursive: true })
 await rm(stagedBundleAbsolutePath, { recursive: true, force: true })
 await cp(sourceBundlePath, stagedBundleAbsolutePath, { recursive: true, force: true })
+const stagedAgentPath = resolve(stagedBundleAbsolutePath, agentRelativePath)
+const stagedSkillPath = resolve(stagedBundleAbsolutePath, sdkSkillRelativePath)
+const [agentSource, sdkSkill, outputSchemaSource] = await Promise.all([
+  readFile(stagedAgentPath, "utf8"),
+  readFile(stagedSkillPath, "utf8"),
+  readFile(resolve(stagedBundleAbsolutePath, "workspace-output.schema.json"), "utf8"),
+])
+const agent = JSON.parse(agentSource)
+const workspaceCommandSchema = JSON.parse(outputSchemaSource).properties?.workspaceCommands
+if (!workspaceCommandSchema || !agent.systemPrompt?.includes(workspaceCommandSchemaPlaceholder)) {
+  throw new Error("AlphaLab workspace command schema or prompt placeholder is missing")
+}
+if (!agent.systemPrompt?.includes(sdkSkillPlaceholder)) {
+  throw new Error(`AlphaLab Agent prompt is missing ${sdkSkillPlaceholder}`)
+}
+agent.systemPrompt = agent.systemPrompt
+  .replace(sdkSkillPlaceholder, sdkSkill.trim())
+  .replace(workspaceCommandSchemaPlaceholder, JSON.stringify(workspaceCommandSchema))
+await writeFile(stagedAgentPath, `${JSON.stringify(agent, null, 2)}\n`, "utf8")
 
 const ownedNodeIds = new Set([
   harnessId,
@@ -62,6 +76,17 @@ const ownedNodeIds = new Set([
 ])
 const obsoleteNodeIds = new Set([
   "alphalab-research-context-v1",
+  "alphalab-tool-workspace-context-v1",
+  "alphalab-tool-research-project-v1",
+  "alphalab-tool-data-recipe-v1",
+  "alphalab-tool-data-sync-job-v1",
+  "alphalab-tool-data-query-v1",
+  "alphalab-tool-edit-strategy-source-v1",
+  "alphalab-tool-evaluate-strategy-factor-v1",
+  "alphalab-tool-preview-strategy-v1",
+  "alphalab-tool-validation-source-v1",
+  "alphalab-tool-backtest-v1",
+  "alphalab-tool-analyze-backtest-v1",
   "alphalab-tool-strategy-v1",
   "alphalab-tool-research-strategy-v1",
   "alphalab-tool-manage-strategy-v1",

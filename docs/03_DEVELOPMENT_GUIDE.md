@@ -80,11 +80,14 @@ write fails. This restriction applies to Agent authoring only. The resulting
 `recipe.py`, `strategy.py`, `factors/*.py`, and `validation.py` remain visible
 and fully editable by the user through the canonical workbenches and APIs.
 
-Agent mutation tools must preserve the same boundary after creation: install a
-factor template before replacing its one registered function, use CST edits for
-strategy functions and parameters, apply or parameterize recipe templates, and
-parameterize the validation template. Do not expose whole-module writes through
-the Agent bundle; those APIs exist for direct user workbench editing.
+The Agent boundary exposes one project-file facade. It may replace a complete
+project-owned `recipe.py`, `strategy.py`, `validation.py`, or single-function
+`factors/<factor_id>.py`, but must call the same canonical save APIs used by the
+workbenches so assembly, static validation, probes, optimistic concurrency, and
+immutable package recording are unchanged. It must reject every path outside
+those four forms. New projects still start atomically from `sdk-v1-default`,
+and additional factors should be copied from maintained factor templates before
+code-level edits when a suitable template exists.
 
 ## SDK source rules
 
@@ -245,10 +248,13 @@ self-consistent: success exposes no error fields, and failure exposes no stale
 result identifier. Temporary write contention uses the stable `DATASET_BUSY`
 code rather than a market-coverage error.
 
-Every action-union Agent tool uses conditional JSON Schema requirements for its
-selected action. Its outer runtime boundary converts both local validation and
-HTTP failures into a structured safe error result; uncaught JavaScript errors
-must never expose temporary module paths or stacks.
+The Agent bundle exposes two compact command tools. Their schemas contain only
+the command, an args object, and explicit top-level confirmation flags; the
+injected AlphaLab SDK skill owns the command-specific argument guide. Runtime
+dispatch validates required arguments before contacting the API, and its outer
+boundary converts both local validation and HTTP failures into a structured safe
+error result. Uncaught JavaScript errors must never expose temporary module
+paths or stacks.
 
 SDK backtests calculate compact signal evidence in the event loop. Persist
 per-rebalance counts, coverage, turnover, and next-signal rank IC, never the
@@ -267,27 +273,42 @@ reference. Recipe source, captured output, and stored traceback details remain
 internal. The old bundled-data manifest endpoint is not part of the runtime API.
 
 Reports are Conexus Document nodes, read through `/api/conexus/workspace` and
-mutated by the published Agent through `create_nodes` and `update_nodes`.
+mutated by the published Agent through `create` and `edit`.
 AlphaLab does not keep a second Markdown copy in SQLite. Report IDs are stable
 Document node IDs; the Agent updates an existing matching report and creates a
 new one only for a new research subject. The current report history is global
 to the AlphaLab publication and is not partitioned by project. Report Markdown
 must remain domain-facing and omit hashes and execution identifiers.
 
-The published Agent submits `summary`, Decision Notebook, Workspace Result, and
-Workspace Commands together through `commit_harness_outputs`. Generic node
-tools modify report Documents only; they never partially update the bound
-Harness output nodes.
+The published Agent validates `summary`, Decision Notebook, Workspace Result,
+and Workspace Commands through `workspace.outputs.prepare` on the existing run
+tool. `/api/conexus/outputs/prepare` reads the Harness output schema, validates
+cross-output relationships, and derives display content. The Agent passes its
+returned operations unchanged to one atomic `edit`, then calls `complete`.
+The workspace delivery proxy revalidates before exposing commands to browsers;
+invalid output yields an explicit delivery error while report history remains
+readable. Do not add field aliases or silently turn invalid commands into success.
 
 Validation source routes are under `/api/validation`. `validation.py` must
 declare `VALIDATION_SDK_VERSION = 1` and provide `performance` and `alpha_beta`
 `@analysis` functions. Each receives one `ValidationContext`, including the
-read-only `run_diagnostics` captured by the same Run; keyword-only literal
+copied `diagnostics` captured by the same Run (`run_diagnostics` remains available
+for saved deployment sources); keyword-only literal
 defaults are form-editable. The default source also provides `risk` and
-`research_quality`, while historical APIs read only persisted named outputs.
+`research_quality` and `research_evidence`, while historical APIs read only persisted named outputs.
 Saving requires `confirm_write`. Execution
 uses the already confirmed backtest job's trusted-local Python boundary and
 must retain timeout and JSON-output limits.
+
+New default validation files include `research_quality`; this project-owned
+analysis controls research thresholds and returns a validated `passed`, `reasons`,
+and `warnings` object. Engine-owned `execution_reliable` remains independent of
+project judgments. In new runs, old/custom source lacking the analysis yields
+`research_valid=null` with `RESEARCH_QUALITY_NOT_EVALUATED`; add it only through
+an explicit project source edit. Keep frozen historical assessments unchanged.
+Default strategy targets execute once: failed buys leave cash, failed sells
+remain held, and no retry or redistribution is implicit. Candidate replacements
+and retry event handlers belong visibly in project strategy code.
 
 Data recipe routes are under `/api/data-sync/recipes`. Source and no-code
 parameter writes require `confirm_write`; invoking recipe source requires

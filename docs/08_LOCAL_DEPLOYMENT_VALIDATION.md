@@ -4,6 +4,23 @@
 本地 Agent 使用 Conexus Core `dcc74445382d73be7f1ff06b7bde147c95e7240d`。
 操作说明见 [本地部署](07_LOCAL_DEPLOYMENT.md)。
 
+## 2026-09-09 同步 dongfang 更新
+
+部署分支合并至 `dongfang` 的 `4adc0ef`，保留本地 Conexus 核心与数据隔离。
+本轮包含同步日期、RQData 证券代码、策略选择、权重说明、报告排版，以及新的两个
+Agent 命令工具。统计研究证据保留为 `research_evidence`，与 `research_quality`
+的项目执行标准分别展示；旧验证源码及历史结果保持兼容。
+
+- Python 完整测试 273 项通过；新增 Agent 命令契约检查随后单独通过。
+- 前端 14 项测试、ESLint、TypeScript 和浏览器构建通过。
+- Python Ruff、编译、公共接口、仓库卫生、依赖一致性检查通过。
+- 前端全量及生产依赖审计、Conexus 生产依赖审计均为 0 vulnerabilities。
+- 本地 Agent 集成测试实际调用新的 Python 工具，并验证报告重启持久化。
+- 核心 188 项、OS 适配器其余 12 项、本地 Host 4 项及边界检查通过。
+  PowerShell 会话测试首次混入提示符导致失败，单独复跑通过；未修改固定的核心源码。
+- 本轮仍未连接真实 RQData 或外部模型，未在 macOS 实机验证；第三方弃用和
+  Monaco 大文件构建提示仍存在。
+
 ## 环境与结果
 
 本机验证环境：Windows、Python 3.12.6、Node.js 24.14.0、npm 11.9.0。

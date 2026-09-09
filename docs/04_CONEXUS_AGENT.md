@@ -24,39 +24,39 @@ The current tool contract lets the Agent:
 2. inspect compact runtime coverage and project/task summaries, then request
    only explicitly needed project files;
 3. create every user-requested new strategy as a fresh project by atomically
-   submitting its complete `strategy.py` and all factor units;
+   customizing the maintained `sdk-v1-default` project and factor templates;
 4. read, edit, parameterize, plan, and submit the project's exact `recipe.py`;
 5. monitor resumable data jobs and validate/query published datasets;
 6. add or edit one complete factor source unit and evaluate that registered
    function as a snapshot or history;
-7. edit and save `strategy.py` through exact-source or CST-aware operations;
+7. edit and save `strategy.py` through the canonical full-source save path;
 8. read or edit `validation.py`, whose saved package is pinned by the next Run;
 9. preview the saved strategy, run complete event backtests, analyze
    performance, attribution, robustness and signals, compare candidates, and
    create or update a durable report Document.
 
-These capabilities are exposed through eleven AlphaLab intent-level Tool nodes
-plus the native Conexus node-capability tools rather than one tool per backend
-endpoint. The Agent discovers connected nodes with `find`/`observe` and invokes
-each AlphaLab node with `use(node_id, "tool.invoke", input)`. Each mutable or
-executable AlphaLab tool uses a closed `action` enum, so consolidation does not
-weaken write, delete, or trusted-local Python confirmation boundaries:
+These capabilities are exposed through two AlphaLab Tool nodes plus the native
+Conexus node-capability tools. The Agent discovers connected nodes with
+`find`/`observe` and invokes them with
+`use(node_id, "tool.invoke", input)`. Each tool has a small `command + args`
+contract; write, delete, cancellation, and trusted-local Python confirmations
+remain explicit top-level fields rather than being hidden inside `args`:
 
 ```text
-alphalab_get_workspace_context
-alphalab_research_project
-alphalab_data_recipe
-alphalab_data_sync_job
-alphalab_data_query
-alphalab_strategy_source
-alphalab_factor_evaluation
-alphalab_strategy_preview
-alphalab_validation_source
-alphalab_backtest
-alphalab_backtest_analysis
+alphalab_project_files
+alphalab_project_run
 
 find / observe / create / edit / use / request_user_input / complete
 ```
+
+Command-specific SDK guidance lives in
+`integrations/conexus/alphalab-research-agent/skills/alphalab-sdk-v1/SKILL.md`.
+The registration script injects that skill into the staged Agent prompt before
+publication. It is deliberately not represented as a project file or workspace
+node, avoiding a persistence dependency between Conexus and AlphaLab projects.
+The two Tool schemas therefore do not duplicate every backend parameter matrix;
+runtime dispatch still validates required command arguments and returns stable,
+safe errors with a correction-oriented summary.
 
 Web Search is a runtime-managed node discovered with `find` and invoked through
 its declared capability with `use`; it is not a legacy direct Agent tool name.
@@ -157,19 +157,25 @@ genuinely new research subject. Request IDs, hashes, job IDs, and other audit
 details are not part of report Markdown. Historical BacktestRuns always use
 their frozen strategy and validation snapshots.
 
-The Decision Notebook, Workspace Result, and Workspace Commands are written in
-one atomic `edit` batch; the Agent then calls `complete` with the final summary.
+The Agent first calls `workspace.outputs.prepare` with the current request ID
+and complete outputs. The server validates the canonical Harness schema and
+cross-output relationships, then derives matching content and returns the three
+patch operations. The Decision Notebook, Workspace Result, and Workspace Commands
+are written in that one atomic `edit` batch; the Agent then calls `complete`.
 A Document descriptor always carries version, current request ID, kind, report
 node ID, title, and sources. Separate edits may change report Documents but may
 not partially update the three Harness output nodes. The frontend rejects the
 whole command batch when `open_result` does not match a valid descriptor from
 the same request.
+The delivery proxy also validates all three output nodes, suppresses invalid
+navigation with an explicit error, and derives current display content.
 
-Backtests are asynchronous at the Agent boundary: `action=run` validates and
+Backtests are asynchronous at the Agent boundary: `backtest.run` validates and
 pins the current strategy/validation packages, submits one job, and returns its
-ID immediately. The Agent then uses `action=job` until a terminal state before
-reading compact analysis. A long research run therefore cannot be mistaken for
-a failed tool call merely because it exceeds the orchestration request window.
+ID immediately. The Agent queries `backtest.status` once and then uses
+`backtest.wait` until a terminal state before reading compact analysis. A long
+research run therefore cannot be mistaken for a failed tool call merely because
+it exceeds the orchestration request window.
 
 The hosted AlphaLab publication uses Conexus enterprise service identity with
 publisher-funded billing. The workstation browser never authenticates to
@@ -230,6 +236,6 @@ Publish the registered Harness with:
 node scripts\host_conexus_research_harness.mjs
 ```
 
-Registration removes obsolete pipeline, Lab, request-template sync, paper, and
-manual-revision Agent nodes. It also removes the former endpoint-shaped
-AlphaLab tool nodes rather than keeping compatibility aliases.
+Registration injects the SDK skill and removes the former eleven intent tools,
+obsolete pipeline, Lab, request-template sync, paper, and manual-revision Agent
+nodes rather than keeping compatibility aliases.

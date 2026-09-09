@@ -76,10 +76,10 @@ def operations_store() -> OperationsStore:
 
 
 def _project_recipe_bounds() -> dict[str, str]:
+    today = date.today()
     bars = DataCatalog().status("rq.bars")
     if bars["status"] == "ready" and bars["date_start"] and bars["date_end"]:
-        return {"start": bars["date_start"], "end": bars["date_end"]}
-    today = date.today()
+        return {"start": bars["date_start"], "end": today.isoformat()}
     try:
         fallback_start = today.replace(year=today.year - 5)
     except ValueError:
@@ -802,12 +802,22 @@ def run_project_backtest(
                 factor_returns=attribution_factors,
                 executions=run.executions,
                 settings=dict(run.project["settings"]),
-                run_diagnostics=_compact_run_diagnostics(run.diagnostics),
+                diagnostics=_compact_run_diagnostics(run.diagnostics),
             )
     finally:
         repo.close()
     metrics = dict(validation_output["performance"])
     attribution = dict(validation_output["alpha_beta"])
+    research_assessment = validation_output.get("research_quality")
+    research_valid = (research_assessment or {}).get("passed")
+    research_invalid_reasons = (
+        list(research_assessment["reasons"])
+        if research_valid is not None else ["RESEARCH_QUALITY_NOT_EVALUATED"]
+    )
+    run_warnings = list(dict.fromkeys([
+        *run.diagnostics.get("warnings", []),
+        *(research_assessment or {}).get("warnings", []),
+    ]))
     frozen_strategy_manifest = [
         {
             **dict(item),
@@ -896,9 +906,12 @@ def run_project_backtest(
             "delisting_settlements": len(run.diagnostics.get("delisting_settlements") or ()),
         },
         **dict(run.diagnostics.get("execution_summary") or {}),
-        "warnings": list(run.diagnostics.get("warnings") or ()),
-        "research_valid": bool(run.diagnostics.get("research_valid", False)),
-        "research_invalid_reasons": list(run.diagnostics.get("research_invalid_reasons") or ()),
+        "warnings": run_warnings,
+        "execution_reliable": run.diagnostics["execution_reliable"],
+        "execution_invalid_reasons": list(run.diagnostics["execution_invalid_reasons"]),
+        "research_valid": research_valid,
+        "research_invalid_reasons": research_invalid_reasons,
+        "research_assessment": research_assessment,
         "execution_fidelity": dict(run.diagnostics.get("execution_fidelity") or {}),
         "execution": run.diagnostics,
         "strategy_manifest": frozen_strategy_manifest,
@@ -920,8 +933,8 @@ def _compact_run_diagnostics(diagnostics: Mapping[str, Any]) -> dict[str, Any]:
             "periods",
             "warnings",
             "execution_data_policy",
-            "research_valid",
-            "research_invalid_reasons",
+            "execution_reliable",
+            "execution_invalid_reasons",
             "execution_data_exclusions",
             "execution_data_fill",
             "execution_summary",

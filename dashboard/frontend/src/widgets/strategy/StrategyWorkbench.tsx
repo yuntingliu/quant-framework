@@ -301,6 +301,7 @@ function StrategyVisualEditor({ stageGroups, factors, locked, onError, onDraftCh
           {entrypoints.map((entrypoint) => <Fragment key={entrypoint.id}>
             <tr className="strategy-settings-group"><th colSpan={3}>{entrypointBusinessLabel(entrypoint)}</th></tr>
             {entrypoint.parameters.map((parameter) => <tr key={`${entrypoint.id}.${parameter.name}`}><td><strong>{parameterLabel(parameter)}</strong></td><td colSpan={2}><ParameterControl parameter={parameter} value={parameterValues[entrypoint.id]?.[parameter.name] ?? parameterDraftValue(parameter)} disabled={!editable || !parameter.editable} onChange={(value) => setParameterValues((current) => ({ ...current, [entrypoint.id]: { ...current[entrypoint.id], [parameter.name]: value } }))} /></td></tr>)}
+            {entrypoint.kind === "portfolio" && entrypoint.parameters.some((parameter) => parameter.name === "max_weight") ? <tr><td colSpan={3} className="text-xs text-muted-foreground">权重用小数填写：0.10 = 10%。默认等权配置取「1 ÷ 实际入选数量」与单标的最大权重的较小值，未分配部分留作现金。</td></tr> : null}
             {!entrypoint.parameters.length ? <tr><td>实现方式</td><td colSpan={2}>自定义 Python</td></tr> : null}
           </Fragment>)}
           {!entrypoints.length ? stage.id === "risk" ? <tr><td>实现方式</td><td colSpan={2}>自定义 Python</td></tr> : <tr><td colSpan={3}>当前环节尚未配置</td></tr> : null}
@@ -319,6 +320,7 @@ function PreviewPanel({ preview }: { preview: Record<string, unknown> | null }) 
   const policy = asRecord(result.execution_policy)
   const scores = asRecord(signal.scores)
   const weights = asRecord(decision.target_weights)
+  const hasDecision = decision.target_weights !== undefined
   const selected = Array.isArray(signal.selected) ? signal.selected.map(String) : []
   const invoked = Array.isArray(result.invoked) ? result.invoked.map(String) : []
   const universe = Array.isArray(result.universe) ? result.universe : []
@@ -332,8 +334,9 @@ function PreviewPanel({ preview }: { preview: Record<string, unknown> | null }) 
         <div><span>预览日期</span><strong>{String(result.as_of || "—").slice(0, 10)}</strong></div>
         <div><span>可选证券</span><strong>{universe.length}</strong></div>
         <div><span>最终入选</span><strong>{selected.length}</strong></div>
-        <div><span>目标总仓位</span><strong>{(gross * 100).toFixed(1)}%</strong></div>
+        <div><span>目标总仓位</span><strong>{hasDecision ? `${(gross * 100).toFixed(1)}%` : "—"}</strong></div>
       </div>
+      {hasDecision ? <p className="text-xs text-muted-foreground">目标现金比例：{((1 - gross) * 100).toFixed(2)}%。目标仓位由仓位分配函数计算；默认等权配置受单标的最大权重约束。</p> : null}
       <div className="strategy-preview-grid">
         <section><header><strong>本期选股与得分</strong><Badge variant="outline">{ranked.length} 个评分</Badge></header>{ranked.length ? <div className="analytics-table-wrap"><table className="analytics-table compact"><thead><tr><th>排名</th><th>证券</th><th>分数</th><th>入选</th></tr></thead><tbody>{ranked.slice(0, 15).map(([symbol, score], index) => <tr key={symbol}><td>{index + 1}</td><td><code>{symbol}</code></td><td>{score.toFixed(4)}</td><td>{selected.includes(symbol) ? <CheckCircle2 className="strategy-preview-check" size={14} /> : ""}</td></tr>)}</tbody></table></div> : <div className="analytics-empty">这个预览阶段尚未输出选股结果。</div>}</section>
         <section><header><strong>目标仓位</strong><Badge variant="outline">{weighted.length} 个持仓</Badge></header>{weighted.length ? <div className="strategy-weight-bars">{weighted.map(([symbol, weight]) => <div key={symbol}><span><code>{symbol}</code><strong>{(weight * 100).toFixed(2)}%</strong></span><i><b style={{ width: `${Math.min(100, Math.max(0, weight * 100))}%` }} /></i></div>)}</div> : <div className="analytics-empty">继续预览仓位或成交阶段后显示目标权重。</div>}</section>

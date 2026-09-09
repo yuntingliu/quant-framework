@@ -100,6 +100,11 @@ def _public_job(job: dict) -> dict:
         "warnings": list(result.get("warnings") or ()),
         "warnings_truncated": bool(result.get("warnings_truncated", False)),
         "research_valid": result.get("research_valid") if status == "succeeded" else None,
+        "research_assessment": result.get("research_assessment") if status == "succeeded" else None,
+        "execution_reliable": result.get("execution_reliable") if status == "succeeded" else None,
+        "execution_invalid_reasons": (
+            list(result.get("execution_invalid_reasons") or ()) if status == "succeeded" else []
+        ),
         "research_invalid_reasons": (
             list(result.get("research_invalid_reasons") or ()) if status == "succeeded" else []
         ),

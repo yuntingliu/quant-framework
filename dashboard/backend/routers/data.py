@@ -13,6 +13,7 @@ from dashboard.backend.services.data_service import (
     list_provider_status,
     market_bars,
     market_symbol_options,
+    normalize_market_symbol,
 )
 
 router = APIRouter(prefix="/api/data", tags=["data"])
@@ -49,13 +50,14 @@ def bars(
     profile: Literal["runtime"] = "runtime",
 ) -> dict:
     try:
+        symbol = normalize_market_symbol(symbol, profile)
         return {
-            "symbol": symbol.upper(),
+            "symbol": symbol,
             "profile": profile,
             "rows": market_bars(symbol, start, end, profile),
         }
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="symbol not found") from exc
+        raise HTTPException(status_code=404, detail="未找到该证券的本地行情，请检查代码或先同步数据。") from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except MissingDataError as exc:

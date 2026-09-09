@@ -56,6 +56,87 @@ def performance(
     }
 
 
+@analysis(id="research_quality", label="可编辑的研究质量标准")
+def research_quality(
+    context: ValidationContext,
+    *,
+    minimum_successful_trades: int = 1,
+    maximum_target_weight_deviation: float = 0.05,
+    consecutive_deviation_periods: int = 2,
+    minimum_execution_fidelity: float = 0.80,
+    consecutive_exit_failures: int = 2,
+    require_target_tracking: bool = False,
+    require_successful_exits: bool = False,
+) -> dict:
+    """评价冻结的实际成交；普通拒单默认警告，严格跟踪标准由项目自行开启。"""
+    if minimum_successful_trades < 0 or maximum_target_weight_deviation < 0:
+        raise ValueError("trade and deviation thresholds must be non-negative")
+    if not 0 <= minimum_execution_fidelity <= 1:
+        raise ValueError("minimum_execution_fidelity must be between 0 and 1")
+    if consecutive_deviation_periods < 1 or consecutive_exit_failures < 1:
+        raise ValueError("consecutive-period thresholds must be positive")
+    executions = [row for row in context.executions if row.get("attempted_trade_count", 0) > 0]
+    successful = sum(int(row.get("successful_trade_count", 0)) for row in executions)
+    fidelities = [float(row.get("execution_fidelity", 1.0)) for row in executions]
+    tracking_streak = maximum_tracking_streak = 0
+    exit_streaks = {}
+    maximum_exit_streaks = {}
+    for row in executions:
+        # 偏差是各证券目标/实际权重差的绝对值之和；连续性只指调仓截面，不是逐日测量。
+        deviation = float(row.get("target_weight_deviation", 0.0))
+        tracking_streak = tracking_streak + 1 if deviation > maximum_target_weight_deviation else 0
+        maximum_tracking_streak = max(maximum_tracking_streak, tracking_streak)
+        failed = set(row.get("exit_failure_symbols") or ())
+        for symbol in set(exit_streaks) | failed:
+            exit_streaks[symbol] = exit_streaks.get(symbol, 0) + 1 if symbol in failed else 0
+            maximum_exit_streaks[symbol] = max(maximum_exit_streaks.get(symbol, 0), exit_streaks[symbol])
+    persistent_exits = sorted(symbol for symbol, count in maximum_exit_streaks.items() if count >= consecutive_exit_failures)
+    mean_fidelity = float(np.mean(fidelities)) if fidelities else None
+    low_periods = sum(value < minimum_execution_fidelity for value in fidelities)
+    low_tracking = maximum_tracking_streak >= consecutive_deviation_periods or (
+        low_periods >= consecutive_deviation_periods
+        and mean_fidelity is not None and mean_fidelity < minimum_execution_fidelity
+    )
+    reasons = []
+    warnings = []
+    # 引擎的数据可靠性事实不会被项目阈值覆盖；它仍在摘要中独立返回。
+    if context.diagnostics.get("execution_reliable") is False:
+        reasons.append("UNRELIABLE_EXECUTION_DATA")
+    if successful < minimum_successful_trades:
+        evidence = context.diagnostics.get("signal_evidence") or {}
+        rows = evidence.get("rows") or []
+        reasons.append("NO_TRADABLE_CANDIDATES" if rows and not any(row.get("selected_count", 0) > 0 for row in rows) else "INSUFFICIENT_SUCCESSFUL_TRADES")
+    if low_tracking:
+        warnings.append("LOW_EXECUTION_FIDELITY: realized holdings differ from targets across rebalance snapshots; returns still reflect actual fills")
+        if require_target_tracking:
+            reasons.append("LOW_EXECUTION_FIDELITY")
+    if persistent_exits:
+        warnings.append("PERSISTENT_EXIT_FAILURE: a position repeatedly remained above its requested lower target")
+        if require_successful_exits:
+            reasons.append("PERSISTENT_EXIT_FAILURE")
+    return {
+        "passed": not reasons,
+        "reasons": reasons,
+        "warnings": warnings,
+        "thresholds": {
+            "minimum_successful_trades": minimum_successful_trades,
+            "maximum_target_weight_deviation": maximum_target_weight_deviation,
+            "consecutive_deviation_periods": consecutive_deviation_periods,
+            "minimum_execution_fidelity": minimum_execution_fidelity,
+            "consecutive_exit_failures": consecutive_exit_failures,
+            "require_target_tracking": require_target_tracking,
+            "require_successful_exits": require_successful_exits,
+        },
+        "evidence": {
+            "successful_trade_count": successful,
+            "mean_execution_fidelity": mean_fidelity,
+            "low_fidelity_period_count": low_periods,
+            "persistent_tracking_error_periods": maximum_tracking_streak,
+            "persistent_exit_failure_symbols": persistent_exits[:50],
+        },
+    }
+
+
 @analysis(id="alpha_beta", label="Alpha / Beta 归因")
 def alpha_beta(
     context: ValidationContext,
@@ -67,11 +148,7 @@ def alpha_beta(
     # 策略日收益先按月复合；因子表按月取最后一条供应商快照。
     strategy = _monthly_returns(context.returns).rename("strategy")
     factors = _monthly_factors(context.factor_returns)
-    aligned = (
-        strategy.to_frame()
-        if factors.empty
-        else pd.concat([strategy, factors], axis=1, join="inner")
-    ).replace([np.inf, -np.inf], np.nan)
+    aligned = strategy.to_frame().join(factors, how="inner").replace([np.inf, -np.inf], np.nan)
     complete = aligned.dropna(subset=["strategy", "MKT", "rf"]) if {"MKT", "rf"}.issubset(aligned.columns) else pd.DataFrame()
     factor_names = tuple(name for name in FACTOR_NAMES if name in complete.columns)
     multi_frame = complete.dropna(subset=list(factor_names)) if factor_names else pd.DataFrame()
@@ -156,8 +233,8 @@ def risk(
     }
 
 
-@analysis(id="research_quality", label="研究证据质量")
-def research_quality(
+@analysis(id="research_evidence", label="研究证据质量")
+def research_evidence(
     context: ValidationContext,
     *,
     minimum_signal_periods: int = 12,
@@ -166,7 +243,7 @@ def research_quality(
     minimum_execution_fidelity: float = 0.80,
 ) -> dict:
     """汇总冻结信号证据、数据完整性和执行保真度并给出研究状态。"""
-    diagnostics = dict(context.run_diagnostics)
+    diagnostics = dict(context.diagnostics)
     evidence = diagnostics.get("signal_evidence") if isinstance(diagnostics.get("signal_evidence"), dict) else {}
     rows = [dict(item) for item in evidence.get("rows", []) if isinstance(item, dict)]
     ic_values = pd.Series(
@@ -176,14 +253,14 @@ def research_quality(
     coverage_values = [float(item["coverage"]) for item in rows if item.get("coverage") is not None]
     fidelity_payload = diagnostics.get("execution_fidelity") if isinstance(diagnostics.get("execution_fidelity"), dict) else {}
     fidelity = _finite(fidelity_payload.get("mean"))
-    core_valid_value = diagnostics.get("research_valid")
+    core_valid_value = diagnostics.get("execution_reliable")
     core_valid = core_valid_value is True
-    invalid_reasons = [str(value) for value in diagnostics.get("research_invalid_reasons", [])]
+    invalid_reasons = [str(value) for value in diagnostics.get("execution_invalid_reasons", [])]
     mean_ic = _finite(ic_values.mean()) if not ic_values.empty else None
     average_coverage = _finite(np.mean(coverage_values)) if coverage_values else None
     sufficient = len(ic_values) >= int(minimum_signal_periods)
     checks = {
-        "core_research_valid": core_valid,
+        "execution_data_reliable": core_valid,
         "signal_evidence": sufficient,
         "mean_ic": mean_ic is not None and mean_ic >= minimum_mean_ic,
         "coverage": average_coverage is not None and average_coverage >= minimum_coverage,
@@ -205,7 +282,7 @@ def research_quality(
     if not sufficient:
         warnings.append(f"Only {len(ic_values)} signal periods have forward evidence; {int(minimum_signal_periods)} are required")
     if core_valid_value is None:
-        warnings.append("The frozen run predates core research-validity diagnostics")
+        warnings.append("The frozen run has no execution-data reliability diagnostics")
     warnings.extend(invalid_reasons)
     exclusions = diagnostics.get("execution_data_exclusions") if isinstance(diagnostics.get("execution_data_exclusions"), dict) else {}
     return {

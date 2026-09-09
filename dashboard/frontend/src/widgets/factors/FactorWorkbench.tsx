@@ -13,6 +13,7 @@ import { useStrategySdk, type SdkEntrypoint } from "@/contexts/StrategySdkContex
 import { useWorkspace } from "@/contexts/WorkspaceContext"
 import { useConfirm } from "@/hooks/useConfirm"
 import { api, type MarketBar, type MarketInstrument } from "@/lib/api"
+import { normalizeMarketSymbol } from "@/lib/marketSymbols"
 import { Widget } from "@/widgets/Widget"
 
 interface FieldCatalog {
@@ -173,8 +174,9 @@ function FactorMarketBrowser({ fields }: { fields: FieldCatalog | null }) {
     staleTime: 60_000,
   })
   const instruments = symbolQuery.data?.instruments ?? []
-  const symbol = selectedSymbol && instruments.some((item) => item.symbol === selectedSymbol)
-    ? selectedSymbol : instruments[0]?.symbol ?? ""
+  const normalizedSymbol = normalizeMarketSymbol(selectedSymbol ?? "")
+  const symbol = instruments.some((item) => item.symbol === normalizedSymbol)
+    ? normalizedSymbol : instruments[0]?.symbol ?? ""
 
   useEffect(() => {
     if (symbol && symbol !== selectedSymbol) setSelectedSymbol(symbol)

@@ -15,10 +15,18 @@ backtests, inspect their frozen named validation outputs, and persist the final
 report. Strategy saves automatically record the internal immutable
 source package; no separate revision operation is exposed.
 
-Source writes and trusted-local Python execution retain explicit current-user
-confirmation boundaries. The bundle exposes no shell, application source-tree
-mutation, deployment, legacy pipeline, Python Lab, paper execution, or broker
-tool.
+Only two AlphaLab Tool nodes are exposed: `alphalab_project_files` and
+`alphalab_project_run`. Their compact `command + args` contract is documented
+by `skills/alphalab-sdk-v1/SKILL.md`, which registration injects into the Agent
+prompt before publication. The skill is a bundle resource, not a workspace
+project file or canvas node, so SDK guidance does not couple research projects
+to Conexus node persistence.
+
+Source writes and trusted-local Python execution retain explicit top-level
+current-user confirmation boundaries. Full project-file edits still go through
+the canonical AlphaLab validation and revision APIs. The bundle exposes no
+shell, arbitrary server path, application source-tree mutation, deployment,
+legacy pipeline, Python Lab, paper execution, or broker tool.
 
 The local Harness receives bounded dialogue from AlphaLab's shared
 server-side conversation history plus a structured research checkpoint as

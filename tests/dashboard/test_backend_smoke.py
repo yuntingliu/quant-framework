@@ -1044,6 +1044,13 @@ def test_complete_sdk_backtest_persists_revision_hash_and_manifest(tmp_path, mon
     assert "events" not in detail["run_diagnostics"]
     assert "execution_summary" in detail["run_diagnostics"]
     assert "signal_evidence" in detail["run_diagnostics"]
+    assert detail["run_diagnostics"]["execution_reliable"] is False
+    assert "research_valid" not in detail["run_diagnostics"]
+    assert detail["validation_output"]["research_quality"]["passed"] is False
+    summary = result_service.get_backtest_summary(result["id"])
+    assert summary["execution_reliable"] == result["execution_reliable"]
+    assert summary["research_valid"] == result["research_valid"]
+    assert summary["research_assessment"] == result["research_assessment"]
     assert all("scores" not in row for row in detail["run_diagnostics"]["signal_evidence"]["rows"])
     frozen_portfolio = next(
         item for item in detail["strategy_manifest"] if item["kind"] == "portfolio"

@@ -111,7 +111,8 @@ def equal_weight(context, signal, state, *, max_weight: float = 0.10):
 
 @on_event(Event.SESSION_CLOSE, id="holding_period_risk", label="自定义持有期风控")
 def holding_period_risk(context, state):
-    """展示每日持有期风控入口；默认模板不主动改仓。"""
+    """默认不补单：买不到留现金，卖不出保留原持仓，等下一次月度信号再调仓。"""
+    # 每个目标仅在约定成交时点尝试一次。需要跨日重试时，在此显式返回新的 PortfolioDecision。
     # 可读取 context.portfolio 的真实持仓；返回 PortfolioDecision 才会调整目标仓位。
     # 跨日变量应写入 state 并随返回对象带回，不要使用模块全局变量。
     return None
@@ -317,14 +318,17 @@ def next_open(
     commission_rate: float = 0.00025,
     slippage_rate: float = 0.00020,
     max_participation_rate: float = 0.10,
+    fallback_candidates: tuple[str, ...] = (),
 ):
-    """声明目标仓位在下一交易日开盘按容量和成本约束尝试成交。"""
+    """下一交易日开盘尝试一次；默认无候补，买不到的额度留现金且不自动重分配。"""
+    # 可提供在信号时已确定的有序候补证券；不要读取未来行情来决定候补名单。
     # 收盘信号不能偷用同一收盘价；next_session_open 明确隔离信号与成交时点。
     return ExecutionPolicy(
         activation="next_session_open",
         commission_rate=commission_rate,
         slippage_rate=slippage_rate,
         max_participation_rate=max_participation_rate,
+        fallback_candidates=fallback_candidates,
     )
 '''
 

@@ -55,7 +55,7 @@ def test_local_agent_calls_python_tools_persists_report_and_recovers(tmp_path, m
             step = len(requests)
             if step == 1:
                 name, args = "use", {
-                    "node_id": "alphalab-get-workspace-context", "capability": "tool.invoke", "input": {},
+                    "node_id": "alphalab-project-run", "capability": "tool.invoke", "input": {"command": "workspace.context"},
                 }
             elif step == 2:
                 name, args = "create", {"nodes": [{
@@ -129,6 +129,11 @@ def test_local_agent_calls_python_tools_persists_report_and_recovers(tmp_path, m
         results = [message["content"] for message in requests[-1]["messages"] if message["role"] == "tool"]
         assert any("sdk-v1-default" in result for result in results), results
         assert not any('"success":false' in result for result in results), results
+        prompt = "\n".join(message["content"] for message in requests[0]["messages"] if message["role"] == "system")
+        assert "{{ALPHALAB_SDK_SKILL}}" not in prompt
+        assert "{{ALPHALAB_WORKSPACE_COMMAND_SCHEMA}}" not in prompt
+        assert "factor.research" in prompt
+        assert "backtest.validation" in prompt
     finally:
         model.shutdown()
         model.server_close()

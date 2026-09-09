@@ -32,6 +32,7 @@ def execute_validation(
     factor_returns: pd.DataFrame,
     executions: list[dict] | tuple[dict, ...],
     settings: Mapping[str, Any],
+    diagnostics: Mapping[str, Any] | None = None,
     run_diagnostics: Mapping[str, Any] | None = None,
     timeout_seconds: int = DEFAULT_VALIDATION_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
@@ -41,6 +42,8 @@ def execute_validation(
     OS security sandbox; the UI must continue to require local-Python consent.
     """
 
+    if diagnostics is not None and run_diagnostics is not None:
+        raise ValueError("Supply diagnostics or the legacy run_diagnostics, not both")
     inspection = inspect_validation_source(source)
     payload = {
         "source": source,
@@ -50,7 +53,7 @@ def execute_validation(
         "factor_returns": pd.DataFrame(factor_returns).copy(),
         "executions": list(executions),
         "settings": dict(settings),
-        "run_diagnostics": dict(run_diagnostics or {}),
+        "diagnostics": dict(diagnostics if diagnostics is not None else run_diagnostics or {}),
         "entrypoints": [
             {"id": item.id, "function": item.function} for item in inspection.entrypoints
         ],
@@ -103,9 +106,31 @@ def execute_validation(
     _validate_attribution_output(outputs["alpha_beta"])
     if "risk" in outputs:
         _validate_risk_output(outputs["risk"])
+    if "research_evidence" in outputs:
+        _validate_research_evidence_output(outputs["research_evidence"])
     if "research_quality" in outputs:
         _validate_research_quality_output(outputs["research_quality"])
     return outputs
+
+
+def _validate_research_quality_output(output: Any) -> None:
+    # Saved deployment projects may still own the earlier statistical assessment.
+    # Validate its original shape; only an explicit migration introduces a passed verdict.
+    if isinstance(output, dict) and "passed" not in output and "status" in output:
+        _validate_research_evidence_output(output)
+        return
+    if not isinstance(output, dict) or not isinstance(output.get("passed"), bool):
+        raise ValidationRuntimeError("research_quality.passed must be a boolean")
+    if len(json.dumps(output, ensure_ascii=False).encode("utf-8")) > 16_000:
+        raise ValidationRuntimeError("research_quality must be compact evidence under 16000 bytes")
+    for name in ("reasons", "warnings"):
+        values = output.get(name)
+        if not isinstance(values, list) or len(values) > 50 or not all(
+            isinstance(value, str) and 0 < len(value) <= 1000 for value in values
+        ):
+            raise ValidationRuntimeError(f"research_quality.{name} must be a bounded list of strings")
+    if output["passed"] == bool(output["reasons"]):
+        raise ValidationRuntimeError("research_quality.passed must agree with its failure reasons")
 
 
 def _validate_performance_output(output: dict[str, Any]) -> None:
@@ -172,7 +197,7 @@ def _validate_risk_output(output: Any) -> None:
             raise ValidationRuntimeError("risk CVaR must be at least its matching VaR")
 
 
-def _validate_research_quality_output(output: Any) -> None:
+def _validate_research_evidence_output(output: Any) -> None:
     if not isinstance(output, dict):
         raise ValidationRuntimeError("research_quality analysis must return a dictionary")
     if output.get("status") not in {"pass", "fail", "insufficient"}:

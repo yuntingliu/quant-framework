@@ -333,7 +333,7 @@ def run_strategy_backtest(
                 "revision": package["revision"],
                 "warnings": ["insufficient sessions"],
                 "execution_data_policy": execution_data_policy,
-                "research_valid": False,
+                "execution_reliable": False,
                 "execution_data_exclusions": {
                     "symbol_date_count": 0,
                     "unique_symbol_count": 0,
@@ -353,12 +353,10 @@ def run_strategy_backtest(
                 "execution_fidelity": {
                     "mean": None,
                     "minimum": None,
-                    "low_fidelity_period_count": 0,
-                    "persistent_tracking_error_periods": 0,
+                    "attempted_period_count": 0,
                     "maximum_target_weight_deviation": 0.0,
-                    "persistent_exit_failure_symbols": [],
                 },
-                "research_invalid_reasons": ["INSUFFICIENT_SESSIONS"],
+                "execution_invalid_reasons": ["INSUFFICIENT_SESSIONS"],
                 "signal_evidence": {"rows": [], "periods": 0, "evidence_periods": 0},
             },
         )
@@ -650,35 +648,16 @@ def run_strategy_backtest(
     execution_summary = _aggregate_execution_summary(executions)
     execution_state_source_counts = _aggregate_execution_state_sources(executions)
     execution_fidelity = _execution_fidelity_summary(executions)
-    research_invalid_reasons: list[str] = []
+    execution_invalid_reasons: list[str] = []
     if execution_data_policy != "strict":
-        research_invalid_reasons.append("ILLUSTRATIVE_EXECUTION_DATA")
+        execution_invalid_reasons.append("ILLUSTRATIVE_EXECUTION_DATA")
     if execution_summary["market_state_rejection_count"]:
-        research_invalid_reasons.append("MISSING_EXECUTION_STATE")
-    if execution_fidelity["persistent_exit_failure_symbols"]:
-        research_invalid_reasons.append("PERSISTENT_EXIT_FAILURE")
-    if (
-        (
-            execution_summary["attempted_trade_count"] > 0
-            and execution_summary["successful_trade_count"] == 0
-        )
-        or execution_fidelity["persistent_tracking_error_periods"] >= 2
-        or (
-            execution_fidelity["low_fidelity_period_count"] >= 2
-            and execution_fidelity["mean"] is not None
-            and execution_fidelity["mean"] < 0.8
-        )
+        execution_invalid_reasons.append("MISSING_EXECUTION_STATE")
+    if signal_evidence_rows and not any(
+        int(item.get("selected_count") or 0) > 0 for item in signal_evidence_rows
     ):
-        research_invalid_reasons.append("LOW_EXECUTION_FIDELITY")
-    if "PERSISTENT_EXIT_FAILURE" in research_invalid_reasons:
         warnings.add(
-            "PERSISTENT_EXIT_FAILURE: one or more positions repeatedly failed to reach "
-            "their requested lower or zero target"
-        )
-    if "LOW_EXECUTION_FIDELITY" in research_invalid_reasons:
-        warnings.add(
-            "LOW_EXECUTION_FIDELITY: the actual portfolio repeatedly remained materially "
-            "different from the requested target"
+            "NO_TRADABLE_CANDIDATES: no signal period produced a tradable target portfolio"
         )
     return StrategyBacktestResult(
         project=project,
@@ -705,8 +684,8 @@ def run_strategy_backtest(
             "final_state": state,
             "warnings": sorted(warnings),
             "execution_data_policy": execution_data_policy,
-            "research_valid": not research_invalid_reasons,
-            "research_invalid_reasons": research_invalid_reasons,
+            "execution_reliable": not execution_invalid_reasons,
+            "execution_invalid_reasons": execution_invalid_reasons,
             "execution_data_exclusions": {
                 "symbol_date_count": execution_exclusion_count,
                 "unique_symbol_count": len(execution_exclusion_symbols),
@@ -2117,34 +2096,16 @@ def _aggregate_execution_state_sources(
 
 
 def _execution_fidelity_summary(executions: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Describe realized execution; project validation owns all quality thresholds."""
+
     attempted = [item for item in executions if int(item.get("attempted_trade_count") or 0)]
     fidelities = [float(item.get("execution_fidelity", 1.0)) for item in attempted]
     deviations = [float(item.get("target_weight_deviation") or 0.0) for item in attempted]
-    low_fidelity_period_count = sum(value < 0.8 for value in fidelities)
-    tracking_streak = 0
-    maximum_tracking_streak = 0
-    exit_streaks: dict[str, int] = {}
-    maximum_exit_streaks: dict[str, int] = {}
-    for item in attempted:
-        deviation = float(item.get("target_weight_deviation") or 0.0)
-        tracking_streak = tracking_streak + 1 if deviation > 0.05 else 0
-        maximum_tracking_streak = max(maximum_tracking_streak, tracking_streak)
-        failed = {str(symbol).upper() for symbol in item.get("exit_failure_symbols") or ()}
-        for symbol in set(exit_streaks) | failed:
-            exit_streaks[symbol] = exit_streaks.get(symbol, 0) + 1 if symbol in failed else 0
-            maximum_exit_streaks[symbol] = max(
-                maximum_exit_streaks.get(symbol, 0), exit_streaks[symbol]
-            )
-    persistent_exit_symbols = sorted(
-        symbol for symbol, streak in maximum_exit_streaks.items() if streak >= 2
-    )
     return {
         "mean": float(np.mean(fidelities)) if fidelities else None,
         "minimum": min(fidelities) if fidelities else None,
-        "low_fidelity_period_count": low_fidelity_period_count,
-        "persistent_tracking_error_periods": maximum_tracking_streak,
+        "attempted_period_count": len(attempted),
         "maximum_target_weight_deviation": max(deviations, default=0.0),
-        "persistent_exit_failure_symbols": persistent_exit_symbols[:50],
     }
 
 

@@ -604,6 +604,77 @@ def test_recipe_sync_batches_replays_history_after_required_bar_schema_upgrade(t
     assert batches[0].start == "2025-01-01"
 
 
+def test_recipe_sync_batches_replays_requested_range_when_required_values_are_null(
+    tmp_path,
+) -> None:
+    context = DataRecipeContext(mode="run", root=str(tmp_path))
+    legacy = pd.DataFrame(
+        {
+            "date": pd.date_range("2024-12-30", "2025-01-10", freq="B"),
+            "symbol": "000001.SZ",
+            "open": 10.0,
+            "high": 10.5,
+            "low": 9.5,
+            "close": 10.2,
+            "raw_open": pd.NA,
+            "raw_high": pd.NA,
+            "raw_low": pd.NA,
+            "raw_close": 10.2,
+            "volume": 1000.0,
+            "amount": 10000.0,
+        }
+    )
+    context.publish("rq.bars", legacy)
+
+    batches = context.sync_batches(
+        "rq.bars",
+        ["000001.SZ"],
+        start="2025-01-01",
+        end="2025-01-20",
+        overlap_days=1,
+        chunk_days=366,
+        required_columns=("raw_open", "raw_high", "raw_low", "raw_close"),
+    )
+
+    assert len(batches) == 1
+    assert batches[0].start == "2025-01-01"
+
+
+def test_recipe_sync_batches_replays_a_missing_history_prefix(tmp_path) -> None:
+    context = DataRecipeContext(mode="run", root=str(tmp_path))
+    recent = pd.DataFrame(
+        {
+            "date": pd.date_range("2025-06-25", "2025-06-30", freq="B"),
+            "symbol": "000001.SZ",
+            "open": 10.0,
+            "high": 10.5,
+            "low": 9.5,
+            "close": 10.2,
+            "raw_open": 10.0,
+            "raw_high": 10.5,
+            "raw_low": 9.5,
+            "raw_close": 10.2,
+            "volume": 1000.0,
+            "amount": 10000.0,
+        }
+    )
+    context.publish("rq.bars", recent)
+
+    batches = context.sync_batches(
+        "rq.bars",
+        ["000001.SZ"],
+        start="2025-01-01",
+        end="2025-06-30",
+        overlap_days=7,
+        chunk_days=366,
+        available_from={"000001.SZ": "1991-04-03"},
+        required_columns=("raw_open", "raw_high", "raw_low", "raw_close"),
+    )
+
+    assert len(batches) == 1
+    assert batches[0].start == "2025-01-01"
+
+
 def test_adjusted_and_raw_bar_key_mismatch_is_rejected() -> None:
     adjusted = pd.DataFrame(
         {

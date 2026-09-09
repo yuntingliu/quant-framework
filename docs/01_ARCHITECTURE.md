@@ -160,9 +160,11 @@ single initial strategy revision, while the separately stored recipe draft uses
 compensating cleanup if its write fails. The default project therefore always
 contributes the research data recipe, visible stock-type filter, editable
 `@execution_data_fill`, and canonical validation source. After creation, every
-copied file remains normal project-owned source that the user may edit in its
-workbench. Agent tools continue to expose only factor-template and structured
-edits.
+copied file remains normal project-owned source that the user or Agent may edit
+through the canonical project-file facade. Agent writes accept only the four
+project path forms, run the same validation and probes as the workbenches, and
+record the same immutable packages; they never expose an arbitrary filesystem
+path.
 
 `ValidationRepository` applies the same user-facing save model to
 `validation_sources` and immutable `validation_source_packages`. A Run pins
@@ -173,6 +175,13 @@ concentration, and research-evidence quality. Its keyword-only literal defaults
 are CST-projected into the visual panel; custom Python stays intact. Existing
 user projects are not rewritten; they receive the new source only through an
 explicit migration that creates a new validation revision.
+
+Deployment keeps statistical `research_evidence` separate from the editable
+`research_quality` execution verdict. Both consume the same frozen diagnostics;
+legacy deployment source can still read `run_diagnostics`. Earlier statistical
+outputs named `research_quality` remain readable and executable, but lack the new
+`passed` verdict and are therefore unassessed for new execution-quality summaries
+until an explicit source migration. Frozen historical runs are never rewritten.
 
 ## Runtime and event engine
 
@@ -282,7 +291,8 @@ cross-sectional score vectors used to calculate that evidence.
 
 Agent-facing backtest submission returns only a task ID. Task polling keeps
 status and stable error fields first. Job reads and frozen summaries share the
-same top-level `warnings`, `research_valid`, research-invalid reasons,
+same top-level `warnings`, `execution_reliable`, execution-invalid reasons,
+`research_valid`, research-invalid reasons, and frozen `research_assessment`,
 execution fidelity, attempted/successful trade counts, synthetic-state counts,
 and missing-state, suspension, price-limit, capacity, and cash rejection
 counters. Filled execution-state values retain their `provider`,
@@ -293,11 +303,22 @@ are stored separately and are exposed to the Agent only through explicit
 bounded pages. A successful terminal transition atomically clears all earlier
 error metadata; failed transitions clear any stale result metadata.
 
-Harness outputs are committed once through Conexus's atomic output boundary.
+Execution reliability describes the engine's input checks; it does not judge
+strategy performance. The project-owned `@analysis(id="research_quality")`
+owns execution-quality thresholds. Default ordinary trading shortfalls produce
+warnings while strict tracking and exit requirements are opt-in parameters.
+Existing custom validation files without that analysis are explicitly unassessed
+on new runs. Historical stored assessments are never re-evaluated implicitly.
+
+Harness outputs are prepared by `workspace.outputs.prepare` using the single
+published Harness JSON schema. The server checks request/report relationships
+and derives display content before returning one atomic Conexus edit batch.
 The Agent may create or update report Documents, but it never partially mutates
 the Decision Notebook, Workspace Result, or Workspace Commands output nodes.
 An `open_result` command is accepted only when the same atomic output contains a
 complete current-request Document descriptor for that exact report node.
+The workspace delivery proxy validates the outputs again, blocks invalid
+navigation, and derives display text even if preparation was bypassed.
 
 Default advancement is explicit. Migrating an editable project replaces only
 default-owned universe and execution-data-fill functions and creates a new

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 
 import pandas as pd
 import pytest
@@ -187,6 +188,46 @@ def test_sync_manager_resumes_a_persisted_job_on_startup(monkeypatch, tmp_path) 
     assert recovered is not None
     assert recovered["status"] == "succeeded"
     assert recovered["progress"] == 5
+
+
+def test_two_sync_managers_execute_one_recovered_recipe_job_once(monkeypatch, tmp_path) -> None:
+    operations = OperationsStore(tmp_path)
+    job_id = operations.create_job(
+        {
+            "source": "rq",
+            "kind": "python_recipe",
+            "project_id": "shared-project",
+            "recipe_source": "recipe source",
+        }
+    )
+    started = threading.Event()
+    release = threading.Event()
+    executions: list[str] = []
+
+    def execute_once(source, **_kwargs):
+        executions.append(source)
+        started.set()
+        assert release.wait(timeout=2.0)
+        return {
+            "source_sha256": "recipe-sha",
+            "stdout": "",
+            "stderr": "",
+            "planned": [],
+            "published": [],
+            "outputs": [{"name": "done"}],
+            "sync_request": None,
+        }
+
+    monkeypatch.setattr("alphalab.dataio.sync.execute_data_recipe", execute_once)
+    first = SyncJobManager(tmp_path)
+    assert started.wait(timeout=2.0)
+    second = SyncJobManager(tmp_path)
+    release.set()
+    first.shutdown()
+    second.shutdown()
+
+    assert executions == ["recipe source"]
+    assert operations.get_job(job_id)["status"] == "succeeded"
 
 
 def test_first_disclosure_and_canonical_fundamentals_are_point_in_time() -> None:
@@ -912,6 +953,29 @@ def _coverage_bars() -> pd.DataFrame:
             "amount": [10000.0] * 4,
         }
     )
+
+
+def test_bar_quality_validation_only_checks_the_requested_date_range(tmp_path) -> None:
+    current = _coverage_bars()
+    legacy = current.iloc[[0]].copy()
+    legacy["date"] = pd.Timestamp("2024-01-02")
+    combined = pd.concat([legacy, current], ignore_index=True)
+    combined.loc[0, "raw_open"] = pd.NA
+    RuntimeStore(tmp_path).write("rq.bars", combined)
+
+    scoped = validate_dataset(
+        "rq.bars",
+        tmp_path,
+        start_date="2025-01-02",
+        as_of_date="2025-01-03",
+        fail_on_gap=True,
+    )
+    global_report = validate_dataset("rq.bars", tmp_path)
+
+    assert scoped["status"] == "passed"
+    assert scoped["metrics"]["invalid_prices"] == 0
+    assert global_report["status"] == "failed"
+    assert global_report["metrics"]["invalid_prices"] == 1
 
 
 def test_gap_validation_checks_each_daily_factor_date_range(tmp_path) -> None:
