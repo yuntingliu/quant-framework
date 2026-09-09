@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pandas as pd
 
@@ -10,6 +11,7 @@ from alphalab import ResultStore, create_default_engine, create_runtime_engine
 from alphalab.dataio import DataEngine, MissingDataError
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.schema import DatasetField, discover_parquet_fields
+from alphalab.dataio.symbols import canonical_a_share_symbol
 from alphalab.utils.paths import DATA_DIR, FUNDAMENTAL_DIR, MARKET_DIR
 
 _DATASET_METADATA_FIELDS = {
@@ -189,8 +191,8 @@ def market_bars(
     end: str | None = None,
     profile: str = "demo",
 ) -> list[dict]:
+    normalized = normalize_market_symbol(symbol, profile)
     engine = _engine(profile)
-    normalized = symbol.strip().upper()
     if normalized not in engine.get_symbols():
         raise KeyError(normalized)
     profile_start, profile_end = _profile_range(profile)
@@ -203,6 +205,18 @@ def market_bars(
     return frame.to_dict("records")
 
 
+def normalize_market_symbol(symbol: str, profile: str = "runtime") -> str:
+    """Accept framework and RQData codes at the dashboard input boundary."""
+    value = symbol.strip().upper()
+    if profile == "demo":
+        return value
+    if not re.fullmatch(r"[0-9]{6}(?:\.(?:SH|SZ|BJ|XSHG|XSHE|XBEI))?", value):
+        raise ValueError(
+            "证券代码格式不支持，请输入 000001.SZ 或 RQData 格式 000001.XSHE。"
+        )
+    return canonical_a_share_symbol(value)
+
+
 def fundamentals(
     symbols: list[str],
     fields: list[str] | None = None,
@@ -212,12 +226,12 @@ def fundamentals(
     profile: str = "demo",
     limit: int = 100,
 ) -> dict:
-    engine = _engine(profile)
     normalized_symbols = list(
-        dict.fromkeys(str(symbol).strip().upper() for symbol in symbols if str(symbol).strip())
+        dict.fromkeys(normalize_market_symbol(symbol, profile) for symbol in symbols)
     )
     if not normalized_symbols:
         raise ValueError("at least one symbol is required")
+    engine = _engine(profile)
     unknown_symbols = sorted(set(normalized_symbols) - set(engine.get_symbols()))
     if unknown_symbols:
         raise KeyError(f"Unknown symbols: {unknown_symbols}")

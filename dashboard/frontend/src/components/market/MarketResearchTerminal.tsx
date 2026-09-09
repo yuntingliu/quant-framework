@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 
 import type { MarketBar, MarketInstrument } from "@/lib/api"
+import { normalizeMarketSymbol } from "@/lib/marketSymbols"
 
 import {
   KLineTerminalChart,
@@ -92,7 +93,7 @@ export function MarketResearchTerminal({
     [instruments],
   )
   const filteredInstruments = useMemo(() => {
-    const normalized = search.trim().toLowerCase()
+    const normalized = normalizeMarketSymbol(search).toLowerCase()
     const source = universeView === "watchlist"
       ? watchlist.map((item) => instrumentBySymbol.get(item)).filter((item): item is MarketInstrument => Boolean(item))
       : instruments

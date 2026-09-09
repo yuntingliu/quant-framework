@@ -75,10 +75,10 @@ def operations_store() -> OperationsStore:
 
 
 def _project_recipe_bounds() -> dict[str, str]:
+    today = date.today()
     bars = DataCatalog().status("rq.bars")
     if bars["status"] == "ready" and bars["date_start"] and bars["date_end"]:
-        return {"start": bars["date_start"], "end": bars["date_end"]}
-    today = date.today()
+        return {"start": bars["date_start"], "end": today.isoformat()}
     try:
         fallback_start = today.replace(year=today.year - 5)
     except ValueError:
