@@ -28,8 +28,10 @@ from apps.api.routers import (
     system,
     validation,
 )
+from apps.api.services.agent_run_service import run_recovery_lifespan
 
 app = FastAPI(
+    lifespan=run_recovery_lifespan,
     title="AlphaLab Barebone API",
     description="Provider-first quant framework workstation API",
     version="0.5.0",

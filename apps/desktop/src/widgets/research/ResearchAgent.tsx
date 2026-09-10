@@ -544,15 +544,16 @@ export function ResearchAgentPanel() {
                 }
               }}
             />
-            {agent.responseActive && !agent.run?.pendingInteraction ? (
+            {agent.responseActive ? (
               <button type="button" className="rounded border border-border px-3 text-muted-foreground hover:text-foreground" onClick={() => void agent.cancel()} title={copy.stop}>
                 <Square className="h-4 w-4" />
               </button>
-            ) : (
-              <button type="submit" className="rounded bg-primary px-3 text-primary-foreground disabled:opacity-50" disabled={!draft.trim()} title={copy.send}>
+            ) : null}
+            {!agent.responseActive || agent.run?.pendingInteraction ? (
+              <button type="submit" className="rounded bg-primary px-3 text-primary-foreground disabled:opacity-50" disabled={!draft.trim() || agent.loading} title={copy.send}>
                 <Send className="h-4 w-4" />
               </button>
-            )}
+            ) : null}
           </form>
         </div>
       </div>

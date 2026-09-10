@@ -2,6 +2,7 @@ import { getApiBase } from "@/lib/api"
 
 import type {
   AgentConversation,
+  AgentSessionSnapshot,
   ConexusStatus,
   HostedHarnessExposure,
   HostedHarnessManifest,
@@ -96,7 +97,8 @@ export function buildRunInput(
 export async function createRun(params: {
   exposureId: string
   input: Record<string, unknown>
-}): Promise<{ run: PublishedHarnessRun; accessToken: string }> {
+  conversation: { id: string; title: string; createdAt: string; messageId: string; message: string }
+}): Promise<{ run: PublishedHarnessRun; conversation: AgentConversation }> {
   return json("/runs", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
@@ -112,6 +114,10 @@ export async function readSharedAgentConversations(
     signal,
   })
   return payload.conversations
+}
+
+export function readAgentSession(signal?: AbortSignal): Promise<AgentSessionSnapshot> {
+  return json("/conversations", { headers: { Accept: "application/json" }, cache: "no-store", signal })
 }
 
 export async function upsertSharedAgentConversation(
@@ -138,21 +144,20 @@ export async function readWorkspace(signal?: AbortSignal): Promise<PublishedHarn
 
 export async function readRun(
   runId: string,
-  accessToken: string,
   signal?: AbortSignal,
 ): Promise<PublishedHarnessRun> {
   const payload = await json<{ run: PublishedHarnessRun }>(`/runs/${encodeURIComponent(runId)}`, {
-    headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
+    headers: { Accept: "application/json" },
     cache: "no-store",
     signal,
   })
   return payload.run
 }
 
-export async function cancelRun(runId: string, accessToken: string): Promise<PublishedHarnessRun> {
+export async function cancelRun(runId: string): Promise<PublishedHarnessRun> {
   const payload = await json<{ run: PublishedHarnessRun }>(`/runs/${encodeURIComponent(runId)}/cancel`, {
     method: "POST",
-    headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
+    headers: { Accept: "application/json" },
   })
   return payload.run
 }
@@ -161,7 +166,6 @@ export async function answerRunInteraction(
   runId: string,
   interactionId: string,
   answer: string,
-  accessToken: string,
 ): Promise<PublishedHarnessRun> {
   const payload = await json<{ run: PublishedHarnessRun }>(
     `/runs/${encodeURIComponent(runId)}/interactions/${encodeURIComponent(interactionId)}/answer`,
@@ -169,7 +173,6 @@ export async function answerRunInteraction(
       method: "POST",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ answer }),
@@ -180,12 +183,11 @@ export async function answerRunInteraction(
 
 export async function streamRunEvents(params: {
   runId: string
-  accessToken: string
   signal: AbortSignal
   onEvent: (event: PublishedHarnessRunEvent) => void | Promise<void>
 }): Promise<void> {
   const response = await fetch(`${baseUrl()}/runs/${encodeURIComponent(params.runId)}/events`, {
-    headers: { Accept: "text/event-stream", Authorization: `Bearer ${params.accessToken}` },
+    headers: { Accept: "text/event-stream" },
     cache: "no-store",
     signal: params.signal,
   })

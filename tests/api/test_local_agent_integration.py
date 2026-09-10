@@ -105,12 +105,17 @@ def test_local_agent_calls_python_tools_persists_report_and_recovers(tmp_path, m
                             if attempt == 0:
                                 created = client.post("/api/conexus/runs", json={
                                     "exposureId": "alphalab-research-agent", "input": {"request": "Read local context and save an integration report."},
+                                    "conversation": {
+                                        "id": "local-integration", "title": "Local integration",
+                                        "createdAt": "2026-09-10T00:00:00Z", "messageId": "local-integration-user",
+                                        "message": "Read local context and save an integration report.",
+                                    },
                                 })
                                 assert created.status_code < 300, created.text
                                 result = created.json()
-                                run_id, token = result["run"]["id"], result["accessToken"]
-                                with httpx.Client(base_url=f"http://127.0.0.1:{api_port}", trust_env=False, timeout=2,
-                                                  headers={"Authorization": f"Bearer {token}"}) as authorized:
+                                run_id = result["run"]["id"]
+                                assert "accessToken" not in result
+                                with httpx.Client(base_url=f"http://127.0.0.1:{api_port}", trust_env=False, timeout=5) as authorized:
                                     finished = wait_for(authorized, f"/api/conexus/runs/{run_id}",
                                                         lambda r: r.json().get("run", {}).get("status") in {"completed", "failed", "blocked"})
                                     assert finished.json()["run"]["status"] == "completed", finished.text
@@ -118,6 +123,14 @@ def test_local_agent_calls_python_tools_persists_report_and_recovers(tmp_path, m
                                     events = authorized.get(f"/api/conexus/runs/{run_id}/events")
                                     assert events.status_code == 200
                                     assert "Local Agent integration completed." in events.text
+                            # Recovery survives both Python restart and the local Host's new port.
+                            assert client.get(f"/api/conexus/runs/{run_id}").json()["run"]["status"] == "completed"
+                            session = client.get("/api/conexus/conversations").json()
+                            conversation = next(item for item in session["conversations"] if item["id"] == "local-integration")
+                            replies = [item for item in conversation["messages"] if item["role"] == "assistant"]
+                            assert len(replies) == 1
+                            assert replies[0]["content"] == "Local Agent integration completed."
+                            assert any(item["kind"] == "document" for item in replies[0]["artifacts"])
                             workspace = client.get("/api/conexus/workspace").json()["workspace"]
                             reports = [node for node in workspace["nodes"] if node.get("description") == "AlphaLab quantitative report"]
                             assert len(reports) == 1, workspace

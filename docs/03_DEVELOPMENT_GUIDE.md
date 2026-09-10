@@ -317,6 +317,14 @@ Do not implement a second arbitrary-Python runner for data acquisition.
 
 ## Frontend conventions
 
+Agent Run submission includes conversation metadata so the API can persist the
+user turn and recovery association before returning. Run credentials remain in
+the server store; browser Run reads, cancellation, interaction answers and SSE
+use that association. Preserve the API lifespan reconciler: it delivers terminal
+chat replies without an open browser and resumes pending delivery on restart.
+Terminal replies are idempotent by Run ID. The Agent hook restores shared Run
+snapshots on mount and never writes a second terminal reply from the browser.
+
 The workbench defaults to light mode. Theme-default version 4 switches existing
 profiles to light once; later manual theme changes remain persistent. Electron
 uses the shared React `DesktopTitleBar` with native window controls overlaid in

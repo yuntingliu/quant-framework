@@ -84,6 +84,16 @@ browser: a delayed `queued` or `running` snapshot cannot replace `completed`,
 `blocked`, `failed`, or `cancelled`. Terminal reconciliation also closes any
 still-running tool activity indicators whose final message was not delivered.
 
+Browser Run submission atomically records the user turn, conversation-to-Run
+association, and a server-only Run credential before returning. The API lifespan
+reconciles unfinished deliveries even with no browser connected and writes one
+deterministically identified terminal reply. Workspace artifacts can retry
+independently without delaying that reply. Reloading or remounting the Agent
+panel restores the shared Run snapshot and reconnects its stream and polling;
+cancel and interaction answers use the saved server-side credential. Local
+recovery identity is independent of the Host's randomly allocated port. The
+browser never persists Run credentials in local storage.
+
 ## Shared Python editor
 
 Every Python input is rendered by the shared Monaco-based `PythonEditor`.

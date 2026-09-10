@@ -8,14 +8,11 @@ import {
   readConexusStatus,
   readManifest,
   readRun,
-  readWorkspace,
-  readSharedAgentConversations,
+  readAgentSession,
   selectRunExposure,
   streamRunEvents,
-  upsertSharedAgentConversation,
 } from "@/lib/conexus/publishedHarnessClient"
 import {
-  changedWorkspaceNodesForRun,
   isTerminalRun,
   mergeRunSnapshot,
 } from "@/lib/conexus/runState"
@@ -28,9 +25,7 @@ import type {
   HostedHarnessManifest,
   PublishedHarnessArtifact,
   PublishedHarnessRun,
-  PublishedHarnessWorkspaceOutput,
 } from "@/lib/conexus/types"
-import { ALPHALAB_REPORT_DESCRIPTION } from "@/workspace/researchResults"
 
 interface Options {
   onCompleted?: () => void
@@ -47,8 +42,6 @@ const MAX_STORED_MESSAGE_CHARACTERS = 40_000
 const MAX_CONTEXT_MESSAGES = 16
 const MAX_CONTEXT_MESSAGE_CHARACTERS = 8_000
 const MAX_CONVERSATION_CONTEXT_CHARACTERS = 60_000
-const DECISION_NOTEBOOK_NODE_ID = "alphalab-decision-notebook-v1"
-const WORKSPACE_RESULT_NODE_ID = "alphalab-workspace-result-v1"
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -58,16 +51,6 @@ function record(value: unknown): Record<string, unknown> | null {
 
 function boundedText(value: unknown, limit: number): string | undefined {
   return typeof value === "string" ? value.slice(0, limit) : undefined
-}
-
-function customOutputData(
-  output: PublishedHarnessWorkspaceOutput,
-  expectedType: string,
-): Record<string, unknown> | null {
-  const outer = record(output.values.data)
-  if (!outer) return null
-  const nested = record(outer.data)
-  return outer.customType === expectedType && nested ? nested : outer
 }
 
 function boundedDecisionNotebook(value: unknown): Record<string, unknown> | undefined {
@@ -135,70 +118,6 @@ function researchCheckpoint(value: unknown): AgentResearchCheckpoint | undefined
     ...(decisionNotebook ? { decisionNotebook } : {}),
     ...(workspaceResult ? { workspaceResult } : {}),
   }
-}
-
-function checkpointFromRun(
-  run: PublishedHarnessRun,
-  changedNodes: PublishedHarnessWorkspaceOutput[],
-): AgentResearchCheckpoint | undefined {
-  let decisionNotebook: Record<string, unknown> | undefined
-  let workspaceResult: Record<string, unknown> | undefined
-  for (const output of changedNodes) {
-    if (output.id === DECISION_NOTEBOOK_NODE_ID) {
-      decisionNotebook = boundedDecisionNotebook(customOutputData(output, "alphalab_decision_notebook"))
-    } else if (output.id === WORKSPACE_RESULT_NODE_ID) {
-      workspaceResult = boundedWorkspaceResult(customOutputData(output, "alphalab_workspace_result"))
-    }
-  }
-  if (!decisionNotebook && !workspaceResult) return undefined
-  return {
-    version: 1,
-    runId: run.id,
-    updatedAt: run.completedAt ?? new Date().toISOString(),
-    ...(decisionNotebook ? { decisionNotebook } : {}),
-    ...(workspaceResult ? { workspaceResult } : {}),
-  }
-}
-
-function workspaceNodeArtifacts(
-  run: PublishedHarnessRun,
-  changedNodes: PublishedHarnessWorkspaceOutput[],
-): PublishedHarnessArtifact[] {
-  const createdAt = run.completedAt ?? new Date().toISOString()
-  return changedNodes.map((output) => {
-    const common = {
-      id: `${run.id}:${output.id}`,
-      runId: run.id,
-      title: output.label,
-      createdAt,
-      producerNodeId: output.id,
-    }
-    if (
-      (output.type === "note" || output.type === "document")
-      && output.description === ALPHALAB_REPORT_DESCRIPTION
-      && typeof output.values.content === "string"
-    ) {
-      return {
-        ...common,
-        kind: "document" as const,
-        outputKey: "reportDocument",
-        content: { markdown: output.values.content },
-      }
-    }
-    return {
-      ...common,
-      kind: "node" as const,
-      content: {
-        node: {
-          id: output.id,
-          type: output.type,
-          label: output.label,
-          ...(output.description ? { description: output.description } : {}),
-          values: output.values,
-        },
-      },
-    }
-  })
 }
 
 function message(error: unknown): string {
@@ -320,16 +239,6 @@ function conversationTitle(content: string): string {
   return normalized.length > 60 ? `${normalized.slice(0, 57)}...` : normalized || "New conversation"
 }
 
-function withConversation(
-  conversations: AgentConversation[],
-  conversation: AgentConversation,
-): AgentConversation[] {
-  return [
-    conversation,
-    ...conversations.filter((item) => item.id !== conversation.id),
-  ].slice(0, MAX_SHARED_CONVERSATIONS)
-}
-
 function mergeMessages(
   left: AgentConversationMessage[],
   right: AgentConversationMessage[],
@@ -385,10 +294,6 @@ function mergeConversationLists(
     .slice(0, MAX_SHARED_CONVERSATIONS)
 }
 
-function conversationFingerprint(conversation: AgentConversation): string {
-  return JSON.stringify(conversation)
-}
-
 function conversationContext(conversation: AgentConversation | null): Record<string, unknown> {
   const candidates = (conversation?.messages ?? [])
     .filter((item) => !item.error)
@@ -415,128 +320,72 @@ function conversationContext(conversation: AgentConversation | null): Record<str
   }
 }
 
-function terminalContent(run: PublishedHarnessRun): string {
-  if (run.summary?.trim()) return run.summary.trim()
-  if (run.error?.message) return run.error.message
-  if (run.status === "cancelled") return "The response was cancelled."
-  if (run.status === "blocked") return "The Agent could not complete this request."
-  return "The Agent completed without a text response."
-}
-
 export function usePublishedAgent({ onCompleted }: Options = {}) {
   const [status, setStatus] = useState<ConexusStatus | null>(null)
   const [manifest, setManifest] = useState<HostedHarnessManifest | null>(null)
-  const [history, setHistory] = useState<ConversationHistoryState>({
-    conversations: [],
-    selectedId: null,
-  })
+  const [history, setHistory] = useState<ConversationHistoryState>({ conversations: [], selectedId: null })
   const [run, setRun] = useState<PublishedHarnessRun | null>(null)
+  const [runConversationId, setRunConversationId] = useState<string | null>(null)
   const [toolActivities, setToolActivities] = useState<AgentToolActivity[]>([])
   const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState("")
-  const runAccessTokenRef = useRef("")
-  const streamRef = useRef<AbortController | null>(null)
+  const runRef = useRef<PublishedHarnessRun | null>(null)
+  const submittingRef = useRef(false)
+  const historyReadyRef = useRef(false)
+  const epochRef = useRef(0)
   const finalizedRunIdsRef = useRef(new Set<string>())
-  const sharedHistoryReadyRef = useRef(false)
-  const sharedFingerprintsRef = useRef(new Map<string, string>())
+  const onCompletedRef = useRef(onCompleted)
+  useEffect(() => { onCompletedRef.current = onCompleted }, [onCompleted])
 
   const conversation = history.conversations.find((item) => item.id === history.selectedId) ?? null
-
-  const acceptError = useCallback((reason: unknown) => {
-    setError(message(reason))
-  }, [])
-
-  const resolveChangedWorkspaceNodes = useCallback(async (
-    completed: PublishedHarnessRun,
-    signal?: AbortSignal,
-  ): Promise<PublishedHarnessWorkspaceOutput[]> => {
-    const changed = [
-      ...(completed.nodeChanges?.created ?? []),
-      ...(completed.nodeChanges?.updated ?? []),
-    ]
-    if (changed.length === 0) return []
-    const workspace = await readWorkspace(signal)
-    if (workspace.outputValidation?.status === "failed") {
-      setError(workspace.outputValidation.error_summary ?? "Workspace output validation failed.")
-    }
-    return changedWorkspaceNodesForRun(completed, workspace)
+  const acceptError = useCallback((reason: unknown) => setError(message(reason)), [])
+  const adoptRun = useCallback((next: PublishedHarnessRun, conversationId: string) => {
+    const current = runRef.current
+    const merged = current?.id === next.id ? mergeRunSnapshot(current, next) : next
+    runRef.current = merged
+    setRun(merged)
+    setRunConversationId(conversationId)
   }, [])
 
   const refreshSharedHistory = useCallback(async (
-    signal?: AbortSignal,
-    selectNewest = false,
+    signal?: AbortSignal, selectNewest = false, restoreRun = true,
   ) => {
-    const shared = (await readSharedAgentConversations(signal))
-      .map(storedConversation)
+    const epoch = epochRef.current
+    const session = await readAgentSession(signal)
+    if (signal?.aborted || epoch !== epochRef.current) return
+    const shared = session.conversations.map(storedConversation)
       .filter((item): item is AgentConversation => item !== null)
-    for (const item of shared) {
-      sharedFingerprintsRef.current.set(item.id, conversationFingerprint(item))
-    }
-    sharedHistoryReadyRef.current = true
+    historyReadyRef.current = true
+    const active = session.runs.find((item) => !isTerminalRun(item.run))
+    const recovered = restoreRun && !submittingRef.current
+      ? active ?? (selectNewest ? session.runs.find((item) => item.conversationId === shared[0]?.id) : undefined)
+      : undefined
+    if (recovered) adoptRun(recovered.run, recovered.conversationId)
     setHistory((current) => {
-      const conversations = mergeConversationLists(shared, current.conversations)
-      const selectedId = current.selectedId && conversations.some((item) => item.id === current.selectedId)
-        ? current.selectedId
-        : selectNewest ? conversations[0]?.id ?? null : null
+      const conversations = mergeConversationLists(current.conversations, shared)
+      const selectedId = recovered?.conversationId
+        ?? (current.selectedId && conversations.some((item) => item.id === current.selectedId)
+          ? current.selectedId : selectNewest ? conversations[0]?.id ?? null : null)
       return { conversations, selectedId }
     })
-  }, [])
-
-  useEffect(() => {
-    if (!sharedHistoryReadyRef.current) return
-    for (const item of history.conversations) {
-      const fingerprint = conversationFingerprint(item)
-      if (sharedFingerprintsRef.current.get(item.id) === fingerprint) continue
-      sharedFingerprintsRef.current.set(item.id, fingerprint)
-      void upsertSharedAgentConversation(item).then((savedValue) => {
-        const saved = storedConversation(savedValue)
-        if (!saved) throw new Error("Shared Agent history returned an invalid conversation.")
-        sharedFingerprintsRef.current.set(saved.id, conversationFingerprint(saved))
-        setHistory((current) => ({
-          conversations: mergeConversationLists(current.conversations, [saved]),
-          selectedId: current.selectedId,
-        }))
-      }).catch((reason) => {
-        if (sharedFingerprintsRef.current.get(item.id) === fingerprint) {
-          sharedFingerprintsRef.current.delete(item.id)
-        }
-        acceptError(reason)
-      })
-    }
-  }, [acceptError, history.conversations])
-
-  useEffect(() => {
-    const controller = new AbortController()
-    const initialize = async () => {
-      try {
-        await refreshSharedHistory(controller.signal, true)
-      } catch (reason) {
-        if (!controller.signal.aborted) acceptError(reason)
-      }
-    }
-    void initialize()
-    const timer = globalThis.setInterval(() => {
-      void refreshSharedHistory(controller.signal).catch((reason) => {
-        if (!controller.signal.aborted && !sharedHistoryReadyRef.current) acceptError(reason)
-      })
-    }, 10_000)
-    return () => {
-      controller.abort()
-      globalThis.clearInterval(timer)
-    }
-  }, [acceptError, refreshSharedHistory])
+  }, [adoptRun])
 
   const reloadStatus = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     setError("")
     try {
-      const nextStatus = await readConexusStatus(signal)
+      const [nextStatus] = await Promise.all([
+        readConexusStatus(signal), refreshSharedHistory(signal, true),
+      ])
+      if (signal?.aborted) return
       setStatus(nextStatus)
       if (!nextStatus.available) {
         setManifest(null)
         return
       }
       const nextManifest = await readManifest(signal)
+      if (signal?.aborted) return
       if (nextStatus.mode === "published_harness" && (nextManifest.identityPolicy !== "enterprise" || nextManifest.billingPolicy !== "publisher")) {
         throw new Error("Hosted AlphaLab Agent must use enterprise service identity with publisher billing.")
       }
@@ -547,285 +396,184 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
-  }, [acceptError])
+  }, [acceptError, refreshSharedHistory])
 
   useEffect(() => {
     const controller = new AbortController()
     void reloadStatus(controller.signal)
-    return () => controller.abort()
-  }, [reloadStatus])
-
-  useEffect(() => () => streamRef.current?.abort(), [])
-
-  const finalizeRun = useCallback((
-    completed: PublishedHarnessRun,
-    conversationId: string,
-    changedNodes: PublishedHarnessWorkspaceOutput[],
-  ) => {
-    if (!isTerminalRun(completed)) return
-    if (finalizedRunIdsRef.current.has(completed.id)) return
-    finalizedRunIdsRef.current.add(completed.id)
-    streamRef.current?.abort()
-    streamRef.current = null
-    const createdAt = completed.completedAt ?? new Date().toISOString()
-    const artifacts = workspaceNodeArtifacts(completed, changedNodes)
-    const checkpoint = checkpointFromRun(completed, changedNodes)
-    const assistantMessage: AgentConversationMessage = {
-      id: id(),
-      role: "assistant",
-      content: terminalContent(completed),
-      createdAt,
-      runId: completed.id,
-      ...(artifacts.length ? { artifacts } : {}),
-      ...(["failed", "cancelled"].includes(completed.status) ? { error: true } : {}),
+    const timer = globalThis.setInterval(() => {
+      void refreshSharedHistory(controller.signal).catch((reason) => {
+        if (!controller.signal.aborted) acceptError(reason)
+      })
+    }, 10_000)
+    return () => {
+      controller.abort()
+      globalThis.clearInterval(timer)
     }
-    setHistory((current) => {
-      const selected = current.conversations.find((item) => item.id === conversationId)
-      if (!selected) return current
-      const updated = {
-        ...selected,
-        updatedAt: createdAt,
-        messages: [...selected.messages, assistantMessage].slice(-MAX_MESSAGES),
-        ...(checkpoint ? { researchCheckpoint: checkpoint } : {}),
-      }
-      return { conversations: withConversation(current.conversations, updated), selectedId: conversationId }
-    })
+  }, [acceptError, refreshSharedHistory, reloadStatus])
+
+  const finalizeRun = useCallback(async (
+    completed: PublishedHarnessRun, conversationId: string, signal?: AbortSignal,
+  ) => {
+    if (!isTerminalRun(completed) || finalizedRunIdsRef.current.has(completed.id)) return
+    // The Run read/cancel API commits its terminal reply before returning. Only read
+    // shared history here; browser unmounts and competing tabs cannot lose or duplicate it.
+    await refreshSharedHistory(signal, false, false)
+    if (signal?.aborted || runRef.current?.id !== completed.id) return
+    finalizedRunIdsRef.current.add(completed.id)
+    adoptRun(completed, conversationId)
     setToolActivities((current) => current.map((activity): AgentToolActivity => activity.state === "running"
-      ? {
-          ...activity,
-          state: "completed",
-          ...(completed.status === "completed" ? {} : { success: false }),
-        }
+      ? { ...activity, state: "completed", ...(completed.status === "completed" ? {} : { success: false }) }
       : activity))
-    setRun(completed)
     setError("")
-    runAccessTokenRef.current = ""
-    onCompleted?.()
-  }, [onCompleted])
+    onCompletedRef.current?.()
+  }, [adoptRun, refreshSharedHistory])
 
   useEffect(() => {
     const runId = run?.id
-    const conversationId = conversation?.id
-    const accessToken = runAccessTokenRef.current
-    if (
-      !runId
-      || !conversationId
-      || !accessToken
-      || finalizedRunIdsRef.current.has(runId)
-    ) return
-
+    const conversationId = runConversationId
+    if (!runId || !conversationId || finalizedRunIdsRef.current.has(runId)) return
     const controller = new AbortController()
     let timer: ReturnType<typeof globalThis.setTimeout> | undefined
+    let reconciling = false
     const reconcile = async () => {
-      if (controller.signal.aborted || finalizedRunIdsRef.current.has(runId)) return
+      if (controller.signal.aborted || reconciling) return
+      reconciling = true
+      if (timer !== undefined) globalThis.clearTimeout(timer)
       try {
-        const latest = await readRun(runId, accessToken, controller.signal)
-        const changedNodes = isTerminalRun(latest)
-          ? await resolveChangedWorkspaceNodes(latest, controller.signal)
-          : []
-        setRun((current) => current?.id === runId
-          ? mergeRunSnapshot(current, latest)
-          : current)
+        const latest = await readRun(runId, controller.signal)
+        if (controller.signal.aborted || runRef.current?.id !== runId) return
+        adoptRun(latest, conversationId)
         if (isTerminalRun(latest)) {
-          finalizeRun(latest, conversationId, changedNodes)
+          await finalizeRun(latest, conversationId, controller.signal)
           controller.abort()
           return
         }
-      } catch {
-        if (controller.signal.aborted) return
+      } catch (reason) {
+        if (!controller.signal.aborted) acceptError(reason)
+      } finally {
+        reconciling = false
+        if (!controller.signal.aborted) timer = globalThis.setTimeout(() => { void reconcile() }, 2_000)
       }
-      timer = globalThis.setTimeout(() => {
-        void reconcile()
-      }, 2_000)
     }
-    timer = globalThis.setTimeout(() => {
-      void reconcile()
-    }, 2_000)
+    void reconcile()
+    // Subscribe on mount/recovery as well as new submission, so tool activity and
+    // pending questions survive a refresh or an unmounted Agent rail.
+    void streamRunEvents({
+      runId,
+      signal: controller.signal,
+      onEvent: (event) => {
+        if (controller.signal.aborted || runRef.current?.id !== runId || event.runId !== runId) return
+        if (event.type === "run.message" && event.message?.role === "assistant") {
+          const activities = (event.message.tool_calls ?? []).map((call): AgentToolActivity => ({
+            callId: call.id, name: call.function.name, ownerNodeId: event.ownerNodeId ?? "",
+            state: "running", at: event.at,
+          }))
+          if (activities.length) setToolActivities((current) => upsertToolActivities(current, activities))
+        } else if (event.type === "run.message" && event.message?.role === "tool" && event.message.tool_call_id && event.message.name) {
+          const activity: AgentToolActivity = {
+            callId: event.message.tool_call_id, name: event.message.name, ownerNodeId: event.ownerNodeId ?? "",
+            state: "completed", at: event.at, ...toolResult(event.message.content),
+          }
+          setToolActivities((current) => upsertToolActivities(current, [activity]))
+        }
+        // Historical SSE events can replay after a snapshot with a pending question.
+        // Reconcile interactions from the authoritative snapshot instead of clearing
+        // newer questions in response to an older event.
+        if (isTerminalRun(event) || event.type.startsWith("run.interaction_")) void reconcile()
+      },
+    }).catch((reason) => { if (!controller.signal.aborted) acceptError(reason) })
     return () => {
       controller.abort()
       if (timer !== undefined) globalThis.clearTimeout(timer)
     }
-  }, [conversation?.id, finalizeRun, resolveChangedWorkspaceNodes, run?.id])
+  }, [acceptError, adoptRun, finalizeRun, run?.id, runConversationId])
 
   const selectConversation = useCallback((conversationId: string) => {
-    streamRef.current?.abort()
-    streamRef.current = null
+    if (submittingRef.current || (runRef.current && !isTerminalRun(runRef.current))) return
+    epochRef.current += 1
     setHistory((current) => current.conversations.some((item) => item.id === conversationId)
-      ? { ...current, selectedId: conversationId }
-      : current)
+      ? { ...current, selectedId: conversationId } : current)
+    runRef.current = null
     setRun(null)
+    setRunConversationId(null)
     setToolActivities([])
     setError("")
-    runAccessTokenRef.current = ""
   }, [])
 
   const newConversation = useCallback(() => {
-    streamRef.current?.abort()
-    streamRef.current = null
+    if (submittingRef.current || (runRef.current && !isTerminalRun(runRef.current))) return
+    epochRef.current += 1
     setHistory((current) => ({ ...current, selectedId: null }))
+    runRef.current = null
     setRun(null)
+    setRunConversationId(null)
     setToolActivities([])
     setError("")
-    runAccessTokenRef.current = ""
   }, [])
 
   const runActive = run?.status === "queued" || run?.status === "running"
-  const responseActive = runActive
-
+  const responseActive = runActive || submitting
   const send = useCallback(async (rawMessage: string, context: Record<string, unknown>) => {
     const userMessage = rawMessage.trim()
-    if (!userMessage || !status?.available || !manifest) return false
+    if (!userMessage || !status?.available || !manifest || !historyReadyRef.current || submittingRef.current) return false
     setError("")
-
-    if (run?.pendingInteraction && runAccessTokenRef.current) {
+    const current = runRef.current
+    if (current?.pendingInteraction && !isTerminalRun(current)) {
       try {
-        const answered = await answerRunInteraction(
-          run.id,
-          run.pendingInteraction.id,
-          userMessage,
-          runAccessTokenRef.current,
-        )
-        setRun((current) => current ? mergeRunSnapshot(current, answered) : answered)
+        const answered = await answerRunInteraction(current.id, current.pendingInteraction.id, userMessage)
+        adoptRun(answered, runConversationId!)
         return true
       } catch (reason) {
         acceptError(reason)
         return false
       }
     }
-    if (responseActive) return false
-
-    streamRef.current?.abort()
+    if (current && !isTerminalRun(current)) return false
+    submittingRef.current = true
+    setSubmitting(true)
+    epochRef.current += 1
     setToolActivities([])
     try {
-      const exposure = selectRunExposure(manifest)
       const result = await createRun({
-        exposureId: exposure.id,
-        input: buildRunInput(userMessage, {
-          ...context,
-          conversationHistory: conversationContext(conversation),
-        }),
-      })
-      const now = new Date().toISOString()
-      const conversationId = conversation?.id ?? id()
-      const userEntry: AgentConversationMessage = {
-        id: id(),
-        role: "user",
-        content: userMessage,
-        createdAt: now,
-        runId: result.run.id,
-      }
-      setHistory((current) => {
-        const existing = current.conversations.find((item) => item.id === conversationId)
-        const updated: AgentConversation = existing
-          ? {
-              ...existing,
-              updatedAt: now,
-              messages: [...existing.messages, userEntry].slice(-MAX_MESSAGES),
-            }
-          : {
-              id: conversationId,
-              title: conversationTitle(userMessage),
-              createdAt: now,
-              updatedAt: now,
-              messages: [userEntry],
-            }
-        return { conversations: withConversation(current.conversations, updated), selectedId: conversationId }
-      })
-      runAccessTokenRef.current = result.accessToken
-      setRun(result.run)
-
-      const controller = new AbortController()
-      streamRef.current = controller
-      void streamRunEvents({
-        runId: result.run.id,
-        accessToken: result.accessToken,
-        signal: controller.signal,
-        onEvent: async (event) => {
-          if (event.type === "run.message" && event.message?.role === "assistant") {
-            const activities = (event.message.tool_calls ?? []).map((call): AgentToolActivity => ({
-              callId: call.id,
-              name: call.function.name,
-              ownerNodeId: event.ownerNodeId ?? "",
-              state: "running",
-              at: event.at,
-            }))
-            if (activities.length > 0) {
-              setToolActivities((current) => upsertToolActivities(current, activities))
-            }
-          } else if (
-            event.type === "run.message"
-            && event.message?.role === "tool"
-            && event.message.tool_call_id
-            && event.message.name
-          ) {
-            const result = toolResult(event.message.content)
-            const activity: AgentToolActivity = {
-              callId: event.message.tool_call_id,
-              name: event.message.name,
-              ownerNodeId: event.ownerNodeId ?? "",
-              state: "completed",
-              at: event.at,
-              ...result,
-            }
-            setToolActivities((current) => upsertToolActivities(current, [activity]))
-          }
-          setRun((current) => current ? {
-            ...current,
-            status: isTerminalRun(current) && !isTerminalRun(event)
-              ? current.status
-              : event.status,
-            ...(event.type === "run.interaction_requested" && event.interaction
-              ? { pendingInteraction: event.interaction }
-              : {}),
-            ...(event.type === "run.interaction_resolved" ? { pendingInteraction: undefined } : {}),
-          } : current)
-          if (!isTerminalRun(event)) return
-          const completed = await readRun(result.run.id, result.accessToken, controller.signal)
-          const changedNodes = isTerminalRun(completed)
-            ? await resolveChangedWorkspaceNodes(completed, controller.signal)
-            : []
-          setRun((current) => current?.id === completed.id
-            ? mergeRunSnapshot(current, completed)
-            : current)
-          if (!isTerminalRun(completed)) return
-          finalizeRun(completed, conversationId, changedNodes)
+        exposureId: selectRunExposure(manifest).id,
+        input: buildRunInput(userMessage, { ...context, conversationHistory: conversationContext(conversation) }),
+        conversation: {
+          id: conversation?.id ?? id(), title: conversation?.title ?? conversationTitle(userMessage),
+          createdAt: conversation?.createdAt ?? new Date().toISOString(), messageId: id(), message: userMessage,
         },
-      }).catch((reason) => {
-        if (!controller.signal.aborted) acceptError(reason)
       })
+      epochRef.current += 1
+      setHistory((previous) => ({
+        conversations: mergeConversationLists(previous.conversations, [result.conversation]),
+        selectedId: result.conversation.id,
+      }))
+      adoptRun(result.run, result.conversation.id)
       return true
     } catch (reason) {
       acceptError(reason)
       return false
+    } finally {
+      submittingRef.current = false
+      setSubmitting(false)
     }
-  }, [acceptError, conversation, finalizeRun, manifest, resolveChangedWorkspaceNodes, responseActive, run, status?.available])
+  }, [acceptError, adoptRun, conversation, manifest, runConversationId, status?.available])
 
   const cancel = useCallback(async () => {
-    if (!runActive || !run || !runAccessTokenRef.current || !conversation) return
+    const current = runRef.current
+    if (!current || isTerminalRun(current) || !runConversationId) return
     setError("")
     try {
-      const cancelled = await cancelRun(run.id, runAccessTokenRef.current)
-      streamRef.current?.abort()
-      finalizeRun(cancelled, conversation.id, [])
+      const cancelled = await cancelRun(current.id)
+      adoptRun(cancelled, runConversationId)
+      await finalizeRun(cancelled, runConversationId)
     } catch (reason) {
       acceptError(reason)
     }
-  }, [acceptError, conversation, finalizeRun, run, runActive])
+  }, [acceptError, adoptRun, finalizeRun, runConversationId])
 
   return useMemo(() => ({
-    status,
-    manifest,
-    conversations: history.conversations,
-    conversation,
-    run,
-    toolActivities,
-    loading,
-    error,
-    responseActive,
-    reloadStatus,
-    selectConversation,
-    newConversation,
-    send,
-    cancel,
+    status, manifest, conversations: history.conversations, conversation, run, toolActivities,
+    loading, error, responseActive, reloadStatus, selectConversation, newConversation, send, cancel,
   }), [cancel, conversation, error, history.conversations, loading, manifest, newConversation, reloadStatus, responseActive, run, selectConversation, send, status, toolActivities])
 }

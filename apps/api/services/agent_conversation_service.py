@@ -9,6 +9,7 @@ from typing import Any
 MAX_SHARED_CONVERSATIONS = 100
 MAX_MESSAGES_PER_CONVERSATION = 80
 MAX_CONVERSATION_BYTES = 4_000_000
+TERMINAL_RUN_STATES = frozenset({"completed", "blocked", "failed", "cancelled"})
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS agent_conversations (
@@ -19,6 +20,15 @@ CREATE TABLE IF NOT EXISTS agent_conversations (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_conversations_updated
 ON agent_conversations(updated_at DESC);
+CREATE TABLE IF NOT EXISTS agent_conversation_runs (
+    scope TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    access_token TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    delivered INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (scope, run_id)
+);
 """
 
 
@@ -140,43 +150,127 @@ class AgentConversationStore:
     def upsert(self, incoming: dict[str, Any]) -> dict[str, Any]:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT payload_json FROM agent_conversations WHERE id = ?",
-                (incoming["id"],),
-            ).fetchone()
-            stored: dict[str, Any] | None = None
-            if row is not None:
-                try:
-                    candidate = json.loads(row["payload_json"])
-                    stored = candidate if isinstance(candidate, dict) else None
-                except (json.JSONDecodeError, TypeError):
-                    stored = None
-            merged = merge_conversation(stored, incoming)
-            connection.execute(
-                """
-                INSERT INTO agent_conversations (id, payload_json, created_at, updated_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    payload_json = excluded.payload_json,
-                    created_at = excluded.created_at,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    merged["id"],
-                    _encoded(merged),
-                    merged["createdAt"],
-                    merged["updatedAt"],
-                ),
-            )
-            connection.execute(
-                """
-                DELETE FROM agent_conversations
-                WHERE id IN (
-                    SELECT id FROM agent_conversations
-                    ORDER BY updated_at DESC, id ASC
-                    LIMIT -1 OFFSET ?
-                )
-                """,
-                (MAX_SHARED_CONVERSATIONS,),
-            )
+            merged = self._upsert(connection, incoming)
         return merged
+
+    @staticmethod
+    def _upsert(connection: sqlite3.Connection, incoming: dict[str, Any]) -> dict[str, Any]:
+        row = connection.execute(
+            "SELECT payload_json FROM agent_conversations WHERE id = ?", (incoming["id"],),
+        ).fetchone()
+        try:
+            stored = json.loads(row["payload_json"]) if row else None
+            if not isinstance(stored, dict):
+                stored = None
+        except (json.JSONDecodeError, TypeError):
+            stored = None
+        merged = merge_conversation(stored, incoming)
+        connection.execute(
+            """INSERT INTO agent_conversations (id, payload_json, created_at, updated_at)
+               VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
+               payload_json = excluded.payload_json, created_at = excluded.created_at,
+               updated_at = excluded.updated_at""",
+            (merged["id"], _encoded(merged), merged["createdAt"], merged["updatedAt"]),
+        )
+        # Active conversations remain recoverable even when history reaches its cap.
+        connection.execute(
+            """DELETE FROM agent_conversations WHERE id NOT IN
+               (SELECT id FROM agent_conversations ORDER BY updated_at DESC, id ASC LIMIT ?)
+               AND id NOT IN (SELECT conversation_id FROM agent_conversation_runs WHERE delivered = 0)""",
+            (MAX_SHARED_CONVERSATIONS,),
+        )
+        return merged
+
+    def attach_run(
+        self, scope: str, run: dict[str, Any], access_token: str, conversation: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Commit the user turn and recovery credential before acknowledging submission."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            saved = self._upsert(connection, conversation)
+            connection.execute(
+                """INSERT INTO agent_conversation_runs
+                   (scope, run_id, conversation_id, access_token, snapshot_json)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (scope, run["id"], saved["id"], access_token, _encoded(run)),
+            )
+        return saved
+
+    def get_run(self, scope: str, run_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM agent_conversation_runs WHERE scope = ? AND run_id = ?",
+                (scope, run_id),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def pending_runs(self, scope: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM agent_conversation_runs WHERE scope = ? AND delivered = 0",
+                (scope,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def conversation_runs(self, scope: str) -> list[dict[str, Any]]:
+        """Return the latest snapshot per conversation, without any credentials."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT conversation_id, snapshot_json FROM agent_conversation_runs
+                   WHERE rowid IN (SELECT MAX(rowid) FROM agent_conversation_runs WHERE scope = ?
+                                   GROUP BY conversation_id)
+                   AND conversation_id IN (SELECT id FROM agent_conversations)
+                   ORDER BY rowid DESC LIMIT ?""", (scope, MAX_SHARED_CONVERSATIONS),
+            ).fetchall()
+        latest: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            latest.setdefault(row["conversation_id"], {
+                "conversationId": row["conversation_id"], "run": json.loads(row["snapshot_json"]),
+            })
+        return list(latest.values())
+
+    def record_run(
+        self, scope: str, run: dict[str, Any], *, artifacts: list[dict] | None = None,
+        checkpoint: dict | None = None, delivered: bool = False,
+    ) -> None:
+        """Monotonic snapshots and one deterministic terminal reply share a transaction."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM agent_conversation_runs WHERE scope = ? AND run_id = ?",
+                (scope, run["id"]),
+            ).fetchone()
+            if row is None:
+                return
+            previous = json.loads(row["snapshot_json"])
+            if previous["status"] in TERMINAL_RUN_STATES:
+                run = previous
+            terminal = run["status"] in TERMINAL_RUN_STATES
+            connection.execute(
+                """UPDATE agent_conversation_runs SET snapshot_json = ?, delivered = MAX(delivered, ?)
+                   WHERE scope = ? AND run_id = ?""",
+                (_encoded(run), int(terminal and delivered), scope, run["id"]),
+            )
+            if not terminal:
+                return
+            conversation = connection.execute(
+                "SELECT payload_json FROM agent_conversations WHERE id = ?", (row["conversation_id"],),
+            ).fetchone()
+            if conversation is None:
+                return
+            value = json.loads(conversation["payload_json"])
+            created_at = run.get("completedAt") or run["createdAt"]
+            content = str(run.get("summary") or (run.get("error") or {}).get("message") or {
+                "cancelled": "The response was cancelled.",
+                "blocked": "The Agent could not complete this request.",
+            }.get(run["status"], "The Agent completed without a text response."))[:40_000]
+            value["messages"] = [{
+                "id": f"assistant:{run['id']}", "role": "assistant", "content": content,
+                "createdAt": created_at, "runId": run["id"],
+                **({"error": True} if run["status"] in {"failed", "cancelled"} else {}),
+                **({"artifacts": artifacts} if artifacts else {}),
+            }]
+            value["updatedAt"] = max(value["updatedAt"], created_at)
+            if checkpoint:
+                value["researchCheckpoint"] = checkpoint
+            self._upsert(connection, value)

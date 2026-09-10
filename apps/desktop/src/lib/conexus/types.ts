@@ -74,6 +74,11 @@ export interface AgentResearchCheckpoint {
   workspaceResult?: Record<string, unknown>
 }
 
+export interface AgentSessionSnapshot {
+  conversations: AgentConversation[]
+  runs: Array<{ conversationId: string; run: PublishedHarnessRun }>
+}
+
 export type PublishedHarnessRunStatus =
   | "queued"
   | "running"
