@@ -8,6 +8,7 @@ from alphalab.strategy.engine import (
     preview_strategy,
     run_strategy_backtest,
 )
+from alphalab.strategy.factor_templates import get_factor_template, list_factor_templates
 from alphalab.strategy.repository import StrategyRepository
 from alphalab.strategy.sdk_runtime import SdkExecutionSession, SdkRuntimeError
 from alphalab.strategy.source import StrategySourceError, inspect_strategy_source
@@ -22,6 +23,8 @@ __all__ = [
     "evaluate_factor_research",
     "evaluate_factor_snapshot",
     "inspect_strategy_source",
+    "get_factor_template",
+    "list_factor_templates",
     "preview_strategy",
     "run_strategy_backtest",
 ]

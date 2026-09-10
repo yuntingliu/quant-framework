@@ -1,0 +1,6 @@
+interface:
+  display_name: "AlphaLab 技术证据复盘"
+  short_description: "核验股票技术指标、K 线形态与大盘主题背景，生成有数据依据的条件情景"
+  default_prompt: "使用 $alphalab-technical-evidence-review 核验指定日期的技术分析，并给出可测试的选股条件。"
+policy:
+  allow_implicit_invocation: true

@@ -741,7 +741,10 @@ def test_factor_template_catalog_and_install_use_the_strategy_draft(tmp_path, mo
     catalog = client.get("/api/strategy/factor-templates")
     assert catalog.status_code == 200, catalog.text
     templates = catalog.json()["templates"]
-    assert len(templates) == 19
+    assert len(templates) == 22
+    assert {"lower_shadow_recovery", "three_white_soldiers", "volume_confirmed_breakout"}.issubset(
+        {item["id"] for item in templates}
+    )
     assert {item["id"] for item in templates} >= {
         "liquidity_20d",
         "custom_factor",

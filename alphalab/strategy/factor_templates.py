@@ -83,6 +83,78 @@ def _fundamental(
 
 FACTOR_TEMPLATES = (
     _technical(
+        "lower_shadow_recovery",
+        "下影线收回",
+        "下影线占振幅至少 40%，收盘位于振幅上部 35%；形态条件，不代表资金流入。",
+        ("open", "high", "low", "close"),
+        """
+@factor(id="lower_shadow_recovery", label="下影线收回")
+def lower_shadow_recovery(context, *, shadow_min: float = 0.4, close_min: float = 0.65):
+    '''返回 0/1 形态横截面；缺失或零振幅保留 NaN，不宣称预测胜率。'''
+    import pandas as pd
+    # context.history 仅包含当前评估时点可见的日线。
+    close = context.history("close", window=1)
+    if close.empty:
+        return close.mean(axis=0) * float("nan")
+    bars = pd.concat({name: context.history(name, window=1).reindex_like(close).iloc[-1]
+                      for name in ("open", "high", "low", "close")}, axis=1)
+    span = bars.high - bars.low
+    valid = bars.notna().all(axis=1) & span.gt(0) & bars.min(axis=1).gt(0)
+    valid &= bars.high.ge(bars[["open", "close"]].max(axis=1)) & bars.low.le(bars[["open", "close"]].min(axis=1))
+    shadow = (bars[["open", "close"]].min(axis=1) - bars.low) / span
+    location = (bars.close - bars.low) / span
+    return ((shadow >= shadow_min) & (location >= close_min)).astype(float).where(valid)
+""",
+    ),
+    _technical(
+        "three_white_soldiers",
+        "三连阳实体形态",
+        "三日阳线收盘递升、开盘落在前日实体内且上影较短；三白兵的显式代理定义。",
+        ("open", "high", "low", "close"),
+        """
+@factor(id="three_white_soldiers", label="三连阳实体形态")
+def three_white_soldiers(context, *, body_min: float = 0.5, upper_max: float = 0.25):
+    '''三白兵代理条件返回 0/1；三日历史缺失时返回 NaN。'''
+    close = context.history("close", window=3)
+    if len(close) < 3:
+        return close.mean(axis=0) * float("nan")
+    opening = context.history("open", window=3).reindex_like(close)
+    high = context.history("high", window=3).reindex_like(close)
+    low = context.history("low", window=3).reindex_like(close)
+    span = high - low
+    # 不用 fillna 将未知行情变成不满足形态；缺失证券保持未知。
+    valid = close.notna().all() & opening.notna().all() & high.notna().all() & low.notna().all()
+    valid &= (span > 0).all() & (low > 0).all()
+    valid &= (high >= close).all() & (high >= opening).all() & (low <= close).all() & (low <= opening).all()
+    rising = (close > opening).all() & (close.diff().iloc[1:] > 0).all()
+    inside = (opening.iloc[1:] >= opening.shift().iloc[1:]).all() & (opening.iloc[1:] <= close.shift().iloc[1:]).all()
+    shape = (((close - opening) / span) >= body_min).all() & (((high - close) / span) <= upper_max).all()
+    return (rising & inside & shape).astype(float).where(valid)
+""",
+    ),
+    _technical(
+        "volume_confirmed_breakout",
+        "放量突破前高",
+        "收盘突破此前 20 日最高价，成交量达到此前 20 日均量的 1.5 倍。",
+        ("close", "high", "volume"),
+        """
+@factor(id="volume_confirmed_breakout", label="放量突破前高")
+def volume_confirmed_breakout(context, *, window: int = 20, volume_multiple: float = 1.5):
+    '''返回 0/1 突破条件；窗口不足、缺失或历史零成交量保持 NaN。'''
+    close = context.history("close", window=window + 1)
+    if len(close) < window + 1:
+        return close.mean(axis=0) * float("nan")
+    high = context.history("high", window=window + 1).reindex_like(close)
+    volume = context.history("volume", window=window + 1).reindex_like(close)
+    # 阻力和基准成交量均剔除当日，防止当日突破抬高自身阈值。
+    prior_high = high.iloc[:-1].max()
+    prior_volume = volume.iloc[:-1].mean()
+    valid = close.notna().all() & high.notna().all() & volume.notna().all()
+    valid &= (close > 0).all() & (high >= close).all() & (volume >= 0).all() & (prior_volume > 0)
+    return ((close.iloc[-1] > prior_high) & (volume.iloc[-1] >= volume_multiple * prior_volume)).astype(float).where(valid)
+""",
+    ),
+    _technical(
         "momentum_20d",
         "20 日动量",
         "最近 20 个交易日的价格涨跌幅。",

@@ -378,3 +378,33 @@ def performance(context: ValidationContext, *, periods_per_year: int = 252) -> d
 - 报告正文应明确研究区间、基准、成本、缺失数据处理、主要限制和不可外推的部分。
 
 建议让表格和图表承载可交互数据，让 Markdown 专注于结论、证据、方法和风险说明；三者应来自同一组结果，而不是手工复制出相互矛盾的数字。
+
+### 技术证据与讲义复算
+
+`alphalab.analytics` 提供 `TechnicalMetadata`、`technical_evidence`、
+`render_technical_evidence` 和 `audit_annual_return_table`，用于行情证据和结果审计。
+它们不生成订单，也不替代 SDK 回测。技术证据仅使用 `as_of` 当日及之前的数据，
+要求 OHLC 使用相同复权口径；未知指标返回 `None`，不补齐历史。单日 TR 和
+Wilder ATR(14) 分开报告，Bollinger(20,2) 中轨与 MA20 使用同一序列。
+
+本地 CSV/parquet 可以通过以下命令输出 JSON、Markdown 或复算表：
+
+```powershell
+python -m scripts.technical_review bars.csv --symbol STOCK --market SSE --currency CNY --price-basis unadjusted --volume-unit shares --source local-snapshot --as-of 2026-09-04 --output artifacts/technical-review
+python -m scripts.audit_factor_slides annual.csv --benchmark benchmark --input-unit percent --output artifacts/replication/audit.csv
+```
+
+技术输入含 `date,open,high,low,close,volume`；日期为交易所日线日期，调用者负责
+核对交易日连续性。基准需同时提供文件、名称、来源和价格口径，比较使用相同起止日期，
+不对缺失基准价格前向填充。年度复算输入首列为连续完整年份，每列为一个收益系列。
+复算公开年度表格只能验证算术，不能证明股票层面的独立复现。
+
+新增可编辑因子模板 `lower_shadow_recovery`、`three_white_soldiers` 和
+`volume_confirmed_breakout` 会出现在现有因子目录；形态输出为 0/1，缺失为 NaN。
+前两者使用显式下影线/实体比例，突破条件使用当日前 20 日高点和均量。
+它们可以作为选股候选过滤器，默认参数没有经过收益最大化调参，也没有已验证的胜率。
+原始价格跨除权日可能制造虚假形态，选择研究用价格口径时需先核对公司行动。
+
+`skills/alphalab-technical-evidence-review` 提供技术复盘流程，
+`skills/alphalab-factor-replication-audit` 提供讲义、论文与指数表现对照流程。
+在其他机器上将对应文件夹复制到用户的 Codex skills 目录后即可发现；当前仓库保存版本来源。
