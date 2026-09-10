@@ -85,6 +85,8 @@ def test_agent_exposes_two_compact_alphalab_tools():
         "recipe.sync",
         "data.query",
         "factor.history",
+        "factor.research",
+        "backtest.validation",
         "strategy.preview",
         "backtest.run",
         "backtest.status",

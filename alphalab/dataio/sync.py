@@ -667,6 +667,10 @@ class RQSyncService:
                     total,
                 )
 
+            # Market-state acquisition can establish legitimate suspensions or
+            # reveal dates absent from bars. Recheck bars against that final grid.
+            if "bars" in request.datasets and "market-state" in request.datasets:
+                self._complete_step(job_id, "rq.bars", progress - 1, total, final_validation=True)
             self.operations.update_job(
                 job_id,
                 status="succeeded",
@@ -701,17 +705,33 @@ class RQSyncService:
         dataset: str,
         progress: int,
         total: int,
+        *,
+        final_validation: bool = False,
     ) -> int:
-        report = validate_dataset(dataset, self.root)
+        job = self.operations.get_job(job_id)
+        if job is None:
+            raise DataLoadError("Cannot validate a missing sync job")
+        request = SyncRequest.model_validate(job["request"])
+        plan = build_sync_plan(request, root=self.root)
+        daily = dataset in {"rq.bars", "rq.paused", "rq.is_st", "rq.daily_factors"}
+        deferred = dataset == "rq.bars" and "market-state" in request.datasets and not final_validation
+        report = validate_dataset(
+            dataset, self.root,
+            start_date=plan["requested_start"] if daily else None,
+            as_of_date=plan["requested_end"] if daily or dataset == "rq.instruments" else None,
+            symbols=plan["symbols"] if daily else None,
+            required_fields=request.daily_factors if dataset == "rq.daily_factors" else None,
+            fail_on_gap=not deferred,
+        )
         if report["status"] != "passed":
             raise DataLoadError(f"Quality validation failed for {dataset}")
         current = progress + 1
-        self.operations.save_checkpoint(job_id, dataset, "complete")
+        self.operations.save_checkpoint(job_id, dataset, "downloaded" if deferred else "complete")
         self.operations.update_job(
             job_id,
             progress=current,
             total=total,
-            message=f"Completed {dataset}",
+            message=f"Downloaded {dataset}; awaiting market-state validation" if deferred else f"Completed {dataset}",
         )
         return current
 
@@ -978,7 +998,6 @@ def _symbol_sync_groups(
     """Group symbols by honest backfill start across all required datasets."""
 
     requested = pd.Timestamp(requested_start).normalize()
-    default = pd.Timestamp(default_start).normalize()
     listing_starts: dict[str, pd.Timestamp] = {}
     if not instruments.empty and {"symbol", "listed_date"}.issubset(instruments.columns):
         listed = instruments[["symbol", "listed_date"]].copy()
@@ -992,6 +1011,8 @@ def _symbol_sync_groups(
         store.watermarks(
             dataset,
             dimension=dimension,
+            start_date=requested,
+            available_from=listing_starts,
             required_columns=("raw_open", "raw_high", "raw_low", "raw_close")
             if dataset == "rq.bars"
             else (),
@@ -1010,7 +1031,6 @@ def _symbol_sync_groups(
                     base,
                     min(pd.Timestamp(value) for value in values if value is not None)
                     - pd.Timedelta(days=overlap_days),
-                    default,
                 )
         grouped.setdefault(effective.strftime("%Y-%m-%d"), []).append(symbol)
     return {start: sorted(values) for start, values in sorted(grouped.items())}

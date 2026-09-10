@@ -49,6 +49,7 @@ class RQSyncRequest:
         start: str | None = None,
         end: str | None = None,
         symbols: Iterable[str] | None = None,
+        required_fields: Iterable[str] | None = None,
         force: bool = False,
         bar_chunk_days: int = 366,
         market_state_chunk_days: int = 366,
@@ -336,6 +337,7 @@ class DataRecipeContext:
         end: str | None = None,
         fail_on_gap: bool = True,
         symbols: Iterable[str] | None = None,
+        required_fields: Iterable[str] | None = None,
     ) -> None:
         """Declare the bounded quality gate that must pass after publication."""
 
@@ -347,6 +349,7 @@ class DataRecipeContext:
                 "start": start,
                 "end": end,
                 "fail_on_gap": bool(fail_on_gap),
+                "required_fields": list(dict.fromkeys(required_fields)) if required_fields is not None else None,
                 "symbols": (
                     list(dict.fromkeys(to_framework_symbol(value) for value in symbols))
                     if symbols is not None
@@ -376,6 +379,7 @@ class DataRecipeContext:
                 as_of_date=requirement.get("end"),
                 fail_on_gap=bool(requirement.get("fail_on_gap", False)),
                 symbols=requirement.get("symbols"),
+                required_fields=requirement.get("required_fields"),
             )
             if report["status"] != "passed":
                 raise ValueError(f"quality validation failed for {dataset_id}")

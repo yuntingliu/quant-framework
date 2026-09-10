@@ -10,6 +10,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
+from alphalab.analytics.factor_evidence import factor_research_report
 from alphalab.dataio import DataEngine, MissingDataError
 from alphalab.strategy.config import ExecutionSpec
 from alphalab.strategy.repository import StrategyRepository
@@ -213,6 +214,82 @@ def evaluate_factor_history(
         "snapshots": snapshots,
         "observations": len(snapshots),
         "invoked": sorted(invoked),
+    }
+
+
+def evaluate_factor_research(
+    repository: StrategyRepository,
+    project_id: str,
+    factor_id: str,
+    data_engine: DataEngine,
+    start_date: str,
+    end_date: str,
+    *,
+    revision: int | None = None,
+    parameters: Mapping[str, Any] | None = None,
+    frequency: str = "monthly",
+    quantiles: int = 5,
+    horizons: Sequence[int] = (1, 3, 6),
+) -> dict[str, Any]:
+    """Evaluate one saved factor with later open-to-open evidence."""
+
+    if frequency not in {"daily", "weekly", "monthly"}:
+        raise ValueError("frequency must be daily, weekly, or monthly")
+    project, package = _project_package(repository, project_id, revision)
+    start, end = pd.Timestamp(start_date), pd.Timestamp(end_date)
+    if start >= end:
+        raise ValueError("start_date must be before end_date")
+    lookback = int(project["settings"].get("lookback_days", 260))
+    prepared = _prepare_data(
+        data_engine,
+        package,
+        start - pd.Timedelta(days=max(lookback * 2, 365)),
+        end,
+    )
+    evaluation_dates = _evaluation_dates(prepared.sessions, start, end, frequency)
+    snapshots: list[dict[str, Any]] = []
+    invoked: set[str] = set()
+    with SdkExecutionSession(package["source"], timeout_seconds=20.0) as session:
+        session.configure(_static_payload(prepared))
+        for as_of in evaluation_dates:
+            result = session.execute(
+                "factor",
+                {
+                    "event": "session_close",
+                    "as_of": as_of,
+                    "available_symbols": _available_symbols(
+                        prepared.instruments, as_of, _rows_on(prepared.bars, as_of)
+                    ),
+                    "factor_id": factor_id,
+                    "parameters": dict(parameters or {}),
+                    "portfolio": {},
+                    "state": {},
+                    "limits": _limits(project),
+                },
+            )
+            invoked.update(result.value.get("invoked") or ())
+            snapshots.append(
+                {
+                    "date": str(as_of)[:10],
+                    "values": result.value["values"],
+                    "input_audit": _factor_input_audit(prepared, as_of),
+                }
+            )
+    report = factor_research_report(
+        snapshots,
+        prepared.bars,
+        frequency=frequency,
+        quantiles=quantiles,
+        horizons=horizons,
+    )
+    return {
+        "project_id": project_id,
+        "revision": package["revision"],
+        "source_sha256": package["source_sha256"],
+        "profile": project["profile"],
+        "factor_id": factor_id,
+        "invoked": sorted(invoked),
+        **report,
     }
 
 
@@ -1791,6 +1868,50 @@ def _evaluation_dates(
     return [pd.Timestamp(value) for value in series.groupby(periods).max()]
 
 
+def _factor_input_audit(
+    prepared: PreparedRunData, as_of: pd.Timestamp
+) -> dict[str, str | None]:
+    """Record the latest input timestamps visible to one factor evaluation."""
+
+    factor_dates: list[pd.Timestamp] = []
+    for frame, candidates in (
+        (prepared.bars, ("date",)),
+        (prepared.daily_factors, ("date", "available_date")),
+    ):
+        value = _latest_visible_date(frame, candidates, as_of)
+        if value is not None:
+            factor_dates.append(value)
+    factor_max = max(factor_dates) if factor_dates else None
+    return {
+        "factor_input_max_date": _date_string(factor_max),
+        "security_snapshot_max_date": _date_string(
+            _latest_visible_date(prepared.instruments, ("snapshot_date",), as_of)
+        ),
+        "fundamental_available_max_date": _date_string(
+            _latest_visible_date(prepared.fundamentals, ("available_date",), as_of)
+        ),
+    }
+
+
+def _latest_visible_date(
+    frame: pd.DataFrame,
+    candidates: Sequence[str],
+    as_of: pd.Timestamp,
+) -> pd.Timestamp | None:
+    if frame.empty:
+        return None
+    field = next((name for name in candidates if name in frame), None)
+    if field is None:
+        return None
+    values = pd.to_datetime(frame[field], errors="coerce").dropna()
+    visible = values.loc[values.le(pd.Timestamp(as_of))]
+    return pd.Timestamp(visible.max()).normalize() if not visible.empty else None
+
+
+def _date_string(value: pd.Timestamp | None) -> str | None:
+    return value.strftime("%Y-%m-%d") if value is not None else None
+
+
 def _event_needed(
     manifest: Sequence[Mapping[str, Any]],
     event: str,
@@ -2025,6 +2146,7 @@ __all__ = [
     "PreparedRunData",
     "StrategyBacktestResult",
     "evaluate_factor_history",
+    "evaluate_factor_research",
     "evaluate_factor_snapshot",
     "preview_strategy",
     "run_strategy_backtest",

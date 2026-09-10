@@ -114,6 +114,9 @@ individual project file.
 - `factor.history`: `project_id`, `factor_id`, `start_date`, `end_date`;
   optional `frequency`, `parameters`, `sample_size`. Requires Python
   confirmation.
+- `factor.research`: `project_id`, `factor_id`, `start_date`, `end_date`;
+  optional `frequency`, `parameters`, `quantiles`, `horizons` (must include 1).
+  Requires Python confirmation. Returns bounded IC, quantile, decay and holdout evidence.
 - `strategy.preview`: `project_id`; optional `operation` (`signal`,
   `portfolio`, or `execution`) and `as_of_date`. Requires Python confirmation.
 - `backtest.run`: `project_id`, `start_date`, `end_date`. Requires Python
@@ -126,7 +129,8 @@ individual project file.
   `executions`), `offset`, `limit` up to 20. Only page details when the user or a
   concrete diagnosis needs them.
 - `backtest.analysis`, `backtest.attribution`, `backtest.robustness`,
-  `backtest.signals`: `backtest_id`.
+  `backtest.signals`, `backtest.validation`: `backtest_id`. Validation reads the
+  frozen validation.py outputs; robustness includes cost sensitivity diagnostics.
 - `backtest.compare`: `backtest_ids` containing two to six frozen runs.
 - `market_risk.evaluate`: `name`, `expression`; optional `start_date`,
   `end_date`.

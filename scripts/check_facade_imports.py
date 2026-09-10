@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from pathlib import Path
 
 EXPECTED = [
     "DataEngine",
@@ -20,11 +21,14 @@ EXPECTED = [
     "run_strategy_backtest",
     "evaluate_factor_snapshot",
     "evaluate_factor_history",
+    "evaluate_factor_research",
     "ResultStore",
 ]
 
 
 def main() -> int:
+    # A sibling editable install must not satisfy checks for this checkout.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     module = importlib.import_module("alphalab")
     missing = [name for name in EXPECTED if not hasattr(module, name)]
     if missing:

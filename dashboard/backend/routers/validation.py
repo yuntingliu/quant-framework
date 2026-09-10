@@ -39,6 +39,12 @@ class ValidationCheckRequest(BaseModel):
     source: str = Field(min_length=1, max_length=300_000)
 
 
+class ValidationMigrationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    confirm_write: bool
+
+
 def _raise_error(exc: Exception) -> None:
     if isinstance(exc, KeyError):
         raise HTTPException(status_code=404, detail="strategy project not found") from exc
@@ -79,6 +85,21 @@ def save_validation_parameters(project_id: str, request: ValidationParameterRequ
         return validation_service.update_parameters(
             project_id,
             [item.model_dump() for item in request.edits],
+            expected_source_sha256=request.expected_source_sha256,
+        )
+    except (KeyError, PermissionError, RuntimeError, ValueError, ValidationSourceError) as exc:
+        _raise_error(exc)
+
+
+@router.post("/projects/{project_id}/migrate-default")
+def migrate_validation_source(
+    project_id: str, request: ValidationMigrationRequest
+) -> dict:
+    if request.confirm_write is not True:
+        raise HTTPException(status_code=409, detail="validation migration requires confirmation")
+    try:
+        return validation_service.migrate_to_default(
+            project_id,
             expected_source_sha256=request.expected_source_sha256,
         )
     except (KeyError, PermissionError, RuntimeError, ValueError, ValidationSourceError) as exc:

@@ -223,6 +223,13 @@ export interface BacktestSignalDiagnostics {
   warning: string | null
 }
 
+export interface BacktestValidation {
+  id: string
+  available_analyses: string[]
+  outputs: Record<string, unknown>
+  warnings: string[]
+}
+
 export interface BacktestRegression {
   observations: number
   alpha_monthly: number | null

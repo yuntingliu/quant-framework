@@ -93,6 +93,8 @@ from alphalab.sdk.v1 import (
     FactorContext,
     Monthly,
     Parameter,
+    PortfolioOptimizationError,
+    PortfolioOptimizationResult,
     PortfolioContext,
     PortfolioDecision,
     SignalContext,
@@ -105,8 +107,10 @@ from alphalab.sdk.v1 import (
     execution,
     execution_data_fill,
     factor,
+    neutralize_factor_scores,
     on_event,
     portfolio,
+    optimize_portfolio,
     schedule,
     signal,
     universe,
@@ -591,6 +595,21 @@ MUST revalidate:
 
 Returning a target weight does not assert that a trade will fill.
 
+SDK v1 also exposes `optimize_portfolio(...)` with explicit `equal_weight`,
+`minimum_variance`, `risk_parity`, `hrp`, and `max_sharpe` methods. Every method
+is long-only, honors `target_gross <= 1`, a single-name cap, and an optional
+cash-inclusive turnover cap. `max_sharpe` MUST receive explicit expected
+returns. Infeasible constraints, insufficient observations, and solver failure
+MUST raise `PortfolioOptimizationError`; they MUST NOT silently select equal
+weight. The returned `PortfolioOptimizationResult` records covariance repair,
+dropped securities, observation count, convergence, risk contributions, and
+expected turnover. The strategy still returns a `PortfolioDecision`, and the
+core MUST repeat all hard membership and exposure checks.
+
+`neutralize_factor_scores(...)` is the public point-in-time cross-sectional
+residualization helper. Missing rows are excluded rather than imputed and its
+result records fitted coefficients, sample size, exclusions, and fit quality.
+
 ## 15. Event and Stateful Policy Contract
 
 SDK v1 is event driven. At minimum the runner exposes:
@@ -787,6 +806,7 @@ Every research operation loads one immutable StrategySourcePackage:
 | --- | --- |
 | Factor snapshot | selected `@factor` at one as-of event |
 | Single-factor history | selected `@factor` over scheduled PIT events |
+| Factor research | selected `@factor`, next-session open forward returns, fixed evidence report |
 | Signal cross-section | `@universe`, dependencies, selected `@signal` |
 | Portfolio preview | signal followed by `@portfolio` and applicable event handler |
 | Execution preview | portfolio decision followed by `@execution` |
@@ -795,6 +815,11 @@ Every research operation loads one immutable StrategySourcePackage:
 
 The operation result MUST record the package hash and invoked entrypoint IDs.
 An evaluation MUST NOT copy or translate a function into an alternate runtime.
+Factor research MUST use the first open strictly after each close-time signal,
+retain missing pairs as missing, report Rank IC/ICIR/Newey-West/bootstrap,
+1/3/6-period decay, quantile and long-short returns, coverage, turnover, and a
+chronological 70/30 split, and mark fewer than 24 valid cross-sections as
+`insufficient`.
 
 ## 21. StrategySourcePackage and Persistence
 

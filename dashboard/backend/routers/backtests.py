@@ -13,6 +13,7 @@ from dashboard.backend.services.backtest_analytics_service import (
     analyze_backtest,
     analyze_robustness,
     analyze_signal_diagnostics,
+    analyze_validation,
     compare_backtests,
 )
 from dashboard.backend.services.backtest_job_service import (
@@ -173,5 +174,13 @@ def backtest_robustness(backtest_id: str) -> dict:
 def backtest_signals(backtest_id: str) -> dict:
     try:
         return analyze_signal_diagnostics(backtest_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="backtest not found") from exc
+
+
+@router.get("/{backtest_id}/validation")
+def backtest_validation(backtest_id: str) -> dict:
+    try:
+        return analyze_validation(backtest_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="backtest not found") from exc

@@ -271,9 +271,13 @@ class _FakeAcquirer:
             }
         )
 
-    def daily_bars(self, symbols, *args, **kwargs) -> pd.DataFrame:
+    def daily_bars(self, symbols, start, end, **kwargs) -> pd.DataFrame:
         self.bar_symbols = list(symbols)
-        return self.bars.copy()
+        template = self.bars.iloc[0].to_dict()
+        return pd.DataFrame([
+            {**template, "date": date, "symbol": symbol}
+            for date in pd.bdate_range(start, end) for symbol in symbols
+        ])
 
     def financials(self, symbols, fields, *args, **kwargs) -> pd.DataFrame:
         source = self.income if set(fields) == set(INCOME_FIELDS) else self.balance
@@ -453,8 +457,8 @@ def test_sync_plan_uses_incremental_bar_and_financial_lookbacks(tmp_path) -> Non
 def test_incremental_bars_backfill_new_symbols_from_requested_start(tmp_path) -> None:
     store = RuntimeStore(tmp_path)
     _, _, bars = _financial_frames()
-    existing = bars.iloc[[0]].copy()
-    existing["date"] = pd.Timestamp("2025-01-10")
+    existing = pd.concat([bars.iloc[[0]]] * 8, ignore_index=True)
+    existing["date"] = pd.bdate_range("2025-01-01", "2025-01-10")
     store.write("rq.bars", existing)
 
     class RecordingAcquirer(_FakeAcquirer):
@@ -464,22 +468,8 @@ def test_incremental_bars_backfill_new_symbols_from_requested_start(tmp_path) ->
 
         def daily_bar_chunks(self, symbols, start, end, **kwargs):
             self.calls.append((list(symbols), start, end))
-            yield pd.DataFrame(
-                {
-                    "date": [pd.Timestamp(end)] * len(symbols),
-                    "symbol": symbols,
-                    "open": [10.0] * len(symbols),
-                    "high": [10.5] * len(symbols),
-                    "low": [9.5] * len(symbols),
-                    "close": [10.2] * len(symbols),
-                    "raw_open": [10.0] * len(symbols),
-                    "raw_high": [10.5] * len(symbols),
-                    "raw_low": [9.5] * len(symbols),
-                    "raw_close": [10.0] * len(symbols),
-                    "volume": [1000.0] * len(symbols),
-                    "amount": [10000.0] * len(symbols),
-                }
-            )
+            yield super().daily_bars(symbols, start, end)
+
 
     acquirer = RecordingAcquirer()
     request = SyncRequest(

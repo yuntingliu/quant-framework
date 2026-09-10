@@ -1,6 +1,6 @@
 """Built-in project validation source shown in the Validation Workbench."""
 
-DEFAULT_VALIDATION_SOURCE = '''"""Project-owned performance and Alpha/Beta validation."""
+DEFAULT_VALIDATION_SOURCE = '''"""Project-owned performance, attribution, risk, and evidence validation."""
 
 from __future__ import annotations
 
@@ -67,6 +67,10 @@ def research_quality(
     consecutive_exit_failures: int = 2,
     require_target_tracking: bool = False,
     require_successful_exits: bool = False,
+    require_signal_evidence: bool = False,
+    minimum_signal_periods: int = 12,
+    minimum_mean_ic: float = 0.0,
+    minimum_coverage: float = 0.60,
 ) -> dict:
     """评价冻结的实际成交；普通拒单默认警告，严格跟踪标准由项目自行开启。"""
     if minimum_successful_trades < 0 or maximum_target_weight_deviation < 0:
@@ -114,7 +118,18 @@ def research_quality(
         warnings.append("PERSISTENT_EXIT_FAILURE: a position repeatedly remained above its requested lower target")
         if require_successful_exits:
             reasons.append("PERSISTENT_EXIT_FAILURE")
+    signal_quality = _signal_quality(
+        context, minimum_signal_periods=minimum_signal_periods,
+        minimum_mean_ic=minimum_mean_ic, minimum_coverage=minimum_coverage,
+        minimum_execution_fidelity=minimum_execution_fidelity,
+    )
+    if require_signal_evidence and signal_quality["status"] != "pass":
+        reasons.append("SIGNAL_EVIDENCE_" + signal_quality["status"].upper())
+    warnings.extend(signal_quality["warnings"])
     return {
+        **signal_quality,
+        "evidence_status": signal_quality["status"],
+        "status": "fail" if reasons else "pass",
         "passed": not reasons,
         "reasons": reasons,
         "warnings": warnings,
@@ -126,6 +141,10 @@ def research_quality(
             "consecutive_exit_failures": consecutive_exit_failures,
             "require_target_tracking": require_target_tracking,
             "require_successful_exits": require_successful_exits,
+            "require_signal_evidence": require_signal_evidence,
+            "minimum_signal_periods": minimum_signal_periods,
+            "minimum_mean_ic": minimum_mean_ic,
+            "minimum_coverage": minimum_coverage,
         },
         "evidence": {
             "successful_trade_count": successful,
@@ -148,7 +167,11 @@ def alpha_beta(
     # 策略日收益先按月复合；因子表按月取最后一条供应商快照。
     strategy = _monthly_returns(context.returns).rename("strategy")
     factors = _monthly_factors(context.factor_returns)
-    aligned = strategy.to_frame().join(factors, how="inner").replace([np.inf, -np.inf], np.nan)
+    aligned = (
+        strategy.to_frame()
+        if factors.empty
+        else strategy.to_frame().join(factors, how="inner")
+    ).replace([np.inf, -np.inf], np.nan)
     complete = aligned.dropna(subset=["strategy", "MKT", "rf"]) if {"MKT", "rf"}.issubset(aligned.columns) else pd.DataFrame()
     factor_names = tuple(name for name in FACTOR_NAMES if name in complete.columns)
     multi_frame = complete.dropna(subset=list(factor_names)) if factor_names else pd.DataFrame()
@@ -189,6 +212,188 @@ def alpha_beta(
         "input_snapshot": snapshot,
         "warnings": list(dict.fromkeys(warnings)),
     }
+
+
+@analysis(id="risk", label="尾部风险与集中度")
+def risk(
+    context: ValidationContext,
+    *,
+    periods_per_year: int = 252,
+    minimum_observations: int = 20,
+    confidence_95: float = 0.95,
+    confidence_99: float = 0.99,
+) -> dict:
+    """用冻结收益和实际持仓计算尾部风险、回撤持续期与集中度。"""
+    returns = pd.to_numeric(context.returns, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna().astype(float)
+    warnings = []
+    sufficient = len(returns) >= int(minimum_observations)
+    if not sufficient:
+        warnings.append(f"At least {int(minimum_observations)} return observations are required for tail risk")
+    tail_95 = _tail_loss(returns, confidence_95) if sufficient else (None, None)
+    tail_99 = _tail_loss(returns, confidence_99) if sufficient else (None, None)
+    equity = (1.0 + returns).cumprod() if not returns.empty else pd.Series(dtype=float)
+    drawdown = equity.div(equity.cummax()).sub(1.0) if not equity.empty else equity
+    downside = returns.where(returns.lt(0), 0.0)
+    portfolio = _portfolio_risk(context.weights)
+    turnover = _weight_turnover(context.weights)
+    return {
+        "status": "sufficient" if sufficient else "insufficient",
+        "observations": int(len(returns)),
+        "var_95": tail_95[0],
+        "cvar_95": tail_95[1],
+        "var_99": tail_99[0],
+        "cvar_99": tail_99[1],
+        "downside_volatility_annualized": (
+            float(downside.std(ddof=1) * np.sqrt(periods_per_year))
+            if len(downside) > 1 else None
+        ),
+        "current_drawdown": float(drawdown.iloc[-1]) if not drawdown.empty else None,
+        "max_drawdown": float(drawdown.min()) if not drawdown.empty else None,
+        "max_drawdown_duration_periods": _max_drawdown_duration(drawdown),
+        "portfolio": portfolio,
+        "turnover": turnover,
+        "warnings": warnings,
+    }
+
+
+def _signal_quality(
+    context: ValidationContext,
+    *,
+    minimum_signal_periods: int = 12,
+    minimum_mean_ic: float = 0.0,
+    minimum_coverage: float = 0.60,
+    minimum_execution_fidelity: float = 0.80,
+) -> dict:
+    """汇总冻结信号证据、数据完整性和执行保真度并给出研究状态。"""
+    diagnostics = dict(context.diagnostics)
+    evidence = diagnostics.get("signal_evidence") if isinstance(diagnostics.get("signal_evidence"), dict) else {}
+    rows = [dict(item) for item in evidence.get("rows", []) if isinstance(item, dict)]
+    ic_values = pd.Series(
+        [float(item["ic"]) for item in rows if item.get("ic") is not None],
+        dtype=float,
+    )
+    coverage_values = [float(item["coverage"]) for item in rows if item.get("coverage") is not None]
+    fidelity_payload = diagnostics.get("execution_fidelity") if isinstance(diagnostics.get("execution_fidelity"), dict) else {}
+    fidelity = _finite(fidelity_payload.get("mean"))
+    core_valid_value = diagnostics.get("execution_reliable")
+    core_valid = core_valid_value is True
+    invalid_reasons = [str(value) for value in diagnostics.get("execution_invalid_reasons", [])]
+    mean_ic = _finite(ic_values.mean()) if not ic_values.empty else None
+    average_coverage = _finite(np.mean(coverage_values)) if coverage_values else None
+    sufficient = len(ic_values) >= int(minimum_signal_periods)
+    checks = {
+        "execution_data_reliable": core_valid,
+        "signal_evidence": sufficient,
+        "mean_ic": mean_ic is not None and mean_ic >= minimum_mean_ic,
+        "coverage": average_coverage is not None and average_coverage >= minimum_coverage,
+        "execution_fidelity": fidelity is not None and fidelity >= minimum_execution_fidelity,
+    }
+    complete_evidence = (
+        sufficient
+        and mean_ic is not None
+        and average_coverage is not None
+        and fidelity is not None
+    )
+    if core_valid_value is False:
+        status = "fail"
+    elif not complete_evidence or core_valid_value is None:
+        status = "insufficient"
+    else:
+        status = "pass" if all(checks.values()) else "fail"
+    warnings = []
+    if not sufficient:
+        warnings.append(f"Only {len(ic_values)} signal periods have forward evidence; {int(minimum_signal_periods)} are required")
+    if core_valid_value is None:
+        warnings.append("The frozen run predates core research-validity diagnostics")
+    warnings.extend(invalid_reasons)
+    exclusions = diagnostics.get("execution_data_exclusions") if isinstance(diagnostics.get("execution_data_exclusions"), dict) else {}
+    return {
+        "status": status,
+        "signal_periods": int(len(rows)),
+        "evidence_periods": int(len(ic_values)),
+        "mean_rank_ic": mean_ic,
+        "newey_west_t_stat": _mean_t_stat(ic_values),
+        "positive_ic_ratio": float(ic_values.gt(0).mean()) if not ic_values.empty else None,
+        "average_coverage": average_coverage,
+        "execution_fidelity": fidelity,
+        "excluded_symbol_dates": int(exclusions.get("symbol_date_count") or 0),
+        "research_invalid_reasons": invalid_reasons,
+        "checks": checks,
+        "warnings": list(dict.fromkeys(warnings)),
+    }
+
+
+def _tail_loss(returns: pd.Series, confidence: float) -> tuple[float, float]:
+    """Return positive historical VaR and expected shortfall for one confidence."""
+    confidence = float(confidence)
+    if confidence <= 0 or confidence >= 1:
+        raise ValueError("risk confidence must be in (0, 1)")
+    losses = -returns.to_numpy(dtype=float)
+    value_at_risk = max(0.0, float(np.quantile(losses, confidence)))
+    tail = losses[losses >= value_at_risk]
+    expected_shortfall = max(value_at_risk, float(np.mean(tail))) if len(tail) else value_at_risk
+    return value_at_risk, expected_shortfall
+
+
+def _max_drawdown_duration(drawdown: pd.Series) -> int:
+    """Count the longest consecutive run below the prior equity peak."""
+    longest = 0
+    current = 0
+    for value in drawdown:
+        if float(value) < -1e-12:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    return int(longest)
+
+
+def _portfolio_risk(values: pd.DataFrame) -> dict:
+    """Describe concentration from the latest actual frozen weight snapshot."""
+    frame = pd.DataFrame(values).apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    if frame.empty:
+        return {
+            "max_weight": None, "max_weight_observed": None, "hhi": None,
+            "effective_positions": None, "holdings": 0,
+        }
+    latest = frame.iloc[-1]
+    latest = latest.loc[latest.abs().gt(1e-12)]
+    hhi = float((latest ** 2).sum()) if not latest.empty else 0.0
+    return {
+        "max_weight": float(latest.max()) if not latest.empty else 0.0,
+        "max_weight_observed": float(frame.max(axis=1).max()),
+        "hhi": hhi,
+        "effective_positions": float(1.0 / hhi) if hhi > 0 else None,
+        "holdings": int(len(latest)),
+    }
+
+
+def _weight_turnover(values: pd.DataFrame) -> dict:
+    """Calculate cash-inclusive one-way turnover from actual frozen weights."""
+    frame = pd.DataFrame(values).apply(pd.to_numeric, errors="coerce").fillna(0.0).sort_index()
+    if frame.empty:
+        return {"average": None, "maximum": None, "periods": 0}
+    previous = frame.shift(1, fill_value=0.0)
+    cash = 1.0 - frame.sum(axis=1)
+    previous_cash = 1.0 - previous.sum(axis=1)
+    turnover = ((frame - previous).abs().sum(axis=1) + (cash - previous_cash).abs()) / 2.0
+    return {
+        "average": float(turnover.mean()),
+        "maximum": float(turnover.max()),
+        "periods": int(len(turnover)),
+    }
+
+
+def _mean_t_stat(values: pd.Series) -> float | None:
+    """Estimate the mean t statistic with the same Newey-West covariance helper."""
+    series = pd.to_numeric(values, errors="coerce").dropna().astype(float)
+    if len(series) < 2:
+        return None
+    x = np.ones((len(series), 1), dtype=float)
+    residuals = series.to_numpy(dtype=float) - float(series.mean())
+    covariance = _newey_west_covariance(x, residuals, min(3, len(series) - 1))
+    standard_error = float(np.sqrt(max(0.0, covariance[0, 0])))
+    return float(series.mean() / standard_error) if standard_error > 0 else None
 
 
 def _monthly_returns(values: pd.Series) -> pd.Series:

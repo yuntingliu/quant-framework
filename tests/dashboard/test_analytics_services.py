@@ -221,6 +221,39 @@ def test_historical_backtest_without_attribution_returns_a_complete_empty_shape(
     assert result["warnings"]
 
 
+def test_validation_endpoint_returns_only_the_frozen_named_outputs(monkeypatch):
+    frozen = {
+        "performance": {"total_return": 0.12},
+        "risk": {"status": "sufficient", "var_95": 0.02},
+        "custom_stress": {"scenario_loss": 0.07},
+    }
+    monkeypatch.setattr(
+        backtest_analytics_service,
+        "get_backtest",
+        lambda backtest_id: {"id": backtest_id, "validation_output": frozen},
+    )
+
+    result = backtest_analytics_service.analyze_validation("bt-frozen")
+
+    assert result["outputs"] is frozen
+    assert result["available_analyses"] == ["custom_stress", "performance", "risk"]
+    assert result["warnings"] == []
+
+
+def test_historical_backtest_without_validation_has_an_explicit_empty_shape(monkeypatch):
+    monkeypatch.setattr(
+        backtest_analytics_service,
+        "get_backtest",
+        lambda backtest_id: {"id": backtest_id, "validation_output": {}},
+    )
+
+    result = backtest_analytics_service.analyze_validation("bt-legacy")
+
+    assert result["available_analyses"] == []
+    assert result["outputs"] == {}
+    assert result["warnings"]
+
+
 def test_sdk_robustness_uses_return_calendar_and_frozen_portfolio_parameters(monkeypatch):
     source = DEFAULT_STRATEGY_SOURCE.replace(
         "max_weight: float = 0.10", "max_weight: float = 0.03", 1

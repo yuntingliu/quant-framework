@@ -35,7 +35,9 @@ AlphaLab 把一项量化研究拆成五个可保存、可检查、可复现的�
 研究代码应优先从稳定门面导入：
 
 ```python
-from alphalab.sdk.v1 import factor, signal, portfolio, execution
+from alphalab.sdk.v1 import (
+    execution, factor, neutralize_factor_scores, optimize_portfolio, portfolio, signal,
+)
 from alphalab.data_sdk.v1 import data_recipe
 from alphalab.validation_sdk import analysis
 ```
@@ -74,6 +76,7 @@ def momentum_20d(context, *, window: int = 20):
 - `context.fundamental(field)`：读取截至当前时点可见的最新基本面横截面。
 - `context.factor(id, **parameters)`：复用同项目内另一个已注册因子。
 - `context.combine_factors(weights=..., normalization=..., parameters=...)`：按 `raw`、`rank` 或 `zscore` 合成多个因子。
+- `neutralize_factor_scores(values, exposures)`：只用同一评估时点可见的横截面暴露做残差化，并返回样本量、系数与拟合诊断。
 
 相应字段必须出现在模块的 `DATA_REQUIREMENTS` 中，例如：
 
@@ -95,7 +98,7 @@ RQData 的 `000001.XSHE`，沪市 `.XSHG`、北交所 `.XBEI` 同样会转换为
 界面和研究数据统一显示转换后的代码。格式无效会提示“证券代码格式不支持”；格式正确
 但本地没有行情时，需要检查代码或先在数据工作台同步。
 
-先保存，再运行“截面检验”确认某日排序和覆盖率；随后运行“历史检验”查看时间覆盖和稳定性。因子方向属于策略解释：动量、盈利能力常用高值优先，波动、杠杆和短期反转模板可能使用低值优先。
+先保存，再运行“截面检验”确认某日排序和覆盖率；“历史分布”确认逐期可用性；“研究证据”使用下一交易日开盘起算的前瞻收益，给出 Rank IC、ICIR、Newey-West t 值、Bootstrap 区间、1/3/6 期衰减、分组收益和 70/30 时序留出结果。缺失价格按配对样本剔除，不补成零。因子方向属于策略解释：动量、盈利能力常用高值优先，波动、杠杆和短期反转模板可能使用低值优先。
 
 <!-- alphalab-sdk-topic:strategy -->
 ## 策略 SDK
@@ -137,6 +140,27 @@ return ExecutionPolicy(
 ```
 
 `SignalResult.selected` 决定候选顺序，`scores` 保存解释用评分；`PortfolioDecision` 表达目标而不是订单；`ExecutionPolicy` 决定目标如何在市场约束下尝试成交。
+
+SDK 也提供显式、无隐藏回退的组合优化器：
+
+```python
+history = context.history("close", window=121, symbols=signal.selected)
+returns = history.pct_change().dropna()
+optimized = optimize_portfolio(
+    returns,
+    method="risk_parity",  # equal_weight / minimum_variance / hrp / max_sharpe
+    max_weight=0.20,
+    current_weights={holding.symbol: holding.weight for holding in context.portfolio.positions},
+    max_turnover=0.30,
+)
+return PortfolioDecision(
+    target_weights=optimized.weights,
+    diagnostics=dict(optimized.diagnostics),
+    state=state,
+)
+```
+
+`max_sharpe` 必须显式传入年化 `expected_returns`。样本不足、约束不可行或求解不收敛会抛出 `PortfolioOptimizationError`；系统不会悄悄改用等权。默认项目仍采用等权，只有用户或 Agent 明确修改 `@portfolio` 后才启用高级优化。
 
 缺失状态的处理不是隐藏模式，而是项目内可编辑的普通 Python。例如：
 
@@ -291,11 +315,14 @@ def performance(context: ValidationContext, *, periods_per_year: int = 252) -> d
     return {"n_periods": int(len(returns))}
 ```
 
-`context` 提供策略收益、基准收益、持仓、成交、因子收益和运行元数据。官方验证模块注册：
+`context` 提供策略收益、基准收益、持仓、成交、因子收益、设置和只读 `diagnostics`。后者来自同一冻结 Run，只用于研究解释，不能修改成交或核算。官方验证模块注册：
 
 - `performance`：总收益、年化收益、年化波动、Sharpe 和最大回撤。
 - `research_quality`：项目可编辑的研究质量标准，返回 `passed`、`reasons`、`warnings`，以及阈值和证据。
 - `alpha_beta`：月度 CAPM、多因子回归、Newey-West 标准误、相关矩阵和警告。
+- `risk`：历史 VaR/CVaR、下行波动、回撤持续期、集中度、有效持仓数和换手。
+
+研究质量同时包含信号 IC、覆盖率、执行保真度及 `evidence_status`（pass/fail/insufficient）。默认信号证据作为诊断，`passed` 与 `status` 始终遵循项目选定的质量门槛；开启 `require_signal_evidence=True` 后，证据不足或不达标也会阻止研究质量通过。质量通过不等于盈利。
 
 `context.diagnostics` 提供冻结的执行数据检查和紧凑信号证据副本；`context.executions` 提供每次调仓的实际成交、目标偏差和拒单记录。修改这些副本不会改变引擎或历史结果。
 
@@ -313,7 +340,7 @@ def performance(context: ValidationContext, *, periods_per_year: int = 252) -> d
 
 ### 研究解释
 
-样本过少、因子覆盖不足、回归矩阵秩不足和基准缺口都应作为警告保留，而不是静默补值。稳健性页的“研究候选”不是实盘承诺；应结合样本外区间、成本敏感性、换手、集中度和多重检验校正一起判断。
+样本过少、因子覆盖不足、回归矩阵秩不足和基准缺口都应作为警告保留，而不是静默补值。尾部风险样本不足时返回 `None` 和 `insufficient`，不能用 `0` 表示未知风险。历史 Run 的验证页直接读取当时冻结的命名输出，不使用当前 `validation.py` 重算。稳健性页的“研究候选”不是实盘承诺；应结合样本外区间、成本敏感性、换手、集中度和多重检验校正一起判断。
 
 <!-- alphalab-sdk-topic:report -->
 ## 报告结果协议

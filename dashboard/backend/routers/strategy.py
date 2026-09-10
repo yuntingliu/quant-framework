@@ -248,6 +248,21 @@ class FactorHistoryRequest(BaseModel):
     confirm_python_execution: bool
 
 
+class FactorResearchRequest(FactorHistoryRequest):
+    quantiles: int = Field(default=5, ge=3, le=10)
+    horizons: list[int] = Field(default_factory=lambda: [1, 3, 6], min_length=1, max_length=12)
+
+    @model_validator(mode="after")
+    def validate_horizons(self) -> "FactorResearchRequest":
+        if 1 not in self.horizons:
+            raise ValueError("research horizons must include 1")
+        if len(set(self.horizons)) != len(self.horizons):
+            raise ValueError("research horizons must be unique")
+        if any(value < 1 or value > 12 for value in self.horizons):
+            raise ValueError("research horizons must be between 1 and 12")
+        return self
+
+
 def _confirmed(value: bool, message: str) -> None:
     if value is not True:
         raise HTTPException(status_code=409, detail=message)
@@ -577,6 +592,26 @@ def history(project_id: str, factor_id: str, request: FactorHistoryRequest) -> d
             revision=request.revision,
             parameters=request.parameters,
             frequency=request.frequency,
+        )
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/factors/{factor_id}/research")
+def research(project_id: str, factor_id: str, request: FactorResearchRequest) -> dict[str, Any]:
+    _confirmed(request.confirm_python_execution, "factor research executes trusted local Python")
+    try:
+        return strategy_service.factor_research(
+            project_id,
+            factor_id,
+            profile=request.profile,
+            start_date=request.start_date.isoformat(),
+            end_date=request.end_date.isoformat(),
+            revision=request.revision,
+            parameters=request.parameters,
+            frequency=request.frequency,
+            quantiles=request.quantiles,
+            horizons=request.horizons,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc

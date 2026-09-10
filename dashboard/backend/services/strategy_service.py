@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from datetime import date
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import pandas as pd
 
@@ -25,6 +25,7 @@ from alphalab.provenance import build_research_provenance
 from alphalab.store import ResultStore
 from alphalab.strategy.engine import (
     evaluate_factor_history,
+    evaluate_factor_research,
     evaluate_factor_snapshot,
     preview_strategy,
     run_strategy_backtest,
@@ -687,6 +688,40 @@ def factor_history(
         repo.close()
 
 
+def factor_research(
+    project_id: str,
+    factor_id: str,
+    *,
+    profile: str,
+    start_date: str,
+    end_date: str,
+    revision: int | None,
+    parameters: Mapping[str, Any] | None,
+    frequency: str,
+    quantiles: int,
+    horizons: Sequence[int],
+) -> dict[str, Any]:
+    if profile != "runtime":
+        raise ValueError("factor evaluations use the runtime data profile")
+    repo = repository()
+    try:
+        return evaluate_factor_research(
+            repo,
+            project_id,
+            factor_id,
+            _engine(profile),
+            start_date,
+            end_date,
+            revision=revision,
+            parameters=parameters,
+            frequency=frequency,
+            quantiles=quantiles,
+            horizons=horizons,
+        )
+    finally:
+        repo.close()
+
+
 def run_project_backtest(
     project_id: str,
     start_date: str,
@@ -939,6 +974,7 @@ __all__ = [
     "create_project",
     "delete_project",
     "factor_history",
+    "factor_research",
     "factor_snapshot",
     "factor_template_catalog",
     "get_entrypoint_source",

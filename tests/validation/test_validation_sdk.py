@@ -17,12 +17,13 @@ from alphalab.validation.source import (
     update_validation_parameters,
 )
 from alphalab.validation_sdk import ValidationContext
+from dashboard.backend.services import validation_service
 
 
 def test_default_validation_source_exposes_visible_metrics_and_alpha_beta() -> None:
     inspection = inspect_validation_source(DEFAULT_VALIDATION_SOURCE)
 
-    assert [item.id for item in inspection.entrypoints] == ["performance", "research_quality", "alpha_beta"]
+    assert [item.id for item in inspection.entrypoints] == ["performance", "research_quality", "alpha_beta", "risk"]
     assert "np.linalg.lstsq" in DEFAULT_VALIDATION_SOURCE
     assert "_newey_west_covariance" in DEFAULT_VALIDATION_SOURCE
     tree = ast.parse(DEFAULT_VALIDATION_SOURCE)
@@ -110,6 +111,39 @@ def test_validation_repository_clones_and_pins_independent_source(tmp_path) -> N
     assert "periods_per_year: int = 252" in pinned["source"]
 
 
+def test_user_project_requires_explicit_default_validation_migration(
+    tmp_path, monkeypatch
+) -> None:
+    db_path = tmp_path / "validation-migration.db"
+    strategies = StrategyRepository(db_path)
+    try:
+        strategies.clone_project("sdk-v1-default", "older-user-project", name="Older")
+    finally:
+        strategies.close()
+    repository = ValidationRepository(db_path)
+    try:
+        original = repository.get_or_create("older-user-project")
+        older = repository.update_parameters(
+            "older-user-project",
+            [{"entrypoint_id": "performance", "parameter": "periods_per_year", "value": 365}],
+            expected_source_sha256=original["source_sha256"],
+        )
+    finally:
+        repository.close()
+
+    monkeypatch.setattr(validation_service, "repository", lambda: ValidationRepository(db_path))
+    unchanged = validation_service.get_workspace("older-user-project")
+    migrated = validation_service.migrate_to_default(
+        "older-user-project",
+        expected_source_sha256=unchanged["source_sha256"],
+    )
+
+    assert unchanged["current_revision"] == older["current_revision"] == 2
+    assert "periods_per_year: int = 365" in unchanged["source"]
+    assert migrated["current_revision"] == 3
+    assert migrated["source"] == DEFAULT_VALIDATION_SOURCE
+
+
 def test_validation_runtime_returns_json_outputs_from_local_python() -> None:
     dates = pd.date_range("2022-01-03", periods=520, freq="B")
     returns = pd.Series(np.linspace(-0.005, 0.006, len(dates)), index=dates)
@@ -139,6 +173,39 @@ def test_validation_runtime_returns_json_outputs_from_local_python() -> None:
     assert outputs["performance"]["n_periods"] == 520
     assert outputs["alpha_beta"]["observations"] == 24
     assert "MKT" in outputs["alpha_beta"]["capm"]["betas"]
+    assert outputs["risk"]["status"] == "sufficient"
+    assert outputs["risk"]["var_95"] is not None
+    assert outputs["research_quality"]["evidence_status"] == "insufficient"
+
+
+def test_validation_uses_frozen_run_diagnostics_and_never_zero_fills_tail_risk() -> None:
+    dates = pd.date_range("2024-01-02", periods=12, freq="B")
+    evidence = [
+        {"ic": 0.03, "coverage": 0.80, "signal_date": str(date)[:10]}
+        for date in dates
+    ]
+    outputs = execute_validation(
+        DEFAULT_VALIDATION_SOURCE,
+        returns=pd.Series(np.linspace(-0.01, 0.01, len(dates)), index=dates),
+        benchmark_returns=pd.Series(0.0, index=dates),
+        weights=pd.DataFrame({"A": 0.6, "B": 0.4}, index=dates),
+        factor_returns=pd.DataFrame(),
+        executions=[],
+        settings={},
+        diagnostics={
+            "execution_reliable": True,
+            "research_invalid_reasons": [],
+            "execution_fidelity": {"mean": 0.95},
+            "signal_evidence": {"rows": evidence},
+            "execution_data_exclusions": {"symbol_date_count": 0},
+        },
+    )
+
+    assert outputs["risk"]["status"] == "insufficient"
+    assert outputs["risk"]["var_95"] is None
+    assert outputs["risk"]["cvar_95"] is None
+    assert outputs["research_quality"]["evidence_status"] == "pass"
+    assert outputs["research_quality"]["mean_rank_ic"] == pytest.approx(0.03)
 
 
 def test_quality_standard_is_editable_and_normal_rejections_are_warnings() -> None:
@@ -196,6 +263,25 @@ def test_quality_boundary_rejects_contradictory_project_verdict():
         _validate_research_quality_output({"passed": True, "reasons": ["FAILED"], "warnings": []})
     with pytest.raises(ValidationRuntimeError, match="compact"):
         _validate_research_quality_output({"passed": True, "reasons": [], "warnings": [], "scores": [1] * 10_000})
+
+
+def test_signal_evidence_gate_is_project_editable_without_circular_verdict():
+    namespace = {}
+    exec(DEFAULT_VALIDATION_SOURCE, namespace)
+    context = ValidationContext.from_payload({
+        "returns": pd.Series([0.01]), "benchmark_returns": pd.Series([0.0]),
+        "weights": pd.DataFrame(), "factor_returns": pd.DataFrame(),
+        "executions": [{"attempted_trade_count": 1, "successful_trade_count": 1}],
+        "settings": {}, "diagnostics": {"execution_reliable": True},
+    })
+    normal = namespace["research_quality"](context)
+    assert normal["passed"] is True
+    assert normal["status"] == "pass"
+    assert normal["evidence_status"] == "insufficient"
+    strict = namespace["research_quality"](context, require_signal_evidence=True)
+    assert strict["passed"] is False
+    assert strict["status"] == "fail"
+    assert strict["reasons"] == ["SIGNAL_EVIDENCE_INSUFFICIENT"]
 
 
 def test_validation_contract_and_output_boundary_reject_invalid_code() -> None:

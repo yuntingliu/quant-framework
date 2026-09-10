@@ -2091,6 +2091,8 @@ button {
 .analytics-date-filter input,
 .workbench-controls select,
 .workbench-controls input,
+.backtest-config-pane input,
+.backtest-config-pane select,
 .holdings-toolbar select {
   min-width: 0;
   height: 30px;

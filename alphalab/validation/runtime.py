@@ -101,6 +101,8 @@ def execute_validation(
             raise ValidationRuntimeError(f"@analysis(id={required!r}) must return a dictionary")
     _validate_performance_output(outputs["performance"])
     _validate_attribution_output(outputs["alpha_beta"])
+    if "risk" in outputs:
+        _validate_risk_output(outputs["risk"])
     if "research_quality" in outputs:
         _validate_research_quality_output(outputs["research_quality"])
     return outputs
@@ -119,6 +121,10 @@ def _validate_research_quality_output(output: Any) -> None:
             raise ValidationRuntimeError(f"research_quality.{name} must be a bounded list of strings")
     if output["passed"] == bool(output["reasons"]):
         raise ValidationRuntimeError("research_quality.passed must agree with its failure reasons")
+    if "status" in output and output["status"] != ("pass" if output["passed"] else "fail"):
+        raise ValidationRuntimeError("research_quality.status must agree with passed")
+    if "evidence_status" in output and output["evidence_status"] not in {"pass", "fail", "insufficient"}:
+        raise ValidationRuntimeError("research_quality.evidence_status is invalid")
 
 
 def _validate_performance_output(output: dict[str, Any]) -> None:
@@ -154,6 +160,35 @@ def _validate_attribution_output(output: dict[str, Any]) -> None:
             raise ValidationRuntimeError(
                 f"alpha_beta.{name} must contain betas and estimates dictionaries"
             )
+
+
+def _validate_risk_output(output: Any) -> None:
+    if not isinstance(output, dict):
+        raise ValidationRuntimeError("risk analysis must return a dictionary")
+    if output.get("status") not in {"sufficient", "insufficient"}:
+        raise ValidationRuntimeError("risk.status must be sufficient or insufficient")
+    if not isinstance(output.get("warnings"), list) or not all(
+        isinstance(item, str) for item in output["warnings"]
+    ):
+        raise ValidationRuntimeError("risk.warnings must be a list of strings")
+    for name in ("var_95", "cvar_95", "var_99", "cvar_99"):
+        value = output.get(name)
+        if value is not None and (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 0
+        ):
+            raise ValidationRuntimeError(f"risk.{name} must be null or a finite loss")
+    tails = [output.get(name) for name in ("var_95", "cvar_95", "var_99", "cvar_99")]
+    if output["status"] == "insufficient" and any(value is not None for value in tails):
+        raise ValidationRuntimeError("insufficient risk outputs must use null tail estimates")
+    if output["status"] == "sufficient" and any(value is None for value in tails):
+        raise ValidationRuntimeError("sufficient risk outputs require every tail estimate")
+    if all(value is not None for value in tails):
+        var_95, cvar_95, var_99, cvar_99 = (float(value) for value in tails)
+        if cvar_95 + 1e-12 < var_95 or cvar_99 + 1e-12 < var_99:
+            raise ValidationRuntimeError("risk CVaR must be at least its matching VaR")
 
 
 __all__ = ["ValidationRuntimeError", "execute_validation"]

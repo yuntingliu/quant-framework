@@ -21,6 +21,7 @@ def test_public_facade_is_small_and_sdk_native():
         "create_rq_engine_from_env",
         "create_runtime_engine",
         "evaluate_factor_history",
+        "evaluate_factor_research",
         "evaluate_factor_snapshot",
         "inspect_strategy_source",
         "preview_strategy",

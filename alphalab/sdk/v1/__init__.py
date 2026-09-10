@@ -30,6 +30,13 @@ from alphalab.sdk.v1.model import (
     UniverseResult,
     Weekly,
 )
+from alphalab.sdk.v1.research import (
+    FactorNeutralizationResult,
+    PortfolioOptimizationError,
+    PortfolioOptimizationResult,
+    neutralize_factor_scores,
+    optimize_portfolio,
+)
 
 __all__ = [
     "Annotated",
@@ -37,11 +44,14 @@ __all__ = [
     "Event",
     "ExecutionContext",
     "ExecutionPolicy",
+    "FactorNeutralizationResult",
     "FactorContext",
     "Monthly",
     "Parameter",
     "PortfolioContext",
     "PortfolioDecision",
+    "PortfolioOptimizationError",
+    "PortfolioOptimizationResult",
     "SignalContext",
     "SignalResult",
     "State",
@@ -52,7 +62,9 @@ __all__ = [
     "execution",
     "execution_data_fill",
     "factor",
+    "neutralize_factor_scores",
     "on_event",
+    "optimize_portfolio",
     "portfolio",
     "schedule",
     "signal",

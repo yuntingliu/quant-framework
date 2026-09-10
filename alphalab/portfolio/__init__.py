@@ -17,9 +17,9 @@ class EqualWeightOptimizer:
             return pd.Series(dtype=float)
         raw = pd.Series(1.0, index=[str(symbol).upper() for symbol in symbols], dtype=float)
         weights = raw / raw.sum()
-        weights = weights.clip(upper=self.max_weight)
-        return weights / weights.sum() if weights.sum() > 0 else weights
+        if float(weights.max()) > self.max_weight + 1e-12:
+            raise ValueError("max_weight is infeasible for the number of symbols")
+        return weights
 
 
 __all__ = ["EqualWeightOptimizer"]
-

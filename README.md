@@ -1,5 +1,9 @@
 # AlphaLab Barebone
 
+Version 0.6.0 integrates the `dongfang` workstation and `dev_liu` research evidence.
+See [integration release notes](docs/releases/0.6.0-integration.md) for validation,
+migration and data-quality boundaries.
+
 AlphaLab is a local quantitative-research framework with provider-backed data,
 a unified Python strategy SDK, point-in-time factor evaluation, a stateful daily
 event backtester, immutable source revisions, a FastAPI/React workstation, and

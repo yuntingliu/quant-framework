@@ -17,6 +17,7 @@ import {
   type BacktestRecord,
   type BacktestRobustness,
   type BacktestSignalDiagnostics,
+  type BacktestValidation,
 } from "@/lib/api"
 import { Widget } from "@/widgets/Widget"
 
@@ -44,12 +45,18 @@ interface ValidationWorkspace {
   editable: boolean
   inspection: { entrypoints: ValidationEntrypoint[] }
 }
-type ValidationTab = "performance" | "signals" | "attribution" | "robustness" | "history"
+type ValidationTab = "performance" | "signals" | "attribution" | "validation" | "robustness" | "history"
 
 const PARAMETER_LABELS: Record<string, string> = {
   periods_per_year: "年化周期",
   risk_free_rate: "无风险年利率",
   minimum_observations: "最少回归样本",
+  minimum_signal_periods: "最少信号证据期",
+  minimum_mean_ic: "最低平均 Rank IC",
+  minimum_coverage: "最低评分覆盖率",
+  minimum_execution_fidelity: "最低执行保真度",
+  confidence_95: "VaR 置信度 95%",
+  confidence_99: "VaR 置信度 99%",
   newey_west_lags: "Newey-West 滞后阶数",
 }
 
@@ -91,6 +98,7 @@ export function ValidationWorkbenchWidget() {
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [profileBounds, setProfileBounds] = useState<ProfileFields | null>(null)
+  const [profileError, setProfileError] = useState("")
   const [configPaneWidth, setConfigPaneWidth] = useState(34)
   const [jobs, setJobs] = useState<BacktestJob[]>([])
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
@@ -99,6 +107,7 @@ export function ValidationWorkbenchWidget() {
   const [signals, setSignals] = useState<BacktestSignalDiagnostics | null>(null)
   const [attribution, setAttribution] = useState<BacktestAttribution | null>(null)
   const [robustness, setRobustness] = useState<BacktestRobustness | null>(null)
+  const [frozenValidation, setFrozenValidation] = useState<BacktestValidation | null>(null)
   const [busy, setBusy] = useState(false)
   const [loadingResult, setLoadingResult] = useState(false)
   const [error, setError] = useState("")
@@ -113,30 +122,44 @@ export function ValidationWorkbenchWidget() {
   useEffect(() => {
     let current = true
     setValidation(null); setSource(""); setValidationParameters({})
-    setAnalysis(null); setSignals(null); setAttribution(null); setRobustness(null)
+    setAnalysis(null); setSignals(null); setAttribution(null); setRobustness(null); setFrozenValidation(null)
     setRuns([]); setJobs([]); setActiveJobId(null); setError("")
-    setProfileBounds(null); setStartDate(""); setEndDate("")
+    setProfileBounds(null); setProfileError(""); setStartDate(""); setEndDate("")
     if (!projectId || !projectProfile) return
-    void Promise.all([
+    void Promise.allSettled([
       api.get<ValidationWorkspace>(`/validation/projects/${projectId}`),
       api.get<ProfileFields>(`/strategy/fields?profile=${projectProfile}`),
       api.get<BacktestRecord[]>("/backtests?limit=50"),
       api.get<BacktestJob[]>("/backtests/jobs?limit=20"),
-    ]).then(([validationWorkspace, profile, runRows, jobRows]) => {
+    ]).then(([validationResult, profileResult, runsResult, jobsResult]) => {
       if (!current) return
+      const runRows = runsResult.status === "fulfilled" ? runsResult.value : []
+      const jobRows = jobsResult.status === "fulfilled" ? jobsResult.value : []
       const projectRuns = runRows.filter((item) => item.strategy_id === projectId)
-      setValidation(validationWorkspace)
-      setSource(validationWorkspace.source)
-      setValidationParameters(parameterValues(validationWorkspace))
-      setProfileBounds(profile)
-      setStartDate(profile.start_date); setEndDate(profile.end_date)
+      // Frozen history and validation source remain readable when live data is
+      // absent or stale. Only new runs depend on current profile coverage.
+      if (validationResult.status === "fulfilled") {
+        setValidation(validationResult.value)
+        setSource(validationResult.value.source)
+        setValidationParameters(parameterValues(validationResult.value))
+      }
+      if (profileResult.status === "fulfilled") {
+        setProfileBounds(profileResult.value)
+        setStartDate(profileResult.value.start_date); setEndDate(profileResult.value.end_date)
+      } else {
+        setProfileError("当前研究数据不足，请先同步数据后运行新回测。历史验证结果仍可查看。")
+      }
+      const errors = [validationResult, runsResult, jobsResult]
+        .filter((result) => result.status === "rejected")
+        .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason))
+      setError(errors.join("；"))
       setRuns(projectRuns); setJobs(jobRows)
       const active = jobRows.find((item) => item.request?.project_id === projectId && (item.status === "queued" || item.status === "running"))
       setActiveJobId(active?.id ?? null)
       if (!projectRuns.some((item) => item.id === selectedBacktestRef.current)) {
         setSelectedBacktest(projectRuns[0]?.id ?? null)
       }
-    }).catch((reason: Error) => { if (current) setError(reason.message) })
+    })
     return () => { current = false }
   }, [projectId, projectProfile, setSelectedBacktest])
 
@@ -166,7 +189,7 @@ export function ValidationWorkbenchWidget() {
 
   const currentRunId = runs.find((run) => run.id === selectedBacktest && run.strategy_id === projectId)?.id
   useEffect(() => {
-    setAnalysis(null); setSignals(null); setAttribution(null); setRobustness(null)
+    setAnalysis(null); setSignals(null); setAttribution(null); setRobustness(null); setFrozenValidation(null)
     if (!currentRunId) {
       setLoadingResult(false)
       return
@@ -178,7 +201,8 @@ export function ValidationWorkbenchWidget() {
       api.get<BacktestSignalDiagnostics>(`/backtests/${currentRunId}/signals`),
       api.get<BacktestAttribution>(`/backtests/${currentRunId}/attribution`),
       api.get<BacktestRobustness>(`/backtests/${currentRunId}/robustness`),
-    ]).then(([analysisResult, signalResult, attributionResult, robustnessResult]) => {
+      api.get<BacktestValidation>(`/backtests/${currentRunId}/validation`),
+    ]).then(([analysisResult, signalResult, attributionResult, robustnessResult, validationResult]) => {
       if (!current) return
       if (analysisResult.status === "rejected") {
         setError(analysisResult.reason instanceof Error ? analysisResult.reason.message : String(analysisResult.reason))
@@ -187,6 +211,7 @@ export function ValidationWorkbenchWidget() {
       setSignals(signalResult.status === "fulfilled" ? signalResult.value : null)
       setAttribution(attributionResult.status === "fulfilled" ? attributionResult.value : null)
       setRobustness(robustnessResult.status === "fulfilled" ? robustnessResult.value : null)
+      setFrozenValidation(validationResult.status === "fulfilled" ? validationResult.value : null)
     }).finally(() => { if (current) setLoadingResult(false) })
     return () => { current = false }
   }, [currentRunId])
@@ -216,7 +241,7 @@ export function ValidationWorkbenchWidget() {
   })) ?? [], [analysis])
   const activeJob = jobs.find((item) => item.id === activeJobId)
   const invalidRange = Boolean(startDate && endDate && startDate > endDate)
-  const workspaceReady = !sdk.loading && validation?.project_id === projectId && Boolean(startDate && endDate)
+  const workspaceReady = !sdk.loading && validation?.project_id === projectId && Boolean(profileBounds && startDate && endDate)
 
   async function selectProject(nextId: string) {
     if (nextId === projectId || busy || sdk.loading) return
@@ -302,6 +327,26 @@ export function ValidationWorkbenchWidget() {
     finally { setBusy(false) }
   }
 
+  async function migrateDefaultValidation() {
+    if (!project || !validation?.editable || localDirty || visualDirty) return
+    if (!await confirm({
+      title: "迁移到最新验证模板",
+      description: "这会用当前官方 performance、alpha_beta、risk 和 research_quality 模板创建一个新的 validation.py revision；历史 Run 不会重算。",
+      confirmText: "创建新 revision",
+      tone: "danger",
+    })) return
+    setBusy(true); setError("")
+    try {
+      const updated = await api.post<ValidationWorkspace>(`/validation/projects/${project.id}/migrate-default`, {
+        expected_source_sha256: validation.source_sha256,
+        confirm_write: true,
+      })
+      setValidation(updated); setSource(updated.source)
+      setValidationParameters(parameterValues(updated))
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setBusy(false) }
+  }
+
   if (!project) return <Widget title="验证与回测" loading={sdk.loading} error={sdk.error}><span /></Widget>
   return (
     <Widget headerless className="validation-workbench-widget">
@@ -314,6 +359,7 @@ export function ValidationWorkbenchWidget() {
           <section className="backtest-config-pane">
             <header className="backtest-authoring-pane-header"><strong>回测配置</strong></header>
             <div className="backtest-config-pane-body">
+              {profileError ? <div className="workbench-message warning">{profileError}</div> : null}
               <div className="backtest-setup-card">
                 <label className="space-y-2 text-xs">
                   <span className="block font-medium">回测策略</span>
@@ -405,7 +451,7 @@ export function ValidationWorkbenchWidget() {
                 onSave={(nextSource) => saveValidationSource(nextSource)}
               /> : <div className="python-editor-loading">正在加载 validation.py…</div>}
             </div>
-            <footer className="backtest-python-actions"><Button disabled={!validation?.editable || busy || !localDirty || visualDirty} onClick={() => void saveValidationSource()}><Save />保存</Button></footer>
+            <footer className="backtest-python-actions"><Button variant="outline" disabled={!validation?.editable || busy || localDirty || visualDirty} onClick={() => void migrateDefaultValidation()}>迁移官方模板</Button><Button disabled={!validation?.editable || busy || !localDirty || visualDirty} onClick={() => void saveValidationSource()}><Save />保存</Button></footer>
           </section>
         </div>
       </section>
@@ -423,7 +469,7 @@ export function ValidationWorkbenchWidget() {
       <div className="workbench-tabs" role="tablist" aria-label="验证结果视图">
         {([
           ["performance", "收益与回撤"], ["signals", "信号诊断"], ["attribution", "Alpha/Beta 归因"],
-          ["robustness", "稳健性"], ["history", "历史 Run"],
+          ["validation", "风险与证据"], ["robustness", "稳健性"], ["history", "历史 Run"],
         ] as Array<[ValidationTab, string]>).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
       </div>
 
@@ -457,6 +503,10 @@ export function ValidationWorkbenchWidget() {
         </> : <div className="analytics-empty">该 Run 没有可用的归因数据。</div>}
       </div> : null}
 
+      {!loadingResult && tab === "validation" ? <div className="workbench-body">
+        {frozenValidation ? <FrozenValidationPanels value={frozenValidation} /> : <div className="analytics-empty">该 Run 没有冻结的验证输出。</div>}
+      </div> : null}
+
       {!loadingResult && tab === "robustness" ? <div className="workbench-body">
         {robustness ? <>
           <div className="backtest-verdict-summary"><div><span>研究结论</span><strong className={`research-status ${robustness.status}`}><ShieldCheck />{statusLabel(robustness.status)}</strong></div><div><span>策略年化</span><strong>{percent(robustness.metrics.strategy.annual_return)}</strong></div><div><span>超额年化</span><strong>{percent(robustness.metrics.excess.annual_return)}</strong></div><div><span>验证期超额</span><strong>{percent(robustness.validation.validation.excess?.annual_return)}</strong></div><div><span>校正后 p 值</span><strong>{number(robustness.statistical.adjusted_p_value, 3)}</strong></div></div>
@@ -473,4 +523,31 @@ export function ValidationWorkbenchWidget() {
       </section>
     </Widget>
   )
+}
+
+function FrozenValidationPanels({ value }: { value: BacktestValidation }) {
+  const risk = value.outputs.risk as Record<string, unknown> | undefined
+  const quality = value.outputs.research_quality as Record<string, unknown> | undefined
+  const portfolio = risk?.portfolio as Record<string, unknown> | undefined
+  const checks = quality?.checks as Record<string, boolean> | undefined
+  const additional = value.available_analyses.filter((name) => !["performance", "alpha_beta", "risk", "research_quality"].includes(name))
+  return <>
+    {value.warnings.map((warning) => <div key={warning} className="workbench-message warning">{warning}</div>)}
+    {risk ? <section className="mb-4">
+      <div className="backtest-section-heading"><div><strong>冻结尾部风险</strong><span>由该 Run 当时固定的 validation.py 计算。</span></div><Badge variant={risk.status === "sufficient" ? "secondary" : "outline"}>{String(risk.status)}</Badge></div>
+      {(risk.warnings as string[] | undefined)?.map((warning) => <div key={warning} className="workbench-message warning">{warning}</div>)}
+      <div className="analytics-kpi-grid workbench-kpis"><MetricCard label="VaR 95%" value={percent(risk.var_95)} /><MetricCard label="CVaR 95%" value={percent(risk.cvar_95)} /><MetricCard label="VaR 99%" value={percent(risk.var_99)} /><MetricCard label="最大回撤持续期" value={typeof risk.max_drawdown_duration_periods === "number" ? `${risk.max_drawdown_duration_periods} 期` : "—"} /><MetricCard label="最大权重" value={percent(portfolio?.max_weight)} /><MetricCard label="有效持仓数" value={number(portfolio?.effective_positions)} /></div>
+    </section> : null}
+    {quality ? <section>
+      <div className="backtest-section-heading"><div><strong>研究证据质量</strong><span>项目质量判定与信号证据分别展示；通过不代表盈利。</span></div><Badge variant={quality.status === "pass" ? "secondary" : quality.status === "fail" ? "destructive" : "outline"}>{String(quality.status)}</Badge></div>
+      {(quality.warnings as string[] | undefined)?.map((warning) => <div key={warning} className="workbench-message warning">{warning}</div>)}
+      <div className="analytics-kpi-grid workbench-kpis"><MetricCard label="信号证据状态" value={String(quality.evidence_status ?? "未评价")} /><MetricCard label="平均 Rank IC" value={number(quality.mean_rank_ic)} /><MetricCard label="Newey-West t" value={number(quality.newey_west_t_stat)} /><MetricCard label="评分覆盖率" value={percent(quality.average_coverage)} /><MetricCard label="执行保真度" value={percent(quality.execution_fidelity)} /><MetricCard label="有效证据期" value={`${String(quality.evidence_periods ?? 0)}/${String(quality.signal_periods ?? 0)}`} /></div>
+      {checks ? <div className="analytics-table-wrap"><table className="analytics-table compact"><thead><tr><th>证据检查</th><th>状态</th></tr></thead><tbody>{Object.entries(checks).map(([name, passed]) => <tr key={name}><td>{name}</td><td><Badge variant={passed ? "secondary" : "destructive"}>{passed ? "通过" : "未通过"}</Badge></td></tr>)}</tbody></table></div> : null}
+    </section> : null}
+    {additional.map((name) => <section className="mt-4" key={name}>
+      <div className="backtest-section-heading"><div><strong>{name}</strong><span>项目自定义冻结分析</span></div></div>
+      <pre className="overflow-auto rounded-md border bg-muted/30 p-3 text-xs">{JSON.stringify(value.outputs[name], null, 2)}</pre>
+    </section>)}
+    {!risk && !quality ? <div className="analytics-empty">该历史 Run 的验证模板尚未包含 risk 或 research_quality；已有分析：{value.available_analyses.join("、") || "无"}。</div> : null}
+  </>
 }
