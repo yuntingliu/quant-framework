@@ -17,6 +17,7 @@ import pandas as pd
 
 from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
 from alphalab.strategy.factor_templates import get_factor_template
+from alphalab.strategy.project_strategies import ProjectStrategies
 from alphalab.strategy.sdk_runtime import load_strategy_module, probe_sdk_operation
 from alphalab.strategy.source import (
     SourceInspection,
@@ -49,7 +50,7 @@ def normalize_project_id(value: str) -> str:
     return normalized
 
 
-class StrategyRepository:
+class StrategyRepository(ProjectStrategies):
     """Own mutable source units, their runtime bundle, and immutable packages."""
 
     def __init__(self, db_path: str | Path | None = None) -> None:
@@ -68,6 +69,7 @@ class StrategyRepository:
         self._ensure_default_risk_in_drafts()
         self._refresh_builtin_default()
         self._ensure_source_units()
+        self._ensure_strategies()
 
     def close(self) -> None:
         self._conn.close()
@@ -279,6 +281,7 @@ class StrategyRepository:
             except Exception:
                 self._conn.rollback()
                 raise
+        self._ensure_strategies()
         return self.get_project(normalized) or {}
 
     def clone_project(
@@ -459,53 +462,23 @@ class StrategyRepository:
         *,
         expected_source_sha256: str | None = None,
     ) -> dict[str, Any]:
-        observed = self._editable_row(project_id)
-        if expected_source_sha256 and observed["draft_source_sha256"] != expected_source_sha256:
-            raise RuntimeError("draft changed since it was inspected")
-        source = str(observed["draft_source"])
-        inspection = inspect_strategy_source(source)
-        self._probe_source(source, inspection)
-        with self._lock:
-            try:
-                self._conn.execute("BEGIN IMMEDIATE")
-                row = self._conn.execute(
-                    "SELECT * FROM strategy_projects WHERE id = ?",
-                    (observed["id"],),
-                ).fetchone()
-                if row is None:
-                    raise KeyError(str(observed["id"]))
-                compare_hash = expected_source_sha256 or str(observed["draft_source_sha256"])
-                if row["draft_source_sha256"] != compare_hash or row["draft_source"] != source:
-                    raise RuntimeError("draft changed while the revision was being saved")
-                current = self._conn.execute(
-                    """SELECT * FROM strategy_source_packages
-                       WHERE project_id = ? AND revision = ?""",
-                    (row["id"], int(row["current_revision"])),
-                ).fetchone()
-                if current is not None and current["source_sha256"] == inspection.source_sha256:
-                    revision = int(row["current_revision"])
-                else:
-                    revision = int(row["current_revision"]) + 1
-                    parent = int(row["current_revision"]) or None
-                    self._insert_package(row["id"], revision, parent, source, inspection)
-                    self._conn.execute(
-                        """UPDATE strategy_projects
-                           SET current_revision = ?, draft_parent_revision = ?,
-                               updated_at = datetime('now') WHERE id = ?""",
-                        (revision, revision, row["id"]),
-                    )
-                self._conn.commit()
-            except Exception:
-                self._conn.rollback()
-                raise
-        return self.get_package(str(observed["id"]), revision) or {}
+        row = self._editable_row(project_id)
+        units = self._source_unit_rows(project_id)
+        result = self._commit_source_units(
+            project_id, next(item["source"] for item in units if item["kind"] == "strategy"),
+            [item["source"] for item in units if item["kind"] == "factor"],
+            expected_source_sha256=expected_source_sha256 or row["draft_source_sha256"],
+        )
+        return self.get_package(project_id, result["current_revision"]) or {}
 
     def list_packages(self, project_id: str) -> list[dict[str, Any]]:
         normalized = normalize_project_id(project_id)
         rows = self._conn.execute(
             """SELECT * FROM strategy_source_packages
-               WHERE project_id = ? ORDER BY revision DESC""",
-            (normalized,),
+               WHERE project_id = ? AND revision IN
+                   (SELECT revision FROM project_strategy_packages WHERE project_id = ? AND strategy_id = ?)
+               ORDER BY revision DESC""",
+            (normalized, normalized, self._strategy_id),
         ).fetchall()
         return [self._package_payload(row, include_source=False) for row in rows]
 
@@ -519,7 +492,8 @@ class StrategyRepository:
         normalized = normalize_project_id(project_id)
         if revision is None:
             project = self._conn.execute(
-                "SELECT current_revision FROM strategy_projects WHERE id = ?", (normalized,)
+                "SELECT current_revision FROM project_strategies WHERE project_id = ? AND id = ?",
+                (normalized, self._strategy_id),
             ).fetchone()
             if project is None:
                 return None
@@ -554,15 +528,15 @@ class StrategyRepository:
             raise KeyError(normalized)
         if bool(row["built_in"]):
             raise PermissionError("built-in projects are immutable; clone before editing")
-        return row
+        return self._strategy_row(row)
 
     def _source_unit_rows(self, project_id: str) -> list[sqlite3.Row]:
-        return self._conn.execute(
+        return self._selected_units(self._conn.execute(
             """SELECT * FROM strategy_source_units
                WHERE project_id = ?
                ORDER BY CASE kind WHEN 'strategy' THEN 0 ELSE 1 END, position, path""",
             (normalize_project_id(project_id),),
-        ).fetchall()
+        ).fetchall())
 
     def list_source_units(self, project_id: str) -> list[dict[str, Any]]:
         normalized = normalize_project_id(project_id)
@@ -635,77 +609,10 @@ class StrategyRepository:
         *,
         expected_source_sha256: str | None = None,
     ) -> dict[str, Any]:
-        row = self._editable_row(project_id)
-        if expected_source_sha256 and row["draft_source_sha256"] != expected_source_sha256:
-            raise RuntimeError("draft changed since it was inspected")
-        bundled, inspection = assemble_strategy_source(strategy_source, factor_sources)
-        # Probe the fully assembled cross-file package before opening the write
-        # transaction.  A failed import/register probe must never leave a dirty
-        # draft or consume a revision number.
-        self._probe_source(bundled, inspection)
-        factor_ids = [item.id for item in inspection.entrypoints if item.kind == "factor"]
-        if len(factor_ids) != len(factor_sources):
-            raise StrategySourceError(
-                "assembled factor inventory is inconsistent", phase="register"
-            )
-        if any(
-            factor_id in {".", ".."} or "/" in factor_id or "\\" in factor_id
-            for factor_id in factor_ids
-        ):
-            raise StrategySourceError(
-                "factor public IDs cannot contain path separators", phase="register"
-            )
-        with self._lock:
-            try:
-                self._conn.execute("BEGIN IMMEDIATE")
-                locked = self._conn.execute(
-                    "SELECT * FROM strategy_projects WHERE id = ?",
-                    (row["id"],),
-                ).fetchone()
-                if locked is None:
-                    raise KeyError(str(row["id"]))
-                compare_hash = expected_source_sha256 or str(row["draft_source_sha256"])
-                if locked["draft_source_sha256"] != compare_hash:
-                    raise RuntimeError("draft changed while the update was being prepared")
-                current_revision = int(locked["current_revision"])
-                current = self._conn.execute(
-                    """SELECT source_sha256 FROM strategy_source_packages
-                       WHERE project_id = ? AND revision = ?""",
-                    (row["id"], current_revision),
-                ).fetchone()
-                if current is not None and current["source_sha256"] == inspection.source_sha256:
-                    revision = current_revision
-                else:
-                    revision = current_revision + 1
-                    self._insert_package(
-                        str(row["id"]),
-                        revision,
-                        current_revision or None,
-                        bundled,
-                        inspection,
-                    )
-                self._conn.execute(
-                    """UPDATE strategy_projects
-                       SET current_revision = ?, draft_parent_revision = ?,
-                           draft_source = ?, draft_source_sha256 = ?,
-                           updated_at = datetime('now')
-                       WHERE id = ?""",
-                    (
-                        revision,
-                        revision,
-                        bundled,
-                        inspection.source_sha256,
-                        row["id"],
-                    ),
-                )
-                self._write_source_units(
-                    str(row["id"]), strategy_source, factor_sources, factor_ids
-                )
-                self._conn.commit()
-            except Exception:
-                self._conn.rollback()
-                raise
-        return self.get_project(str(row["id"])) or {}
+        return self._commit_all_sources(
+            project_id, strategy_source, factor_sources,
+            expected_source_sha256=expected_source_sha256,
+        )
 
     def _insert_package_units(self, project_id: str, revision: int, bundled_source: str) -> None:
         strategy_source, factor_units = split_strategy_source(bundled_source)
@@ -783,12 +690,16 @@ class StrategyRepository:
         self._insert_package_units(project_id, revision, source)
 
     def _project_payload(self, row: sqlite3.Row, *, include_source: bool) -> dict[str, Any]:
+        row = self._strategy_row(row)
         current = self.get_package(row["id"], int(row["current_revision"]), include_source=False)
         dirty = not current or current["source_sha256"] != row["draft_source_sha256"]
         unit_rows = self._source_unit_rows(str(row["id"]))
         strategy_unit = next((item for item in unit_rows if item["kind"] == "strategy"), None)
         payload = {
             "id": row["id"],
+            "strategy_id": self._strategy_id,
+            "strategy_path": f"strategies/{self._strategy_id}.py",
+            "strategies": self.list_strategies(row["id"]),
             "name": row["name"],
             "description": row["description"],
             "profile": row["profile"],
@@ -808,7 +719,7 @@ class StrategyRepository:
                 for item in unit_rows
             ],
             "dirty": dirty,
-            "settings": _load_json(row["settings_json"], {}),
+            "settings": getattr(self, "_run_settings", _load_json(row["settings_json"], {})),
             "built_in": bool(row["built_in"]),
             "editable": not bool(row["built_in"]),
             "current_package": current,

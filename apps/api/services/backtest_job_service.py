@@ -275,6 +275,9 @@ class BacktestJobManager:
                 keyword_arguments["validation_revision"] = request.get("validation_revision")
             if "backtest_id" in parameters:
                 keyword_arguments["backtest_id"] = job_id
+            for key in ("strategy_id", "strategy_name", "settings", "batch_id"):
+                if key in parameters and key in request:
+                    keyword_arguments[key] = request[key]
             if keyword_arguments:
                 result = self._runner(
                     *arguments,
@@ -315,7 +318,7 @@ def manager() -> BacktestJobManager:
     return BacktestJobManager()
 
 
-def submit_backtest_job(request: dict) -> dict:
+def _prepare_backtest_request(request: dict, project: dict | None = None, validation: dict | None = None) -> dict:
     profile = str(request.get("profile") or "")
     if profile != "runtime":
         raise ValueError("new backtests use the runtime data profile")
@@ -327,14 +330,16 @@ def submit_backtest_job(request: dict) -> dict:
     if pd.isna(start) or pd.isna(end) or start >= end:
         raise ValueError("start_date must be before end_date")
     project_id = str(request.get("project_id") or "").strip()
-    project = strategy_service.get_project(project_id) if project_id else None
+    selected = str(request.get("strategy_id") or "main")
+    if project is None and project_id:
+        project = strategy_service.get_project(project_id, strategy_id=selected)
     if project is None:
         raise KeyError(project_id)
     raw_revision = request.get("revision")
     revision = int(raw_revision) if raw_revision is not None else int(project["current_revision"])
-    if strategy_service.get_revision(project_id, revision) is None:
+    if strategy_service.get_revision(project_id, revision, strategy_id=selected) is None:
         raise KeyError(f"{project_id}@{revision}")
-    validation = validation_service.get_workspace(project_id)
+    validation = validation or validation_service.get_workspace(project_id)
     normalized = {
         "project_id": project_id,
         "start_date": start.strftime("%Y-%m-%d"),
@@ -342,8 +347,32 @@ def submit_backtest_job(request: dict) -> dict:
         "profile": profile,
         "revision": revision,
         "validation_revision": int(validation["current_revision"]),
+        "strategy_id": selected,
+        "strategy_name": next((row["name"] for row in project.get("strategies", []) if row["id"] == selected), selected),
+        "settings": dict(project.get("settings") or {}),
     }
-    return manager().submit(normalized)
+    return normalized
+
+
+def submit_backtest_job(request: dict) -> dict:
+    return manager().submit(_prepare_backtest_request(request))
+
+
+def submit_backtest_batch(request: dict) -> dict:
+    from uuid import uuid4
+
+    ids = request["strategy_ids"]
+    if not 1 <= len(ids) <= 6 or len(set(ids)) != len(ids):
+        raise ValueError("select one to six distinct strategies")
+    snapshots = strategy_service.snapshot_project_strategies(request["project_id"], ids)
+    validation = validation_service.get_workspace(request["project_id"])
+    # Validate the whole selection before queueing any job. Source and validation
+    # packages and common project settings stay pinned while jobs wait in the queue.
+    prepared = [_prepare_backtest_request({**request, "strategy_id": value}, project, validation)
+                for value, project in zip(ids, snapshots, strict=True)]
+    batch_id = uuid4().hex
+    jobs = [manager().submit({**item, "batch_id": batch_id}) for item in prepared]
+    return {"batch_id": batch_id, "jobs": jobs}
 
 
 def get_backtest_job(job_id: str) -> dict | None:

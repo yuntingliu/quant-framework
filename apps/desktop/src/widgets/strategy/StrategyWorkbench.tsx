@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { PythonEditor } from "@/components/python"
-import { SdkDocumentation } from "@/components/shared/SdkDocumentation"
+import { ProjectStrategies } from "./ProjectStrategies"
 import { useStrategySdk, type SdkEntrypoint, type SdkParameter } from "@/contexts/StrategySdkContext"
 import { useConfirm } from "@/hooks/useConfirm"
 import { api } from "@/lib/api"
@@ -185,7 +185,7 @@ function StrategyVisualEditor({ stageGroups, factors, locked, onError, onDraftCh
   const signalEntrypoint = stageGroups.selection.find((item) => item.kind === "signal")
   const schedule = signalEntrypoint?.metadata.schedule as Record<string, string> | undefined
   const blend = (signalEntrypoint?.metadata.factor_blend ?? {}) as FactorBlendMetadata
-  const projectionVersion = `${sdk.project?.id ?? ""}:${sdk.project?.draft_source_sha256 ?? ""}`
+  const projectionVersion = `${sdk.project?.id ?? ""}:${sdk.project?.strategy_id ?? "main"}:${sdk.project?.draft_source_sha256 ?? ""}`
   const scheduleKey = `${projectionVersion}:${JSON.stringify(schedule ?? {})}`
   const blendKey = `${projectionVersion}:${JSON.stringify(blend)}`
   const parameterKey = `${projectionVersion}:${JSON.stringify(strategyEntrypoints.map((entrypoint) => [entrypoint.id, entrypoint.parameters.map((item) => [item.name, item.default])]))}`
@@ -372,6 +372,7 @@ export function StrategyWorkbenchWidget() {
   )
   const stageGroups = useMemo(() => Object.fromEntries(STAGES.map((stage) => [stage.id, strategyEntrypoints.filter((item) => stage.kinds.includes(item.kind)).sort((left, right) => stage.kinds.indexOf(left.kind) - stage.kinds.indexOf(right.kind))])) as Record<StageId, SdkEntrypoint[]>, [strategyEntrypoints])
   const projectId = project?.id ?? ""
+  const selectedStrategyId = project?.strategy_id ?? "main"
   const projectHash = project?.draft_source_sha256 ?? ""
   const moduleDirty = Boolean(project && source !== project.strategy_source)
   const visualDirty = visualDraft.edits.length > 0
@@ -383,8 +384,8 @@ export function StrategyWorkbenchWidget() {
     && !project.inspection.entrypoints.some((item) => item.kind === "execution_data_fill"),
   )
 
-  useEffect(() => setSource(project?.strategy_source ?? ""), [project?.id, project?.strategy_source, project?.draft_source_sha256])
-  useEffect(() => setPreview(null), [project?.id, project?.current_revision, project?.draft_source_sha256])
+  useEffect(() => setSource(project?.strategy_source ?? ""), [project?.id, project?.strategy_id, project?.strategy_source, project?.draft_source_sha256])
+  useEffect(() => setPreview(null), [project?.id, project?.strategy_id, project?.current_revision, project?.draft_source_sha256])
   useEffect(() => {
     if (!projectId || !visualDirty || !visualDraft.valid) {
       setSourcePreview(null)
@@ -395,7 +396,7 @@ export function StrategyWorkbenchWidget() {
     setSourcePreview(null)
     setLoadingSourcePreview(true)
     const timer = window.setTimeout(() => {
-      void api.post<VisualEditPreview>(`/strategy/projects/${projectId}/edits/preview`, {
+      void api.post<VisualEditPreview>(sdk.strategyUrl(`/edits/preview`), {
         edits: visualDraft.edits,
         expected_source_sha256: projectHash,
       }).then((payload) => {
@@ -407,7 +408,7 @@ export function StrategyWorkbenchWidget() {
       })
     }, 250)
     return () => { current = false; window.clearTimeout(timer) }
-  }, [projectHash, projectId, visualDraft.valid, visualDraftKey, visualDirty]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projectHash, projectId, selectedStrategyId, visualDraft.valid, visualDraftKey, visualDirty]) // eslint-disable-line react-hooks/exhaustive-deps
   function chooseView(next: WorkspaceView) {
     if (next === view) return
     if (visualDirty || moduleDirty) {
@@ -452,7 +453,7 @@ export function StrategyWorkbenchWidget() {
     })) return
     setBusy(true); setError("")
     try {
-      await api.post(`/strategy/projects/${project.id}/default-migration`, {
+      await api.post(sdk.strategyUrl(`/default-migration`), {
         expected_source_sha256: projectHash,
         confirm_write: true,
         confirm_python_execution: true,
@@ -468,7 +469,7 @@ export function StrategyWorkbenchWidget() {
     if (!await confirm({ title: previewLabel, description: "将运行当前已保存策略。本机 Python 不是安全沙箱。", confirmText: "运行预览" })) return
     setBusy(true); setError("")
     try {
-      setPreview(await api.post<Record<string, unknown>>(`/strategy/projects/${project.id}/preview`, { operation, profile: project.profile, revision: project.current_revision, confirm_python_execution: true }))
+      setPreview(await api.post<Record<string, unknown>>(sdk.strategyUrl(`/preview`), { operation, profile: project.profile, revision: project.current_revision, confirm_python_execution: true }))
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setBusy(false) }
   }
@@ -490,11 +491,11 @@ export function StrategyWorkbenchWidget() {
   return (
     <Widget headerless className="strategy-workbench-widget">
       <div className="strategy-business-workbench">
+        <ProjectStrategies key={project.id} locked={busy || hasUnsavedChanges} onError={setError} onBusy={setBusy} />
         {error ? <div className="workbench-message error strategy-workbench-error">{error}</div> : null}
         <main className="strategy-authoring-main strategy-authoring-main-single">
           <header className="strategy-authoring-header">
             <nav aria-label="策略工作区"><button type="button" className={view === "author" ? "active" : ""} onClick={() => chooseView("author")}><Settings2 size={14} />策略编辑</button><button type="button" className={view === "preview" ? "active" : ""} onClick={() => chooseView("preview")}><Play size={14} />可视化预览</button></nav>
-            <SdkDocumentation topic="strategy" />
           </header>
 
           <div className={`strategy-authoring-content ${view === "author" ? "strategy-authoring-content-split" : ""}`}>
@@ -509,6 +510,7 @@ export function StrategyWorkbenchWidget() {
                   {needsDefaultMigration ? <div className="workbench-message warning">这个旧项目还没有默认的交易状态补齐函数。<Button variant="outline" disabled={busy || hasUnsavedChanges} onClick={() => void migrateDefault()}>迁移最新默认项目组件</Button></div> : null}
                   {editLocked ? <div className="workbench-message warning">右侧 Python 有未保存修改；保存后才能调整左侧设置。</div> : null}
                   <StrategyVisualEditor
+                    key={`${project.id}:${project.strategy_id}`}
                     stageGroups={stageGroups}
                     factors={factorEntrypoints}
                     locked={editLocked}
@@ -537,14 +539,14 @@ export function StrategyWorkbenchWidget() {
 
               <section className="strategy-code-pane">
                 <header className="strategy-pane-header strategy-code-pane-header">
-                  <div><Code2 size={16} /><strong>完整策略 Python</strong>{sourcePreviewStatus ? <Badge variant={!visualDraft.valid ? "destructive" : "secondary"}>{sourcePreviewStatus}</Badge> : <Badge variant={moduleDirty ? "destructive" : "secondary"}>{moduleDirty ? "未保存" : "已同步"}</Badge>}</div>
+                  <div><Code2 size={16} /><strong title={project.strategy_path}>{project.strategy_id}.py</strong>{sourcePreviewStatus ? <Badge variant={!visualDraft.valid ? "destructive" : "secondary"}>{sourcePreviewStatus}</Badge> : <Badge variant={moduleDirty ? "destructive" : "secondary"}>{moduleDirty ? "未保存" : "已同步"}</Badge>}</div>
                 </header>
                 <div className="strategy-pane-scroll strategy-code-pane-scroll">
                   <div className="strategy-code-editor-view">
                     <PythonEditor
                       className="strategy-code-python-editor"
                       kind="strategy"
-                      documentId={visualDirty ? `${project.id}.visual.strategy` : `${project.id}.strategy`}
+                      documentId={visualDirty ? `${project.id}.${project.strategy_id}.visual.strategy` : `${project.id}.${project.strategy_id}.strategy`}
                       value={moduleDisplaySource}
                       version={visualDirty ? sourcePreview?.source_sha256 ?? `${projectHash}:visual-pending` : projectHash}
                       disabled={codeReadOnly}

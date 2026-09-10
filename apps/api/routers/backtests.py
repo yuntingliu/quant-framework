@@ -19,6 +19,7 @@ from apps.api.services.backtest_analytics_service import (
 from apps.api.services.backtest_job_service import (
     get_backtest_job,
     list_backtest_jobs,
+    submit_backtest_batch,
     submit_backtest_job,
     wait_backtest_job,
 )
@@ -34,6 +35,7 @@ router = APIRouter(prefix="/api/backtests", tags=["backtests"])
 
 class BacktestRequest(BaseModel):
     project_id: str = Field(min_length=1)
+    strategy_id: str = Field(default="main", pattern=r"^[a-z][a-z0-9_]{0,63}$")
     start_date: str = Field(min_length=1)
     end_date: str = Field(min_length=1)
     profile: Literal["runtime"] = "runtime"
@@ -53,6 +55,34 @@ class BacktestCompareRequest(BaseModel):
         if len(set(cleaned)) != len(cleaned):
             raise ValueError("backtest ids must be unique")
         return cleaned
+
+
+class BacktestBatchRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    strategy_ids: list[str] = Field(min_length=1, max_length=6)
+    start_date: str
+    end_date: str
+    profile: Literal["runtime"] = "runtime"
+    confirm_python_execution: bool = False
+
+    @field_validator("strategy_ids")
+    @classmethod
+    def distinct_strategies(cls, values: list[str]) -> list[str]:
+        if len(set(values)) != len(values):
+            raise ValueError("strategy ids must be unique")
+        return values
+
+
+@router.post("/batches", status_code=202)
+def create_backtest_batch(request: BacktestBatchRequest) -> dict:
+    if not request.confirm_python_execution:
+        raise HTTPException(status_code=409, detail="backtests execute trusted local Python and require confirmation")
+    try:
+        return submit_backtest_batch(request.model_dump(exclude={"confirm_python_execution"}))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="strategy not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("")

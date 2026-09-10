@@ -1,10 +1,11 @@
 # AlphaLab Architecture
 
 AlphaLab uses Strategy SDK v1 as its only active strategy-authoring and
-execution contract. A project owns trading source (`strategy.py` plus zero or
-more `factors/<factor_id>.py` units) and post-run research source
-(`validation.py`). Before strategy execution, AlphaLab deterministically
-assembles the trading units into one complete
+execution contract. A research project owns multiple independent
+`strategies/<strategy_id>.py` files, shared `factors/<factor_id>.py` units,
+one data `recipe.py`, and post-run research source `validation.py`.
+Before strategy execution, AlphaLab deterministically
+assembles the selected strategy and the shared factor library into one complete
 runtime module. Forms, Codex, factor evaluation, previews, event backtests, and
 reports pin the relevant source packages and hashes. A normal user save
 automatically records an immutable internal source package so later results
@@ -97,7 +98,7 @@ browser never persists Run credentials in local storage.
 ## Shared Python editor
 
 Every Python input is rendered by the shared Monaco-based `PythonEditor`.
-The Strategy Workbench opens the project's `strategy.py`; it contains universe, selection/scheduling,
+The Strategy Workbench opens the selected `strategies/<strategy_id>.py`; it contains universe, selection/scheduling,
 portfolio, event-risk, and execution logic, but no `@factor` definitions. The
 Factor Workbench opens the selected persistent `factors/<factor_id>.py` unit,
 which contains exactly one complete `@factor` function. Factor saves use the
@@ -131,8 +132,29 @@ framing. This is editor tooling, not another Python execution route.
 
 ## Canonical source
 
+Projects contain up to twenty independently named strategies. `project_strategies`
+owns stable strategy identities and their current source snapshots;
+`project_strategy_packages` records each strategy's package history. Identical
+source packages may be shared by copied strategies. The original project draft
+and `strategy.py` source-unit row remain the compatibility representation of
+`strategies/main.py`; historical package paths, hashes and results are never
+rewritten. Selection belongs to an individual repository instance or API request,
+never a process-wide active strategy.
+
+Shared factor saves assemble and probe all affected active strategies before one
+transaction commits their source units and package pointers. Optimistic checks
+reject a concurrent strategy or factor edit. A failed dependency probe leaves
+every strategy unchanged. Strategy names can change independently of identity.
+
+Batch backtests read up to six selected strategy versions and common settings
+in one SQLite snapshot, pin one validation version, then queue independent jobs
+on the existing execution path. A failure does not stop subsequent jobs. Results
+retain project ID, strategy ID, the submission-time name, batch ID, frozen source
+and settings. The UI tracks all project jobs and compares persisted results;
+comparison reports differences in periods, settings, execution or validation.
+
 Authoring source is split by responsibility, but there is only one executable
-contract. `strategy.py` owns imports, constants, helpers, universe, signal,
+contract. Each strategy file owns imports, constants, helpers, universe, signal,
 portfolio, event, execution-data fill, and execution registrations. Each factor unit owns one
 registered factor. `assemble_strategy_source()` inserts factor functions in a
 stable order before strategy entrypoints and validates the resulting module.
@@ -400,7 +422,7 @@ and cannot create a second authoritative result.
 | `apps/api/services/python_editor_service.py` | Local server discovery, ignored source mirrors, framing, and SDK diagnostics |
 | `apps/desktop/src/contexts/StrategySdkContext.tsx` | Shared project, draft, revision, and hash state |
 | `apps/desktop/src/components/python/` | Lazy shared Monaco model, LSP runtime, AlphaLab completion, and Problems UI |
-| `apps/desktop/src/components/shared/SdkDocumentation.tsx` | Shared factor/strategy/data/validation/report documentation drawer |
+| `apps/desktop/src/components/shared/SdkDocumentation.tsx` | Single sidebar documentation drawer, opened to the current workbench's chapter |
 | `integrations/conexus/alphalab-research-agent/` | SDK-aware bounded Agent tools and prompt |
 
 The package facade in `alphalab/__init__.py` intentionally exports only data,

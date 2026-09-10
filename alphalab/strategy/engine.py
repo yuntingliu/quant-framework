@@ -719,7 +719,7 @@ def _project_package(
     if project is None:
         raise KeyError(project_id)
     package = repository.get_package(project_id, revision)
-    if package is None:
+    if package is None or not repository.has_strategy_package(project_id, int(package["revision"])):
         raise KeyError(f"{project_id}@{revision}")
     return project, package
 

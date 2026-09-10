@@ -124,6 +124,8 @@ npm --prefix apps/desktop run dev:desktop
 Agent 服务自动选择另一个空闲本机端口，工具会收到实际 Python API 地址。
 需要固定端口时加 `--agent-port 8787`；不能与 Python 端口相同。
 停止启动器时会同时关闭本地 Agent；其日志在 `data/runtime/conexus/host.log`。
+启动器被强制结束或终端直接关闭时，Agent 也会在专用父进程管道断开后退出并释放数据目录锁。
+重复启动同一数据目录会提示已有 Host 的 PID，并保留原服务的连接信息；请先关闭原启动器。
 本地工作区一次执行一个 Run。中途退出的任务在重启后标记为取消，不自动重复执行工具。
 
 ### 配置模型

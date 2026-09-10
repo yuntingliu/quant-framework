@@ -71,6 +71,15 @@ def repository() -> StrategyRepository:
     return StrategyRepository()
 
 
+def _strategy_repository(strategy_id: str) -> StrategyRepository:
+    repo = repository()
+    try:
+        return repo.select_strategy(strategy_id)
+    except Exception:
+        repo.close()
+        raise
+
+
 def operations_store() -> OperationsStore:
     return OperationsStore()
 
@@ -95,10 +104,35 @@ def list_projects() -> list[dict[str, Any]]:
         repo.close()
 
 
-def get_project(project_id: str) -> dict[str, Any] | None:
-    repo = repository()
+def get_project(project_id: str, strategy_id: str = "main") -> dict[str, Any] | None:
+    repo = _strategy_repository(strategy_id)
     try:
         return repo.get_project(project_id)
+    finally:
+        repo.close()
+
+
+def create_project_strategy(project_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    repo = repository()
+    try:
+        return repo.create_strategy(project_id, str(payload["strategy_id"]),
+                                    name=str(payload["name"]), copy_from=str(payload.get("copy_from") or "main"))
+    finally:
+        repo.close()
+
+
+def rename_project_strategy(project_id: str, strategy_id: str, name: str) -> dict[str, Any]:
+    repo = _strategy_repository(strategy_id)
+    try:
+        return repo.rename_strategy(project_id, name=name)
+    finally:
+        repo.close()
+
+
+def snapshot_project_strategies(project_id: str, ids: list[str]) -> list[dict]:
+    repo = repository()
+    try:
+        return repo.snapshot_strategies(project_id, ids)
     finally:
         repo.close()
 
@@ -223,19 +257,21 @@ def migrate_project_default(
     project_id: str,
     *,
     expected_source_sha256: str | None = None,
+    strategy_id: str = "main",
 ) -> dict[str, Any]:
     """Explicitly advance default-owned strategy functions in a new revision."""
 
-    project = get_project(project_id)
+    project = get_project(project_id, strategy_id=strategy_id)
     if project is None:
         raise KeyError(project_id)
     if project.get("built_in"):
         raise PermissionError("built-in projects cannot be edited")
     if expected_source_sha256 and project["draft_source_sha256"] != expected_source_sha256:
         raise RuntimeError("draft changed since it was inspected")
-    repo = repository()
+    repo = _strategy_repository(strategy_id)
     try:
-        default_project = repo.get_project(DEFAULT_PROJECT_ID)
+        default_project = repo.select_strategy("main").get_project(DEFAULT_PROJECT_ID)
+        repo.select_strategy(strategy_id)
         if default_project is None:
             raise RuntimeError("built-in default project is not initialized")
         migrated_source, _ = migrate_default_strategy_components(
@@ -256,8 +292,9 @@ def update_draft(
     source: str,
     *,
     expected_source_sha256: str | None = None,
+    strategy_id: str = "main",
 ) -> dict[str, Any]:
-    repo = repository()
+    repo = _strategy_repository(strategy_id)
     try:
         return repo.update_draft(
             project_id,
@@ -273,8 +310,9 @@ def update_strategy_source(
     source: str,
     *,
     expected_source_sha256: str | None = None,
+    strategy_id: str = "main",
 ) -> dict[str, Any]:
-    repo = repository()
+    repo = _strategy_repository(strategy_id)
     try:
         return repo.update_strategy_source(
             project_id,
@@ -290,14 +328,15 @@ def add_project_factor_source(
     source: str,
     *,
     expected_source_sha256: str | None = None,
+    strategy_id: str = "main",
 ) -> dict[str, Any]:
-    project = get_project(project_id)
+    project = get_project(project_id, strategy_id=strategy_id)
     if project is None:
         raise KeyError(project_id)
     before = {
         item["id"] for item in project["inspection"]["entrypoints"] if item["kind"] == "factor"
     }
-    repo = repository()
+    repo = _strategy_repository(strategy_id)
     try:
         updated = repo.add_factor_source(
             project_id,
@@ -314,8 +353,8 @@ def add_project_factor_source(
     return {"project": updated, "factor": factor}
 
 
-def update_metadata(project_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-    repo = repository()
+def update_metadata(project_id: str, payload: Mapping[str, Any], strategy_id: str = "main") -> dict[str, Any]:
+    repo = _strategy_repository(strategy_id)
     try:
         return repo.update_metadata(project_id, **dict(payload))
     finally:
@@ -326,8 +365,9 @@ def save_revision(
     project_id: str,
     *,
     expected_source_sha256: str | None = None,
+    strategy_id: str = "main",
 ) -> dict[str, Any]:
-    repo = repository()
+    repo = _strategy_repository(strategy_id)
     try:
         return repo.save_revision(
             project_id,
@@ -337,17 +377,19 @@ def save_revision(
         repo.close()
 
 
-def list_revisions(project_id: str) -> list[dict[str, Any]]:
-    repo = repository()
+def list_revisions(project_id: str, strategy_id: str = "main") -> list[dict[str, Any]]:
+    repo = _strategy_repository(strategy_id)
     try:
         return repo.list_packages(project_id)
     finally:
         repo.close()
 
 
-def get_revision(project_id: str, revision: int) -> dict[str, Any] | None:
-    repo = repository()
+def get_revision(project_id: str, revision: int, strategy_id: str = "main") -> dict[str, Any] | None:
+    repo = _strategy_repository(strategy_id)
     try:
+        if not repo.has_strategy_package(project_id, revision):
+            return None
         return repo.get_package(project_id, revision)
     finally:
         repo.close()
@@ -378,8 +420,9 @@ def add_project_factor_template(
     template_id: str,
     *,
     expected_source_sha256: str | None = None,
+    strategy_id: str = "main",
 ) -> dict[str, Any]:
-    project = get_project(project_id)
+    project = get_project(project_id, strategy_id=strategy_id)
     if project is None:
         raise KeyError(project_id)
     if expected_source_sha256 and expected_source_sha256 != project["draft_source_sha256"]:
@@ -394,6 +437,7 @@ def add_project_factor_template(
         project_id,
         updated,
         expected_source_sha256=project["draft_source_sha256"],
+        strategy_id=strategy_id,
     )
     inspection_payload = inspection.to_dict()
     installed_factor = next(
@@ -409,8 +453,8 @@ def add_project_factor_template(
     }
 
 
-def get_entrypoint_source(project_id: str, entrypoint_id: str) -> dict[str, Any]:
-    project = get_project(project_id)
+def get_entrypoint_source(project_id: str, entrypoint_id: str, strategy_id: str = "main") -> dict[str, Any]:
+    project = get_project(project_id, strategy_id=strategy_id)
     if project is None:
         raise KeyError(project_id)
     entrypoint = next(
@@ -420,7 +464,7 @@ def get_entrypoint_source(project_id: str, entrypoint_id: str) -> dict[str, Any]
     if entrypoint is None:
         raise KeyError(entrypoint_id)
     if entrypoint["kind"] == "factor":
-        repo = repository()
+        repo = _strategy_repository(strategy_id)
         try:
             source = repo.get_factor_source(project_id, entrypoint_id)["source"]
         finally:
@@ -473,8 +517,8 @@ def _apply_structured_edit(source: str, payload: Mapping[str, Any]) -> tuple[str
     raise ValueError("unsupported structured edit operation")
 
 
-def preview_structured_edits(project_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-    project = get_project(project_id)
+def preview_structured_edits(project_id: str, payload: Mapping[str, Any], strategy_id: str = "main") -> dict[str, Any]:
+    project = get_project(project_id, strategy_id=strategy_id)
     if project is None:
         raise KeyError(project_id)
     expected = payload.get("expected_source_sha256")
@@ -494,8 +538,8 @@ def preview_structured_edits(project_id: str, payload: Mapping[str, Any]) -> dic
     }
 
 
-def structured_edit(project_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-    project = get_project(project_id)
+def structured_edit(project_id: str, payload: Mapping[str, Any], strategy_id: str = "main") -> dict[str, Any]:
+    project = get_project(project_id, strategy_id=strategy_id)
     if project is None:
         raise KeyError(project_id)
     expected = payload.get("expected_source_sha256")
@@ -510,7 +554,7 @@ def structured_edit(project_id: str, payload: Mapping[str, Any]) -> dict[str, An
     if operation in {"replace_function", "delete_function"} and entrypoint is None:
         raise KeyError(entrypoint_id)
     if operation == "replace_function" and entrypoint["kind"] == "factor":
-        repo = repository()
+        repo = _strategy_repository(strategy_id)
         try:
             updated_project = repo.replace_factor_source(
                 project_id,
@@ -525,7 +569,7 @@ def structured_edit(project_id: str, payload: Mapping[str, Any]) -> dict[str, An
             "inspection": updated_project["inspection"],
         }
     if operation == "delete_function" and entrypoint["kind"] == "factor":
-        repo = repository()
+        repo = _strategy_repository(strategy_id)
         try:
             updated_project = repo.delete_factor_source(
                 project_id,
@@ -551,6 +595,7 @@ def structured_edit(project_id: str, payload: Mapping[str, Any]) -> dict[str, An
         project_id,
         updated,
         expected_source_sha256=project["draft_source_sha256"],
+        strategy_id=strategy_id,
     )
     return {
         "project": project,
@@ -558,8 +603,8 @@ def structured_edit(project_id: str, payload: Mapping[str, Any]) -> dict[str, An
     }
 
 
-def insertion(project_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-    project = get_project(project_id)
+def insertion(project_id: str, payload: Mapping[str, Any], strategy_id: str = "main") -> dict[str, Any]:
+    project = get_project(project_id, strategy_id=strategy_id)
     if project is None:
         raise KeyError(project_id)
     expected = payload.get("expected_source_sha256")
@@ -593,6 +638,7 @@ def insertion(project_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         project_id,
         updated,
         expected_source_sha256=project["draft_source_sha256"],
+        strategy_id=strategy_id,
     )
     return {
         "project": updated_project,
@@ -610,6 +656,7 @@ def preview_project(
     profile: str,
     as_of_date: str | None,
     revision: int | None,
+    strategy_id: str = "main",
 ) -> dict[str, Any]:
     if profile != "runtime":
         raise ValueError("strategy previews use the runtime data profile")
@@ -617,7 +664,7 @@ def preview_project(
     decision_date = as_of_date or profile_end
     if pd.Timestamp(decision_date) > pd.Timestamp(profile_end):
         decision_date = profile_end
-    repo = repository()
+    repo = _strategy_repository(strategy_id)
     try:
         result = preview_strategy(
             repo,
@@ -640,10 +687,11 @@ def factor_snapshot(
     as_of_date: str,
     revision: int | None,
     parameters: Mapping[str, Any] | None,
+    strategy_id: str = "main",
 ) -> dict[str, Any]:
     if profile != "runtime":
         raise ValueError("factor evaluations use the runtime data profile")
-    repo = repository()
+    repo = _strategy_repository(strategy_id)
     try:
         return evaluate_factor_snapshot(
             repo,
@@ -668,10 +716,11 @@ def factor_history(
     revision: int | None,
     parameters: Mapping[str, Any] | None,
     frequency: str,
+    strategy_id: str = "main",
 ) -> dict[str, Any]:
     if profile != "runtime":
         raise ValueError("factor evaluations use the runtime data profile")
-    repo = repository()
+    repo = _strategy_repository(strategy_id)
     try:
         return evaluate_factor_history(
             repo,
@@ -700,10 +749,11 @@ def factor_research(
     frequency: str,
     quantiles: int,
     horizons: Sequence[int],
+    strategy_id: str = "main",
 ) -> dict[str, Any]:
     if profile != "runtime":
         raise ValueError("factor evaluations use the runtime data profile")
-    repo = repository()
+    repo = _strategy_repository(strategy_id)
     try:
         return evaluate_factor_research(
             repo,
@@ -730,11 +780,21 @@ def run_project_backtest(
     revision: int | None = None,
     validation_revision: int | None = None,
     backtest_id: str | None = None,
+    strategy_id: str = "main",
+    strategy_name: str | None = None,
+    settings: dict | None = None,
+    batch_id: str | None = None,
 ) -> dict[str, Any]:
     if profile not in {"demo", "runtime"}:
         raise ValueError("profile must be demo or runtime")
-    repo = repository()
+    repo = _strategy_repository(strategy_id)
+    if settings is not None:
+        repo.use_run_settings(settings)
     try:
+        selected_project = repo.get_project(project_id, include_source=False)
+        if selected_project is None:
+            raise KeyError(project_id)
+        strategy_name = strategy_name or next(row["name"] for row in selected_project["strategies"] if row["id"] == strategy_id)
         validation_repo = ValidationRepository(repo.path)
         try:
             validation_package = validation_repo.get_package(project_id, validation_revision)
@@ -839,17 +899,19 @@ def run_project_backtest(
         "frequency": "daily",
         "execution_price": "next_open",
     }
+    provenance["project_strategy"] = {"id": strategy_id, "name": strategy_name, "batch_id": batch_id}
+    subject_id = project_id if strategy_id == "main" else f"{project_id}/{strategy_id}"
     store = ResultStore()
     try:
         store.ensure_backtest_subject(
-            run.project["id"],
-            f"sqlite:strategy_projects/{run.project['id']}",
+            subject_id,
+            f"sqlite:strategy_projects/{project_id}/strategies/{strategy_id}",
             run.project["description"],
         )
         backtest_id = store.save_backtest(
             returns,
             metrics,
-            strategy_id=run.project["id"],
+            strategy_id=subject_id,
             benchmark=benchmark,
             weights=weights,
             start_date=start_date,
@@ -868,6 +930,9 @@ def run_project_backtest(
             settings=dict(run.project["settings"]),
             attribution=attribution,
             strategy_project_id=run.project["id"],
+            project_strategy_id=strategy_id,
+            strategy_name=strategy_name,
+            batch_id=batch_id,
             strategy_revision=run.package["revision"],
             strategy_source_sha256=run.package["source_sha256"],
             strategy_manifest=frozen_strategy_manifest,
@@ -883,7 +948,10 @@ def run_project_backtest(
     return {
         "id": backtest_id,
         "project_id": run.project["id"],
-        "strategy_id": run.project["id"],
+        "strategy_id": subject_id,
+        "project_strategy_id": strategy_id,
+        "strategy_name": strategy_name,
+        "batch_id": batch_id,
         "strategy_type": "sdk_v1",
         "revision": run.package["revision"],
         "start_date": start_date,

@@ -16,6 +16,7 @@ import { useAgentPrompt, type AgentDecisionNotebook } from "@/contexts/AgentProm
 import { useGlobalFilter } from "@/contexts/GlobalFilterContext"
 import { useLanguage } from "@/contexts/LanguageContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
+import { useStrategySdk } from "@/contexts/StrategySdkContext"
 import { usePublishedAgent } from "@/hooks/usePublishedAgent"
 import type {
   AgentToolActivity,
@@ -233,6 +234,7 @@ function Artifact({ artifact }: { artifact: PublishedHarnessArtifact }) {
 }
 
 export function ResearchAgentPanel() {
+  const sdk = useStrategySdk()
   const { language } = useLanguage()
   const workspace = useWorkspace()
   const { selectedFactors, startDate, endDate } = useGlobalFilter()
@@ -370,6 +372,7 @@ export function ResearchAgentPanel() {
       selectedSymbol: workspace.selectedSymbol,
       linkSymbols: workspace.linkSymbols,
       selectedProjectId: workspace.selectedStrategy,
+      selectedStrategyId: sdk.project?.strategy_id ?? "main",
       selectedBacktest: workspace.selectedBacktest,
       signalAsOfDate: workspace.signalAsOfDate,
       workspaceCapabilities: WORKSPACE_CAPABILITIES,

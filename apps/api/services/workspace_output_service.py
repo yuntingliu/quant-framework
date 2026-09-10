@@ -58,7 +58,7 @@ def prepare_workspace_outputs(request_id: str, outputs: dict[str, Any]) -> dict[
             semantic_errors.append("widgetId must be a declared AlphaLab workbench")
         if kind in {"switch_mode", "open_widget", "open_result"} and any(position > index for position in focus_indexes):
             semantic_errors.append("set_focus must precede mode and open commands")
-        if kind == "set_focus" and not any(key in command for key in ("projectId", "backtestId", "symbol", "date")):
+        if kind == "set_focus" and not any(key in command for key in ("projectId", "strategyId", "backtestId", "symbol", "date")):
             semantic_errors.append("set_focus requires a project, backtest, symbol, or date")
     if semantic_errors:
         return _invalid(list(dict.fromkeys(semantic_errors)))

@@ -259,6 +259,13 @@ def analyze_record(record: dict) -> dict:
     return {
         "id": record["id"],
         "strategy_id": record.get("strategy_id") or "unknown",
+        "strategy_name": record.get("strategy_name") or record.get("strategy_id") or "unknown",
+        "comparison_conditions": {
+            "settings": record.get("settings"),
+            "data_snapshot": ((record.get("provenance") or {}).get("data") or {}).get("aggregate_sha256"),
+            "validation_source_sha256": record.get("validation_source_sha256"),
+            "execution": [item for item in record.get("strategy_manifest", []) if item.get("kind") == "execution"],
+        },
         "profile": record.get("profile") or "demo",
         "start_date": record.get("start_date"),
         "end_date": record.get("end_date"),
@@ -825,18 +832,23 @@ def compare_backtests(backtest_ids: list[str]) -> dict:
     series = {}
     labels = {}
     metrics = []
+    names = {row["id"]: row.get("strategy_name") or row["strategy_id"] for row in analyses}
+    conditions = [{"start_date": row.get("start_date"), "end_date": row.get("end_date"),
+                   "profile": row.get("profile"), **(row.get("comparison_conditions") or {})}
+                  for row in analyses]
     for analysis in analyses:
         values = dict(zip(analysis["dates"], analysis["equity_curve"], strict=True))
         backtest_id = analysis["id"]
         series[backtest_id] = [values.get(date) for date in all_dates]
         labels[backtest_id] = (
-            f"{analysis['strategy_id']} · "
+            f"{names[backtest_id]} · "
             f"{str(analysis.get('start_date') or '')[:7]}–{str(analysis.get('end_date') or '')[:7]}"
         )
         metrics.append(
             {
                 "id": backtest_id,
                 "strategy_id": analysis["strategy_id"],
+                "strategy_name": names[backtest_id],
                 "profile": analysis.get("profile") or "demo",
                 "start_date": analysis.get("start_date"),
                 "end_date": analysis.get("end_date"),
@@ -850,4 +862,6 @@ def compare_backtests(backtest_ids: list[str]) -> dict:
         "series": series,
         "labels": labels,
         "metrics": metrics,
+        "warnings": (["回测区间、数据快照、项目设置、执行规则或验证版本不同，请结合条件差异解读结果。"]
+                     if any(item != conditions[0] for item in conditions[1:]) else []),
     }

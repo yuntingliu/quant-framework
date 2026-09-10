@@ -16,14 +16,17 @@ Every project has exactly these authoring boundaries:
 ```text
 recipe.py
 factors/<factor_id>.py
-strategy.py
+strategies/<strategy_id>.py
 validation.py
 ```
 
-`sdk-v1-default` is the only project template and is read-only. Creating a
-strategy means creating a fresh project from it; never reuse the selected
-project unless the user explicitly asks to modify that project. All four Python
-boundaries therefore start from maintained templates. Install additional
+`sdk-v1-default` is the only project template and is read-only. A research
+project contains multiple strategies sharing its recipe, factor library and
+validation code. Create a project only for a new research project; when adding
+a strategy to the current project, use `strategies.create`. Use the current
+`workspaceContext.selectedProjectId` and `selectedStrategyId` for requests about
+the selected strategy. Each strategy file defines one full SDK strategy and is
+assembled independently. Existing `strategy.py` is the legacy alias for `main`. Install additional
 factors from a factor template before editing them when a suitable template
 exists. A factor file is self-contained and contains exactly one registered
 `@factor` function. The runtime supplies the documented SDK prelude; do not
@@ -43,13 +46,18 @@ or trusted-local Python authority.
 ## Project-files commands
 
 - `projects.list`: no args.
-- `projects.get`: `project_id`.
+- `projects.get`: `project_id`; optional `strategy_id` (default `main`). Returns the project strategy inventory.
 - `projects.create`: `project_id`, `name`; optional `description`, `settings`,
   `function_replacements`, `data_requirements`, `factors`,
   `recipe_parameters`, and `validation_parameter_edits`. Requires
   `confirm_write=true` and `confirm_python_execution=true`. This is the atomic
   path for a new research project: use registered-function replacements and
   factor-template instances instead of submitting four unrelated blank files.
+- `strategies.create`: `project_id`, `strategy_id`, `name`; optional
+  `copy_from` (default `main`). Copies an already validated strategy and its
+  current source snapshot. Requires `confirm_write=true`.
+- `strategies.rename`: `project_id`, `strategy_id`, `name`. Requires
+  `confirm_write=true`; identity and historical results stay unchanged.
 - `projects.update`: `project_id`; optional `name`, `description`, `settings`.
   Requires `confirm_write=true`.
 - `projects.migrate_default`: `project_id`; optional
@@ -59,14 +67,17 @@ or trusted-local Python authority.
   explicit current-user deletion request.
 - `files.list`: `project_id`.
 - `files.read`: `project_id`, `paths` containing only `recipe.py`,
-  `strategy.py`, `validation.py`, or selected `factors/<id>.py` paths. Read only
+  `strategies/<id>.py`, `validation.py`, or selected `factors/<id>.py` paths. Read only
   files needed for the current change.
 - `files.write`: `project_id`, `path`, `content`; optional
-  `expected_source_sha256`. Requires write and Python confirmation. The server
+  `strategy_id`, `expected_source_sha256`. A strategy file path selects that exact
+  strategy; pass `strategy_id` for shared-factor operations using its snapshot.
+  Requires write and Python confirmation. The server
   validates the canonical file and records the resulting strategy or validation
   revision. It never writes arbitrary server paths. Existing factor files are
   replaced as one complete registered factor; a new factor must still be a
-  valid single-factor source unit.
+  valid single-factor source unit. Shared-factor writes validate every active
+  strategy atomically; an invalid dependency leaves all strategies unchanged.
 - `files.install_factor_template`: `project_id`, `template_id`; optional
   `expected_source_sha256`. Requires write and Python confirmation.
 - `templates.factors`: no args.
@@ -118,10 +129,15 @@ individual project file.
   `frequency`, `parameters`, `quantiles` (3–10), and `horizons` (unique values
   from 1–12, including 1). Requires Python confirmation. Returns bounded IC,
   decay, grouping, and holdout evidence from the canonical factor evaluator.
-- `strategy.preview`: `project_id`; optional `operation` (`signal`,
+- `strategy.preview`: `project_id`, `strategy_id`; optional `operation` (`signal`,
   `portfolio`, or `execution`) and `as_of_date`. Requires Python confirmation.
-- `backtest.run`: `project_id`, `start_date`, `end_date`. Requires Python
+- `backtest.run`: `project_id`, `strategy_id`, `start_date`, `end_date`. Requires Python
   confirmation and immediately returns a background job ID.
+- `backtest.batch`: `project_id`, `strategy_ids` (one to six distinct IDs),
+  `start_date`, `end_date`. Requires Python confirmation. Returns a batch ID
+  and one job ID per strategy. Poll each job; one failure does not stop others.
+  Source snapshots, validation and common project settings are pinned at
+  submission. Use `backtest.compare` with the successful result IDs.
 - `backtest.status`: `job_id`.
 - `backtest.wait`: `job_id`; optional `wait_seconds` from 1 to 30, default 25.
   Prefer this while a job is active instead of rapid status polling.
@@ -138,8 +154,12 @@ individual project file.
 
 ## Research workflow
 
-For a new strategy, create one new project first and retain the returned
-`project_id` for every later file, run, report, and workspace-focus operation.
+For a new research project, create it first and retain the returned `project_id`.
+For a new strategy within an existing project, create it there and retain both
+`project_id` and `strategy_id` for file, preview, run, and focus operations.
+Use `set_focus` with both `projectId` and `strategyId` to show that strategy.
+For comparison experiments, reuse shared factors and compare independent runs;
+never assemble multiple strategies into a single runtime module.
 Default to the full point-in-time ordinary-stock universe: start with
 `context.universe`, then explicitly filter `context.instruments()` to
 `asset_type == "CS"`. Only narrow it for an explicitly requested fixed, index,

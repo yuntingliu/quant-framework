@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -151,3 +152,81 @@ def test_local_agent_calls_python_tools_persists_report_and_recovers(tmp_path, m
         model.shutdown()
         model.server_close()
         thread.join(timeout=3)
+
+
+def test_duplicate_launcher_preserves_existing_host_connection(tmp_path, monkeypatch):
+    monkeypatch.setattr("alphalab.local_agent.RUNTIME_DIR", tmp_path / "runtime")
+    monkeypatch.setenv("CONEXUS_MODEL_ID", "")
+    monkeypatch.setenv("CONEXUS_MODEL_BASE_URL", "")
+    connection = tmp_path / "runtime/conexus/secrets/alphalab-connection.json"
+    lock = tmp_path / "runtime/conexus/project/host.lock"
+    with local_agent(ROOT, api_port=free_port()) as child:
+        original = connection.read_bytes()
+        origin = json.loads(original)["origin"]
+        with pytest.raises(RuntimeError, match=f"already locked by Host PID {child.pid}"):
+            with local_agent(ROOT, api_port=free_port()):
+                pytest.fail("Two Hosts must not own the same data directory.")
+        assert child.poll() is None
+        assert connection.read_bytes() == original
+        assert int(lock.read_text()) == child.pid
+        with httpx.Client(trust_env=False, timeout=2) as client:
+            assert client.get(f"{origin}/health").json()["ok"] is True
+    assert child.returncode == 0
+    assert not lock.exists()
+
+
+def test_abrupt_launcher_exit_releases_host_and_allows_restart(tmp_path, monkeypatch):
+    runtime = tmp_path / "runtime"
+    monkeypatch.setattr("alphalab.local_agent.RUNTIME_DIR", runtime)
+    monkeypatch.setenv("ALPHALAB_RUNTIME_DIR", str(runtime))
+    monkeypatch.setenv("CONEXUS_MODEL_ID", "")
+    monkeypatch.setenv("CONEXUS_MODEL_BASE_URL", "")
+    connection = runtime / "conexus/secrets/alphalab-connection.json"
+    lock = runtime / "conexus/project/host.lock"
+    state = runtime / "conexus/project/state.json"
+    # os._exit skips every Python finally block, as a forced launcher exit does.
+    # Trigger it in the actual interpreter, including Windows venv subprocesses.
+    script = """
+import os, sys
+from pathlib import Path
+from alphalab.local_agent import local_agent
+with local_agent(Path.cwd(), api_port=int(sys.argv[1])):
+    sys.stdin.buffer.read(1)
+    os._exit(23)
+"""
+    with (tmp_path / "launcher.log").open("w", encoding="utf-8") as log:
+        launcher = subprocess.Popen(
+            [sys.executable, "-u", "-c", script, str(free_port())],
+            cwd=ROOT, env=os.environ.copy(), stdin=subprocess.PIPE, stdout=log, stderr=log,
+        )
+        try:
+            deadline = time.monotonic() + 30
+            while not connection.exists() and time.monotonic() < deadline:
+                assert launcher.poll() is None, (tmp_path / "launcher.log").read_text()
+                time.sleep(0.1)
+            assert connection.exists(), (tmp_path / "launcher.log").read_text()
+            connected = json.loads(connection.read_text())
+            with httpx.Client(trust_env=False, timeout=2) as client:
+                assert client.get(f"{connected['origin']}/health").json()["ok"] is True
+            persisted = json.loads(state.read_text(encoding="utf-8"))
+            launcher.stdin.write(b"x")
+            launcher.stdin.flush()
+            assert launcher.wait(timeout=10) == 23
+            deadline = time.monotonic() + 15
+            while lock.exists() and time.monotonic() < deadline:
+                time.sleep(0.1)
+            assert not lock.exists(), "The orphan Host did not release its lock."
+            assert json.loads(state.read_text(encoding="utf-8")) == persisted
+            with socket.socket() as probe:
+                probe.settimeout(0.5)
+                host_port = int(connected["origin"].rsplit(":", 1)[1])
+                assert probe.connect_ex(("127.0.0.1", host_port)) != 0
+            with local_agent(ROOT, api_port=free_port()) as restarted:
+                assert json.loads(connection.read_text())["pid"] == restarted.pid
+                assert json.loads(state.read_text(encoding="utf-8"))["nodes"] == persisted["nodes"]
+            assert restarted.returncode == 0
+            assert not lock.exists()
+        finally:
+            launcher.stdin.close()
+            if launcher.poll() is None:
+                launcher.wait(timeout=35)

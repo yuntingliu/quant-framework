@@ -92,6 +92,9 @@ def get_backtest(backtest_id: str) -> dict | None:
     record["component_manifest"] = _json_payload(record.pop("component_manifest_json", None), [])
     record["strategy_manifest"] = _json_payload(record.pop("strategy_manifest_json", None), [])
     record["settings"] = _json_payload(record.pop("settings_json", None), {})
+    record["project_id"] = record.get("strategy_project_id") or record.get("strategy_id")
+    record["project_strategy_id"] = record.get("project_strategy_id") or "main"
+    record["strategy_name"] = record.get("strategy_name") or record.get("strategy_id")
     return record
 
 
@@ -314,6 +317,9 @@ def build_backtest_summary(record: dict) -> dict:
         "project_id": record.get("project_id")
         or record.get("strategy_project_id")
         or record.get("strategy_id"),
+        "strategy_id": record.get("project_strategy_id") or "main",
+        "strategy_name": record.get("strategy_name"),
+        "batch_id": record.get("batch_id"),
         "metrics": dict(record.get("metrics") or {}),
         "period": {
             "start_date": period.get("start_date", record.get("start_date")),
@@ -388,6 +394,9 @@ def list_backtests(limit: int = 20) -> list[dict]:
     records = frame.fillna("").to_dict("records")
     for record in records:
         record["profile"] = _backtest_profile(record.get("tags"))
+        record["project_id"] = record.get("strategy_project_id") or record.get("strategy_id")
+        record["project_strategy_id"] = record.get("project_strategy_id") or "main"
+        record["strategy_name"] = record.get("strategy_name") or record.get("strategy_id")
     return records
 
 

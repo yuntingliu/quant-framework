@@ -353,11 +353,44 @@ def factor_templates() -> dict[str, Any]:
 
 
 @router.get("/projects/{project_id}")
-def project(project_id: str) -> dict[str, Any]:
-    item = strategy_service.get_project(project_id)
+def project(project_id: str, strategy_id: str = "main") -> dict[str, Any]:
+    try:
+        item = strategy_service.get_project(project_id, strategy_id=strategy_id)
+    except Exception as exc:
+        raise _translate_error(exc) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="strategy project not found")
     return item
+
+
+class ProjectStrategyRequest(BaseModel):
+    strategy_id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    name: str = Field(min_length=1, max_length=100)
+    copy_from: str = "main"
+    confirm_write: bool = False
+
+
+class StrategyNameRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    confirm_write: bool = False
+
+
+@router.post("/projects/{project_id}/strategies", status_code=201)
+def create_strategy(project_id: str, request: ProjectStrategyRequest) -> dict[str, Any]:
+    _confirmed(request.confirm_write, "creating a strategy requires confirmation")
+    try:
+        return strategy_service.create_project_strategy(project_id, request.model_dump(exclude={"confirm_write"}))
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.put("/projects/{project_id}/strategies/{strategy_id}/name")
+def rename_strategy(project_id: str, strategy_id: str, request: StrategyNameRequest) -> dict[str, Any]:
+    _confirmed(request.confirm_write, "renaming a strategy requires confirmation")
+    try:
+        return strategy_service.rename_project_strategy(project_id, strategy_id, request.name)
+    except Exception as exc:
+        raise _translate_error(exc) from exc
 
 
 @router.post("/projects", status_code=201)
@@ -377,7 +410,7 @@ def create_project(request: CreateProjectRequest) -> dict[str, Any]:
 
 
 @router.post("/projects/{project_id}/default-migration")
-def migrate_project_default(project_id: str, request: DefaultMigrationRequest) -> dict[str, Any]:
+def migrate_project_default(project_id: str, request: DefaultMigrationRequest, strategy_id: str = "main") -> dict[str, Any]:
     _confirmed(request.confirm_write, "migrating default project components requires confirmation")
     _confirmed(
         request.confirm_python_execution,
@@ -387,13 +420,14 @@ def migrate_project_default(project_id: str, request: DefaultMigrationRequest) -
         return strategy_service.migrate_project_default(
             project_id,
             expected_source_sha256=request.expected_source_sha256,
+            strategy_id=strategy_id,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
 
 
 @router.put("/projects/{project_id}/draft")
-def save_draft(project_id: str, request: DraftRequest) -> dict[str, Any]:
+def save_draft(project_id: str, request: DraftRequest, strategy_id: str = "main") -> dict[str, Any]:
     _confirmed(request.confirm_write, "updating strategy source requires confirmation")
     _confirmed(
         request.confirm_python_execution,
@@ -404,47 +438,53 @@ def save_draft(project_id: str, request: DraftRequest) -> dict[str, Any]:
             project_id,
             request.source,
             expected_source_sha256=request.expected_source_sha256,
+            strategy_id=strategy_id,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
 
 
 @router.put("/projects/{project_id}/metadata")
-def save_metadata(project_id: str, request: MetadataRequest) -> dict[str, Any]:
+def save_metadata(project_id: str, request: MetadataRequest, strategy_id: str = "main") -> dict[str, Any]:
     _confirmed(request.confirm_write, "updating project metadata requires confirmation")
     try:
         return strategy_service.update_metadata(
             project_id,
             request.model_dump(exclude={"confirm_write"}),
+            strategy_id=strategy_id,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
 
 
 @router.post("/projects/{project_id}/revisions", status_code=201)
-def create_revision(project_id: str, request: SaveRevisionRequest) -> dict[str, Any]:
+def create_revision(project_id: str, request: SaveRevisionRequest, strategy_id: str = "main") -> dict[str, Any]:
     _confirmed(request.confirm_save, "saving an immutable strategy revision requires confirmation")
     _confirmed(request.confirm_python_execution, "strategy probes execute trusted local Python")
     try:
         return strategy_service.save_revision(
             project_id,
             expected_source_sha256=request.expected_source_sha256,
+            strategy_id=strategy_id,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
 
 
 @router.get("/projects/{project_id}/revisions")
-def revisions(project_id: str) -> list[dict[str, Any]]:
+def revisions(project_id: str, strategy_id: str = "main") -> list[dict[str, Any]]:
     try:
-        return strategy_service.list_revisions(project_id)
+        return strategy_service.list_revisions(project_id, strategy_id=strategy_id)
     except Exception as exc:
         raise _translate_error(exc) from exc
 
 
 @router.get("/projects/{project_id}/revisions/{revision}")
-def revision(project_id: str, revision: int) -> dict[str, Any]:
-    item = strategy_service.get_revision(project_id, revision)
+def revision(project_id: str, revision: int, strategy_id: str = "main") -> dict[str, Any]:
+    try:
+        item = strategy_service.get_revision(project_id, revision, strategy_id=strategy_id)
+    except Exception as exc:
+        raise _translate_error(exc) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="strategy revision not found")
     return item
@@ -459,15 +499,15 @@ def validate(request: SourceValidationRequest) -> dict[str, Any]:
 
 
 @router.get("/projects/{project_id}/entrypoints/{entrypoint_id}/source")
-def entrypoint_source(project_id: str, entrypoint_id: str) -> dict[str, Any]:
+def entrypoint_source(project_id: str, entrypoint_id: str, strategy_id: str = "main") -> dict[str, Any]:
     try:
-        return strategy_service.get_entrypoint_source(project_id, entrypoint_id)
+        return strategy_service.get_entrypoint_source(project_id, entrypoint_id, strategy_id=strategy_id)
     except Exception as exc:
         raise _translate_error(exc) from exc
 
 
 @router.post("/projects/{project_id}/edits")
-def edit(project_id: str, request: StructuredEditRequest) -> dict[str, Any]:
+def edit(project_id: str, request: StructuredEditRequest, strategy_id: str = "main") -> dict[str, Any]:
     _confirmed(request.confirm_write, "updating strategy source requires confirmation")
     _confirmed(
         request.confirm_python_execution,
@@ -480,17 +520,19 @@ def edit(project_id: str, request: StructuredEditRequest) -> dict[str, Any]:
                 exclude={"confirm_write", "confirm_python_execution"},
                 exclude_none=True,
             ),
+            strategy_id=strategy_id,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
 
 
 @router.post("/projects/{project_id}/edits/preview")
-def preview_edits(project_id: str, request: StructuredEditPreviewRequest) -> dict[str, Any]:
+def preview_edits(project_id: str, request: StructuredEditPreviewRequest, strategy_id: str = "main") -> dict[str, Any]:
     try:
         return strategy_service.preview_structured_edits(
             project_id,
             request.model_dump(exclude_none=True),
+            strategy_id=strategy_id,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
@@ -498,7 +540,8 @@ def preview_edits(project_id: str, request: StructuredEditPreviewRequest) -> dic
 
 @router.post("/projects/{project_id}/factor-templates/{template_id}")
 def add_factor_template(
-    project_id: str, template_id: str, request: AddFactorTemplateRequest
+    project_id: str, template_id: str, request: AddFactorTemplateRequest,
+    strategy_id: str = "main",
 ) -> dict[str, Any]:
     _confirmed(request.confirm_write, "adding a factor template requires confirmation")
     _confirmed(
@@ -510,13 +553,14 @@ def add_factor_template(
             project_id,
             template_id,
             expected_source_sha256=request.expected_source_sha256,
+            strategy_id=strategy_id,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
 
 
 @router.post("/projects/{project_id}/factors", status_code=201)
-def add_factor_source(project_id: str, request: AddFactorSourceRequest) -> dict[str, Any]:
+def add_factor_source(project_id: str, request: AddFactorSourceRequest, strategy_id: str = "main") -> dict[str, Any]:
     _confirmed(request.confirm_write, "adding factor source requires confirmation")
     _confirmed(
         request.confirm_python_execution,
@@ -527,13 +571,14 @@ def add_factor_source(project_id: str, request: AddFactorSourceRequest) -> dict[
             project_id,
             request.source,
             expected_source_sha256=request.expected_source_sha256,
+            strategy_id=strategy_id,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
 
 
 @router.post("/projects/{project_id}/insertions")
-def insert(project_id: str, request: InsertRequest) -> dict[str, Any]:
+def insert(project_id: str, request: InsertRequest, strategy_id: str = "main") -> dict[str, Any]:
     _confirmed(request.confirm_write, "updating strategy source requires confirmation")
     _confirmed(
         request.confirm_python_execution,
@@ -543,13 +588,14 @@ def insert(project_id: str, request: InsertRequest) -> dict[str, Any]:
         return strategy_service.insertion(
             project_id,
             request.model_dump(exclude={"confirm_write", "confirm_python_execution"}),
+            strategy_id=strategy_id,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
 
 
 @router.post("/projects/{project_id}/preview")
-def preview(project_id: str, request: PreviewRequest) -> dict[str, Any]:
+def preview(project_id: str, request: PreviewRequest, strategy_id: str = "main") -> dict[str, Any]:
     _confirmed(request.confirm_python_execution, "preview executes trusted local Python")
     try:
         return strategy_service.preview_project(
@@ -558,13 +604,14 @@ def preview(project_id: str, request: PreviewRequest) -> dict[str, Any]:
             profile=request.profile,
             as_of_date=request.as_of_date.isoformat() if request.as_of_date else None,
             revision=request.revision,
+            strategy_id=strategy_id,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
 
 
 @router.post("/projects/{project_id}/factors/{factor_id}/snapshot")
-def snapshot(project_id: str, factor_id: str, request: FactorSnapshotRequest) -> dict[str, Any]:
+def snapshot(project_id: str, factor_id: str, request: FactorSnapshotRequest, strategy_id: str = "main") -> dict[str, Any]:
     _confirmed(request.confirm_python_execution, "factor evaluation executes trusted local Python")
     try:
         return strategy_service.factor_snapshot(
@@ -574,13 +621,14 @@ def snapshot(project_id: str, factor_id: str, request: FactorSnapshotRequest) ->
             as_of_date=request.as_of_date.isoformat(),
             revision=request.revision,
             parameters=request.parameters,
+            strategy_id=strategy_id,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
 
 
 @router.post("/projects/{project_id}/factors/{factor_id}/history")
-def history(project_id: str, factor_id: str, request: FactorHistoryRequest) -> dict[str, Any]:
+def history(project_id: str, factor_id: str, request: FactorHistoryRequest, strategy_id: str = "main") -> dict[str, Any]:
     _confirmed(request.confirm_python_execution, "factor evaluation executes trusted local Python")
     try:
         return strategy_service.factor_history(
@@ -592,13 +640,14 @@ def history(project_id: str, factor_id: str, request: FactorHistoryRequest) -> d
             revision=request.revision,
             parameters=request.parameters,
             frequency=request.frequency,
+            strategy_id=strategy_id,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
 
 
 @router.post("/projects/{project_id}/factors/{factor_id}/research")
-def research(project_id: str, factor_id: str, request: FactorResearchRequest) -> dict[str, Any]:
+def research(project_id: str, factor_id: str, request: FactorResearchRequest, strategy_id: str = "main") -> dict[str, Any]:
     _confirmed(request.confirm_python_execution, "factor research executes trusted local Python")
     try:
         return strategy_service.factor_research(
@@ -612,6 +661,7 @@ def research(project_id: str, factor_id: str, request: FactorResearchRequest) ->
             frequency=request.frequency,
             quantiles=request.quantiles,
             horizons=request.horizons,
+            strategy_id=strategy_id,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc

@@ -7,7 +7,7 @@ boundaries as the workbenches:
 research project/
 ├── recipe.py
 ├── factors/<factor_id>.py
-├── strategy.py
+├── strategies/<strategy_id>.py
 └── validation.py
 ```
 
@@ -23,17 +23,24 @@ The current tool contract lets the Agent:
    titles, URLs, and retrieval dates while treating snippets as untrusted leads;
 2. inspect compact runtime coverage and project/task summaries, then request
    only explicitly needed project files;
-3. create every user-requested new strategy as a fresh project by atomically
-   customizing the maintained `sdk-v1-default` project and factor templates;
+3. create a new research project from `sdk-v1-default`, or add/copy independent
+   strategies inside an existing project while sharing its factors and data;
 4. read, edit, parameterize, plan, and submit the project's exact `recipe.py`;
 5. monitor resumable data jobs and validate/query published datasets;
 6. add or edit one complete factor source unit and evaluate that registered
    function as a snapshot or history;
-7. edit and save `strategy.py` through the canonical full-source save path;
+7. edit and save `strategies/<strategy_id>.py` through the canonical full-source save path;
 8. read or edit `validation.py`, whose saved package is pinned by the next Run;
 9. preview the saved strategy, run complete event backtests, analyze
    performance, attribution, robustness and signals, compare candidates, and
    create or update a durable report Document.
+
+Use `strategies.create` and `strategies.rename` on the project-files tool.
+Strategy previews and runs carry `strategy_id`; `backtest.batch` accepts up to
+six IDs and returns independent jobs with pinned source, validation and common
+project settings. Use successful result IDs with `backtest.compare`. The Agent
+receives `selectedProjectId` and `selectedStrategyId`; `set_focus` accepts both
+`projectId` and `strategyId`. Existing `strategy.py` denotes the `main` strategy.
 
 These capabilities are exposed through two AlphaLab Tool nodes plus the native
 Conexus node-capability tools. The Agent discovers connected nodes with

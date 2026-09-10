@@ -1,5 +1,6 @@
 import { useEffect } from "react"
 import {
+  BookOpen,
   Languages,
   Moon,
   PanelLeftClose,
@@ -13,6 +14,7 @@ import { useWorkspace } from "@/contexts/WorkspaceContext"
 import type { WorkspaceMode } from "@/layouts/presets"
 import { cn } from "@/lib/utils"
 import { preloadPythonEditor } from "@/components/python/pythonEditorLoader"
+import { SdkDocumentation } from "@/components/shared/SdkDocumentation"
 
 import { MODE_CONFIG, WORKSPACE_MODES } from "./modes"
 
@@ -101,8 +103,23 @@ export function ModeSidebar({
         })}
       </nav>
 
-      <div className="mt-auto space-y-1 border-t border-border p-2">
+      <div className="mt-auto shrink-0 space-y-1 border-t border-border p-2">
         <div className="space-y-1">
+          <SdkDocumentation
+            topic={activeMode === "project" ? "overview" : activeMode}
+            trigger={<button
+              type="button"
+              className={cn(
+                "flex h-9 w-full items-center gap-2 rounded text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
+                collapsed ? "justify-center px-0" : "px-2",
+              )}
+              aria-label={t("sidebar.documentation")}
+              title={t("sidebar.documentation")}
+            >
+              <BookOpen className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {!collapsed && <span className="truncate">{t("sidebar.documentation")}</span>}
+            </button>}
+          />
           <button
             type="button"
             className={cn(

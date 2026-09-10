@@ -87,7 +87,7 @@ def test_workbenches_share_the_strategy_sdk_context():
     assert "addFactorSource" in factor
     assert "strategy-code-mode-switch" not in strategy
     assert "编辑 Python" not in strategy
-    assert "`/strategy/projects/${projectId}/edits/preview`" in strategy
+    assert 'sdk.strategyUrl(`/edits/preview`)' in strategy
     assert "onDraftChange" in strategy
     assert "strategy-business-flow" not in strategy
     assert "strategy-stage-sidebar" not in strategy
@@ -190,13 +190,14 @@ def test_frontend_uses_runtime_and_server_shared_agent_state_only():
     assert "activeDataProfile" not in prompt
     assert "selectedProjectId" in prompt
     assert "projectId" in commands
-    assert "strategyId" not in commands
+    assert "strategyId" in commands
+    assert "selectedStrategyId" in prompt
     workspace = (ROOT / "apps/desktop/src/Workspace.tsx").read_text(encoding="utf-8")
     strategy_context = (
         ROOT / "apps/desktop/src/contexts/StrategySdkContext.tsx"
     ).read_text(encoding="utf-8")
-    assert "await openStrategyProject(projectId)" in workspace
+    assert "await openStrategyProject(projectId, command.strategyId ?? undefined)" in workspace
     assert "projectReadyRef.current" in workspace
     assert "Agent 返回的工作台命令格式无效" in prompt
-    assert "openProject: (projectId: string) => Promise<StrategyProject>" in strategy_context
+    assert "openProject: (projectId: string, strategyId?: string) => Promise<StrategyProject>" in strategy_context
     assert 'response.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"' in backend

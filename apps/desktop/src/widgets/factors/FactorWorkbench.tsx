@@ -4,7 +4,6 @@ import { Braces, FlaskConical, Library, LineChart, Play, Plus, Save, Search, Tra
 
 import { MarketResearchTerminal, type MarketFieldSeries, type MarketRange, useMarketWatchlist } from "@/components/market"
 import { PythonEditor, type PythonEditorHandle } from "@/components/python"
-import { SdkDocumentation } from "@/components/shared/SdkDocumentation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -380,6 +379,7 @@ export function FactorWorkbenchWidget() {
   const projectHash = project?.draft_source_sha256 ?? ""
   const projectProfile = project?.profile
   const activeFactorId = activeFactor?.id ?? ""
+  const factorSourceUrl = sdk.strategyUrl(`/entrypoints/${encodeURIComponent(activeFactorId)}/source`)
   const factorDirty = Boolean(activeFactor && factorSource !== savedFactorSource)
   const localDirty = factorDirty
   const templatesQuery = useQuery({
@@ -410,7 +410,7 @@ export function FactorWorkbenchWidget() {
     }
     let current = true
     setLoadingFactorSource(true)
-    void api.get<EntrypointSource>(`/strategy/projects/${projectId}/entrypoints/${encodeURIComponent(activeFactorId)}/source`).then((payload) => {
+    void api.get<EntrypointSource>(factorSourceUrl).then((payload) => {
       if (!current || payload.source_sha256 !== projectHash) return
       setFactorSource(payload.source)
       setSavedFactorSource(payload.source)
@@ -420,7 +420,7 @@ export function FactorWorkbenchWidget() {
       if (current) setLoadingFactorSource(false)
     })
     return () => { current = false }
-  }, [activeFactorId, projectHash, projectId])
+  }, [activeFactorId, projectHash, projectId, factorSourceUrl])
   useEffect(() => { if (activeFactor && activeFactor.id !== selectedFactor) setSelectedFactor(activeFactor.id) }, [activeFactor, selectedFactor])
 
   function insertAtFactorCursor(text: string) {
@@ -552,7 +552,7 @@ export function FactorWorkbenchWidget() {
     })) return
     setBusy(true); setError("")
     try {
-      const endpoint = `/strategy/projects/${project.id}/factors/${activeFactor.id}/${mode}`
+      const endpoint = sdk.strategyUrl(`/factors/${activeFactor.id}/${mode}`)
       if (mode === "research") setResearch(await api.post<FactorResearchResult>(endpoint, {
         profile: project.profile, start_date: startDate, end_date: endDate, revision: project.current_revision,
         frequency: "monthly", quantiles: 5, horizons: [1, 3, 6], parameters: {}, confirm_python_execution: true,
@@ -580,7 +580,6 @@ export function FactorWorkbenchWidget() {
             <TabsList><TabsTrigger value="build">因子库与编辑</TabsTrigger><TabsTrigger value="results">因子检验{hasUnsavedChanges ? <span className="factor-tab-warning">尚未保存</span> : null}</TabsTrigger></TabsList>
             <div className="factor-workbench-actions">
               <span className={hasUnsavedChanges ? "factor-build-hint" : "factor-validation-ready"}>{hasUnsavedChanges ? "当前因子尚未保存" : "已保存"}</span>
-              <SdkDocumentation topic="factor" />
             </div>
           </div>
           {error ? <div className="workbench-message error factor-workbench-error">{error}</div> : null}

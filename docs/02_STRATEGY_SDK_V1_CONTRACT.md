@@ -12,8 +12,10 @@ AlphaLab Strategy SDK v1 makes Python the single source of truth for strategy
 logic. Parameter forms, expression builders, factor research, signal modeling,
 portfolio policy, execution settings, Codex edits, previews, and backtests are
 different views or invocations of the same saved Python source package. The
-authoring package contains `strategy.py` and independent `factors/*.py` units;
-the runtime deterministically assembles them into one complete module.
+authoring project contains `strategies/<strategy_id>.py` and shared independent
+`factors/*.py` units; each runtime package deterministically assembles exactly
+one selected strategy with the shared factor library into one complete module.
+`strategy.py` remains a compatibility alias for the migrated `main` strategy.
 
 The SDK must preserve both of these properties:
 
@@ -30,8 +32,10 @@ requirements for the v1 implementation.
 
 SDK v1 fixes the following architectural decisions:
 
-- A project draft owns one canonical UTF-8 Python source set: `strategy.py`
-  plus zero or more `factors/<factor_id>.py` units.
+- A project owns one or more canonical UTF-8 strategy files under `strategies/`
+  plus zero or more shared `factors/<factor_id>.py` units. Each strategy retains
+  one universe, signal, portfolio and execution contract; strategies are never
+  combined into a single module or a shared portfolio implicitly.
 - Python source is the only source of truth for executable strategy logic.
 - Forms modify exact Python syntax nodes; they do not maintain a parallel JSON
   strategy implementation.

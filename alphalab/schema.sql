@@ -81,6 +81,28 @@ CREATE TABLE IF NOT EXISTS strategy_source_packages (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_strategy_source_package_hash
     ON strategy_source_packages(project_id, source_sha256);
 
+-- Strategies share the project's factor library, recipe, and validation source.
+-- Package revisions remain project-wide content-addressed snapshots; links retain
+-- each strategy's history even when identical strategies share a snapshot.
+CREATE TABLE IF NOT EXISTS project_strategies (
+    project_id TEXT NOT NULL REFERENCES strategy_projects(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    source TEXT NOT NULL,
+    current_revision INTEGER NOT NULL,
+    archived INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(project_id, id)
+) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS project_strategy_packages (
+    project_id TEXT NOT NULL,
+    strategy_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    PRIMARY KEY(project_id, strategy_id, revision),
+    FOREIGN KEY(project_id, strategy_id) REFERENCES project_strategies(project_id, id) ON DELETE CASCADE,
+    FOREIGN KEY(project_id, revision) REFERENCES strategy_source_packages(project_id, revision) ON DELETE CASCADE
+) WITHOUT ROWID;
+
 -- Project-owned validation.py. The mutable row is the current editor model;
 -- packages are immutable run inputs pinned alongside strategy packages.
 CREATE TABLE IF NOT EXISTS validation_sources (

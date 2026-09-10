@@ -8,6 +8,7 @@ from typing import Literal
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.websockets import WebSocketState
 
 from apps.api.services import python_editor_service
 
@@ -56,7 +57,8 @@ async def language_server_socket(websocket: WebSocket, server_id: str) -> None:
         await websocket.close(code=1013, reason=str(exc)[:120])
         return
     async def socket_to_process() -> None:
-        while True:
+        while (websocket.application_state == WebSocketState.CONNECTED
+               and websocket.client_state == WebSocketState.CONNECTED):
             message = await websocket.receive_text()
             await process.write_message(message)
 

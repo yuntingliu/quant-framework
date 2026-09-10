@@ -24,6 +24,10 @@ export interface StrategyPipelineManifest {
 
 export interface BacktestRecord {
   id: string
+  project_id: string
+  project_strategy_id: string
+  strategy_name: string
+  batch_id?: string
   strategy_id: string
   start_date: string
   end_date: string
@@ -94,6 +98,9 @@ export interface BacktestJob {
   samples: Record<string, unknown>
   request: {
     project_id: string
+    strategy_id?: string
+    strategy_name?: string
+    batch_id?: string
     start_date: string
     end_date: string
     profile: "runtime"
@@ -275,6 +282,7 @@ export interface BacktestAttribution {
 }
 
 export interface BacktestComparison {
+  warnings?: string[]
   ids: string[]
   dates: string[]
   series: Record<string, Array<number | null>>

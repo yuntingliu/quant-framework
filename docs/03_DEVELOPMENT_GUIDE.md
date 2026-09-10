@@ -62,7 +62,7 @@ second Lab execution path.
   revision/hash across frontend, backend, Agent tools, Runs, and reports.
 - User-facing SDK documentation belongs only in
   `docs/06_ALPHALAB_SDK_GUIDE.md`. The read-only `/api/sdk-docs` endpoint and
-  every workbench documentation drawer must read that same file.
+  shared documentation drawer must read that same file.
 
 Do not add an expression evaluator, generated stage source, hidden fallback to
 demo/default logic, or a parallel backtest path. Pre-SDK database tables are
@@ -81,7 +81,7 @@ write fails. This restriction applies to Agent authoring only. The resulting
 and fully editable by the user through the canonical workbenches and APIs.
 
 The Agent boundary exposes one project-file facade. It may replace a complete
-project-owned `recipe.py`, `strategy.py`, `validation.py`, or single-function
+project-owned `recipe.py`, `strategies/<strategy_id>.py`, `validation.py`, or single-function
 `factors/<factor_id>.py`, but must call the same canonical save APIs used by the
 workbenches so assembly, static validation, probes, optimistic concurrency, and
 immutable package recording are unchanged. It must reject every path outside
@@ -89,11 +89,27 @@ those four forms. New projects still start atomically from `sdk-v1-default`,
 and additional factors should be copied from maintained factor templates before
 code-level edits when a suitable template exists.
 
+Each project supports multiple strategy files. Existing `strategy.py` requests
+remain an alias for `strategies/main.py`. Add or copy a strategy with
+`POST /api/strategy/projects/{project_id}/strategies`; rename its display name
+through `/strategies/{strategy_id}/name`. Existing source, structured edit,
+factor, preview and revision endpoints accept an explicit `strategy_id` query
+parameter, defaulting to `main`. Never store a process-wide active strategy.
+Python callers use `StrategyRepository.select_strategy(id)` on their own
+repository instance; all selections share one factor library and save path.
+
+Use `POST /api/backtests/batches` with `project_id` and one to six
+`strategy_ids` for batch execution. Freeze all source selections, validation and
+common settings before queueing jobs. Preserve independent job status and
+failure handling. Each result carries `project_id`, `project_strategy_id`,
+`strategy_name` and `batch_id`; the legacy result `strategy_id` remains its
+globally unique subject identifier. Filter project history by `project_id`.
+
 ## SDK source rules
 
 Tests and examples import the small `alphalab` facade. Project authoring is a
-`strategy.py` unit plus one `factors/<factor_id>.py` unit per factor. Imports,
-constants, helpers, and non-factor registrations belong in `strategy.py`;
+selected `strategies/<strategy_id>.py` unit plus one `factors/<factor_id>.py` unit per factor. Imports,
+constants, helpers, and non-factor registrations belong in that strategy file;
 factor units contain exactly one registered function. Factor units are not
 executed alone: the repository assembles them into the runtime module first.
 The runtime supplies the stable `alphalab.sdk.v1` public prelude to every unit,
@@ -159,7 +175,7 @@ ID; never replace an arbitrary number or text match.
 
 The Strategy Workbench presents all four strategy stages in a scrollable,
 collapsible visual panel on the left and the shared Python editor on the right.
-The divider is resizable; the Python pane edits the complete `strategy.py`
+The divider is resizable; the Python pane edits the complete selected strategy
 authoring unit so selection, scheduling, portfolio, event risk, and execution
 logic remain visible together. It must not display `@factor` definitions.
 Visual stage sections do not contain separate Python edit buttons or derived
@@ -208,7 +224,7 @@ because saving runs trusted-local cross-file probes. Project creation and
 explicit revision saves require `confirm_save` plus
 `confirm_python_execution`; deletion requires `confirm_delete`.
 
-`PUT /api/strategy/projects/{id}/draft` writes `strategy.py`, not the assembled
+`PUT /api/strategy/projects/{id}/draft?strategy_id=<id>` writes the selected strategy, not the assembled
 module. `POST /api/strategy/projects/{id}/factors` creates one factor unit;
 registered-function edits update the matching factor unit through the assembled
 CST and then split it back atomically. Responses expose `strategy_source` for
@@ -336,7 +352,9 @@ The sandboxed Electron preload must compile as CommonJS in both development and
 production; disable the plugin's ESM library preset and use an explicit Rollup
 input with CommonJS output.
 
-All six workbenches use the selected project from `StrategySdkContext`. A strategy-source edit saves
+All six workbenches use the selected project from `StrategySdkContext`.
+Validation inherits that project and only selects strategies within it; do not add another project picker there.
+A strategy-source edit saves
 `strategy.py`; parameter and schedule forms call the CST edit endpoint. Every source
 save or structured edit automatically validates and records the internal source
 package through the shared context. Do not expose revision numbers, hashes,
@@ -348,11 +366,12 @@ unsaved. The factor template catalog may add only to a clean editable project
 and must then refresh the shared project context so Factor and Strategy views
 see the same registered factors immediately.
 
-Factor, Strategy, Data, Validation, and Report workbenches open the matching
-chapter of `docs/06_ALPHALAB_SDK_GUIDE.md` through the shared
-`SdkDocumentation` drawer. The chapter selector must retain access to the
-complete guide. Do not copy SDK prose into frontend constants or maintain
-separate per-workbench help documents.
+The sidebar footer owns the single documentation entry, including when collapsed
+or before selecting a project. Its shared `SdkDocumentation` drawer opens the
+chapter of `docs/06_ALPHALAB_SDK_GUIDE.md` matching the current workbench, or the
+overview for Research Project. Keep the chapter selector for the complete guide;
+do not repeat documentation buttons inside individual workbenches, copy SDK prose
+into frontend constants, or maintain separate per-workbench help documents.
 
 The default factor catalog contains complete, financially meaningful factor
 implementations rather than one template per raw dataset column. Identifiers
@@ -367,8 +386,8 @@ Keep the official RQData Python documentation link next to the editor.
 
 All Python workbench inputs use
 `apps/desktop/src/components/python/PythonEditor`. Do not instantiate a
-second Monaco runtime. The Strategy Workbench uses the project's `strategy.py`
-model; the Validation Workbench uses its independent `validation.py` model.
+second Monaco runtime. The Strategy Workbench uses a distinct model for each
+project and strategy ID; the Validation Workbench uses the shared `validation.py` model.
 The Factor Workbench uses one persistent factor source
 unit per selected factor. Each factor document must contain exactly one complete
 registered function and save only through the factor-create or

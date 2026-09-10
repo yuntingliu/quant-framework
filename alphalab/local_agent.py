@@ -70,7 +70,6 @@ def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[s
     except FileExistsError:
         pass
     connection = secret_root / "alphalab-connection.json"
-    connection.unlink(missing_ok=True)
     env = {
         **os.environ,
         "CONEXUS_LOCAL_ROOT": str(state / "project"),
@@ -80,6 +79,7 @@ def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[s
         "CONEXUS_PUBLICATION_SLUG": "alphalab-research-agent",
         "ALPHALAB_API_ORIGIN": f"http://127.0.0.1:{api_port}",
         "ALPHALAB_AGENT_MODE": "local",
+        "ALPHALAB_AGENT_PARENT_PIPE": "1",
     }
     log_path = state / "host.log"
     # Windows helpers are hidden; stdout/stderr stay in the local diagnostic log.
@@ -87,7 +87,8 @@ def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[s
     with log_path.open("a", encoding="utf-8") as log:
         child = subprocess.Popen(
             [node, str(root / "integrations/conexus/local-host.mjs")],
-            cwd=root, env=env, stdout=log, stderr=log, creationflags=creationflags,
+            cwd=root, env=env, stdin=subprocess.PIPE, stdout=log, stderr=log,
+            creationflags=creationflags,
         )
         previous = {}
         try:
@@ -95,12 +96,24 @@ def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[s
             with httpx.Client(trust_env=False, timeout=1) as client:
                 while time.monotonic() < deadline:
                     if child.poll() is not None:
+                        lock = state / "project/host.lock"
+                        try:
+                            owner = int(lock.read_text(encoding="utf-8"))
+                        except (OSError, ValueError):
+                            owner = 0
+                        if owner > 0 and owner != child.pid:
+                            raise RuntimeError(
+                                f"Conexus data directory is already locked by Host PID {owner}. "
+                                f"Close the existing AlphaLab launcher and retry. Inspect {log_path}"
+                            )
                         raise RuntimeError(f"Conexus startup failed. Inspect {log_path}")
                     try:
                         connected = json.loads(connection.read_text(encoding="utf-8"))
-                        response = client.get(f"http://127.0.0.1:{port}/api/public/harnesses/alphalab-research-agent/descriptor")
-                        if response.status_code == 200:
-                            break
+                        origin = f"http://127.0.0.1:{port}"
+                        if connected.get("pid") == child.pid and connected.get("origin") == origin:
+                            response = client.get(f"{origin}/api/public/harnesses/alphalab-research-agent/descriptor")
+                            if response.status_code == 200:
+                                break
                     except (OSError, ValueError, httpx.HTTPError):
                         pass
                     time.sleep(0.2)
@@ -118,13 +131,11 @@ def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[s
                 print("Configure CONEXUS_MODEL_BASE_URL and CONEXUS_MODEL_ID in .env to use the Agent.", flush=True)
             yield child
         finally:
+            # EOF also reaches Node when this launcher is forcibly terminated.
+            # It owns only this child's pipe, never another launcher's Host.
+            if child.stdin is not None:
+                child.stdin.close()
             if child.poll() is None:
-                try:
-                    with httpx.Client(trust_env=False, timeout=2) as client:
-                        client.post(f"http://127.0.0.1:{port}/api/local/shutdown",
-                                    headers={"Authorization": f"Bearer {env['CONEXUS_LOCAL_TOKEN']}"})
-                except httpx.HTTPError:
-                    pass
                 try:
                     child.wait(timeout=20)
                 except subprocess.TimeoutExpired:

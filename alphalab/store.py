@@ -69,6 +69,9 @@ class ResultStore:
             ("component_manifest_json", "TEXT"),
             ("settings_json", "TEXT"),
             ("strategy_project_id", "TEXT"),
+            ("project_strategy_id", "TEXT"),
+            ("strategy_name", "TEXT"),
+            ("batch_id", "TEXT"),
             ("strategy_revision", "INTEGER"),
             ("strategy_source_sha256", "TEXT"),
             ("strategy_manifest_json", "TEXT"),
@@ -289,6 +292,9 @@ class ResultStore:
         settings: dict | None = None,
         attribution: dict | None = None,
         strategy_project_id: str | None = None,
+        project_strategy_id: str | None = None,
+        strategy_name: str | None = None,
+        batch_id: str | None = None,
         strategy_revision: int | None = None,
         strategy_source_sha256: str | None = None,
         strategy_manifest: dict | list | None = None,
@@ -321,8 +327,8 @@ class ResultStore:
                     settings_json, attribution_json, strategy_project_id,
                     strategy_revision, strategy_source_sha256, strategy_manifest_json,
                     validation_source, validation_revision, validation_source_sha256,
-                    validation_output_json, run_diagnostics_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    validation_output_json, run_diagnostics_json, project_strategy_id, strategy_name, batch_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     backtest_id,
                     strategy_id,
@@ -355,6 +361,9 @@ class ResultStore:
                     validation_source_sha256,
                     json.dumps(validation_output, sort_keys=True) if validation_output else None,
                     json.dumps(run_diagnostics, sort_keys=True) if run_diagnostics else None,
+                    project_strategy_id,
+                    strategy_name,
+                    batch_id,
                 ),
             )
             rows = []
@@ -526,7 +535,7 @@ class ResultStore:
     def list_backtests(self, strategy_id: str | None = None, limit: int = 20) -> pd.DataFrame:
         columns = """id, strategy_id, code_version, start_date, end_date, run_at,
                      total_return, annual_return, annual_vol, sharpe, max_drawdown,
-                     n_periods, tags, notes"""
+                     n_periods, tags, notes, strategy_project_id, project_strategy_id, strategy_name, batch_id"""
         if strategy_id:
             return pd.read_sql(
                 f"SELECT {columns} FROM backtests WHERE strategy_id = ? ORDER BY run_at DESC LIMIT ?",

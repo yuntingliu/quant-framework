@@ -389,12 +389,12 @@ def test_submission_path_queues_the_complete_backtest_directly(monkeypatch):
     monkeypatch.setattr(
         strategy_service,
         "get_project",
-        lambda _project_id: {"current_revision": 3},
+        lambda _project_id, strategy_id="main": {"current_revision": 3},
     )
     monkeypatch.setattr(
         strategy_service,
         "get_revision",
-        lambda _project_id, _revision: {"revision": 3},
+        lambda _project_id, _revision, strategy_id="main": {"revision": 3},
     )
     monkeypatch.setattr(
         validation_service,
@@ -421,6 +421,9 @@ def test_submission_path_queues_the_complete_backtest_directly(monkeypatch):
             "profile": "runtime",
             "revision": 3,
             "validation_revision": 2,
+            "strategy_id": "main",
+            "strategy_name": "main",
+            "settings": {},
         }
     ]
 

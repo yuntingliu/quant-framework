@@ -45,11 +45,31 @@ const host = await createLocalHost({ projectRoot, release, slug, token, model, r
   complete: baseUrl && model !== 'unconfigured'
     ? createModelCompletion({ baseUrl, model, apiKey: process.env.CONEXUS_MODEL_API_KEY?.trim() || '' }) : undefined,
 })
-await host.app.listen({ host: '127.0.0.1', port: Number(process.env.CONEXUS_LOCAL_PORT) })
-const connection = process.env.ALPHALAB_AGENT_CONNECTION_FILE
-await writeFile(`${connection}.tmp`, JSON.stringify({ origin: host.app.listeningOrigin, slug, token }), { mode: 0o600 })
-await rename(`${connection}.tmp`, connection)
-console.log(`Conexus local Agent listening at ${host.app.listeningOrigin}`)
-async function close() { try { await host.close() } finally { runtime.close() } }
-process.on('SIGINT', () => { void close() })
-process.on('SIGTERM', () => { void close() })
+let closing
+function close() {
+  closing ??= host.close().finally(() => runtime.close())
+  return closing
+}
+const parentPipe = process.env.ALPHALAB_AGENT_PARENT_PIPE === '1'
+host.app.addHook('onClose', async () => {
+  runtime.close()
+  if (parentPipe) process.stdin.destroy()
+})
+try {
+  await host.app.listen({ host: '127.0.0.1', port: Number(process.env.CONEXUS_LOCAL_PORT) })
+  const connection = process.env.ALPHALAB_AGENT_CONNECTION_FILE
+  await writeFile(`${connection}.tmp`, JSON.stringify({ origin: host.app.listeningOrigin, slug, token, pid: process.pid }), { mode: 0o600 })
+  await rename(`${connection}.tmp`, connection)
+  console.log(`Conexus local Agent listening at ${host.app.listeningOrigin}`)
+  process.on('SIGINT', () => { void close() })
+  process.on('SIGTERM', () => { void close() })
+  if (parentPipe) {
+    // A private pipe follows the owning launcher even after a forced Windows exit.
+    process.stdin.once('end', () => { void close() })
+    process.stdin.once('error', () => { void close() })
+    process.stdin.resume()
+  }
+} catch (error) {
+  await close()
+  throw error
+}

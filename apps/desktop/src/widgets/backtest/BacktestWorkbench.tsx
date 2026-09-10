@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
-import { Code2, Database, History, Play, RefreshCw, Save, ShieldCheck } from "lucide-react"
+import { CheckCircle2, Code2, Database, History, Play, RefreshCw, Save, ShieldCheck } from "lucide-react"
 
 import { CumulativeReturnsChart, DrawdownChart } from "@/components/charts"
 import { PythonEditor } from "@/components/python"
-import { SdkDocumentation } from "@/components/shared/SdkDocumentation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useStrategySdk } from "@/contexts/StrategySdkContext"
@@ -20,6 +19,7 @@ import {
   type BacktestValidation,
 } from "@/lib/api"
 import { Widget } from "@/widgets/Widget"
+import { BacktestCompareWidget } from "./BacktestCompare"
 
 interface ProfileFields { start_date: string; end_date: string }
 interface ValidationParameter {
@@ -45,7 +45,7 @@ interface ValidationWorkspace {
   editable: boolean
   inspection: { entrypoints: ValidationEntrypoint[] }
 }
-type ValidationTab = "performance" | "signals" | "attribution" | "validation" | "robustness" | "history"
+type ValidationTab = "performance" | "signals" | "attribution" | "validation" | "robustness" | "history" | "compare"
 
 const PARAMETER_LABELS: Record<string, string> = {
   periods_per_year: "年化周期",
@@ -100,7 +100,9 @@ export function ValidationWorkbenchWidget() {
   const [profileBounds, setProfileBounds] = useState<ProfileFields | null>(null)
   const [configPaneWidth, setConfigPaneWidth] = useState(34)
   const [jobs, setJobs] = useState<BacktestJob[]>([])
-  const [activeJobId, setActiveJobId] = useState<string | null>(null)
+  const [selectedStrategies, setSelectedStrategies] = useState<string[]>([])
+  const [batchId, setBatchId] = useState<string | null>(null)
+  const [comparisonIds, setComparisonIds] = useState<string[]>([])
   const [runs, setRuns] = useState<BacktestRecord[]>([])
   const [analysis, setAnalysis] = useState<BacktestAnalysis | null>(null)
   const [signals, setSignals] = useState<BacktestSignalDiagnostics | null>(null)
@@ -115,32 +117,41 @@ export function ValidationWorkbenchWidget() {
   const projectId = project?.id
   const projectProfile = project?.profile
   const selectedBacktestRef = useRef(selectedBacktest)
+  const strategySelectionRef = useRef(project?.strategy_id ?? "main")
 
   useEffect(() => { selectedBacktestRef.current = selectedBacktest }, [selectedBacktest])
+  useEffect(() => { strategySelectionRef.current = project?.strategy_id ?? "main" }, [project?.strategy_id])
 
   useEffect(() => {
     let current = true
     setValidation(null); setSource(""); setValidationParameters({})
     setAnalysis(null); setSignals(null); setAttribution(null); setRobustness(null); setFrozenValidation(null)
-    setRuns([]); setJobs([]); setActiveJobId(null); setError("")
+    setRuns([]); setJobs([]); setBatchId(null); setComparisonIds([]); setError("")
+    setSelectedStrategies([strategySelectionRef.current])
     setProfileBounds(null); setStartDate(""); setEndDate("")
     if (!projectId || !projectProfile) return
     void Promise.all([
       api.get<ValidationWorkspace>(`/validation/projects/${projectId}`),
       api.get<ProfileFields>(`/strategy/fields?profile=${projectProfile}`),
       api.get<BacktestRecord[]>("/backtests?limit=50"),
-      api.get<BacktestJob[]>("/backtests/jobs?limit=20"),
+      api.get<BacktestJob[]>("/backtests/jobs?limit=100"),
     ]).then(([validationWorkspace, profile, runRows, jobRows]) => {
       if (!current) return
-      const projectRuns = runRows.filter((item) => item.strategy_id === projectId)
+      const projectRuns = runRows.filter((item) => (item.project_id || item.strategy_id) === projectId)
       setValidation(validationWorkspace)
       setSource(validationWorkspace.source)
       setValidationParameters(parameterValues(validationWorkspace))
       setProfileBounds(profile)
       setStartDate(profile.start_date); setEndDate(profile.end_date)
-      setRuns(projectRuns); setJobs(jobRows)
+      setRuns(projectRuns); setJobs(jobRows.filter((item) => item.request.project_id === projectId))
       const active = jobRows.find((item) => item.request?.project_id === projectId && (item.status === "queued" || item.status === "running"))
-      setActiveJobId(active?.id ?? null)
+      const batch = active?.request.batch_id ?? jobRows.find((item) => item.request.project_id === projectId && item.request.batch_id)?.request.batch_id
+      setBatchId(batch ?? null)
+      if (batch) {
+        const batchJobs = jobRows.filter((item) => item.request.batch_id === batch)
+        if (active) setSelectedStrategies(batchJobs.map((item) => item.request.strategy_id ?? "main"))
+        setComparisonIds(batchJobs.flatMap((item) => item.status === "succeeded" && item.result_id ? [item.result_id] : []))
+      }
       if (!projectRuns.some((item) => item.id === selectedBacktestRef.current)) {
         setSelectedBacktest(projectRuns[0]?.id ?? null)
       }
@@ -148,31 +159,43 @@ export function ValidationWorkbenchWidget() {
     return () => { current = false }
   }, [projectId, projectProfile, setSelectedBacktest])
 
+  const activeJobs = jobs.filter((job) => job.status === "queued" || job.status === "running")
+  const hasActiveJobs = activeJobs.length > 0
+  const visibleJobs = jobs.filter((job) => batchId ? job.request.batch_id === batchId : ["queued", "running"].includes(job.status))
+  const completedJobs = visibleJobs.filter((job) => job.status === "succeeded")
   useEffect(() => {
-    if (!activeJobId) return
+    if (!hasActiveJobs || !projectId) return
     let current = true
-    const timer = window.setInterval(() => {
-      void api.get<BacktestJob>(`/backtests/jobs/${activeJobId}`).then(async (job) => {
+    let pending = false
+    const reconcile = async () => {
+      if (pending) return
+      pending = true
+      try {
+        const rows = await api.get<BacktestJob[]>("/backtests/jobs?limit=100")
         if (!current) return
-        setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)])
-        if (job.status === "succeeded" && job.result_id) {
-          const rows = await api.get<BacktestRecord[]>("/backtests?limit=50")
-          if (!current) return
-          setRuns(rows.filter((item) => item.strategy_id === projectId))
-          setActiveJobId(null)
-          setSelectedBacktest(job.result_id)
-          setTab("performance")
-          window.setTimeout(() => resultsSection.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0)
-        } else if (job.status === "failed" || job.status === "interrupted") {
-          setActiveJobId(null)
-          setError(job.error_summary || job.message || "回测未完成")
+        const projectJobs = rows.filter((job) => job.request.project_id === projectId)
+        const completedRuns = await api.get<BacktestRecord[]>("/backtests?limit=100")
+        if (!current) return
+        setJobs(projectJobs)
+        setRuns(completedRuns.filter((run) => (run.project_id || run.strategy_id) === projectId))
+        const batch = batchId ? projectJobs.filter((job) => job.request.batch_id === batchId) : projectJobs
+        if (batch.length && batch.every((job) => !["queued", "running"].includes(job.status))) {
+          const ids = batch.filter((job) => job.status === "succeeded" && job.result_id).map((job) => job.result_id!)
+          const failures = batch.filter((job) => job.status !== "succeeded")
+          setComparisonIds(ids)
+          if (ids.length) setSelectedBacktest(ids[0])
+          if (ids.length >= 2) setTab("compare")
+          else if (ids.length) setTab("performance")
+          if (failures.length) setError(failures.map((job) => `${job.request.strategy_name || job.request.strategy_id || "主策略"}：${job.error_summary || "回测未完成"}`).join("；"))
         }
-      }).catch((reason: Error) => { if (current) { setActiveJobId(null); setError(reason.message) } })
-    }, 1500)
+      } catch (reason) { if (current) setError(reason instanceof Error ? reason.message : String(reason)) }
+      finally { pending = false }
+    }
+    const timer = window.setInterval(() => { void reconcile() }, 1500)
     return () => { current = false; window.clearInterval(timer) }
-  }, [activeJobId, projectId, setSelectedBacktest])
+  }, [hasActiveJobs, projectId, batchId, setSelectedBacktest])
 
-  const currentRunId = runs.find((run) => run.id === selectedBacktest && run.strategy_id === projectId)?.id
+  const currentRunId = runs.find((run) => run.id === selectedBacktest && (run.project_id || run.strategy_id) === projectId)?.id
   useEffect(() => {
     setAnalysis(null); setSignals(null); setAttribution(null); setRobustness(null); setFrozenValidation(null)
     if (!currentRunId) {
@@ -224,23 +247,8 @@ export function ValidationWorkbenchWidget() {
     strategy: analysis.drawdown[index] ?? 0,
     benchmark: analysis.benchmark_drawdown[index] ?? 0,
   })) ?? [], [analysis])
-  const activeJob = jobs.find((item) => item.id === activeJobId)
-  const invalidRange = Boolean(startDate && endDate && startDate > endDate)
+  const invalidRange = Boolean(startDate && endDate && startDate >= endDate)
   const workspaceReady = !sdk.loading && validation?.project_id === projectId && Boolean(startDate && endDate)
-
-  async function selectProject(nextId: string) {
-    if (nextId === projectId || busy || sdk.loading) return
-    if ((localDirty || visualDirty) && !await confirm({
-      title: "切换回测策略",
-      description: "当前验证代码或参数尚未保存，切换后将丢弃这些修改。",
-      confirmText: "放弃修改并切换",
-      tone: "danger",
-    })) return
-    setBusy(true); setError("")
-    try { await sdk.openProject(nextId) }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
-    finally { setBusy(false) }
-  }
 
   function beginResize(event: ReactPointerEvent<HTMLButtonElement>) {
     const container = authoringSplit.current
@@ -260,20 +268,21 @@ export function ValidationWorkbenchWidget() {
   }
 
   async function runBacktest() {
-    if (!project || !workspaceReady || hasUnsavedChanges || invalidRange) return
+    if (!project || !workspaceReady || hasUnsavedChanges || invalidRange || !selectedStrategies.length) return
     if (!await confirm({
       title: "运行完整事件回测",
-      description: `运行当前已保存的“${project.name}”。将调用受信任的本机 Python；它不是安全沙箱。`,
+      description: `运行“${project.name}”中选中的 ${selectedStrategies.length} 个策略，共用当前日期区间和验证代码。将调用受信任的本机 Python；它不是安全沙箱。`,
       confirmText: "运行回测",
     })) return
     setBusy(true); setError("")
     try {
-      const job = await api.post<BacktestJob>("/backtests/jobs", {
-        project_id: project.id, revision: project.current_revision, profile: project.profile,
+      const batch = await api.post<{ batch_id: string; jobs: BacktestJob[] }>("/backtests/batches", {
+        project_id: project.id, strategy_ids: selectedStrategies, profile: project.profile,
         start_date: startDate, end_date: endDate, confirm_python_execution: true,
       })
-      setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)])
-      setActiveJobId(job.id)
+      setBatchId(batch.batch_id)
+      setComparisonIds([])
+      setJobs((current) => [...batch.jobs, ...current.filter((item) => !batch.jobs.some((job) => job.id === item.id))])
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setBusy(false) }
   }
@@ -345,13 +354,15 @@ export function ValidationWorkbenchWidget() {
             <header className="backtest-authoring-pane-header"><strong>回测配置</strong></header>
             <div className="backtest-config-pane-body">
               <div className="backtest-setup-card">
-                <label className="space-y-2 text-xs">
-                  <span className="block font-medium">回测策略</span>
-                  <select aria-label="回测策略" className="w-full" value={project.id} disabled={busy || sdk.loading} onChange={(event) => void selectProject(event.target.value)}>
-                    {sdk.projects.map((item) => <option key={item.id} value={item.id}>{item.name}{item.built_in ? "（系统模板）" : ""}</option>)}
-                  </select>
-                </label>
-                <p className="text-xs text-muted-foreground">使用所选项目已保存的策略和验证代码，历史回测随项目切换。</p>
+                <fieldset className="backtest-strategy-selection" aria-label="选择回测策略（最多 6 个）">
+                  <legend>回测策略 <span>已选 {selectedStrategies.length} / 6</span></legend>
+                  <div className="backtest-strategy-list">{project.strategies.map((item) => <label key={item.id} className={selectedStrategies.includes(item.id) ? "selected" : ""} title={`${item.name} · ${item.path}`}>
+                    <input type="checkbox" aria-label={item.name} checked={selectedStrategies.includes(item.id)} disabled={busy || hasActiveJobs || (!selectedStrategies.includes(item.id) && selectedStrategies.length >= 6)}
+                      onChange={(event) => setSelectedStrategies((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />
+                    <span><strong>{item.name}</strong><small>{item.id}.py</small></span>
+                  </label>)}</div>
+                </fieldset>
+                <p className="backtest-selection-hint">选择多个策略，在相同区间回测并对比。</p>
               </div>
               <div className="backtest-setup-card">
                 <div className="backtest-setup-card-heading"><strong>回测样本</strong></div>
@@ -396,7 +407,7 @@ export function ValidationWorkbenchWidget() {
             </div>
             <footer className="backtest-run-footer">
               {invalidRange || hasUnsavedChanges ? <span className="warning">{invalidRange ? "开始日期必须早于结束日期" : project.dirty ? "请先保存策略修改" : visualDirty ? "请先应用验证参数" : "请先保存右侧 Python"}</span> : <span />}
-              <div className="backtest-run-actions"><button className="primary-command" type="button" disabled={busy || !workspaceReady || Boolean(activeJobId) || hasUnsavedChanges || invalidRange} onClick={() => void runBacktest()}><Play />{activeJobId ? "回测运行中" : "运行回测"}</button></div>
+              <div className="backtest-run-actions"><button className="primary-command" type="button" disabled={busy || !workspaceReady || hasActiveJobs || !selectedStrategies.length || hasUnsavedChanges || invalidRange} onClick={() => void runBacktest()}>{hasActiveJobs ? <RefreshCw className="animate-spin" /> : <Play />}{hasActiveJobs ? "回测运行中" : selectedStrategies.length > 1 ? `回测并对比（${selectedStrategies.length}）` : "运行回测"}</button></div>
             </footer>
           </section>
 
@@ -418,7 +429,7 @@ export function ValidationWorkbenchWidget() {
           />
 
           <section className="backtest-python-pane">
-            <header className="backtest-authoring-pane-header"><div><Code2 size={15} /><strong>验证 Python</strong></div><SdkDocumentation topic="validation" /></header>
+            <header className="backtest-authoring-pane-header"><div><Code2 size={15} /><strong>验证 Python</strong></div></header>
             <div className="backtest-python-pane-body">
               {validation ? <PythonEditor
                 className="backtest-python-editor"
@@ -440,20 +451,28 @@ export function ValidationWorkbenchWidget() {
         </div>
       </section>
 
-      {activeJob ? <div className="workbench-message"><RefreshCw className="spin" />{activeJob.message || (activeJob.status === "queued" ? "已进入回测队列" : "逐交易日运行事件引擎…")}</div> : null}
+      {visibleJobs.length ? <section className="backtest-batch-status" aria-label="回测进度">
+        <header><strong>本次回测</strong><span>{completedJobs.length} / {visibleJobs.length} 已完成</span>{completedJobs.length >= 2 ? <button type="button" onClick={() => { setComparisonIds(completedJobs.map((job) => job.result_id!)); setTab("compare"); resultsSection.current?.scrollIntoView({ block: "start", behavior: "smooth" }) }}>对比结果</button> : null}</header>
+        <div className="backtest-job-list">{visibleJobs.map((job) => <div key={job.id} className={`backtest-job-row ${job.status}`}>
+          <span className="backtest-job-name">{job.status === "running" ? <RefreshCw size={13} className="animate-spin" /> : job.status === "succeeded" ? <CheckCircle2 size={13} /> : <span className="backtest-job-dot" />}<strong>{job.request.strategy_name || job.request.strategy_id || "主策略"}</strong></span>
+          <span className="backtest-job-state">{({ queued: "排队中", running: "运行中", succeeded: "已完成", failed: "失败", interrupted: "已中断" })[job.status]}</span>
+          {job.result_id ? <button type="button" onClick={() => { setSelectedBacktest(job.result_id); setTab("performance"); resultsSection.current?.scrollIntoView({ block: "start", behavior: "smooth" }) }}>查看结果</button> : <span />}
+          {job.error_summary ? <p>{job.error_summary}</p> : null}
+        </div>)}</div>
+      </section> : null}
       {error ? <div className="workbench-message error">{error}</div> : null}
 
       <section ref={resultsSection} className="backtest-results-section">
       <section className="backtest-result-identity">
         <div className="backtest-result-title"><strong>回测结果</strong><span>{analysis ? `${analysis.start_date} — ${analysis.end_date}` : "选择历史 Run 或运行一次回测"}</span></div>
         {analysis?.strategy_snapshot ? <div className="backtest-snapshot-summary"><Database size={13} /><span>运行时策略 · {analysis.strategy_snapshot.factors.length} 个因子</span></div> : null}
-        <select aria-label="选择历史回测" value={selectedBacktest ?? ""} onChange={(event) => setSelectedBacktest(event.target.value || null)}><option value="">选择历史 Run</option>{runs.map((run) => <option key={run.id} value={run.id}>{run.start_date}–{run.end_date} · {percent(run.total_return)} · {run.run_at.slice(0, 10)}</option>)}</select>
+        <select aria-label="选择历史回测" value={selectedBacktest ?? ""} onChange={(event) => setSelectedBacktest(event.target.value || null)}><option value="">选择历史 Run</option>{runs.map((run) => <option key={run.id} value={run.id}>{run.strategy_name || run.strategy_id} · {run.start_date}–{run.end_date} · {percent(run.total_return)} · {run.run_at.slice(0, 10)}</option>)}</select>
       </section>
 
       <div className="workbench-tabs" role="tablist" aria-label="验证结果视图">
         {([
           ["performance", "收益与回撤"], ["signals", "信号诊断"], ["attribution", "Alpha/Beta 归因"],
-          ["validation", "风险与证据"], ["robustness", "稳健性"], ["history", "历史 Run"],
+          ["validation", "风险与证据"], ["robustness", "稳健性"], ["compare", "策略对比"], ["history", "历史 Run"],
         ] as Array<[ValidationTab, string]>).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
       </div>
 
@@ -499,9 +518,11 @@ export function ValidationWorkbenchWidget() {
         </> : <div className="analytics-empty">该 Run 无法形成稳健性结论，通常是基准数据覆盖不足。</div>}
       </div> : null}
 
+      {tab === "compare" ? <BacktestCompareWidget embedded projectId={project.id} initialIds={comparisonIds} /> : null}
+
       {tab === "history" ? <div className="workbench-body">
-        <div className="backtest-section-heading"><div><strong><History size={15} /> 历史 Run</strong><span>每条记录都保留当时的策略代码和运行输入。</span></div><Button size="sm" variant="outline" onClick={() => void api.get<BacktestRecord[]>("/backtests?limit=50").then((rows) => setRuns(rows.filter((item) => item.strategy_id === project.id)))}><RefreshCw />刷新</Button></div>
-        <div className="editor-list">{runs.map((run) => <button key={run.id} type="button" className={selectedBacktest === run.id ? "active" : ""} onClick={() => { setSelectedBacktest(run.id); setTab("performance") }}><strong>{run.start_date} → {run.end_date}</strong><small>{run.run_at.slice(0, 16).replace("T", " ")} · {run.profile}</small><em>{percent(run.total_return)} · Sharpe {number(run.sharpe)}</em></button>)}</div>
+        <div className="backtest-section-heading"><div><strong><History size={15} /> 历史 Run</strong><span>每条记录都保留当时的策略代码和运行输入。</span></div><Button size="sm" variant="outline" onClick={() => void api.get<BacktestRecord[]>("/backtests?limit=50").then((rows) => setRuns(rows.filter((item) => (item.project_id || item.strategy_id) === project.id)))}><RefreshCw />刷新</Button></div>
+        <div className="editor-list">{runs.map((run) => <button key={run.id} type="button" className={selectedBacktest === run.id ? "active" : ""} onClick={() => { setSelectedBacktest(run.id); setTab("performance") }}><strong>{run.strategy_name || run.strategy_id} · {run.start_date} → {run.end_date}</strong><small>{run.run_at.slice(0, 16).replace("T", " ")} · {run.profile}</small><em>{percent(run.total_return)} · Sharpe {number(run.sharpe)}</em></button>)}</div>
         {!runs.length ? <div className="analytics-empty">当前项目尚无历史回测。</div> : null}
       </div> : null}
       </section>

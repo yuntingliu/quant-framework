@@ -71,6 +71,7 @@ def _project_summary(value: dict) -> dict:
             "description",
             "profile",
             "current_revision",
+            "strategies",
             "dirty",
             "built_in",
             "editable",
@@ -130,7 +131,7 @@ def _backtest_job_summary(value: dict) -> dict:
         "message": value.get("message"),
         "request": {
             key: request.get(key)
-            for key in ("project_id", "start_date", "end_date", "revision")
+            for key in ("project_id", "strategy_id", "strategy_name", "batch_id", "start_date", "end_date", "revision")
             if key in request
         },
         "metrics": dict(value.get("metrics") or {}),
@@ -163,6 +164,10 @@ def _backtest_summary(value: dict) -> dict:
         for key in (
             "id",
             "strategy_id",
+            "project_id",
+            "project_strategy_id",
+            "strategy_name",
+            "batch_id",
             "profile",
             "start_date",
             "end_date",

@@ -11,7 +11,7 @@ test("parses the project focus and strategy workbench command sequence", () => {
     version: 1,
     requestId: "request-1",
     commands: [
-      { type: "set_focus", projectId: "new-project" },
+      { type: "set_focus", projectId: "new-project", strategyId: "momentum" },
       { type: "switch_mode", mode: "strategy" },
       { type: "open_widget", widgetId: "strategy.workbench", mode: "strategy" },
     ],
@@ -19,7 +19,7 @@ test("parses the project focus and strategy workbench command sequence", () => {
     version: 1,
     requestId: "request-1",
     commands: [
-      { type: "set_focus", projectId: "new-project" },
+      { type: "set_focus", projectId: "new-project", strategyId: "momentum" },
       { type: "switch_mode", mode: "strategy" },
       { type: "open_widget", widgetId: "strategy.workbench", mode: "strategy" },
     ],

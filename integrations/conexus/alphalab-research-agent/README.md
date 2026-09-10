@@ -5,7 +5,7 @@ project contract. One project contains:
 
 - `recipe.py` for visible RQData acquisition and resumable publication;
 - one `factors/<factor_id>.py` file per registered factor;
-- `strategy.py` for universe, signal, portfolio, event risk, and execution;
+- `strategies/<strategy_id>.py` for each independent strategy (universe, signal, portfolio, event risk, and execution);
 - `validation.py` for performance, Alpha/Beta, and custom post-run research.
 
 The Agent can create a project from the system default, inspect and edit those
@@ -13,7 +13,10 @@ canonical files, synchronize and validate runtime data, evaluate factor research
 with next-open evidence, preview the saved strategy, run and compare pinned event
 backtests, inspect their frozen named validation outputs, and persist the final
 report. Strategy saves automatically record the internal immutable
-source package; no separate revision operation is exposed.
+source package; no separate revision operation is exposed. Strategies share the
+project recipe, factors and validation. Batch backtests pin every selected
+strategy and return independent jobs for comparison. `strategy.py` remains a
+compatibility alias for the migrated `main` strategy.
 
 Only two AlphaLab Tool nodes are exposed: `alphalab_project_files` and
 `alphalab_project_run`. Their compact `command + args` contract is documented

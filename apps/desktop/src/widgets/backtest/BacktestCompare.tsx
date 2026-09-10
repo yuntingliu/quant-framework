@@ -21,9 +21,9 @@ function metric(value: string | number | null | undefined, kind: "pct" | "number
   return kind === "pct" ? formatPercent(value, 1) : formatNumber(value, 2)
 }
 
-export function BacktestCompareWidget() {
+export function BacktestCompareWidget({ projectId, initialIds = [], embedded = false }: { projectId?: string; initialIds?: string[]; embedded?: boolean } = {}) {
   const { language } = useLanguage()
-  const copy = language === "zh" ? {
+  const copy = embedded || language === "zh" ? {
     title: "策略对比",
     refresh: "刷新对比结果",
     picker: "选择要对比的回测",
@@ -35,6 +35,8 @@ export function BacktestCompareWidget() {
     annual: "年化收益",
     volatility: "波动率",
     maxDrawdown: "最大回撤",
+    selected: "已选",
+    loading: "正在读取对比结果…",
   } : {
     title: "Strategy Compare",
     refresh: "Refresh comparison",
@@ -47,23 +49,33 @@ export function BacktestCompareWidget() {
     annual: "Annual",
     volatility: "Volatility",
     maxDrawdown: "Max DD",
+    selected: "Selected",
+    loading: "Loading comparison…",
   }
   const [profile] = useDataProfile()
   const [records, setRecords] = useState<BacktestRecord[]>([])
   const [selected, setSelected] = useState<string[]>([])
   const [recordsError, setRecordsError] = useState("")
+  const [loadingRecords, setLoadingRecords] = useState(true)
+  const initialKey = initialIds.join(",")
 
   useEffect(() => {
+    let current = true
+    setLoadingRecords(true)
     setRecordsError("")
     setSelected([])
     api.get<BacktestRecord[]>("/backtests?limit=100")
       .then((items) => {
-        const matching = items.filter((item) => item.profile === profile)
+        if (!current) return
+        const matching = items.filter((item) => projectId ? (item.project_id || item.strategy_id) === projectId : item.profile === profile)
         setRecords(matching)
-        setSelected(matching.slice(0, 2).map((item) => item.id))
+        const requested = initialKey.split(",").filter((id) => matching.some((item) => item.id === id))
+        setSelected(requested.length ? requested.slice(0, MAX_SELECTION) : matching.slice(0, 2).map((item) => item.id))
       })
-      .catch((error: Error) => setRecordsError(error.message))
-  }, [profile])
+      .catch((error: Error) => { if (current) setRecordsError(error.message) })
+      .finally(() => { if (current) setLoadingRecords(false) })
+    return () => { current = false }
+  }, [profile, projectId, initialKey])
 
   const comparison = useQuery({
     queryKey: ["backtests", "compare", profile, selected],
@@ -92,49 +104,36 @@ export function BacktestCompareWidget() {
     })
   }
 
-  return (
-    <Widget
-      title={copy.title}
-      loading={records.length === 0 && !recordsError && comparison.isLoading}
-      error={recordsError || analyticsError(comparison.error)}
-      onRetry={() => comparison.refetch()}
-      actions={
-        <button
-            className="icon-command"
-            type="button"
-            title={copy.refresh}
-            onClick={() => comparison.refetch()}
-            disabled={selected.length < 2}
-          >
-            <RefreshCw aria-hidden="true" />
-          </button>
-      }
-      bodyPadding="compact"
-    >
-      <div className="backtest-picker" aria-label={copy.picker}>
+  const refresh = <button className="icon-command" type="button" title={copy.refresh} aria-label={copy.refresh} onClick={() => comparison.refetch()} disabled={selected.length < 2 || comparison.isFetching}><RefreshCw aria-hidden="true" className={comparison.isFetching ? "animate-spin" : ""} /></button>
+  const content = <>
+      <div className="backtest-comparison-heading"><strong>{copy.picker}</strong><span>{copy.selected} {selected.length} / {MAX_SELECTION}</span>{embedded ? refresh : null}</div>
+      <div className="backtest-picker backtest-comparison-picker" role="group" aria-label={copy.picker}>
         {records.map((record) => (
-          <label key={record.id} title={`${record.strategy_id} · ${record.run_at}`}>
+          <label key={record.id} className={selected.includes(record.id) ? "selected" : ""} title={`${record.strategy_name || record.strategy_id} · ${record.run_at}`}>
             <input
               type="checkbox"
               checked={selected.includes(record.id)}
+              disabled={!selected.includes(record.id) && selected.length >= MAX_SELECTION}
               onChange={() => toggle(record.id)}
             />
-            <span>{record.strategy_id}</span>
-            <small>{record.start_date.slice(0, 7)}–{record.end_date.slice(0, 7)} · {record.run_at.slice(0, 10)}</small>
+            <span>{record.strategy_name || record.strategy_id}</span>
+            <small>{record.start_date} – {record.end_date}<br />{record.run_at.slice(0, 16).replace("T", " ")}</small>
           </label>
         ))}
       </div>
-      {records.length === 0 ? (
+      {recordsError || comparison.error ? <div className="workbench-message error">{recordsError || analyticsError(comparison.error)}</div> : null}
+      {loadingRecords ? <div className="analytics-empty">{copy.loading}</div> : records.length === 0 ? (
         <div className="analytics-empty">{profile} {copy.noBacktests}</div>
       ) : selected.length < 2 ? (
         <div className="analytics-empty">{copy.selectTwo}</div>
-      ) : (
+      ) : comparison.isPending ? <div className="analytics-empty">{copy.loading}</div> : comparison.data ? (
         <>
+          {comparison.data?.warnings?.map((warning) => <p key={warning} className="workbench-message warning">{warning}</p>)}
           <CumulativeReturnsChart
             data={chartData}
             series={selected.map((id) => ({
               key: id,
-              name: comparison.data?.labels[id] ?? id,
+              name: comparison.data?.labels[id] ?? records.find((record) => record.id === id)?.strategy_name ?? copy.strategy,
             }))}
             height={290}
           />
@@ -154,7 +153,7 @@ export function BacktestCompareWidget() {
               <tbody>
                 {(comparison.data?.metrics ?? []).map((row) => (
                   <tr key={String(row.id)}>
-                    <td><strong>{String(row.strategy_id)}</strong></td>
+                    <td><strong>{String(row.strategy_name || row.strategy_id)}</strong></td>
                     <td>{String(row.start_date).slice(0, 7)}–{String(row.end_date).slice(0, 7)}</td>
                     <td>{metric(row.total_return, "pct")}</td>
                     <td>{metric(row.annual_return, "pct")}</td>
@@ -167,7 +166,9 @@ export function BacktestCompareWidget() {
             </table>
           </div>
         </>
-      )}
-    </Widget>
-  )
+      ) : null}
+    </>
+  return embedded
+    ? <section className="backtest-comparison">{content}</section>
+    : <Widget title={copy.title} actions={refresh} bodyPadding="compact">{content}</Widget>
 }

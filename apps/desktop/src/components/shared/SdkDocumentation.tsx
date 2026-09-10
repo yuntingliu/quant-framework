@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react"
+import { useState, type ReactElement } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { BookOpen, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 
 import { api } from "@/lib/api"
-import { Button } from "@/components/ui/button"
 import {
   Sheet,
   SheetContent,
@@ -27,15 +26,12 @@ interface SdkDocumentPayload {
 
 interface SdkDocumentationProps {
   topic: SdkDocumentTopic
-  label?: string
-  className?: string
+  trigger: ReactElement
 }
 
-export function SdkDocumentation({ topic, label = "文档", className }: SdkDocumentationProps) {
+export function SdkDocumentation({ topic, trigger }: SdkDocumentationProps) {
   const [open, setOpen] = useState(false)
   const [selectedTopic, setSelectedTopic] = useState<SdkDocumentTopic>(topic)
-
-  useEffect(() => setSelectedTopic(topic), [topic])
 
   const document = useQuery({
     queryKey: ["sdk-documentation", selectedTopic],
@@ -45,12 +41,8 @@ export function SdkDocumentation({ topic, label = "文档", className }: SdkDocu
   })
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <Button className={className} size="sm" variant="outline">
-          <BookOpen />{label}
-        </Button>
-      </SheetTrigger>
+    <Sheet open={open} onOpenChange={(nextOpen) => { if (nextOpen) setSelectedTopic(topic); setOpen(nextOpen) }}>
+      <SheetTrigger asChild>{trigger}</SheetTrigger>
       <SheetContent className="flex w-[min(94vw,54rem)] flex-col gap-0 p-0 sm:max-w-3xl">
         <SheetHeader className="shrink-0 border-b border-border px-6 py-5 pr-12">
           <div className="flex flex-wrap items-start justify-between gap-3">

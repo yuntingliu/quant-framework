@@ -508,10 +508,10 @@ function WorkspaceInner() {
       }
       case "set_focus": {
         const changed: string[] = []
-        if (Object.prototype.hasOwnProperty.call(command, "projectId")) {
-          const projectId = command.projectId ?? null
+        if (Object.prototype.hasOwnProperty.call(command, "projectId") || command.strategyId) {
+          const projectId = command.projectId === undefined ? workspace.selectedStrategy : command.projectId
           if (projectId) {
-            const focusedProject = await openStrategyProject(projectId)
+            const focusedProject = await openStrategyProject(projectId, command.strategyId ?? undefined)
             projectReadyRef.current = Boolean(
               focusedProject.editable && focusedProject.current_revision != null,
             )

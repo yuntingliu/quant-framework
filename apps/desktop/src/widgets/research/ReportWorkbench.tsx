@@ -12,7 +12,6 @@ import {
 } from "lucide-react"
 
 import { SafeMarkdown } from "@/components/shared/SafeMarkdown"
-import { SdkDocumentation } from "@/components/shared/SdkDocumentation"
 import { useAgentPrompt } from "@/contexts/AgentPromptContext"
 import { useLanguage } from "@/contexts/LanguageContext"
 import { usePanel } from "@/contexts/PanelContext"
@@ -189,7 +188,6 @@ export function ReportWorkbenchWidget() {
             <FileText className="mx-auto h-9 w-9 text-primary/70" />
             <div className="mt-3 text-sm font-semibold text-foreground">{copy.emptyTitle}</div>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">{copy.emptyDetail}</p>
-            <SdkDocumentation className="mt-4" topic="report" />
           </div>
         </div>
       </div>
@@ -226,7 +224,6 @@ export function ReportWorkbenchWidget() {
             <div className="truncate text-sm font-semibold text-foreground">{result.title}</div>
             {result.description ? <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{result.description}</div> : null}
           </div>
-          <SdkDocumentation topic="report" />
           {table ? (
             <button
               type="button"

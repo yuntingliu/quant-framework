@@ -62,6 +62,8 @@ def test_agent_exposes_two_compact_alphalab_tools():
         "files.write",
         "files.install_factor_template",
         "templates.factors",
+        "strategies.create",
+        "strategies.rename",
     }
     assert "sdk-v1-default is read-only" in files["code"]
     assert "Unsupported project file path" in files["code"]
@@ -99,7 +101,7 @@ def test_agent_exposes_two_compact_alphalab_tools():
     } <= commands
     assert "/wait?timeout_seconds=" in run["code"]
     assert "AbortSignal.timeout(timeoutMs)" in run["code"]
-    assert "return{status:job.status,job_id:job.id}" in run["code"]
+    assert "return{status:job.status,job_id:job.id,strategy_id:" in run["code"]
     assert "while(job.status" not in run["code"]
     assert "Math.min(20" in run["code"]
     assert "rows_truncated" in run["code"]
@@ -189,18 +191,54 @@ def test_sdk_skill_is_a_single_injected_command_guide():
     assert "workspace.outputs.prepare" in prompt
     assert "禁止只更新 data 而留下旧 content" in prompt
     assert "lastWorkspaceCommandReceipts" in prompt
-    assert agent["toolNames"] == [
-        "find",
-        "observe",
-        "create",
-        "edit",
-        "use",
-        "request_user_input",
-        "complete",
-    ]
+    assert agent["toolNames"] == ["find", "observe", "create", "edit", "use", "request_user_input", "complete"]
 
 
-def test_harness_output_and_workspace_command_contracts_are_unchanged():
+def test_agent_file_and_batch_tools_preserve_explicit_strategy_selection():
+    script = r"""
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const files=JSON.parse(readFileSync(process.argv[1],'utf8'));
+const runs=JSON.parse(readFileSync(process.argv[2],'utf8'));
+const calls=[];
+globalThis.fetch=async (url,options)=>{
+  const parsed=new URL(url), id=parsed.searchParams.get('strategy_id')||'main';
+  const body=options.body?JSON.parse(options.body):null;
+  calls.push({path:parsed.pathname,id,body,method:options.method||'GET'});
+  const value=parsed.pathname.endsWith('/batches')?{batch_id:'batch',jobs:body.strategy_ids.map(strategy_id=>({id:strategy_id,status:'queued',request:{strategy_id}}))}
+    :{id:'research',strategy_id:id,strategy_source:'source for '+id,current_revision:2,dirty:false,source_units:[],strategies:[{id:'main',path:'strategies/main.py'},{id:'alternate',path:'strategies/alternate.py'}],inspection:{entrypoints:[]}};
+  return{ok:true,json:async()=>value};
+};
+const invokeFiles=new Function('input',files.code+'\nreturn run(input);');
+const invokeRuns=new Function('input',runs.code+'\nreturn run(input);');
+const read=await invokeFiles({command:'files.read',args:{project_id:'research',paths:['strategies/main.py','strategies/alternate.py']}});
+assert.equal(read.included_files['strategies/main.py'],'source for main');
+assert.equal(read.included_files['strategies/alternate.py'],'source for alternate');
+const saved=await invokeFiles({command:'files.write',args:{project_id:'research',path:'strategies/alternate.py',content:'edited source'},confirm_write:true,confirm_python_execution:true});
+assert.equal(saved.status,'succeeded');
+assert.equal(calls.at(-1).id,'alternate');
+assert.equal(calls.at(-1).body.source,'edited source');
+assert.equal(calls.at(-1).body.confirm_python_execution,true);
+const invalid=await invokeFiles({command:'files.write',args:{project_id:'research',path:'../escape.py',content:'invalid'},confirm_write:true,confirm_python_execution:true});
+assert.equal(invalid.status,'failed');
+assert.notEqual(calls.at(-1).method,'PUT');
+const args={project_id:'research',strategy_ids:['alternate','main'],start_date:'2025-01-01',end_date:'2025-03-31'};
+const before=calls.length;
+assert.equal((await invokeRuns({command:'backtest.batch',args})).status,'failed');
+assert.equal(calls.length,before);
+const batch=await invokeRuns({command:'backtest.batch',args,confirm_python_execution:true});
+assert.equal(batch.batch_id,'batch');
+assert.deepEqual(batch.jobs.map(j=>j.strategy_id),['alternate','main']);
+assert.deepEqual(calls.at(-1).body.strategy_ids,args.strategy_ids);
+"""
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script, str(TOOLS / "Project-Files.tool.json"), str(TOOLS / "Project-Run.tool.json")],
+        cwd=ROOT, capture_output=True, text=True, timeout=20,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_harness_outputs_allow_explicit_strategy_focus():
     harness = _load(BUNDLE / "harness.json")
     assert "web-research" in harness["template"]["manifest"]["capabilities"]
     exposure = harness["template"]["manifest"]["exposures"][0]
@@ -218,7 +256,7 @@ def test_harness_output_and_workspace_command_contracts_are_unchanged():
     assert "widgetId" in properties
     assert "widget" not in properties
     assert "projectId" in properties
-    assert "strategyId" not in properties
+    assert properties["strategyId"]["pattern"] == "^[a-z][a-z0-9_]{0,63}$"
     assert properties["mode"]["enum"] == [
         "project",
         "data",
