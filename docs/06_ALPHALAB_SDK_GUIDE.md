@@ -408,3 +408,32 @@ python -m scripts.audit_factor_slides annual.csv --benchmark benchmark --input-u
 `skills/alphalab-technical-evidence-review` 提供技术复盘流程，
 `skills/alphalab-factor-replication-audit` 提供讲义、论文与指数表现对照流程。
 在其他机器上将对应文件夹复制到用户的 Codex skills 目录后即可发现；当前仓库保存版本来源。
+
+### 质量组合的股票级复现
+
+`python -m scripts.research_quality_replication` 将已有本地 RQ 缓存转换为冻结快照，
+然后通过当前 SDK 项目保存和事件引擎运行固定对照。它不调用旧版回测器。
+
+```powershell
+python -m scripts.research_quality_replication prepare --data-root C:/path/to/legacy/data --snapshot artifacts/quality/snapshot --start 2018-12-28 --end 2020-12-31
+python -m scripts.research_quality_replication run --snapshot artifacts/quality/snapshot --output artifacts/quality/runs --start 2018-12-28 --end 2020-12-31
+```
+
+输入约定是 `rq` 下的原始日线、财报、证券主表、日度因子、历史行业与指数成分，
+以及 `sector_rotation/rq` 下的历史复权因子及其覆盖清单。输出保留逐日收益、实际权重、
+执行记录、源码和输入指纹。起点要包含前一年的最后交易日，以便首次月末信号在次年开盘生效。
+
+财报处理使用原始披露、至少下一日可见、精确报告季度的 TTM，不再将四条观测当作四个连续季度。
+`roe` 的分母是本期与去年同期的平均正净资产；`roe_latest_equity` 保留期末净资产口径用于对照。
+`roa` 使用相应平均总资产，分子仍为 TTM 归母利润，是明确的研究代理。
+缺失历史、晚披露依赖、负净资产及只有调整后记录的季度不会被补成高质量观测。
+这些规则适用于重新生成的基本面快照；已有旧缓存需要显式重建，不会自动变成新口径。
+
+新增 `quality_profitability` 模板把 ROE、ROA 与低负债率的横截面排名等权合成，
+任一字段缺失或无穷时剔除。先设定点时有效股票池，再进行排名；它没有盈利稳定性维度，
+不等同于 MSCI、中证或讲义未指明的质量指数，也没有通过样本外择时或机器学习验证。
+
+研究组合采用月末选股、下一交易日开盘执行，固定前50名，并区分等权和总市值加权。
+SDK 的比例权重不包含100股整手、最低佣金及印花税账户账本；容量名义资金参数不能当作真实初始现金。
+因此不能把结果直接称为20万元账户可实现收益。历史成分缓存按月提供，涨跌停价由保存的默认
+`execution_data_fill` 规则补齐，均要在报告中披露；严格执行检查通过不代表这些估计成为供应商实测值。

@@ -323,8 +323,28 @@ def ma_deviation(context, *, window: int = 20):
     ),
     _fundamental("ep", "盈利收益率", "盈利相对估值水平。"),
     _fundamental("bp", "账面市值比", "账面价值相对市值水平。"),
-    _fundamental("roe", "净资产收益率", "衡量股东权益盈利能力。"),
-    _fundamental("roa", "总资产收益率", "衡量总资产盈利能力。"),
+    _fundamental("roe", "净资产收益率", "TTM 归母利润 / 当前与去年同期平均正净资产；缺季不拼接。"),
+    _fundamental("roa", "总资产收益率", "TTM 归母利润 / 当前与去年同期平均正总资产；质量研究代理口径。"),
+    FactorTemplate(
+        id="quality_profitability",
+        label="盈利与低杠杆质量代理",
+        category="fundamental",
+        description="ROE、ROA、负债率反向排名的等权组合；不是任何已识别指数的精确公式。",
+        inputs=("roe", "roa", "leverage"),
+        requirements={"fundamentals": ("roe", "roa", "leverage")},
+        recommended_direction="higher",
+        source='''@factor(id="quality_profitability", label="盈利与低杠杆质量代理")
+def quality_profitability(context):
+    """在传入股票池内返回质量排名均值；任一输入缺失则保持 NaN。"""
+    import pandas as pd
+    # 股票池应先按历史成分与流动性筛选；不同股票池的百分位不可混用。
+    values = pd.concat({name: context.fundamental(name) for name in ("roe", "roa", "leverage")}, axis=1)
+    values = values.replace([float("inf"), float("-inf")], float("nan"))
+    values["leverage"] = -values["leverage"]
+    complete = values.notna().all(axis=1)
+    return values.where(complete).rank(pct=True).mean(axis=1).where(complete)
+''',
+    ),
     _fundamental("profit_growth", "利润增长率", "利润同比或可比口径增长率。"),
     _fundamental("revenue_growth", "收入增长率", "营业收入增长率。"),
     _fundamental("gross_margin", "毛利率", "主营业务毛利水平。"),

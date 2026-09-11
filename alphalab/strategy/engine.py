@@ -1612,9 +1612,9 @@ def _fill_execution_state(
             output[field] = pd.NA
         replacement = output["symbol"].map(filled[field])
         missing = output[field].isna() & replacement.notna()
-        output.loc[missing, field] = replacement.loc[missing]
         count = int(missing.sum())
         if count:
+            output.loc[missing, field] = replacement.loc[missing]
             strategy_fill_counts[field] = count
             filled_values.extend(
                 {

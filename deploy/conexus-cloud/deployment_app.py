@@ -15,7 +15,6 @@ from starlette.staticfiles import StaticFiles
 
 from dashboard.backend.main import app as api_app
 
-
 _DIST = Path("/home/dev/apps/dev版/dashboard/frontend/dist")
 _BACKEND_PATHS = ("/api", "/docs", "/redoc", "/openapi.json", "/health")
 _HEALTH_PATHS = {"/health", "/api/health"}

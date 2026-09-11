@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "alphalab"
-version = "0.6.1"
+version = "0.6.2"
 description = "AlphaLab barebone quant framework with pluggable data providers and a workstation shell"
 readme = "README.md"
 license = {text = "MIT"}

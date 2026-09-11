@@ -32,7 +32,7 @@ from dashboard.backend.routers import (
 app = FastAPI(
     title="AlphaLab Barebone API",
     description="Provider-first quant framework workstation API",
-    version="0.6.1",
+    version="0.6.2",
 )
 app.state.loaded_env_files = tuple(str(path) for path in LOADED_ENV_FILES)
 

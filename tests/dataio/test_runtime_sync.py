@@ -244,9 +244,9 @@ def test_first_disclosure_and_canonical_fundamentals_are_point_in_time() -> None
         income,
         balance,
         bars,
-        asof_date="2024-08-30",
+        asof_date="2024-08-31",
     )
-    assert canonical["available_date"].max() <= pd.Timestamp("2024-08-30")
+    assert canonical["available_date"].max() <= pd.Timestamp("2024-08-31")
     assert canonical["quarter"].max() == "2024q2"
     assert canonical["ep"].notna().any()
 
