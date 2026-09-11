@@ -181,6 +181,12 @@ The Web build defaults to a 4 GiB Node heap because the code editor bundle can
 exceed the 2 GiB default on Linux. Ensure sufficient RAM or swap is available;
 set `NODE_OPTIONS` explicitly to use a different build limit.
 
+`/api/health` checks the application, release metadata, and result database.
+It reports data coverage as `not_checked`; use `/api/data/providers` for the
+full dataset scan. This keeps release probes independent of dataset size.
+On a failed first deployment the new service is stopped and its release link
+is removed; upgrades restore the previous valid release link.
+
 The bundled database is a read-only seed. The first application store is copied
 to `$ALPHALAB_RUNTIME_DIR/app/alphalab.db`; subsequent research, signals,
 backtests, strategies, and paper activity remain in runtime storage.

@@ -12,7 +12,6 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from alphalab import ResultStore
-from alphalab.dataio.catalog import DataCatalog
 from alphalab.utils.build_info import build_info
 from dashboard.backend.auth import HttpBasicAuthMiddleware
 from dashboard.backend.config import LOADED_ENV_FILES
@@ -157,7 +156,10 @@ def health() -> dict:
         "name": "AlphaLab Barebone API",
         **build_info(),
         "frontend": "ready" if FRONTEND_DIST.is_dir() else "not_built",
-        "runtime_profile": DataCatalog().summary()["status"],
+        # Detailed coverage scans read market datasets and are inappropriate
+        # for a frequent deployment probe with a bounded request timeout.
+        "runtime_profile": "not_checked",
+        "data_status_url": "/api/data/providers",
         "store": {
             "status": "ready",
             "backtests": stats["backtests"],

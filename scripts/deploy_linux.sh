@@ -34,7 +34,10 @@ git -C "$SOURCE_DIR" fetch --prune origin
 COMMIT="$(git -C "$SOURCE_DIR" rev-parse "${REF}^{commit}")"
 RELEASE="$RELEASES_DIR/$COMMIT"
 STAGING="$RELEASES_DIR/.${COMMIT}.staging.$$"
-PREVIOUS="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
+PREVIOUS=""
+if [[ -L "$CURRENT_LINK" ]]; then
+  PREVIOUS="$(readlink -e "$CURRENT_LINK" 2>/dev/null || true)"
+fi
 BUILDING_RELEASE=0
 
 cleanup_staging() {
@@ -163,8 +166,14 @@ if ! restart_and_check; then
     ln -sfn "$PREVIOUS" "$NEXT_LINK"
     mv -Tf "$NEXT_LINK" "$CURRENT_LINK"
     systemctl --user restart "$SERVICE_NAME"
+    echo "Deployment failed; previous release restored." >&2
+  else
+    systemctl --user stop "$SERVICE_NAME"
+    if [[ -L "$CURRENT_LINK" && "$(readlink "$CURRENT_LINK")" == "$RELEASE" ]]; then
+      rm -- "$CURRENT_LINK"
+    fi
+    echo "Deployment failed; new service stopped and release link removed." >&2
   fi
-  echo "Deployment failed; previous release restored." >&2
   exit 1
 fi
 

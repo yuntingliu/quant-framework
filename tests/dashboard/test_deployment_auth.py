@@ -57,3 +57,20 @@ def test_run_bearer_is_forwarded_only_to_run_endpoints(monkeypatch):
     client = TestClient(app)
     assert client.get("/api/conexus/runs/example", headers={"Authorization": "Bearer invalid"}).status_code == 403
     assert client.get("/api/conexus/runs/example").status_code == 401
+
+
+def test_deployment_health_does_not_scan_market_datasets(monkeypatch, tmp_path):
+    from alphalab import ResultStore
+    from alphalab.dataio.catalog import DataCatalog
+    from dashboard.backend import main
+
+    def unexpected_scan(_catalog):
+        raise AssertionError("health probes must not scan historical datasets")
+
+    monkeypatch.setenv("ALPHALAB_WEB_AUTH_ENABLED", "false")
+    monkeypatch.setattr(DataCatalog, "summary", unexpected_scan)
+    monkeypatch.setattr(main, "ResultStore", lambda: ResultStore(tmp_path / "health.db"))
+    response = TestClient(main.app).get("/api/health")
+    assert response.status_code == 200
+    assert response.json()["runtime_profile"] == "not_checked"
+    assert response.json()["data_status_url"] == "/api/data/providers"
