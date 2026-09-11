@@ -1,13 +1,14 @@
 import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
+import { bindToolToInstance } from "./lib/conexus-instance.mjs"
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)))
 const sourceRoot = resolve(process.env.ALPHALAB_SOURCE_ROOT || repositoryRoot)
 const projectRoot = resolve(process.env.CONEXUS_PROJECT_ROOT || sourceRoot)
-const canvasPath = resolve(projectRoot, ".conexus", "canvas.json")
+const canvasPath = resolve(projectRoot, process.env.CONEXUS_CANVAS_PATH || ".conexus/canvas.json")
 const bundlePath = "integrations/conexus/alphalab-research-agent"
-const stagedBundlePath = "workspace/harnesses/AlphaLab-Research-Agent-v1"
+const stagedBundlePath = process.env.ALPHALAB_STAGED_BUNDLE_PATH || "workspace/harnesses/AlphaLab-Research-Agent-v1"
 const sourceBundlePath = resolve(sourceRoot, bundlePath)
 const stagedBundleAbsolutePath = resolve(projectRoot, stagedBundlePath)
 const harnessId = "alphalab-research-harness-v1"
@@ -46,6 +47,15 @@ if (
 await mkdir(resolve(stagedBundleAbsolutePath, ".."), { recursive: true })
 await rm(stagedBundleAbsolutePath, { recursive: true, force: true })
 await cp(sourceBundlePath, stagedBundleAbsolutePath, { recursive: true, force: true })
+const boundOrigin = process.env.ALPHALAB_TOOL_API_ORIGIN
+const instanceId = process.env.ALPHALAB_INSTANCE_ID
+if (boundOrigin || instanceId) {
+  for (const [, , file] of toolNodes) {
+    const path = resolve(stagedBundleAbsolutePath, "tools", file)
+    const tool = JSON.parse(await readFile(path, "utf8"))
+    await writeFile(path, `${JSON.stringify(bindToolToInstance(tool, boundOrigin, instanceId), null, 2)}\n`, "utf8")
+  }
+}
 const stagedAgentPath = resolve(stagedBundleAbsolutePath, agentRelativePath)
 const stagedSkillPath = resolve(stagedBundleAbsolutePath, sdkSkillRelativePath)
 const [agentSource, sdkSkill, harnessSource] = await Promise.all([

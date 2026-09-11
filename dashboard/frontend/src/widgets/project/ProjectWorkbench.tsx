@@ -262,7 +262,12 @@ export function ProjectWorkbenchWidget() {
                     ? "border-primary/40 bg-primary/10"
                     : "border-transparent bg-muted/25 hover:border-border hover:bg-muted/60",
                 )}
-                onClick={() => void sdk.openProject(item.id)}
+                onClick={() => {
+                  setLocalError("")
+                  void sdk.openProject(item.id).catch((reason: unknown) => {
+                    setLocalError(reason instanceof Error ? reason.message : String(reason))
+                  })
+                }}
               >
                 <span className="flex min-w-0 items-center gap-2">
                   <span className="block min-w-0 flex-1 truncate text-xs font-medium text-foreground">{item.name}</span>

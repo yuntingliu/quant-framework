@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { conversationFingerprint } from "@/lib/conexus/conversationFingerprint"
 
 import {
   answerRunInteraction,
@@ -383,10 +384,6 @@ function mergeConversationLists(
   return [...conversations.values()]
     .sort((first, second) => second.updatedAt.localeCompare(first.updatedAt) || first.id.localeCompare(second.id))
     .slice(0, MAX_SHARED_CONVERSATIONS)
-}
-
-function conversationFingerprint(conversation: AgentConversation): string {
-  return JSON.stringify(conversation)
 }
 
 function conversationContext(conversation: AgentConversation | null): Record<string, unknown> {

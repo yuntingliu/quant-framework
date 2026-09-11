@@ -14,7 +14,7 @@
     "desktop:dev": "npm --prefix desktop run dev",
     "pack": "npm --prefix desktop run pack",
     "lint": "eslint .",
-    "test": "node --test tests/*.test.ts",
+    "test": "node --test tests/*.test.ts ../../tests/conexus-instance.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

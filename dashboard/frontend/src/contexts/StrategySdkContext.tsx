@@ -140,12 +140,13 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
     try {
       return adopt(await api.get<StrategyProject>(`/strategy/projects/${projectId}`))
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      // Failed navigation must not replace the still-valid current workbench.
+      if (!project) setError(reason instanceof Error ? reason.message : String(reason))
       throw reason
     } finally {
       setLoading(false)
     }
-  }, [adopt])
+  }, [adopt, project])
 
   const refresh = useCallback(async (preferredId?: string) => {
     setLoading(true)

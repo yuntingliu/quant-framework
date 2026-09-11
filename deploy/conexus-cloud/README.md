@@ -68,3 +68,33 @@ run workspace. The hosted publication uses enterprise identity and publisher
 billing, so the AlphaLab backend also uses this credential when reading the
 full Harness manifest and creating Runs. Keep it in the deployment environment
 and never expose it to the browser bundle.
+
+## Independent workstation instances
+
+Copying a browser configuration does not move the published tools. Each
+independent database must have its own publication slug, enterprise service
+credential, private tunnel port, and `ALPHALAB_INSTANCE_ID`. Never reuse a
+publication whose tools still target another workstation.
+
+Stage an independent snapshot with `register_conexus_research_harness.mjs`:
+set `CONEXUS_CANVAS_PATH` to a separate Canvas file under the same project,
+`ALPHALAB_STAGED_BUNDLE_PATH` to a separate `workspace/harnesses/` directory,
+`ALPHALAB_TOOL_API_ORIGIN` to its HTTP loopback tunnel origin, and
+`ALPHALAB_INSTANCE_ID` to the target deployment ID. The generated tools bind
+that origin into the release and verify `/api/agent/identity` before executing
+any command; a host-wide `ALPHALAB_API_ORIGIN` cannot override this binding.
+Host that snapshot through the Conexus administrator `harness:host` operation
+with a separate slug and its returned publication-scoped enterprise credential.
+
+For dev3 the route is Conexus `127.0.0.1:18003` → SSH → Mac
+`127.0.0.1:8301` → authenticated workstation `127.0.0.1:8300`.
+`scripts/serve_conexus_private_api.py --env-file <workstation-env>` supplies
+the workstation authentication locally. It only listens on loopback and must
+be reached through a restricted SSH key. This reuses the existing backend
+process and job queues. It does not start a second strategy runtime against
+the same database. The browser credential never enters the tool bundle.
+
+Before changing the workstation's `CONEXUS_PUBLICATION_SLUG` and
+`CONEXUS_PUBLICATION_WORKSPACE_TOKEN`, verify the bound tools return the same
+project IDs, source revisions, and results as the browser API. Keep the old
+publication active for its own workstation.
