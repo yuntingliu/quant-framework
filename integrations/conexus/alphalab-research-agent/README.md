@@ -36,4 +36,8 @@ by node ID; AlphaLab resolves their bounded payloads from the durable
 publication workspace and accepts only nodes updated by that exact Run.
 Quantitative reports remain native Document nodes in the same workspace.
 
-See `docs/04_CONEXUS_AGENT.md` for the full contract.
+See the [Agent contract](../../../docs/04_CONEXUS_AGENT.md) for the full contract,
+the [deployment runbook](../../../deploy/conexus-cloud/README.md) for instance
+binding and model funding, and [deployment status](../../../docs/05_DEPLOYMENT.md)
+for current dev3 readiness. A successful tool query does not establish that a
+new publication can start a complete model-backed Agent run.

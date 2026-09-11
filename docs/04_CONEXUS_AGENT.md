@@ -1,5 +1,11 @@
 # Conexus Research Agent
 
+For current instance routing, service management, and readiness, see
+[Deployment and instances](05_DEPLOYMENT.md) and the
+[Conexus deployment runbook](../deploy/conexus-cloud/README.md).
+The Agent is optional: AlphaLab's project editing and local event backtests
+remain available independently of Conexus model funding.
+
 The published AlphaLab Agent operates on the same four Python authoring
 boundaries as the workbenches:
 
@@ -204,19 +210,42 @@ modify nodes. Report writes follow the native Document contract and are made
 only when the current request actually produces or revises a quantitative
 report.
 
-## Registration and publication
+## Registration and hosting
 
-Refresh the local canvas and staged bundle with:
+The following helpers target a compatible Conexus source checkout and the
+default local Canvas. They do not deploy a remote service or complete model
+funding. Refresh the local canvas and staged bundle with:
 
 ```powershell
 node scripts\register_conexus_research_harness.mjs
 ```
 
-Publish the registered Harness with:
+Create a local hosted revision from the default Canvas with:
 
 ```powershell
 node scripts\host_conexus_research_harness.mjs
 ```
+
+Hosting a local revision is separate from publishing to the Conexus account
+registry. `host_conexus_research_harness.mjs` loads modules from
+`CONEXUS_ROOT/apps/web/server-dist` and reads the default `.conexus/canvas.json`.
+Independent snapshots and shared-host deployments use the administrator
+`harness:host` operation described in the deployment runbook, with a distinct
+slug and credentials.
+
+`scripts/start_conexus_web.ps1` still targets the older `backend/dist/web-host.js`
+and `dist/web` repository layout. It is not a startup recipe for the current
+Conexus monorepo or proof of compatibility with its `local` branch. Use the
+Conexus checkout's own current build/start documentation and verify the public
+run, event, cancel, and workspace contracts before connecting AlphaLab.
+
+Each independent AlphaLab instance needs a matching publication and bound tool
+origin. Registration can bind `ALPHALAB_TOOL_API_ORIGIN` and
+`ALPHALAB_INSTANCE_ID` into both tools; each command verifies
+`/api/agent/identity` before accessing the workstation. An enterprise workspace
+credential authenticates requests but does not configure the model provider.
+Verify one complete read-only Agent run, not only a manifest or direct tool
+request, before describing a new instance as ready.
 
 Registration injects the SDK skill and removes the former eleven intent tools,
 obsolete pipeline, Lab, request-template sync, paper, and manual-revision Agent

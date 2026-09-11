@@ -11,6 +11,7 @@ automatically records an immutable internal source package so later results
 remain reproducible without exposing a manual revision workflow.
 
 The normative API is [02_STRATEGY_SDK_V1_CONTRACT.md](02_STRATEGY_SDK_V1_CONTRACT.md).
+Startup and deployment entrypoints are listed in the [documentation index](README.md).
 
 ## System shape
 
@@ -69,7 +70,8 @@ post-run metrics, Alpha/Beta attribution, and custom research outputs, while
 the event clock, fills, costs, cash, and accounting remain core-owned.
 
 The project database remains authoritative. Before a document is opened, the
-backend writes a derived filesystem mirror under `data/runtime/editor/` for
+backend writes a derived filesystem mirror under the configured runtime's
+`editor/` directory (default `data/runtime/editor/`) for
 language-server access. Mirrors are ignored by git, never become saved source,
 and are never selected as execution input. Saves still use the strategy source
 or data-recipe APIs and their existing validation and hashes.

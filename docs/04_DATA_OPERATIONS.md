@@ -3,7 +3,9 @@
 ## Profiles
 
 `runtime` is the only application-facing profile and reads local RQ partitions
-below `data/runtime`. The tracked example files remain internal test fixtures;
+below `ALPHALAB_RUNTIME_DIR` (default `data/runtime`). Set an external runtime
+path in the process environment before starting Python. The tracked example
+files remain internal test fixtures;
 the application never exposes or falls back to them as an active data profile.
 
 Runtime datasets are:
@@ -111,6 +113,12 @@ the physical Parquet schema rather than duplicated in a frontend list.
 
 ## Interfaces
 
+Run the CLI with the active checkout's Python environment, for example
+`.venv/bin/python -m alphalab.cli` on macOS/Linux or
+`.\.venv\Scripts\python.exe -m alphalab.cli` on Windows. `alphalab` below is the
+equivalent entrypoint when that environment is activated. Example dates are
+historical bounds; choose the interval required by the research request.
+
 CLI:
 
 ```powershell
@@ -134,6 +142,12 @@ full market. `--fail-on-gap` checks requested bounds, suspension/ST coverage
 against stored bar keys, factor trading-date coverage, and per-index snapshot
 freshness. A non-passing CLI report exits non-zero.
 
+`data validate` has no `--symbols` option: it examines the selected datasets in
+the local store. A single-symbol sync followed by dataset validation can expose
+gaps in other stored symbols. Sync completion, application health, and a dataset
+freshness summary are different checks. `/api/health` intentionally does not
+scan research data; inspect data health and then validate the relevant bounds.
+
 The Data Workbench keeps symbol selection and the daily market view as its
 primary workflow. Local update planning, synchronization, catalog inspection,
 bounded queries, job history, and detailed quality reports live under its
@@ -144,10 +158,12 @@ The typed tool registry exposes `data.templates`, `data.catalog`, `data.status`,
 tool is bounded to 1,000 rows. The same registry is discoverable and invokable
 through `/api/agent/data-tools`; `data.run_sync` additionally requires
 `confirm=true` at that bridge. No embedded LLM provider or autonomous planner
-is enabled in AlphaLab itself. The optional published Conexus Harness is
-authorized to plan and run required RQ synchronization autonomously; its
-RQ-sync adapter supplies the bridge assertion internally instead of asking the
-user to click Data Workbench.
+is enabled in AlphaLab itself. Under an authorized research request, the
+optional Conexus Harness plans and runs the project's visible `recipe.py`
+through the canonical project tools, monitors the job, and verifies the needed
+fields. Current-user write and Python-execution authorization remains explicit
+at that boundary; conversation history alone does not authorize execution.
+See [Conexus Agent](04_CONEXUS_AGENT.md) for the maintained research loop.
 
 ## Arbitrary Python data sources
 

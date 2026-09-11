@@ -1,178 +1,132 @@
-# AlphaLab Barebone
+# AlphaLab
 
-Version 0.6.0 integrates the `dongfang` workstation and `dev_liu` research evidence.
-See [integration release notes](docs/releases/0.6.0-integration.md) for validation,
-migration and data-quality boundaries.
+AlphaLab 是以 Python 为核心的量化研究工作台，连接数据采集、因子研究、选股策略、日度事件回测、验证与研究报告。当前版本为 **0.6.2**，整合了 `dongfang` 工作台和 `dev_liu` 研究能力；后续部署与修复以 Git 提交和 `/api/health` 返回的 `commit_sha` 区分。
 
-AlphaLab is a local quantitative-research framework with provider-backed data,
-a unified Python strategy SDK, point-in-time factor evaluation, a stateful daily
-event backtester, immutable source revisions, a FastAPI/React workstation, and
-an optional Conexus research Agent.
+文档核对日期：**2026-09-11**。完整入口见 [文档导航](docs/README.md)，近期变化见 [工作台与部署更新](docs/releases/2026-09-11-workstation.md)。
 
-The core idea is simple: one strategy project has one complete Python module.
-The parameter forms, factor editor, signal model, event logic, execution policy,
-Codex edits, tests, previews, and backtests all modify or invoke that same source.
+## 当前能做什么
 
-## Quick start
+| 环节 | 当前能力 |
+| --- | --- |
+| 数据 | RQ 股票、ETF、行情、停牌/ST、财务、日因子和历史指数成分；可编辑采集配方、分块同步、增量续跑和覆盖校验 |
+| 因子 | SDK 原生因子、PIT 财务处理、中性化、Rank IC/ICIR、分组收益、衰减与时序留出诊断 |
+| 技术证据 | 均线、MACD、RSI、KDJ、ATR、布林带、CCI、OBV；下影线收回、三连阳实体和放量突破模板 |
+| 策略与组合 | 日/周/月日程、自定义日程、事件规则、等权、最小方差、风险平价、HRP 等组合方法 |
+| 回测与验证 | 日度事件引擎、下一交易日执行、交易约束与成本、冻结源码及结果、独立验证代码和研究证据 |
+| 工作台与 Agent | 六个工作台、共享 Python 编辑器；可选 Conexus Agent 通过相同项目和回测接口开展研究 |
 
-Windows PowerShell:
+日度事件引擎支持每日生成信号；实际调仓频率由项目日程、目标权重和执行条件决定。它不表示默认每天交易，也不是分钟级交易系统。主题轮动、图形筛选和机器学习效果仍需按具体项目检验，不能从框架支持某项功能推导出收益改善。
+
+## 一个项目，一条执行流程
+
+```text
+研究项目（数据库保存规范源代码）
+├── recipe.py               数据采集与本地发布
+├── factors/<factor_id>.py   每个文件一个注册因子
+├── strategy.py             股票池、日程、信号、组合、事件和执行规则
+└── validation.py           冻结回测结果的研究验证
+
+数据 → 因子 → 策略源码组装 → 日度事件回测 → 验证 → 报告
+```
+
+项目、数据、因子、策略、验证、报告六个工作台使用相同的项目状态。表单和编辑器修改同一份规范源码；保存自动记录不可变源码包，回测固定策略与验证版本。编辑器磁盘镜像只供语言服务使用。
+
+策略使用 `alphalab.sdk.v1`；数据配方和验证代码分别使用自己的 SDK。完整示例、参数与研究命令统一维护在 [中文 SDK 指南](docs/06_ALPHALAB_SDK_GUIDE.md)，该文件也由网页内的文档面板读取。
+
+## 本地启动
+
+在仓库根目录运行。包声明 Python >= 3.10；当前 Mac 部署验收使用 Python 3.12 和 Node.js 22。Python 的 `dev` 依赖包含 Pyrefly、Ruff 等编辑器工具。
+
+### Windows PowerShell
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dashboard,dev,rq]"
-
-python -m uvicorn dashboard.backend.main:app --reload --port 8000
+npm --prefix dashboard/frontend ci
+.\.venv\Scripts\python.exe -m alphalab.cli dev doctor
 ```
 
-In another terminal:
+在两个终端中分别运行，均从仓库根目录开始：
 
 ```powershell
-cd dashboard\frontend
-npm install
-npm run dev
+# 终端一：后端
+.\.venv\Scripts\python.exe -m uvicorn dashboard.backend.main:app --host 127.0.0.1 --port 8000 --reload
 ```
-
-The workstation exposes the single `runtime` data profile. Configure
-`RQ_USER`, `RQ_PASSWORD`, and `RQ_HOST` in an untracked `.env`, then use the
-Data Workbench to populate the local runtime store. Bundled sample data remains
-available only to internal tests and examples.
-
-Before starting the workbench, the read-only doctor reports local Python,
-Node, RQData, editor tools, runtime datasets, and port readiness without
-printing credential values:
 
 ```powershell
-alphalab dev doctor
+# 终端二：前端
+npm --prefix dashboard/frontend run dev:web
 ```
 
-## Runtime RQ data
+打开 [本地开发工作台](http://localhost:5173)。Vite 将 `/api` 和语言服务 WebSocket 代理到后端 8000 端口。
 
-The Data Workbench and CLI use the same visible Python recipe and the same
-partitioned store below ignored `data/runtime/`. Inspect a plan before a large
-request, then run and validate the selected scope:
+### macOS / Linux
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[dashboard,dev,rq]'
+npm --prefix dashboard/frontend ci
+.venv/bin/python -m alphalab.cli dev doctor
+.venv/bin/python -m uvicorn dashboard.backend.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+另开终端，从仓库根目录执行 `npm --prefix dashboard/frontend run dev:web`。
+
+`doctor` 只读检查环境，不打印凭据。首次安装尚无 RQ 配置或研究数据时，它可能报告未就绪；按报告补齐对应配置和数据即可。
+
+### 使用构建后的网页
 
 ```powershell
-alphalab data templates
-alphalab data plan rq --template rq.etf_daily
-alphalab data sync rq --template rq.a_share_research
-alphalab data validate --datasets rq.bars,rq.paused,rq.is_st --fail-on-gap
+npm --prefix dashboard/frontend run build:web
+.\.venv\Scripts\python.exe -m uvicorn dashboard.backend.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-Daily RQ requests are split by symbols and dates. Each completed chunk is
-persisted immediately; rerunning resumes from per-symbol/per-field/per-index
-watermarks with an overlap refresh. Runtime research data includes adjusted
-bars with `raw_open`/`raw_high`/`raw_low`/`raw_close`, suspensions, ST state,
-daily factors, historical index
-membership, PIT financials, and attribution factors. See
-[Data operations](docs/04_DATA_OPERATIONS.md) for exact templates and schemas.
+打开 [本地构建工作台](http://127.0.0.1:8000/app/)。macOS/Linux 将 Python 路径替换为 `.venv/bin/python`。持续运行实例使用单个后端 worker 和操作系统服务管理；发布流程见 [部署与实例说明](docs/05_DEPLOYMENT.md)。
 
-## Strategy SDK v1
+## 数据准备
 
-Strategy source imports `alphalab.sdk.v1` and registers one universe, any number
-of factors, one scheduled signal, one portfolio function, optional stateful
-event handlers, and one execution policy:
+在忽略的 `.env` 中配置 `RQ_USER`、`RQ_PASSWORD`、`RQ_HOST`。RQ 使用 SDK 直连配置的地址。应用只有 `runtime` 数据档案，不会把内置测试样本作为真实研究数据回退使用。
 
-```python
-from alphalab.sdk.v1 import (
-    ExecutionPolicy, Monthly, PortfolioDecision, SignalResult, UniverseResult,
-    execution, execution_data_fill, factor, portfolio, signal, universe,
-)
+默认数据目录为 `data/runtime/`。独立部署通过启动进程的 `ALPHALAB_RUNTIME_DIR` 指定持久目录，必须在 Python 导入应用前设置；每个实例使用独立数据库。
 
-SDK_VERSION = 1
-
-@universe(id="all_available")
-def all_available(context):
-    return UniverseResult(symbols=context.universe)
-
-@factor(id="momentum_20d", inputs=["close"])
-def momentum_20d(context, *, window: int = 20):
-    close = context.history("close", window=window + 1)
-    return close.iloc[-1] / close.iloc[0] - 1
-
-@signal(id="top1", schedule=Monthly.last_trading_day(at="close"))
-def top1(context, state, *, top_n: int = 1):
-    scores = context.factor("momentum_20d", window=20).dropna()
-    selected = list(scores.nlargest(top_n).index)
-    return SignalResult(selected=selected, scores=scores, state=state)
-
-@portfolio(id="full_weight")
-def full_weight(context, signal, state):
-    return PortfolioDecision(
-        target_weights={signal.selected[0]: 1.0} if signal.selected else {},
-        state=state,
-    )
-
-@execution_data_fill(id="fill_missing_market_state")
-def fill_missing_market_state(context, rows):
-    # Project-owned Python may fill only missing execution-state values.
-    return rows
-
-@execution(id="next_open")
-def next_open(context, decision):
-    return ExecutionPolicy(activation="next_session_open")
-```
-
-Stateful rules such as MA gates, profit locks, month-level re-entry freezes, and
-volatility cuts use `@on_event(Event.SESSION_CLOSE, ...)` and the shared JSON
-`State`. Custom schedules use `@schedule`. Factors can call other registered
-factors through `context.factor(...)`; dependencies are tracked and cycles are
-rejected.
-
-## One source, several views
-
-- Project/Data: metadata, data profile, requirements, and `@universe`.
-- Factor: edit `@factor` functions, insert data fields/dependencies, run frozen
-  snapshot and history evaluations.
-- Strategy: edit schedule, signal, portfolio, event handlers, execution, or the
-  full module.
-- Validation: select an immutable revision, preview it, run the full event
-  backtest, and inspect frozen results.
-- Report: persist Agent documents and evidence tied to a Run.
-
-Recognized form fields edit exact Python syntax nodes with LibCST. Arbitrary
-Python remains editable as custom source. There is no expression-to-Python
-translation, generated three-stage script, candidate promotion step, or second
-Python Lab lifecycle.
-
-## Local Python runtime
-
-AlphaLab directly invokes the current local Python environment in a spawned
-child process. It provides timeouts, crash containment, bounded logs, static
-warnings, explicit execution confirmation, and strict input/output contracts.
-It is not a security sandbox; only run source you trust. Docker is not required
-or used by the strategy path.
-
-## Reproducibility and safety
-
-A saved `StrategySourcePackage` freezes the full source, SHA-256, SDK and
-validator versions, entrypoint manifest, literal parameters, requirements, and
-environment fingerprint. Every preview, factor evaluation, and backtest names
-the exact revision and hash it invokes.
-
-The core—not custom source—owns point-in-time filtering, calendar ordering,
-symbol/listing checks, validation of known suspension and price-limit fields, positive
-volume/amount, participation, cash, fees, fills, rejection events, accounting,
-and output/state validation. Project source may implement one bounded
-`@execution_data_fill` function for missing state values; a target is not a fill.
-
-## Useful commands
+先查看模板和计划，再同步选定范围。以下是 Windows 的小范围示例；日期是历史示例，不代表最新行情：
 
 ```powershell
-python -m pytest tests -q --basetemp=data\pytest
-python scripts\check_facade_imports.py
-python scripts\build_example_data.py --source-root <local-source>
-
-node scripts\register_conexus_research_harness.mjs
+.\.venv\Scripts\python.exe -m alphalab.cli data templates
+.\.venv\Scripts\python.exe -m alphalab.cli data plan rq --template rq.a_share_daily --symbols 000001.SZ --start 2025-01-01 --end 2025-12-31
+.\.venv\Scripts\python.exe -m alphalab.cli data sync rq --template rq.a_share_daily --symbols 000001.SZ --start 2025-01-01 --end 2025-12-31
+.\.venv\Scripts\python.exe -m alphalab.cli data validate --datasets rq.bars,rq.paused,rq.is_st --start 2025-01-01 --as-of 2025-12-31 --fail-on-gap
 ```
 
-Architecture and contribution rules:
+省略 `--symbols` 会按模板解析完整范围；默认研究模板包含更多财务与因子数据。上述 CLI 校验面向所选数据集中的本地数据，不是仅按前一条同步命令的股票过滤。大范围同步、强制回补、财报口径和历史成分限制见 [数据操作](docs/04_DATA_OPERATIONS.md)。已有旧财务缓存需要显式重建才能采用修正后的 ROE/TTM 口径。
 
-- [Architecture](docs/01_ARCHITECTURE.md)
-- [Strategy SDK v1 contract](docs/02_STRATEGY_SDK_V1_CONTRACT.md)
-- [Development guide](docs/03_DEVELOPMENT_GUIDE.md)
-- [Data operations](docs/04_DATA_OPERATIONS.md)
-- [Conexus Agent](docs/04_CONEXUS_AGENT.md)
+## Conexus 与开发实例
 
-Local data, SQLite databases, caches, test scratch, and generated frontend
-artifacts must stay out of Git. The repository does not push remotely unless
-explicitly requested.
+Conexus 是可选的 Agent 运行服务。AlphaLab 后端代理其接口，项目源码、数据和回测仍由 AlphaLab 保存与执行；研究报告 Documents 由 Conexus 持久化，会话文本保存在 AlphaLab。
+
+每个独立实例需匹配自己的数据库、实例标识、Conexus slug、服务凭据和工具目标地址。服务身份凭据与模型付费授权是两项配置；接口可读不代表 Agent 已能调用模型。
+
+截至 2026-09-11 最近验收：dev2 位于 Pop!_OS，dev3 位于 Mac mini；dev3 行情查询优化和项目路由修复已部署。dev3 新 Agent 的模型授权仍待完成，Conexus `local` 分支尚未完成源码与接口兼容性审查。实例入口、Mac 服务管理和验收步骤见 [部署说明](docs/05_DEPLOYMENT.md)；工具绑定与授权细节见 [Conexus 部署](deploy/conexus-cloud/README.md)。
+
+## 研究结果的边界
+
+质量因子已通过当前 SDK 重跑 2019–2020 固定对照。历史沪深300内按 ROE（平均净资产口径）选前50名的月度等权代理，2020 年收益为 **44.31%**，讲义为 **42.64%**；此前 **4.46%** 来自另一种整手现金账户口径，不能直接比较。
+
+这仍是透明代理：讲义的精确指数、样本和规则不完整，新实验未重跑全部11年，也没有机器学习样本外增益证据。比例权重回测不等同于含整手、最低佣金和独立印花税账本的实盘账户。完整条件见 [0.6.2 研究记录](docs/releases/0.6.2-dev-liu.md)。
+
+Python 源码在本地子进程中执行，有超时、日志和契约检查，但不是安全沙箱。研究时使用可信源码，并在结论中说明股票池、数据可用时点、缺失值、交易约束与成本假设。
+
+## 验证与贡献
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/contracts -q --basetemp=artifacts/pytest-contracts
+.\.venv\Scripts\python.exe scripts/check_facade_imports.py
+.\.venv\Scripts\python.exe scripts/check_repository_hygiene.py
+npm --prefix dashboard/frontend run lint
+npm --prefix dashboard/frontend test
+npm --prefix dashboard/frontend run build:web
+```
+
+按变更范围补充测试；完整规则见 [开发指南](docs/03_DEVELOPMENT_GUIDE.md)。内置样本用于测试，个人数据、运行数据库、凭据、构建产物和研究附件留在 Git 之外。
+
+Python 编辑器首开仍有较大资源包带来的传输等待；行情查询性能优化不代表编辑器加载已优化完毕。当前问题、验收记录和历史版本入口集中在 [文档导航](docs/README.md)。

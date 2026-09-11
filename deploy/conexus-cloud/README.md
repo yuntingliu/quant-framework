@@ -1,8 +1,14 @@
 # AlphaLab on the shared Conexus host
 
-AlphaLab is published as an independent Harness inside the canonical Conexus
-root Canvas. It does not own a second Web Host, Compose project, project volume,
-administrator session, or deployment timer.
+This runbook describes AlphaLab's current shared Conexus deployment. Existing
+shared applications stay on that host; a candidate local Web Host is a separate
+deployment design that must pass API, persistence, and model-access acceptance
+before cutover. Current readiness is recorded in
+[Deployment and instances](../../docs/05_DEPLOYMENT.md).
+
+The original AlphaLab Harness is hosted inside the canonical Conexus root
+Canvas. Its original workstation route is listed below; dev3 has its own slug
+and binding in the independent-instance section.
 
 - Shared Web Host: `conexus-digui-web-1`
 - Shared loopback port: `127.0.0.1:3000`
@@ -22,7 +28,7 @@ The canonical shared-host Compose and deployment files live in the Conexus
 repository under `infra/enterprise/`. AlphaLab uses `adminer.cloud` as its
 server-side Conexus origin; it does not own a second Conexus hostname.
 
-## Private AlphaLab API
+## Private AlphaLab API — original Pop workstation
 
 AlphaLab data, project, strategy, and backtest operations remain on the hosted
 research workstation. Conexus tools reach them through a restricted reverse
@@ -92,6 +98,8 @@ credential for the new slug as well. An existing credential for the old slug
 cannot fund the new publication. Do not change the shared host's global model
 funding mode to work around a missing publication credential.
 
+dev3 uses slug `alphalab-research-agent-dev3` and instance ID `dev3`, while the
+original slug continues to belong to its original workstation.
 For dev3 the route is Conexus `127.0.0.1:18003` → SSH → Mac
 `127.0.0.1:8301` → authenticated workstation `127.0.0.1:8300`.
 `scripts/serve_conexus_private_api.py --env-file <workstation-env>` supplies
@@ -107,3 +115,10 @@ publication active for its own workstation.
 Complete one read-only Agent run before marking the instance ready. A working
 descriptor, manifest, workspace, or direct tool query does not prove the new
 publication has a configured model provider.
+
+As of the 2026-09-11 acceptance record, the dev3 project, original frozen
+backtest, and 11 report Documents have been recovered and its bound tool reads
+pass. Full Agent run creation still returns `public_runtime_unavailable`
+because the new slug needs model funding configuration. This is an outstanding
+acceptance item, not evidence that Conexus was moved to the Mac or that the
+requested `local` branch is compatible.

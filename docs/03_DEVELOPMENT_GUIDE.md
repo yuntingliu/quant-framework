@@ -5,19 +5,23 @@ The public contract is [02_STRATEGY_SDK_V1_CONTRACT.md](02_STRATEGY_SDK_V1_CONTR
 
 ## Setup
 
+Run commands from the repository root. The complete Windows/macOS/Linux startup
+walkthrough lives in [README](../README.md); deployed instances are documented
+in [Deployment and instances](05_DEPLOYMENT.md).
+
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dashboard,dev]"
-cd dashboard\frontend
-npm install
+.\.venv\Scripts\python.exe -m pip install -e ".[dashboard,dev,rq]"
+npm --prefix dashboard/frontend ci
 ```
 
 Run the backend and frontend in separate terminals:
 
 ```powershell
-python -m uvicorn dashboard.backend.main:app --reload --port 8000
-cd dashboard\frontend
-npm run dev
+# Terminal 1
+.\.venv\Scripts\python.exe -m uvicorn dashboard.backend.main:app --host 127.0.0.1 --reload --port 8000
+# Terminal 2, also from the repository root
+npm --prefix dashboard/frontend run dev:web
 ```
 
 Before investigating a local startup failure, run the read-only environment
@@ -25,8 +29,13 @@ doctor. It reports Python/Node/RQData/editor-tool availability, runtime paths,
 and the usual development ports without printing credential values:
 
 ```powershell
-alphalab dev doctor
+.\.venv\Scripts\python.exe -m alphalab.cli dev doctor
 ```
+
+Use `.venv/bin/python` for the same Python commands on macOS/Linux. When a
+service uses an external runtime directory, export `ALPHALAB_RUNTIME_DIR` in
+the process environment before Python imports the application. The default
+`data/runtime/` is suitable for local development only.
 
 The strategy runtime invokes the same local Python environment in a spawned
 child process. Do not describe it as sandboxed and do not add a Docker-only or
@@ -352,11 +361,12 @@ component. The validation editor uses `kind="validation"` so completion and
 contract diagnostics expose `ValidationContext` and `@analysis`, not trading
 Context methods.
 
-Monaco and the language clients are lazy-loaded. `vite.config.ts` must retain ES
+Monaco and the language clients are lazy-loaded. `vite.shared.ts` must retain ES
 worker output. Pyrefly and Ruff come from the active backend Python environment
 installed by the `dev` extra. Their process commands are resolved server-side
 from a fixed allowlist; never accept a client-supplied executable or argument
-list. LSP mirrors belong only under ignored `data/runtime/editor/`, must stay
+list. LSP mirrors belong only under the configured runtime's ignored `editor/`
+directory (default `data/runtime/editor/`), must stay
 path-contained and size-bounded, and must never be read by a strategy or data
 execution endpoint.
 
@@ -377,17 +387,24 @@ preset, Agent workspace commands, or navigation.
 ## Verification
 
 ```powershell
-python -m pytest tests -q --basetemp=data\pytest
-python scripts\check_facade_imports.py
-python scripts\check_repository_hygiene.py
-python -m ruff check alphalab dashboard\backend tests scripts
-python -m compileall -q alphalab dashboard\backend
-cd dashboard\frontend
-npm run lint
-npm run build
-npm audit --omit=dev
+.\.venv\Scripts\python.exe -m pytest tests -q --basetemp=artifacts/pytest
+.\.venv\Scripts\python.exe scripts/check_facade_imports.py
+.\.venv\Scripts\python.exe scripts/check_repository_hygiene.py
+.\.venv\Scripts\python.exe -m ruff check alphalab dashboard/backend tests scripts
+.\.venv\Scripts\python.exe -m compileall -q alphalab dashboard/backend
+npm --prefix dashboard/frontend run lint
+npm --prefix dashboard/frontend test
+npm --prefix dashboard/frontend run build:web
+npm --prefix dashboard/frontend audit --omit=dev
 ```
 
 Also run `git diff --check` and validate every Conexus JSON document. Generated
 databases, caches, frontend builds, pytest scratch, and local environment files
 must not be committed. Do not push unless explicitly requested.
+
+Keep [README](../README.md), the [documentation index](README.md), and relevant
+operating guides synchronized when entrypoints, configuration, or deployment
+behavior changes. Record deployment progress separately from historical release
+notes. Update the user-facing SDK guide when a contract changes: it is also
+served by `/api/sdk-docs`. A successful build or manifest request is not evidence
+that data is fresh or a full Agent run can access its model provider.

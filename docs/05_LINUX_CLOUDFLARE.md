@@ -1,5 +1,10 @@
 # Linux and Cloudflare Operations
 
+This is the Linux runbook. For the current dev2/dev3 topology and macOS
+LaunchAgent operations, start with [Deployment and instances](05_DEPLOYMENT.md).
+The original single-instance hostnames and paths below are deployment examples;
+select the actual instance's port, runtime, service, and SSH user.
+
 AlphaLab runs as an unprivileged Linux user and exposes no public origin port.
 Cloudflare Tunnel publishes the web application and SSH from loopback services.
 Host-specific service files, credentials, passwords, and tunnel configuration
@@ -7,7 +12,7 @@ must remain on the server and outside this repository.
 
 ## Access Model
 
-The maintained hostnames are:
+The original single-instance example uses:
 
 ```text
 alphalab.acetoken.net -> http://127.0.0.1:8000
@@ -221,8 +226,11 @@ To carry research data into the new instance, copy market datasets and back up
 the live SQLite databases with SQLite's online backup API before first startup.
 SDK strategy definitions, validation records, and result records share the
 instance runtime database. Do not point two development instances at the same
-writable database. External Conexus publication configuration is separate from
-local runtime isolation; reusing it retains its existing remote publication.
+writable database. External Conexus configuration is separate: an independent
+workstation also needs a matching publication, credential, tool origin, and
+instance identity. Reusing another workstation's publication can send Agent
+writes to its old database. Follow the [instance binding runbook](../deploy/conexus-cloud/README.md)
+and complete a full read-only Agent run before declaring it ready.
 
 ## Secret Handling
 
