@@ -85,6 +85,12 @@ that origin into the release and verify `/api/agent/identity` before executing
 any command; a host-wide `ALPHALAB_API_ORIGIN` cannot override this binding.
 Host that snapshot through the Conexus administrator `harness:host` operation
 with a separate slug and its returned publication-scoped enterprise credential.
+The enterprise credential authenticates service requests; it does not fund
+model calls. When the shared host uses Conexus account funding, sign in to its
+`/admin` page as the configured publisher and install a publisher deployment
+credential for the new slug as well. An existing credential for the old slug
+cannot fund the new publication. Do not change the shared host's global model
+funding mode to work around a missing publication credential.
 
 For dev3 the route is Conexus `127.0.0.1:18003` → SSH → Mac
 `127.0.0.1:8301` → authenticated workstation `127.0.0.1:8300`.
@@ -98,3 +104,6 @@ Before changing the workstation's `CONEXUS_PUBLICATION_SLUG` and
 `CONEXUS_PUBLICATION_WORKSPACE_TOKEN`, verify the bound tools return the same
 project IDs, source revisions, and results as the browser API. Keep the old
 publication active for its own workstation.
+Complete one read-only Agent run before marking the instance ready. A working
+descriptor, manifest, workspace, or direct tool query does not prove the new
+publication has a configured model provider.
