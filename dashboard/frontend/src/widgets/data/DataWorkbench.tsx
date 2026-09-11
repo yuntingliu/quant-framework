@@ -91,7 +91,10 @@ export function DataWorkbenchWidget() {
   const [syncEnd, setSyncEnd] = useState("")
   const [syncSymbols, setSyncSymbols] = useState("")
   const [health, setHealth] = useState<DataSyncHealth | null>(null)
+  const [healthError, setHealthError] = useState("")
   const [jobs, setJobs] = useState<SyncJob[]>([])
+  const [jobsLoading, setJobsLoading] = useState(true)
+  const [jobsError, setJobsError] = useState("")
   const [connection, setConnection] = useState("")
   const [customName, setCustomName] = useState("")
   const [customDescription, setCustomDescription] = useState("")
@@ -107,11 +110,13 @@ export function DataWorkbenchWidget() {
     let current = true
     setWorkspace(null)
     setError("")
-    void Promise.all([
-      api.get<RecipeWorkspace>(`/data-sync/recipes/${projectId}`),
-      api.get<DataSyncHealth>("/data-sync/health"),
-      api.get<SyncJob[]>("/data-sync/jobs?limit=20"),
-    ]).then(([recipeResult, healthResult, jobResult]) => {
+    setHealth(null)
+    setHealthError("")
+    setJobs([])
+    setJobsLoading(true)
+    setJobsError("")
+    // The editor is useful independently of provider status and job history.
+    void api.get<RecipeWorkspace>(`/data-sync/recipes/${projectId}`).then((recipeResult) => {
       if (!current) return
       setWorkspace(recipeResult)
       setSource(recipeResult.draft.source)
@@ -122,9 +127,14 @@ export function DataWorkbenchWidget() {
       setSyncEnd(String(parameters.get("end") ?? recipeResult.bounds.end ?? ""))
       const symbols = parameters.get("symbols")
       setSyncSymbols(Array.isArray(symbols) ? symbols.join(", ") : "")
-      setHealth(healthResult)
-      setJobs(jobResult)
     }).catch((reason: Error) => { if (current) setError(reason.message) })
+    void api.get<DataSyncHealth>("/data-sync/health").then((result) => {
+      if (current) setHealth(result)
+    }).catch((reason: Error) => { if (current) setHealthError(reason.message) })
+    void api.get<SyncJob[]>("/data-sync/jobs?limit=20").then((result) => {
+      if (current) setJobs(result)
+    }).catch((reason: Error) => { if (current) setJobsError(reason.message) })
+      .finally(() => { if (current) setJobsLoading(false) })
     return () => { current = false }
   }, [projectId])
 
@@ -411,10 +421,14 @@ export function DataWorkbenchWidget() {
         <section className="rounded border border-border p-3">
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="outline" disabled={busy || !health?.rq.ready} onClick={() => void testRqConnection()}><PlugZap />连接测试</Button>
-            <Button size="sm" disabled={busy || activeJob} onClick={() => void runRecipe()}>{busy && <Loader2 className="animate-spin" />}运行并同步</Button>
+            <Button size="sm" disabled={busy || activeJob || jobsLoading || Boolean(jobsError)} onClick={() => void runRecipe()}>{busy && <Loader2 className="animate-spin" />}运行并同步</Button>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => { if (showCustomSave) setShowCustomSave(false); else openCustomSave() }}>另存为模板</Button>
           </div>
-          {!health?.rq.ready && <p className="mt-2 text-xs text-amber-600">RQData 尚未就绪；仍可编辑和预览不访问 RQData 的自定义代码。</p>}
+          {!health && !healthError && <p className="mt-2 text-xs text-muted-foreground">正在检查数据源状态…</p>}
+          {healthError && <p className="mt-2 text-xs text-amber-600">数据源状态加载失败：{healthError}</p>}
+          {health && !health.rq.ready && <p className="mt-2 text-xs text-amber-600">RQData 尚未就绪；仍可编辑和预览不访问 RQData 的自定义代码。</p>}
+          {jobsLoading && <p className="mt-2 text-xs text-muted-foreground">正在加载同步任务…</p>}
+          {jobsError && <p className="mt-2 text-xs text-amber-600">同步任务加载失败：{jobsError}</p>}
           {connection && <p className="mt-2 text-xs text-emerald-600">{connection}</p>}
           {latestJob && (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">

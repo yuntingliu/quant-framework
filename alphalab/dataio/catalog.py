@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
+from threading import RLock
 from typing import Literal
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from alphalab.utils.paths import RUNTIME_DIR
@@ -143,9 +147,57 @@ DATASET_SPECS: tuple[DatasetSpec, ...] = (
 DATASETS = {spec.id: spec for spec in DATASET_SPECS}
 
 
+@dataclass(frozen=True)
+class _PartitionSummary:
+    rows: int
+    date_start: str | None
+    date_end: str | None
+    symbols: frozenset[str]
+
+
+_PARTITION_LOCK = RLock()
+
+
+@lru_cache(maxsize=512)
+def _partition_summary(
+    path: str, mtime_ns: int, ctime_ns: int, size: int, date_column: str | None,
+) -> _PartitionSummary:
+    """Cache compact coverage only; file replacement changes the cache key.
+
+    Arrow reduces dates and symbols before conversion to Python. Reading these
+    columns never loads price/state frames or sorts the full market history.
+    """
+    parquet = pq.ParquetFile(path)
+    columns = [name for name in (date_column, "symbol") if name in parquet.schema_arrow.names]
+    table = parquet.read(columns=columns)
+    symbols = frozenset(
+        str(value).upper() for value in pc.unique(table["symbol"]).to_pylist()
+        if value is not None
+    ) if "symbol" in columns else frozenset()
+    start = end = None
+    if date_column in columns:
+        values = table[date_column]
+        if pa.types.is_timestamp(values.type) or pa.types.is_date(values.type):
+            bounds = pc.min_max(values).as_py()
+            minimum, maximum = bounds["min"], bounds["max"]
+        else:
+            dates = pd.to_datetime(values.to_pandas(), errors="coerce").dropna()
+            minimum, maximum = (dates.min(), dates.max()) if not dates.empty else (None, None)
+        if minimum is not None and maximum is not None:
+            start = pd.Timestamp(minimum).strftime("%Y-%m-%d")
+            end = pd.Timestamp(maximum).strftime("%Y-%m-%d")
+    return _PartitionSummary(parquet.metadata.num_rows, start, end, symbols)
+
+
 class DataCatalog:
     def __init__(self, root: str | Path | None = None):
         self.root = Path(root) if root is not None else RUNTIME_DIR
+
+    @staticmethod
+    def clear_cache() -> None:
+        """Discard shared coverage metadata when an explicit refresh is requested."""
+        with _PARTITION_LOCK:
+            _partition_summary.cache_clear()
 
     def spec(self, dataset: str) -> DatasetSpec:
         try:
@@ -156,8 +208,40 @@ class DataCatalog:
     def path(self, dataset: str) -> Path:
         return self.root / self.spec(dataset).relative_path
 
-    def files(self, dataset: str) -> list[Path]:
-        return sorted(self.path(dataset).rglob("*.parquet"))
+    def files(
+        self, dataset: str, *, start: str | None = None, end: str | None = None,
+    ) -> list[Path]:
+        files = sorted(self.path(dataset).rglob("*.parquet"))
+        if start is None and end is None:
+            return files
+        lower = pd.Timestamp(start).strftime("%Y-%m-%d") if start is not None else None
+        upper = pd.Timestamp(end).strftime("%Y-%m-%d") if end is not None else None
+        selected = []
+        for path in files:
+            info = self._partition_info(dataset, path)
+            if lower and info.date_end and info.date_end < lower:
+                continue
+            if upper and info.date_start and info.date_start > upper:
+                continue
+            selected.append(path)
+        return selected
+
+    def _partition_info(self, dataset: str, path: Path) -> _PartitionSummary:
+        stat = path.stat()
+        # Serialize cache misses so concurrent widgets do not scan the same
+        # partition twice. All callers receive an immutable cached value.
+        with _PARTITION_LOCK:
+            return _partition_summary(
+                str(path.resolve()), stat.st_mtime_ns, stat.st_ctime_ns,
+                stat.st_size, self.spec(dataset).date_column,
+            )
+
+    def symbols(self, dataset: str) -> list[str]:
+        """Return actual stored symbols, including historical/delisted symbols."""
+        symbols: set[str] = set()
+        for path in self.files(dataset):
+            symbols.update(self._partition_info(dataset, path).symbols)
+        return sorted(symbols)
 
     def status(self, dataset: str) -> dict:
         spec = self.spec(dataset)
@@ -178,39 +262,26 @@ class DataCatalog:
         if not files:
             return {**base, "status": "missing"}
         try:
-            rows = sum(int(pq.ParquetFile(path).metadata.num_rows) for path in files)
-            date_start: pd.Timestamp | None = None
-            date_end: pd.Timestamp | None = None
+            rows = 0
+            date_start: str | None = None
+            date_end: str | None = None
             symbols: set[str] = set()
             for path in files:
-                schema = pq.read_schema(path)
-                columns: list[str] = []
-                if spec.date_column and spec.date_column in schema.names:
-                    columns.append(spec.date_column)
-                if "symbol" in schema.names:
-                    columns.append("symbol")
-                if not columns:
-                    continue
-                frame = pd.read_parquet(path, columns=columns)
-                if spec.date_column and spec.date_column in frame:
-                    dates = pd.to_datetime(frame[spec.date_column], errors="coerce").dropna()
-                    if not dates.empty:
-                        current_start = pd.Timestamp(dates.min())
-                        current_end = pd.Timestamp(dates.max())
-                        date_start = (
-                            current_start if date_start is None else min(date_start, current_start)
-                        )
-                        date_end = current_end if date_end is None else max(date_end, current_end)
-                if "symbol" in frame:
-                    symbols.update(frame["symbol"].dropna().astype(str).str.upper())
+                info = self._partition_info(dataset, path)
+                rows += info.rows
+                if info.date_start is not None:
+                    date_start = min(date_start, info.date_start) if date_start else info.date_start
+                if info.date_end is not None:
+                    date_end = max(date_end, info.date_end) if date_end else info.date_end
+                symbols.update(info.symbols)
             return {
                 **base,
                 "status": "ready",
                 "files": len(files),
                 "rows": rows,
                 "bytes": sum(path.stat().st_size for path in files),
-                "date_start": (date_start.strftime("%Y-%m-%d") if date_start is not None else None),
-                "date_end": (date_end.strftime("%Y-%m-%d") if date_end is not None else None),
+                "date_start": date_start,
+                "date_end": date_end,
                 "symbol_count": len(symbols),
             }
         except Exception as exc:

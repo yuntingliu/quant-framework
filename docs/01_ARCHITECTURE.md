@@ -207,6 +207,15 @@ leave the unfilled portion in the actual portfolio.
 
 ## Data boundary
 
+Runtime coverage metadata is shared across requests and keyed by each Parquet
+file's absolute path, modification time, change time, and size. Publication,
+replacement, addition, and deletion are detected on the next query; the cache
+retains only bounded immutable date/symbol summaries. Single-stock chart reads
+prune partitions by date and filter symbols and dates in Arrow before converting
+to pandas and joining execution state. They do not materialize the full-market
+history to validate a symbol. Data recipe editing, provider status, and task
+history load independently in the Data Workbench.
+
 `DataEngine` remains provider-first. Current Strategy SDK projects use the
 RQ-backed research store as their single data profile; the workbenches do not
 offer a Demo/Runtime switch. The bundled deterministic sample remains only as

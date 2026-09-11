@@ -175,8 +175,12 @@ function FactorMarketBrowser({ fields }: { fields: FieldCatalog | null }) {
   })
   const instruments = symbolQuery.data?.instruments ?? []
   const normalizedSymbol = normalizeMarketSymbol(selectedSymbol ?? "")
-  const symbol = instruments.some((item) => item.symbol === normalizedSymbol)
-    ? normalizedSymbol : instruments[0]?.symbol ?? ""
+  // A known selected code can load in parallel with the full symbol directory.
+  // Once the directory arrives it remains authoritative for invalid selections.
+  const symbol = !symbolQuery.data && /^\d{6}\.(SH|SZ|BJ)$/.test(normalizedSymbol)
+    ? normalizedSymbol
+    : instruments.some((item) => item.symbol === normalizedSymbol)
+      ? normalizedSymbol : instruments[0]?.symbol ?? ""
 
   useEffect(() => {
     if (symbol && symbol !== selectedSymbol) setSelectedSymbol(symbol)
@@ -190,7 +194,7 @@ function FactorMarketBrowser({ fields }: { fields: FieldCatalog | null }) {
       if (start) params.set("start", start)
       return api.get<{ rows: MarketBar[] }>(`/data/market/bars?${params.toString()}`)
     },
-    enabled: activeMode === "factor" && Boolean(project && symbol),
+    enabled: activeMode === "factor" && Boolean(project && symbol && fields),
     staleTime: 30_000,
   })
   const fundamentalsQuery = useQuery({
@@ -207,7 +211,7 @@ function FactorMarketBrowser({ fields }: { fields: FieldCatalog | null }) {
       params.append("symbols", symbol)
       return api.get<FundamentalPayload>(`/data/fundamentals?${params.toString()}`)
     },
-    enabled: activeMode === "factor" && Boolean(project && symbol),
+    enabled: activeMode === "factor" && Boolean(project && symbol && fields),
     staleTime: 30_000,
   })
   const bars = useMemo(() => barsQuery.data?.rows ?? [], [barsQuery.data?.rows])
@@ -254,8 +258,8 @@ function FactorMarketBrowser({ fields }: { fields: FieldCatalog | null }) {
     <section className="factor-source-browser" aria-label="因子研究数据">
       <MarketResearchTerminal
         instruments={instruments} rows={bars} symbol={symbol} onSymbolChange={setSelectedSymbol}
-        range={range} onRangeChange={setRange} loading={symbolQuery.isLoading || barsQuery.isLoading}
-        error={barsQuery.error instanceof Error ? barsQuery.error.message : ""}
+        range={range} onRangeChange={setRange} loading={!fields || (!symbol && symbolQuery.isLoading) || barsQuery.isLoading}
+        error={barsQuery.error instanceof Error ? barsQuery.error.message : symbolQuery.error instanceof Error ? symbolQuery.error.message : ""}
         onReload={() => setReloadRevision((value) => value + 1)} watchlist={watchlist}
         onToggleWatchlist={toggleWatchlist} dataLabel={`日线 · 截至 ${endDate}`}
         emptyLabel="当前证券没有可用 K 线。" density="compact" fieldSeries={fieldSeries}

@@ -14,6 +14,10 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.dataset as ds
+import pyarrow.parquet as pq
 
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.errors import MissingDataError
@@ -120,7 +124,7 @@ class LocalParquetMarketDataProvider:
         existing = {key: value for key, value in agg.items() if key in df.columns}
         return (
             df.set_index("date")
-            .groupby("symbol", group_keys=False)
+            .groupby("symbol", group_keys=True)
             .resample(rule)
             .agg(existing)
             .reset_index()
@@ -342,6 +346,66 @@ class PartitionedParquetMarketDataProvider(LocalParquetMarketDataProvider):
         self.market_dir = self.catalog.path("rq.bars")
         self.path = Path(runtime_root)
         self._cache: pd.DataFrame | None = None
+
+    def get_symbols(self, universe: str = "all") -> list[str]:
+        return self.catalog.symbols("rq.bars")
+
+    def get_latest_date(self) -> str | None:
+        return self.catalog.status("rq.bars")["date_end"]
+
+    def get_bars(
+        self, symbols: list[str], start: str, end: str, freq: str = "1d",
+        fields: Optional[list[str]] = None,
+    ) -> pd.DataFrame:
+        # Apply filters in Arrow before pandas conversion, merges and sorting.
+        # Catalog coverage prunes historical partitions outside this window.
+        frame = self._read_window("rq.bars", symbols, start, end)
+        if frame.empty:
+            return pd.DataFrame(columns=list(dict.fromkeys(
+                ["date", "symbol"] + (fields or ["open", "high", "low", "close", "volume"])
+            )))
+        for dataset, field in (("rq.paused", "paused"), ("rq.is_st", "is_st")):
+            state = self._read_window(dataset, symbols, start, end)
+            if not {"date", "symbol", field}.issubset(state.columns):
+                continue
+            state = state[["date", "symbol", field]].drop_duplicates(
+                ["date", "symbol"], keep="last",
+            )
+            frame = frame.merge(state, on=["date", "symbol"], how="left")
+        if "paused" in frame:
+            frame["is_suspended"] = frame["paused"].astype("boolean")
+        frame = frame.dropna(subset=["date", "symbol"]).drop_duplicates(
+            ["date", "symbol"], keep="last",
+        ).sort_values(["date", "symbol"]).reset_index(drop=True)
+        if fields:
+            frame = frame[["date", "symbol", *[field for field in fields if field in frame]]]
+        if freq in {"1w", "W"}:
+            frame = self._resample(frame, "W")
+        elif freq in {"1M", "M", "ME"}:
+            frame = self._resample(frame, pd.offsets.MonthEnd())
+        return frame.sort_values(["date", "symbol"]).reset_index(drop=True)
+
+    def _read_window(
+        self, dataset: str, symbols: list[str], start: str, end: str,
+    ) -> pd.DataFrame:
+        requested = _normal_symbols(symbols)
+        if not requested:
+            return pd.DataFrame()
+        frames = []
+        for path in self.catalog.files(dataset, start=start, end=end):
+            schema = pq.read_schema(path)
+            if not {"date", "symbol"}.issubset(schema.names):
+                continue
+            predicate = pc.utf8_upper(ds.field("symbol").cast(pa.string())).isin(requested)
+            date_type = schema.field("date").type
+            if pa.types.is_timestamp(date_type) or pa.types.is_date(date_type):
+                predicate = predicate & (ds.field("date") >= pd.Timestamp(start))
+                predicate = predicate & (ds.field("date") <= pd.Timestamp(end))
+            part = pd.read_parquet(path, filters=predicate)
+            part["date"] = pd.to_datetime(part["date"], errors="coerce")
+            part["symbol"] = part["symbol"].astype(str).str.upper()
+            frames.append(part.loc[part["date"].between(pd.Timestamp(start), pd.Timestamp(end))])
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
     def _load(self) -> pd.DataFrame:
         if self._cache is not None:

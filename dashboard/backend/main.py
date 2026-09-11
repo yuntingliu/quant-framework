@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from alphalab import ResultStore
+from alphalab.dataio.catalog import DataCatalog
 from alphalab.utils.build_info import build_info
 from dashboard.backend.auth import HttpBasicAuthMiddleware
 from dashboard.backend.config import LOADED_ENV_FILES
@@ -170,8 +171,7 @@ def health() -> dict:
 
 @app.post("/api/cache/clear")
 def clear_cache() -> dict:
-    # Engines are short-lived in the barebone backend, so there is no global
-    # process cache to clear yet. Keep the endpoint for frontend compatibility.
+    DataCatalog.clear_cache()
     return {"status": "ok"}
 
 if FRONTEND_DIST.is_dir():
