@@ -27,7 +27,7 @@ def test_data_and_strategy_sdk_read_contracts(tmp_path, monkeypatch):
     database = tmp_path / "strategy.db"
     monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
     client = TestClient(app)
-    assert client.get("/").json()["status"] == "ok"
+    assert client.get("/api/health").json()["status"] == "ok"
     providers = client.get("/api/data/providers")
     assert providers.status_code == 200
     assert providers.json()["active_profile"] == "runtime"

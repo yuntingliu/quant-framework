@@ -702,8 +702,18 @@ async function fetchJSON<T>(url: string, options?: ApiRequestInit): Promise<T> {
   }
 }
 
+async function fetchText(url: string): Promise<string> {
+  const response = await fetch(`${getApiBase()}${url}`)
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: response.statusText }))
+    throw new Error(error.detail || `API Error: ${response.status}`)
+  }
+  return response.text()
+}
+
 export const api = {
   get: <T>(url: string, options?: ApiRequestInit) => fetchJSON<T>(url, options),
+  getText: (url: string) => fetchText(url),
   post: <T>(url: string, body: unknown) =>
     fetchJSON<T>(url, { method: "POST", body: JSON.stringify(body) }),
   put: <T>(url: string, body: unknown) =>

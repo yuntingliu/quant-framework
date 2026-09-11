@@ -46,6 +46,7 @@ data/*
 !data/app/
 !data/app/alphalab.db
 data/runtime/
+.alphalab-release.json
 logs/
 artifacts/
 outputs/

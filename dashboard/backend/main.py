@@ -8,9 +8,13 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from alphalab import ResultStore
+from alphalab.dataio.catalog import DataCatalog
+from alphalab.utils.build_info import build_info
+from dashboard.backend.auth import HttpBasicAuthMiddleware
 from dashboard.backend.config import LOADED_ENV_FILES
 from dashboard.backend.routers import (
     agent_context,
@@ -28,6 +32,8 @@ from dashboard.backend.routers import (
     system,
     validation,
 )
+
+FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
 
 app = FastAPI(
     title="AlphaLab Barebone API",
@@ -48,6 +54,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(HttpBasicAuthMiddleware)
 
 
 _PRIVATE_ERROR_KEYS = {
@@ -131,9 +138,32 @@ app.include_router(compat.router)
 app.include_router(conexus.router)
 
 
-@app.get("/")
-def root() -> dict:
+@app.get("/", response_model=None)
+def root() -> dict | RedirectResponse:
+    if FRONTEND_DIST.is_dir():
+        return RedirectResponse(url="/app/")
     return {"status": "ok", "name": "AlphaLab Barebone API"}
+
+
+@app.get("/api/health")
+def health() -> dict:
+    store = ResultStore()
+    try:
+        stats = store.stats()
+    finally:
+        store.close()
+    return {
+        "status": "ok",
+        "name": "AlphaLab Barebone API",
+        **build_info(),
+        "frontend": "ready" if FRONTEND_DIST.is_dir() else "not_built",
+        "runtime_profile": DataCatalog().summary()["status"],
+        "store": {
+            "status": "ready",
+            "backtests": stats["backtests"],
+            "strategies": stats["strategies"],
+        },
+    }
 
 
 @app.post("/api/cache/clear")
@@ -142,7 +172,5 @@ def clear_cache() -> dict:
     # process cache to clear yet. Keep the endpoint for frontend compatibility.
     return {"status": "ok"}
 
-
-FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
 if FRONTEND_DIST.is_dir():
     app.mount("/app", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

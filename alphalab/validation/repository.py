@@ -8,8 +8,9 @@ import threading
 from pathlib import Path
 from typing import Any, Iterable
 
+from alphalab.store import ResultStore
 from alphalab.strategy.repository import normalize_project_id
-from alphalab.utils.paths import APP_DATA_DIR
+from alphalab.utils.paths import RUNTIME_APP_DIR
 from alphalab.validation.builtins import DEFAULT_VALIDATION_SOURCE
 from alphalab.validation.source import (
     inspect_validation_source,
@@ -17,7 +18,7 @@ from alphalab.validation.source import (
 )
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schema.sql"
-_DEFAULT_DB = APP_DATA_DIR / "alphalab.db"
+_DEFAULT_DB = RUNTIME_APP_DIR / "alphalab.db"
 
 
 class ValidationRepository:
@@ -25,6 +26,8 @@ class ValidationRepository:
 
     def __init__(self, db_path: str | Path | None = None) -> None:
         self.path = Path(db_path) if db_path else _DEFAULT_DB
+        if db_path is None and not self.path.exists():
+            ResultStore().close()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row

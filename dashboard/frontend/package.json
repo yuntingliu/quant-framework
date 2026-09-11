@@ -5,10 +5,14 @@
   "version": "0.6.2",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "vite",
-    "dev:web": "cross-env WEB_ONLY=1 vite",
-    "build": "tsc -b && vite build",
-    "pack": "npm run build && electron-builder --config electron-builder.yml",
+    "dev": "npm run dev:web",
+    "dev:web": "vite --config vite.web.config.ts",
+    "build": "npm run build:web",
+    "build:web": "npm run typecheck && vite build --config vite.web.config.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "desktop:install": "npm --prefix desktop ci",
+    "desktop:dev": "npm --prefix desktop run dev",
+    "pack": "npm --prefix desktop run pack",
     "lint": "eslint .",
     "test": "node --test tests/*.test.ts",
     "preview": "vite preview"
@@ -61,19 +65,14 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
-    "cross-env": "^10.1.0",
-    "electron": "^41.1.0",
-    "electron-builder": "^25.0.0",
     "eslint": "^9.17.0",
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.16",
     "globals": "^15.14.0",
-    "postcss": "^8.4.49",
+    "postcss": "^8.5.24",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.6.2",
     "typescript-eslint": "^8.18.2",
-    "vite": "^6.0.0",
-    "vite-plugin-electron": "^0.29.1",
-    "vite-plugin-electron-renderer": "^0.14.6"
+    "vite": "^6.0.0"
   }
 }

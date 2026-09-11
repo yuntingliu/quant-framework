@@ -15,6 +15,7 @@ from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
+from alphalab.store import ResultStore
 from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
 from alphalab.strategy.factor_templates import get_factor_template
 from alphalab.strategy.sdk_runtime import load_strategy_module, probe_sdk_operation
@@ -27,10 +28,10 @@ from alphalab.strategy.source import (
     remove_factor_inputs_arguments,
     split_strategy_source,
 )
-from alphalab.utils.paths import APP_DATA_DIR
+from alphalab.utils.paths import RUNTIME_APP_DIR
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schema.sql"
-_DEFAULT_DB = APP_DATA_DIR / "alphalab.db"
+_DEFAULT_DB = RUNTIME_APP_DIR / "alphalab.db"
 _ID = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 DEFAULT_PROJECT_ID = "sdk-v1-default"
 _MIGRATION_NAME = "strategy-sdk-v1-cutover"
@@ -54,6 +55,8 @@ class StrategyRepository:
 
     def __init__(self, db_path: str | Path | None = None) -> None:
         self.path = Path(db_path) if db_path else _DEFAULT_DB
+        if db_path is None and not self.path.exists():
+            ResultStore().close()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.path), timeout=30, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row

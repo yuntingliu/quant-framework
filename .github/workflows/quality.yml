@@ -3,7 +3,7 @@ name: quality
 on:
   pull_request:
   push:
-    branches: [main, dongfang]
+    branches: [main, dongfang, dev_liu]
 
 permissions:
   contents: read

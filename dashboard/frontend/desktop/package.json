@@ -1,0 +1,19 @@
+{
+  "name": "alphalab-dashboard-desktop",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "cd .. && vite --config desktop/vite.config.ts",
+    "build": "npm --prefix .. run typecheck && cd .. && vite build --config desktop/vite.config.ts",
+    "pack": "npm run build && electron-builder --projectDir .. --config electron-builder.yml"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^41.1.0",
+    "electron-builder": "^26.15.3",
+    "vite": "^6.0.0",
+    "vite-plugin-electron": "^0.29.1",
+    "vite-plugin-electron-renderer": "^0.14.6"
+  }
+}
