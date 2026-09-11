@@ -177,6 +177,10 @@ symlink, restarts the service, and checks `/api/health`. A failed health check
 restores the previous link. The most recent three successful releases are kept,
 and `node_modules` is removed after the Web bundle is built.
 
+The Web build defaults to a 4 GiB Node heap because the code editor bundle can
+exceed the 2 GiB default on Linux. Ensure sufficient RAM or swap is available;
+set `NODE_OPTIONS` explicitly to use a different build limit.
+
 The bundled database is a read-only seed. The first application store is copied
 to `$ALPHALAB_RUNTIME_DIR/app/alphalab.db`; subsequent research, signals,
 backtests, strategies, and paper activity remain in runtime storage.

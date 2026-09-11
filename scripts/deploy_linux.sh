@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The Monaco/Python editor bundle can exceed Node's default 2 GiB heap.
+# Keep the limit configurable for hosts with a different build RAM budget.
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}"
+
 SOURCE_DIR="${ALPHALAB_SOURCE_DIR:-$HOME/src/quant-framework}"
 RELEASES_DIR="${ALPHALAB_RELEASES_DIR:-$HOME/releases}"
 CURRENT_LINK="${ALPHALAB_CURRENT_LINK:-$HOME/apps/quant-framework}"
