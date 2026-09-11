@@ -365,27 +365,6 @@ def _aligned_expected_returns(
     return aligned.to_numpy(dtype=float)
 
 
-def _constraints(
-    asset_names: Sequence[str],
-    current: pd.Series,
-    target_gross: float,
-    max_turnover: float | None,
-) -> list[dict[str, Any]]:
-    values: list[dict[str, Any]] = [
-        {"type": "eq", "fun": lambda weight: float(np.sum(weight) - target_gross)}
-    ]
-    if max_turnover is not None:
-        values.append(
-            {
-                "type": "ineq",
-                "fun": lambda weight: float(
-                    max_turnover - _turnover(weight, asset_names, current)
-                ),
-            }
-        )
-    return values
-
-
 def _solve_weights(
     objective: Any,
     initial: np.ndarray,
@@ -395,17 +374,55 @@ def _solve_weights(
     bounds: list[tuple[float, float]],
     max_turnover: float | None,
 ) -> np.ndarray:
+    count = len(asset_names)
+    start = np.asarray(initial, dtype=float)
+    solver_bounds = list(bounds)
+    equality_gradient = np.ones(count)
+    constraints: list[dict[str, Any]] = []
+    if max_turnover is not None:
+        held = current.reindex(asset_names, fill_value=0.0).to_numpy(dtype=float)
+        outside = float(current.loc[~current.index.isin(asset_names)].sum())
+        cash_change = abs(target_gross - float(current.sum()))
+        budget = 2.0 * max_turnover - outside - cash_change
+        if budget < -1e-12:
+            raise PortfolioOptimizationError("requested turnover limit is infeasible")
+        budget = max(0.0, budget)
+        # Auxiliary trades bound |weight - held| with linear inequalities.
+        # This is the exact L1 limit, including exited positions and cash,
+        # without an absolute-value kink at unchanged portfolio weights.
+        start = np.concatenate([start, np.abs(start - held)])
+        solver_bounds.extend([(0.0, None)] * count)
+        equality_gradient = np.concatenate([np.ones(count), np.zeros(count)])
+        trade_jacobian = np.vstack([
+            np.hstack([-np.eye(count), np.eye(count)]),
+            np.hstack([np.eye(count), np.eye(count)]),
+            np.concatenate([np.zeros(count), -np.ones(count)])[None, :],
+        ])
+
+        def trade_limits(value: np.ndarray) -> np.ndarray:
+            change = value[:count] - held
+            trades = value[count:]
+            return np.concatenate([trades - change, trades + change,
+                                   [budget - float(trades.sum())]])
+
+        constraints.append({"type": "ineq", "fun": trade_limits,
+                            "jac": lambda _value: trade_jacobian})
+    constraints.append({
+        "type": "eq",
+        "fun": lambda value: float(np.sum(value[:count]) - target_gross),
+        "jac": lambda _value: equality_gradient,
+    })
     result = minimize(
-        objective,
-        np.asarray(initial, dtype=float),
+        lambda value: objective(value[:count]),
+        start,
         method="SLSQP",
-        bounds=bounds,
-        constraints=_constraints(asset_names, current, target_gross, max_turnover),
+        bounds=solver_bounds,
+        constraints=constraints,
         options={"maxiter": 2_000, "ftol": 1e-12},
     )
     if not result.success:
         raise PortfolioOptimizationError(f"portfolio optimization did not converge: {result.message}")
-    return np.asarray(result.x, dtype=float)
+    return np.asarray(result.x[:count], dtype=float)
 
 
 def _project_weights(
