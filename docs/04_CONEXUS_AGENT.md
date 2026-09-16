@@ -1,8 +1,8 @@
 # Conexus Research Agent
 
-For current instance routing, service management, and readiness, see
-[Deployment and instances](05_DEPLOYMENT.md) and the
-[Conexus deployment runbook](../deploy/conexus-cloud/README.md).
+For runtime configuration and connection requirements, see
+[Deployment](05_DEPLOYMENT.md) and
+[Conexus configuration](../deploy/conexus-cloud/README.md).
 The Agent is optional: AlphaLab's project editing and local event backtests
 remain available independently of Conexus model funding.
 
@@ -234,9 +234,8 @@ Independent snapshots and shared-host deployments use the administrator
 slug and credentials.
 
 `scripts/start_conexus_web.ps1` still targets the older `backend/dist/web-host.js`
-and `dist/web` repository layout. It is not a startup recipe for the current
-Conexus monorepo or proof of compatibility with its `local` branch. Use the
-Conexus checkout's own current build/start documentation and verify the public
+and `dist/web` repository layout. Use the Conexus checkout's matching
+build/start documentation and verify the public
 run, event, cancel, and workspace contracts before connecting AlphaLab.
 
 Each independent AlphaLab instance needs a matching publication and bound tool

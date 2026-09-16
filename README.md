@@ -1,8 +1,8 @@
 # AlphaLab
 
-AlphaLab 是以 Python 为核心的量化研究工作台，连接数据采集、因子研究、选股策略、日度事件回测、验证与研究报告。当前版本为 **0.6.2**，整合了 `dongfang` 工作台和 `dev_liu` 研究能力；后续部署与修复以 Git 提交和 `/api/health` 返回的 `commit_sha` 区分。
+AlphaLab 是以 Python 为核心的量化研究工作台，连接数据采集、因子研究、选股策略、日度事件回测、验证与研究报告。当前版本为 **0.6.2**。
 
-文档核对日期：**2026-09-11**。完整入口见 [文档导航](docs/README.md)，近期变化见 [工作台与部署更新](docs/releases/2026-09-11-workstation.md)。
+使用说明、开发参考和版本记录见 [文档导航](docs/README.md)。
 
 ## 当前能做什么
 
@@ -35,7 +35,7 @@ AlphaLab 是以 Python 为核心的量化研究工作台，连接数据采集、
 
 ## 本地启动
 
-在仓库根目录运行。包声明 Python >= 3.10；当前 Mac 部署验收使用 Python 3.12 和 Node.js 22。Python 的 `dev` 依赖包含 Pyrefly、Ruff 等编辑器工具。
+在仓库根目录运行。需要 Python >= 3.10，并使用 `.node-version` 指定的 Node.js 主版本。Python 的 `dev` 依赖包含 Pyrefly、Ruff 等编辑器工具。
 
 ### Windows PowerShell
 
@@ -81,7 +81,7 @@ npm --prefix dashboard/frontend run build:web
 .\.venv\Scripts\python.exe -m uvicorn dashboard.backend.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-打开 [本地构建工作台](http://127.0.0.1:8000/app/)。macOS/Linux 将 Python 路径替换为 `.venv/bin/python`。持续运行实例使用单个后端 worker 和操作系统服务管理；发布流程见 [部署与实例说明](docs/05_DEPLOYMENT.md)。
+打开 [本地构建工作台](http://127.0.0.1:8000/app/)。macOS/Linux 将 Python 路径替换为 `.venv/bin/python`。持续运行的配置与更新流程见 [通用部署](docs/05_DEPLOYMENT.md)。
 
 ## 数据准备
 
@@ -100,19 +100,17 @@ npm --prefix dashboard/frontend run build:web
 
 省略 `--symbols` 会按模板解析完整范围；默认研究模板包含更多财务与因子数据。上述 CLI 校验面向所选数据集中的本地数据，不是仅按前一条同步命令的股票过滤。大范围同步、强制回补、财报口径和历史成分限制见 [数据操作](docs/04_DATA_OPERATIONS.md)。已有旧财务缓存需要显式重建才能采用修正后的 ROE/TTM 口径。
 
-## Conexus 与开发实例
+## 可选的 Conexus Agent
 
 Conexus 是可选的 Agent 运行服务。AlphaLab 后端代理其接口，项目源码、数据和回测仍由 AlphaLab 保存与执行；研究报告 Documents 由 Conexus 持久化，会话文本保存在 AlphaLab。
 
 每个独立实例需匹配自己的数据库、实例标识、Conexus slug、服务凭据和工具目标地址。服务身份凭据与模型付费授权是两项配置；接口可读不代表 Agent 已能调用模型。
 
-截至 2026-09-11 最近验收：dev2 位于 Pop!_OS，dev3 位于 Mac mini；dev3 行情查询优化和项目路由修复已部署。dev3 新 Agent 的模型授权仍待完成，Conexus `local` 分支尚未完成源码与接口兼容性审查。实例入口、Mac 服务管理和验收步骤见 [部署说明](docs/05_DEPLOYMENT.md)；工具绑定与授权细节见 [Conexus 部署](deploy/conexus-cloud/README.md)。
+功能与工具契约见 [Conexus Agent](docs/04_CONEXUS_AGENT.md)，连接参数、实例绑定和模型授权见 [接入配置](deploy/conexus-cloud/README.md)。
 
 ## 研究结果的边界
 
-质量因子已通过当前 SDK 重跑 2019–2020 固定对照。历史沪深300内按 ROE（平均净资产口径）选前50名的月度等权代理，2020 年收益为 **44.31%**，讲义为 **42.64%**；此前 **4.46%** 来自另一种整手现金账户口径，不能直接比较。
-
-这仍是透明代理：讲义的精确指数、样本和规则不完整，新实验未重跑全部11年，也没有机器学习样本外增益证据。比例权重回测不等同于含整手、最低佣金和独立印花税账本的实盘账户。完整条件见 [0.6.2 研究记录](docs/releases/0.6.2-dev-liu.md)。
+技术形态、因子诊断和组合方法是研究工具，效果需要在明确的样本、调仓与成本假设下检验。比例权重回测与整手现金账户的收益不可直接比较。质量组合复现实验及其限制见 [0.6.2 研究记录](docs/releases/0.6.2-dev-liu.md)。
 
 Python 源码在本地子进程中执行，有超时、日志和契约检查，但不是安全沙箱。研究时使用可信源码，并在结论中说明股票池、数据可用时点、缺失值、交易约束与成本假设。
 
@@ -128,5 +126,3 @@ npm --prefix dashboard/frontend run build:web
 ```
 
 按变更范围补充测试；完整规则见 [开发指南](docs/03_DEVELOPMENT_GUIDE.md)。内置样本用于测试，个人数据、运行数据库、凭据、构建产物和研究附件留在 Git 之外。
-
-Python 编辑器首开仍有较大资源包带来的传输等待；行情查询性能优化不代表编辑器加载已优化完毕。当前问题、验收记录和历史版本入口集中在 [文档导航](docs/README.md)。

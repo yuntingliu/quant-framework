@@ -1,8 +1,7 @@
 # Contributing to AlphaLab
 
-AlphaLab uses personal GitHub accounts, short-lived feature branches, and pull
-requests. The shared Pop!_OS `dev` account is a deployment runtime, not a shared
-Git author identity.
+AlphaLab contributions use individual Git author identities, short-lived
+feature branches, and pull requests.
 
 ## Setup
 
@@ -46,3 +45,13 @@ npm --prefix dashboard/frontend audit --omit=dev
 Use the current SDK v1 default project and maintained factor templates for
 strategy development; see `docs/06_ALPHALAB_SDK_GUIDE.md`. The examples include
 a fake market adapter and a FastAPI plus React widget vertical slice.
+
+## Documentation
+
+Keep project documentation portable. Describe supported behavior, interfaces,
+configuration variables, and reproducible examples. Use relative paths,
+environment variables, or explicit placeholders for deployment-specific values.
+Host inventories, personal domains and paths, tunnel routes, account setup
+status, incident logs, and one-off deployment acceptance records belong outside
+the tracked documentation. See [the documentation index](docs/README.md) for
+the maintained guides.

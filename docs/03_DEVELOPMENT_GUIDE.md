@@ -6,8 +6,8 @@ The public contract is [02_STRATEGY_SDK_V1_CONTRACT.md](02_STRATEGY_SDK_V1_CONTR
 ## Setup
 
 Run commands from the repository root. The complete Windows/macOS/Linux startup
-walkthrough lives in [README](../README.md); deployed instances are documented
-in [Deployment and instances](05_DEPLOYMENT.md).
+walkthrough lives in [README](../README.md); persistent operation is documented
+in [Deployment](05_DEPLOYMENT.md).
 
 ```powershell
 python -m venv .venv
@@ -403,8 +403,11 @@ databases, caches, frontend builds, pytest scratch, and local environment files
 must not be committed. Do not push unless explicitly requested.
 
 Keep [README](../README.md), the [documentation index](README.md), and relevant
-operating guides synchronized when entrypoints, configuration, or deployment
-behavior changes. Record deployment progress separately from historical release
-notes. Update the user-facing SDK guide when a contract changes: it is also
-served by `/api/sdk-docs`. A successful build or manifest request is not evidence
-that data is fresh or a full Agent run can access its model provider.
+guides synchronized when supported behavior or configuration changes.
+Documentation must remain independent of any particular installation: use
+relative paths, environment variables, or explicit placeholders. Keep host
+names, private domains, personal paths, service inventories, account status,
+incident recovery notes, and deployment acceptance logs outside tracked docs.
+Release notes describe product changes and reproducible research evidence.
+Update the user-facing SDK guide when a contract changes: it is also served by
+`/api/sdk-docs`.
