@@ -184,7 +184,7 @@ ID immediately. The Agent queries `backtest.status` once and then uses
 research run therefore cannot be mistaken for a failed tool call merely because
 it exceeds the orchestration request window.
 
-The hosted AlphaLab publication uses Conexus enterprise service identity with
+In remote mode, the hosted AlphaLab publication uses Conexus enterprise service identity with
 publisher-funded billing. The workstation browser never authenticates to
 Conexus directly: the AlphaLab backend uses a dedicated server-side
 publication-workspace token scoped to the AlphaLab publication for the
@@ -231,7 +231,14 @@ The following administration helpers apply only to an existing private Conexus
 Web/Canvas deployment used with `--agent remote`. Its source and UI are not
 included in the local runtime.
 
-Refresh the local canvas and staged bundle with:
+First verify that the remote instance exposes the legacy Web/Canvas APIs required
+by these helpers. They are not compatible with the bundled local-host API:
+
+```powershell
+node scripts\register_conexus_research_harness.mjs --check
+```
+
+On a compatible remote instance, refresh its canvas and staged bundle with:
 
 ```powershell
 node scripts\register_conexus_research_harness.mjs

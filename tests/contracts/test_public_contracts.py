@@ -81,7 +81,8 @@ def test_workbenches_share_the_strategy_sdk_context():
     assert "StrategyVisualEditor" in strategy
     assert "应用全部设置" in strategy
     assert "strategy-split-authoring" in strategy
-    assert "完整策略 Python" in strategy
+    assert "project.strategy_path" in strategy
+    assert "{project.strategy_id}.py" in strategy
     assert "project.strategy_source" in strategy
     assert "project.draft_source" not in strategy
     assert "addFactorSource" in factor

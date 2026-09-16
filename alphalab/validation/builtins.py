@@ -148,7 +148,7 @@ def alpha_beta(
     # 策略日收益先按月复合；因子表按月取最后一条供应商快照。
     strategy = _monthly_returns(context.returns).rename("strategy")
     factors = _monthly_factors(context.factor_returns)
-    aligned = strategy.to_frame().join(factors, how="inner").replace([np.inf, -np.inf], np.nan)
+    aligned = (strategy.to_frame() if factors.empty else strategy.to_frame().join(factors, how="inner")).replace([np.inf, -np.inf], np.nan)
     complete = aligned.dropna(subset=["strategy", "MKT", "rf"]) if {"MKT", "rf"}.issubset(aligned.columns) else pd.DataFrame()
     factor_names = tuple(name for name in FACTOR_NAMES if name in complete.columns)
     multi_frame = complete.dropna(subset=list(factor_names)) if factor_names else pd.DataFrame()

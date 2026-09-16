@@ -258,6 +258,7 @@ def _quarter(value):
         end=end,
         fail_on_gap=True,
         symbols=stock_symbols,
+        required_fields=DAILY_FACTORS,
     )
     context.require_coverage(
         "rq.index_components", start=start, end=end, fail_on_gap=True

@@ -717,6 +717,10 @@
     "data/factors/factor_returns.parquet": {
       "bytes": 7919,
       "sha256": "09b56a4af581e908822f454dc15b26ab4eebee693d26d562ecd8e3b0682dc419"
+    },
+    "data/app/alphalab.db": {
+      "bytes": 356352,
+      "seed_sha256": "6562edb88400a958ed83312e973b213f270921366253aa8856ac9eb58a38b395"
     }
   }
 }

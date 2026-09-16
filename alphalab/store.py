@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -12,14 +14,33 @@ from uuid import uuid4
 
 import pandas as pd
 
-from alphalab.utils.paths import APP_DATA_DIR
+from alphalab.utils.paths import APP_DATA_DIR, RUNTIME_APP_DIR
 
 _SCHEMA_PATH = Path(__file__).with_name("schema.sql")
-_DEFAULT_DB = APP_DATA_DIR / "alphalab.db"
+_SEED_DB = APP_DATA_DIR / "alphalab.db"
+_DEFAULT_DB = RUNTIME_APP_DIR / "alphalab.db"
 
 
 def _uuid() -> str:
     return uuid4().hex[:12]
+
+
+def _initialize_default_db(path: Path) -> None:
+    """Seed the mutable runtime database without modifying the bundle."""
+
+    if path.exists() or not _SEED_DB.is_file():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        shutil.copy2(_SEED_DB, temporary)
+        os.replace(temporary, path)
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _git_hash() -> str | None:
@@ -42,7 +63,9 @@ class ResultStore:
     """Thread-safe SQLite store for strategies, backtests, signals and notes."""
 
     def __init__(self, db_path: str | Path | None = None):
-        self.path = Path(db_path) if db_path else _DEFAULT_DB
+        self.path = Path(db_path) if db_path is not None else _DEFAULT_DB
+        if db_path is None:
+            _initialize_default_db(self.path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.path), timeout=30, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row

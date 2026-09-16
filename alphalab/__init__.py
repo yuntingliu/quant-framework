@@ -1,6 +1,6 @@
 """Small public facade for data and Strategy SDK v1 research."""
 
-__version__ = "0.5.0"
+__version__ = "0.7.0"
 __author__ = "LYT"
 __name_cn__ = "AlphaLab Barebone"
 

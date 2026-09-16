@@ -10,8 +10,8 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_DIRS = {"alphalab", "apps", "docs", "examples", "integrations", "vendor", "scripts", "tests"}
-SOURCE_FILES = {"AGENTS.md", "README.md", "THIRD_PARTY.md", "pyproject.toml", ".env.example", ".gitignore", ".gitattributes", ".node-version"}
+SOURCE_DIRS = {"alphalab", "apps", "docs", "examples", "integrations", "vendor", "scripts", "skills", "tests"}
+SOURCE_FILES = {"AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "README.md", "THIRD_PARTY.md", "pyproject.toml", ".env.example", ".gitignore", ".gitattributes", ".node-version"}
 SAMPLE_FILES = {
     "data/README.md",
     "data/manifest.json",

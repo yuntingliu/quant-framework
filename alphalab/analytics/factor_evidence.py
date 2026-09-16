@@ -64,6 +64,16 @@ def factor_research_report(
         if entry_date is None:
             continue
         values, symbol_count = _snapshot_values(snapshot.get("values"))
+        minimum = max(int(quantiles) * 2, 10)
+        if len(values) < minimum:
+            continue
+        # Formation uses only scores available at the signal date.
+        buckets = pd.qcut(values.rank(method="first"), int(quantiles), labels=False) + 1
+        top_members = set(values.index[buckets.eq(int(quantiles))])
+        denominator = len(previous_top) + len(top_members)
+        turnover = (len(previous_top.symmetric_difference(top_members)) / denominator
+                    if previous_top and denominator else None)
+        previous_top = top_members
         for horizon in normalized_horizons:
             exit_position = position + horizon
             if exit_position >= len(entry_dates):
@@ -78,32 +88,26 @@ def factor_research_report(
             minimum = max(int(quantiles) * 2, 10)
             if len(aligned) < minimum:
                 continue
-            ranked = aligned["factor"].rank(method="first")
-            buckets = pd.qcut(ranked, int(quantiles), labels=False) + 1
             grouped = aligned.groupby(buckets)["forward_return"].mean()
             rank_ic = aligned["factor"].corr(aligned["forward_return"], method="spearman")
             if pd.isna(rank_ic) or not np.isfinite(float(rank_ic)):
                 continue
-            top_members = set(aligned.index[buckets.eq(int(quantiles))])
-            turnover = None
-            if horizon == 1:
-                denominator = len(previous_top) + len(top_members)
-                if previous_top and denominator:
-                    turnover = len(previous_top.symmetric_difference(top_members)) / denominator
-                previous_top = top_members
             rows_by_horizon[horizon].append(
                 {
                     "signal_date": signal_dates[position].strftime("%Y-%m-%d"),
                     "entry_date": entry_date.strftime("%Y-%m-%d"),
                     "exit_date": exit_date.strftime("%Y-%m-%d"),
                     "observations": int(len(aligned)),
+                    "formation_count": int(len(values)),
+                    "missing_forward_count": int(len(values) - len(aligned)),
                     "coverage": float(len(aligned) / max(1, symbol_count)),
                     "rank_ic": float(rank_ic),
                     "quantile_returns": {
                         str(int(bucket)): float(grouped.loc[bucket]) for bucket in grouped.index
                     },
-                    "long_short": float(
-                        grouped.loc[int(quantiles)] - grouped.loc[1]
+                    "long_short": (
+                        float(grouped.loc[int(quantiles)] - grouped.loc[1])
+                        if 1 in grouped.index and int(quantiles) in grouped.index else None
                     ),
                     "top_turnover": float(turnover) if turnover is not None else None,
                 }
@@ -127,6 +131,10 @@ def factor_research_report(
         minimum_observations=6,
     )
     warnings = _warnings(primary, rank_ics, bootstrap)
+    if not all(isinstance(snapshot.get("input_audit"), Mapping) for snapshot in ordered_snapshots):
+        warnings.append("Input cutoff audit is absent for some snapshots; point-in-time inputs are unverified")
+    if any(row["missing_forward_count"] for row in primary):
+        warnings.append("Quantile membership is frozen at signal time; returns use available pairs and may be biased by missing exits or delistings")
     status = "sufficient" if len(primary) >= 24 else "insufficient"
     split = max(1, len(primary) - int(np.ceil(len(primary) * float(validation_fraction))))
     development = primary[:split] if primary else []
@@ -256,12 +264,13 @@ def _point_in_time_audit(
                     }
                 )
     latest = snapshots[-1].get("input_audit", {}) if snapshots else {}
+    cutoff_check = False if violations else (True if observed == len(snapshots) and observed else None)
     return {
-        "context_as_of_enforced": True,
+        "context_as_of_enforced": cutoff_check,
         "observed_signal_cutoffs": observed,
         "input_cutoff_violations": violations[:20],
-        "factor_observation_at_or_before_signal": not violations,
-        "instrument_and_fundamental_as_of_enforced": not violations,
+        "factor_observation_at_or_before_signal": cutoff_check,
+        "instrument_and_fundamental_as_of_enforced": cutoff_check,
         "latest_input_cutoffs": dict(latest) if isinstance(latest, Mapping) else {},
         "forward_price_field": "open",
         "forward_window_strictly_after_signal": all(

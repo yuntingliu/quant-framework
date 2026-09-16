@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -35,6 +38,91 @@ def test_python_editor_mirror_stays_in_ignored_runtime_root(tmp_path, monkeypatc
     assert target.read_text(encoding="utf-8") == "x = 1\n"
     with pytest.raises(ValueError):
         python_editor_service.mirror_document("strategy", "../escape", "x = 1\n")
+
+
+def test_editor_document_uses_configured_runtime_in_a_fresh_process(tmp_path) -> None:
+    runtime = tmp_path / "persistent-runtime"
+    script = """
+from fastapi.testclient import TestClient
+from apps.api.main import app
+response = TestClient(app).post('/api/python-editor/documents', json={
+    'kind': 'strategy', 'document_id': 'deployment-path-check', 'source': 'x = 1\\n',
+})
+assert response.status_code == 200, response.text
+"""
+    environment = dict(
+        os.environ,
+        ALPHALAB_RUNTIME_DIR=str(runtime),
+        ALPHALAB_WEB_AUTH_ENABLED="0",
+    )
+    subprocess.run(
+        [sys.executable, "-c", script],
+        env=environment,
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+        timeout=30,
+        capture_output=True,
+        text=True,
+    )
+
+    target = runtime / "editor" / "strategy" / "deployment-path-check" / "strategy.py"
+    assert target.read_text(encoding="utf-8") == "x = 1\n"
+
+
+def test_ruff_reports_diagnostics_for_ignored_editor_mirrors(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(python_editor_service, "MIRROR_ROOT", tmp_path / "data" / "editor")
+    source = "import os\n"
+    document = python_editor_service.mirror_document("strategy", "ruff-check", source)
+
+    async def exercise() -> None:
+        process = await python_editor_service.start_language_server("ruff")
+
+        async def send(message: dict) -> None:
+            await process.write_message(json.dumps({"jsonrpc": "2.0", **message}))
+
+        async def receive() -> dict:
+            return json.loads(await asyncio.wait_for(process.read_message(), timeout=10))
+
+        try:
+            await send({
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "processId": None,
+                    "rootUri": document["workspace_uri"],
+                    "workspaceFolders": [{"uri": document["workspace_uri"], "name": "AlphaLab"}],
+                    "capabilities": {"textDocument": {"publishDiagnostics": {}}},
+                    "initializationOptions": {
+                        "settings": {
+                            "configuration": "apps/desktop/ruff-editor.toml",
+                            "configurationPreference": "editorOnly",
+                        },
+                    },
+                },
+            })
+            while True:
+                message = await receive()
+                if message.get("id") == 1:
+                    assert "result" in message
+                    break
+            await send({"method": "initialized", "params": {}})
+            await send({
+                "method": "textDocument/didOpen",
+                "params": {"textDocument": {
+                    "uri": document["uri"], "languageId": "python", "version": 1, "text": source,
+                }},
+            })
+            while True:
+                message = await receive()
+                if message.get("method") == "textDocument/publishDiagnostics":
+                    params = message["params"]
+                    if params["uri"] == document["uri"]:
+                        assert any(item.get("code") == "F401" for item in params["diagnostics"])
+                        break
+        finally:
+            await process.close()
+
+    asyncio.run(asyncio.wait_for(exercise(), timeout=30))
 
 
 def test_sdk_contract_diagnostics_are_editor_markers() -> None:

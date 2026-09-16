@@ -1,203 +1,84 @@
-# AlphaLab Barebone
+# AlphaLab
 
-AlphaLab is a local quantitative-research framework with provider-backed data,
-a unified Python strategy SDK, point-in-time factor evaluation, a stateful daily
-event backtester, immutable source revisions, a FastAPI/React workstation, and
-an optional Conexus research Agent.
+AlphaLab is a Python research workstation for data recipes, factors, stock-selection strategies, and validation. A shared daily event engine produces backtests with traceable source versions and results. Current version: **0.7.0**.
 
-**中文零基础教程：[从第一个实验到读懂整个项目](文档.md)**，涵盖安装、首次研究、后端、前端、Agent 与贡献流程。
+It is designed for researchers who need to inspect factor definitions, point-in-time data, trading rules, and backtest evidence. RQ integration is included; the Data SDK supports additional providers.
 
-The core idea is simple: one strategy project has one assembled Python runtime
-module, authored as `strategy.py` plus individual `factors/*.py` units.
-The parameter forms, factor editor, signal model, event logic, execution policy,
-Codex edits, tests, previews, and backtests all modify or invoke that same source.
+## Research workflow
+
+```text
+Data preparation → Factor research → Selection and portfolio construction → Backtesting and validation → Reports
+```
+
+| Workbench | Purpose |
+| --- | --- |
+| Project | Create research projects and manage canonical source and immutable versions |
+| Data | Edit and run data recipes; inspect synchronization progress and coverage |
+| Factors | Write factors and inspect cross-sectional snapshots, historical Rank IC, and other diagnostics |
+| Strategy | Define the universe, rebalance schedule, signals, portfolio, and execution rules |
+| Validation | Run backtests and inspect returns, trading constraints, and frozen source and results |
+| Report | Use the optional Conexus Agent to organize and persist research documents |
+
+A project contains `recipe.py`, `factors/<factor_id>.py`, `strategies/<strategy_id>.py`, and `validation.py`. Forms and editors update the same canonical source. Saving records a version, and backtests pin the strategy and validation versions. The daily engine supports daily, weekly, monthly, and custom schedules; actual fills also depend on target weights, trading constraints, and execution conditions.
 
 ## Quick start
 
-For student installations on macOS or Windows, follow
-[Local deployment](docs/07_LOCAL_DEPLOYMENT.md). The browser workbench uses one
-Python process after building the frontend; Electron is optional.
+Install Git, Python 3.12, and Node.js 22.18+ (see [`.node-version`](.node-version)). The commands below build the web client and start the Python backend and bundled local Conexus Agent. Opening the workstation does not require RQ or Conexus credentials. The Python `dev` extra includes Pyrefly and Ruff for the editor.
 
-Windows PowerShell:
+```bash
+git clone https://github.com/yuntingliu/quant-framework.git
+cd quant-framework
+```
+
+### Windows PowerShell
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[app,dev,rq]"
-
-.\.venv\Scripts\python.exe -m alphalab.cli dev doctor
-```
-
-Build the browser UI and start the local service:
-
-```powershell
 npm --prefix apps/desktop ci
-npm --prefix apps/desktop run build
+npm --prefix apps/desktop run build:web
 .\.venv\Scripts\python.exe scripts/build_conexus_runtime.py
 .\.venv\Scripts\python.exe -m alphalab.cli dev serve
 ```
 
-Open <http://127.0.0.1:8000/app/>. On later launches, only `alphalab dev serve`
-is needed with the virtual environment activated. For frontend development use
-`npm --prefix apps/desktop run dev:web` alongside the backend.
+### macOS / Linux
 
-For the Electron desktop window, run `npm --prefix apps/desktop run dev:desktop`
-in a second terminal while the backend is running. The same UI is used by the
-browser and desktop; Electron defaults to 125% zoom.
-
-Application code lives in `apps/api` and `apps/desktop`; `alphalab` contains the
-reusable research core. AlphaLab's Agent integration is in `integrations/conexus`,
-and the verified Conexus dependency is in `vendor/conexus`. Generated programs
-live in `build`, user data in `data`, and distributable packages in `artifacts`.
-See [Architecture](docs/01_ARCHITECTURE.md) for the directory responsibilities.
-
-The workstation exposes the single `runtime` data profile. Configure
-`RQ_USER`, `RQ_PASSWORD`, and `RQ_HOST` in an untracked `.env`, then use the
-Data Workbench to populate the local runtime store. Bundled sample data remains
-available only to internal tests and examples.
-
-Before starting the workbench, the read-only doctor reports local Python,
-Node, RQData, editor tools, runtime datasets, and port readiness without
-printing credential values:
-
-```powershell
-alphalab dev doctor
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[app,dev,rq]'
+npm --prefix apps/desktop ci
+npm --prefix apps/desktop run build:web
+.venv/bin/python scripts/build_conexus_runtime.py
+.venv/bin/python -m alphalab.cli dev serve
 ```
 
-## Runtime RQ data
+Open the [AlphaLab workstation](http://127.0.0.1:8000/app/). The [health endpoint](http://127.0.0.1:8000/api/health) should return `status: "ok"` and `frontend: "ready"`. A fresh installation has no market-data cache; follow the data preparation steps below. For frontend hot reload, see the [development guide](docs/03_DEVELOPMENT_GUIDE.md).
 
-The Data Workbench and CLI use the same visible Python recipe and the same
-partitioned store below ignored `data/runtime/`. Inspect a plan before a large
-request, then run and validate the selected scope:
+## Your first research project
 
-```powershell
-alphalab data templates
-alphalab data plan rq --template rq.etf_daily
-alphalab data sync rq --template rq.a_share_research
-alphalab data validate --datasets rq.bars,rq.paused,rq.is_st --fail-on-gap
-```
+1. Create a project in the Project Workbench. Built-in projects are read-only templates that illustrate the source structure.
+2. Configure `RQ_USER`, `RQ_PASSWORD`, and `RQ_HOST` in an untracked `.env` at the repository root, then restart the backend. Your RQ account must have the required data permissions.
+3. Select a template in Data. Start with a few symbols and dates covering the factor lookback and intended test period. Save the code and choose Run and Sync. Confirm completion and coverage. Leaving symbols empty requests the template's full scope.
+4. Review, edit, and save the factor and strategy code. Choose the rebalance schedule, portfolio construction, and execution rules.
+5. Run a backtest in Validation over the prepared data. Inspect trades and validation results before expanding the sample.
 
-Daily RQ requests are split by symbols and dates. Each completed chunk is
-persisted immediately; rerunning resumes from per-symbol/per-field/per-index
-watermarks with an overlap refresh. Runtime research data includes adjusted
-bars with `raw_open`/`raw_high`/`raw_low`/`raw_close`, suspensions, ST state,
-daily factors, historical index
-membership, PIT financials, and attribution factors. See
-[Data operations](docs/04_DATA_OPERATIONS.md) for exact templates and schemas.
+See [data operations](docs/04_DATA_OPERATIONS.md) for permissions, synchronization scope, financial definitions, and historical constituent limitations. The [SDK guide](docs/06_ALPHALAB_SDK_GUIDE.md) contains source layouts, runnable examples, and research commands. The workstation's documentation panel reads that same guide.
 
-## Strategy SDK v1
+## Deployment and optional services
 
-Strategy source imports `alphalab.sdk.v1` and registers one universe, any number
-of factors, one scheduled signal, one portfolio function, optional stateful
-event handlers, and one execution policy:
+Runtime data defaults to the Git-ignored `data/runtime/` directory. For persistent deployments, use a separate writable directory for databases, caches, and editor mirrors by setting `ALPHALAB_RUNTIME_DIR` in the process environment. See [deployment](docs/05_DEPLOYMENT.md) for authentication, configuration, backups, and updates, and [Linux deployment](docs/guides/linux-deployment.md) for the release script and service management.
 
-```python
-from alphalab.sdk.v1 import (
-    ExecutionPolicy, Monthly, PortfolioDecision, SignalResult, UniverseResult,
-    execution, execution_data_fill, factor, portfolio, signal, universe,
-)
+The bundled local Conexus Agent needs no Conexus cloud account or enterprise publication. Open **Model providers** in the sidebar to save a provider endpoint, model ID, and API key, test the connection, and choose the active profile. The current adapter uses OpenAI-compatible Chat Completions. Use `--agent off` for manual research or `--agent remote` for an external service. See [Local deployment](docs/07_LOCAL_DEPLOYMENT.md).
 
-SDK_VERSION = 1
+## Scope and limitations
 
-@universe(id="all_available")
-def all_available(context):
-    return UniverseResult(symbols=context.universe)
+Technical patterns, factor diagnostics, and portfolio methods are research tools. Feature support does not establish better returns. Comparisons must align the universe, information timing, rebalance rules, costs, and account model.
 
-@factor(id="momentum_20d", inputs=["close"])
-def momentum_20d(context, *, window: int = 20):
-    close = context.history("close", window=window + 1)
-    return close.iloc[-1] / close.iloc[0] - 1
+Project Python runs in local child processes with timeouts, logs, and contract checks, but it is not sandboxed. Execute trusted source only. Keep credentials, personal data, runtime databases, and generated research artifacts out of Git.
 
-@signal(id="top1", schedule=Monthly.last_trading_day(at="close"))
-def top1(context, state, *, top_n: int = 1):
-    scores = context.factor("momentum_20d", window=20).dropna()
-    selected = list(scores.nlargest(top_n).index)
-    return SignalResult(selected=selected, scores=scores, state=state)
+## Further reading
 
-@portfolio(id="full_weight")
-def full_weight(context, signal, state):
-    return PortfolioDecision(
-        target_weights={signal.selected[0]: 1.0} if signal.selected else {},
-        state=state,
-    )
-
-@execution_data_fill(id="fill_missing_market_state")
-def fill_missing_market_state(context, rows):
-    # Project-owned Python may fill only missing execution-state values.
-    return rows
-
-@execution(id="next_open")
-def next_open(context, decision):
-    return ExecutionPolicy(activation="next_session_open")
-```
-
-Stateful rules such as MA gates, profit locks, month-level re-entry freezes, and
-volatility cuts use `@on_event(Event.SESSION_CLOSE, ...)` and the shared JSON
-`State`. Custom schedules use `@schedule`. Factors can call other registered
-factors through `context.factor(...)`; dependencies are tracked and cycles are
-rejected.
-
-## One source, several views
-
-- Project/Data: metadata, data profile, requirements, and `@universe`.
-- Factor: edit `@factor` functions, insert data fields/dependencies, run frozen
-  snapshot and history evaluations.
-- Strategy: edit schedule, signal, portfolio, event handlers, and execution in
-  `strategy.py`, or preview the saved strategy.
-- Validation: select a project, edit its `validation.py`, run the full event
-  backtest using automatically pinned sources, and inspect frozen results.
-- Report: read durable Conexus Agent documents backed by frozen Run evidence.
-  Reports currently share one publication-wide history.
-
-Recognized form fields edit exact Python syntax nodes with LibCST. Arbitrary
-Python remains editable as custom source. There is no expression-to-Python
-translation, generated three-stage script, candidate promotion step, or second
-Python Lab lifecycle.
-
-## Local Python runtime
-
-AlphaLab directly invokes the current local Python environment in a spawned
-child process. It provides timeouts, crash containment, bounded logs, static
-warnings, explicit execution confirmation, and strict input/output contracts.
-It is not a security sandbox; only run source you trust. Docker is not required
-or used by the strategy path.
-
-## Reproducibility and safety
-
-A saved `StrategySourcePackage` freezes the full source, SHA-256, SDK and
-validator versions, entrypoint manifest, literal parameters, requirements, and
-environment fingerprint. Every preview, factor evaluation, and backtest names
-the exact revision and hash it invokes.
-
-The core—not custom source—owns point-in-time filtering, calendar ordering,
-symbol/listing checks, validation of known suspension and price-limit fields, positive
-volume/amount, participation, cash, fees, fills, rejection events, accounting,
-and output/state validation. Project source may implement one bounded
-`@execution_data_fill` function for missing state values; a target is not a fill.
-
-## Useful commands
-
-```powershell
-python -m pytest tests -q --basetemp=data\pytest
-python scripts\check_facade_imports.py
-python scripts\build_example_data.py --source-root <local-source>
-
-python scripts\build_conexus_runtime.py
-alphalab dev serve
-```
-
-Architecture and contribution rules:
-
-- [Architecture](docs/01_ARCHITECTURE.md)
-- [Strategy SDK v1 contract](docs/02_STRATEGY_SDK_V1_CONTRACT.md)
-- [Development guide](docs/03_DEVELOPMENT_GUIDE.md)
-- [Data operations](docs/04_DATA_OPERATIONS.md)
-- [Conexus Agent](docs/04_CONEXUS_AGENT.md)
-- [Local deployment with Conexus Core](docs/07_LOCAL_DEPLOYMENT.md)
-
-The local deployment includes Conexus Core and its single-user service, with no
-Canvas editor or enterprise components. Its source provenance and pending license
-status are recorded in [Third-party source](THIRD_PARTY.md).
-
-Local data, SQLite databases, caches, test scratch, and generated frontend
-artifacts must stay out of Git. The repository does not push remotely unless
-explicitly requested.
+- [Documentation index](docs/README.md): usage, development, deployment, and release notes.
+- [Architecture](docs/01_ARCHITECTURE.md): module boundaries and public interfaces.
+- [Development guide](docs/03_DEVELOPMENT_GUIDE.md): development setup and checks for each change.
+- [Contributing](CONTRIBUTING.md): contribution and documentation conventions.

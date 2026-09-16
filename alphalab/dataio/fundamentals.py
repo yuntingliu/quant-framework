@@ -8,6 +8,7 @@ CANONICAL_FIELDS = (
     "ep",
     "bp",
     "roe",
+    "roa",
     "gross_margin",
     "leverage",
     "profit_growth",
@@ -34,11 +35,14 @@ def first_disclosures(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return frame.copy()
     result = frame.copy()
-    result["info_date"] = pd.to_datetime(result["info_date"], errors="coerce")
+    result["info_date"] = pd.to_datetime(result["info_date"].astype(str), errors="coerce")
+    result["quarter"] = result["quarter"].astype(str).str.lower()
+    result = result.loc[result["quarter"].str.fullmatch(r"\d{4}q[1-4]")]
     if "if_adjusted" in result:
-        original = result["if_adjusted"].fillna(0).eq(0)
-        if original.any():
-            result = result.loc[original]
+        # An adjusted-only input is not an original vintage. Its presence must
+        # not be accepted or rejected depending on unrelated symbols in the batch.
+        original = pd.to_numeric(result["if_adjusted"], errors="coerce").eq(0)
+        result = result.loc[original]
     return (
         result.dropna(subset=["symbol", "quarter", "info_date"])
         .sort_values(["symbol", "quarter", "info_date"])
@@ -53,12 +57,21 @@ def build_canonical_fundamentals(
     bars: pd.DataFrame,
     *,
     asof_date: str | None = None,
+    disclosure_lag_days: int = 1,
 ) -> pd.DataFrame:
-    """Build strategy-ready PIT fields from first-disclosure RQ statements."""
+    """Build PIT fields using exact reporting quarters and available dependencies.
+
+    Date-only disclosures become usable on the next calendar day by default.
+    Missing quarters never become adjacent observations in a rolling calculation.
+    Adjusted-only histories are excluded, rather than relabelled as original.
+    """
+
+    if isinstance(disclosure_lag_days, bool) or not isinstance(disclosure_lag_days, int) or disclosure_lag_days < 0:
+        raise ValueError("disclosure_lag_days must be a non-negative integer")
 
     income_first = first_disclosures(income)
     balance_first = first_disclosures(balance)
-    if income_first.empty or balance_first.empty or bars.empty:
+    if income_first.empty or balance_first.empty:
         return _empty()
 
     income_first = income_first.rename(columns={"info_date": "income_date"})
@@ -81,55 +94,72 @@ def build_canonical_fundamentals(
         ],
         axis=1,
     ).max(axis=1)
+    merged["statement_date"] = merged["available_date"]
+    merged["available_date"] += pd.Timedelta(days=disclosure_lag_days)
     if asof_date is not None:
         merged = merged.loc[merged["available_date"].le(pd.Timestamp(asof_date))]
     merged = _quarter_parts(merged).sort_values(["symbol", "year", "quarter_no"])
     for column in (*INCOME_FIELDS, *BALANCE_FIELDS):
-        if column in merged:
-            merged[column] = pd.to_numeric(merged[column], errors="coerce")
+        merged[column] = pd.to_numeric(merged.get(column, np.nan), errors="coerce")
 
-    merged["revenue_base"] = merged.get("revenue", pd.Series(index=merged.index, dtype=float))
-    if "operating_revenue" in merged:
-        merged["revenue_base"] = merged["revenue_base"].combine_first(
-            merged["operating_revenue"]
-        )
-    if "gross_profit" in merged:
-        merged["gross_profit_base"] = merged["gross_profit"]
-    else:
-        merged["gross_profit_base"] = np.nan
-    if "cost_of_goods_sold" in merged:
-        merged["gross_profit_base"] = merged["gross_profit_base"].combine_first(
-            merged["revenue_base"] - merged["cost_of_goods_sold"]
-        )
+    # Use income rows directly: a missing balance for an intermediate quarter
+    # must not destroy otherwise observable TTM profit.
+    income_lookup = _quarter_parts(income_first.rename(columns={"info_date": "income_date"}))
+    for name in INCOME_FIELDS:
+        income_lookup[name] = pd.to_numeric(income_lookup.get(name, np.nan), errors="coerce")
+    income_lookup["revenue_base"] = income_lookup.revenue.where(income_lookup.revenue.notna(), income_lookup.operating_revenue)
+    income_lookup["gross_profit_base"] = income_lookup.gross_profit.where(income_lookup.gross_profit.notna(),
+        income_lookup.revenue_base - income_lookup.cost_of_goods_sold)
+    balance_lookup = _quarter_parts(balance_first.rename(columns={"info_date": "balance_date"}))
+    for name in BALANCE_FIELDS:
+        balance_lookup[name] = pd.to_numeric(balance_lookup.get(name, np.nan), errors="coerce")
 
-    for source, target in (
-        ("revenue_base", "revenue_single"),
-        ("gross_profit_base", "gross_profit_single"),
-        ("net_profit_parent_company", "profit_single"),
-    ):
-        if source not in merged:
-            merged[source] = np.nan
-        merged[target] = _single_quarter(merged, source)
-        merged[target.replace("single", "ttm")] = merged.groupby(
-            "symbol",
-            sort=False,
-        )[target].transform(lambda values: values.rolling(4, min_periods=4).sum())
+    def lookup(table: pd.DataFrame, column: str, periods: pd.Series, date_column: str) -> pd.Series:
+        """Read exact quarters only if that dependency was already disclosed."""
+        indexed = table.assign(period=table.year * 4 + table.quarter_no - 1).set_index(["symbol", "period"])
+        keys = pd.MultiIndex.from_arrays([merged.symbol, periods])
+        values = pd.to_numeric(indexed[column], errors="coerce").reindex(keys)
+        dates = pd.to_datetime(indexed[date_column]).reindex(keys)
+        result = pd.Series(values.to_numpy(), index=merged.index, dtype=float)
+        visible = pd.Series(dates.to_numpy(), index=merged.index).le(merged.statement_date)
+        return result.where(visible)
+
+    periods = merged.year * 4 + merged.quarter_no - 1
+
+    def ttm(column: str, target_periods: pd.Series) -> pd.Series:
+        current = lookup(income_lookup, column, target_periods, "income_date")
+        prior_year_end = (target_periods // 4) * 4 - 1
+        trailing = current + lookup(income_lookup, column, prior_year_end, "income_date") - lookup(
+            income_lookup, column, target_periods - 4, "income_date"
+        )
+        return trailing.where(target_periods.mod(4).ne(3), current)
+
+    for column, target in (("revenue_base", "revenue_ttm"), ("gross_profit_base", "gross_profit_ttm"),
+                           ("net_profit_parent_company", "profit_ttm")):
+        merged[target] = ttm(column, periods)
 
     raw_price = _raw_price_on_or_before(bars, merged)
-    grouped = merged.groupby("symbol", sort=False)
     merged["shares"] = merged.get("paid_in_capital")
     merged["price_at_available"] = raw_price
     merged["market_cap"] = merged["price_at_available"] * merged["shares"]
     merged["ep"] = merged["profit_ttm"] / merged["market_cap"]
     merged["bp"] = merged["equity_parent_company"] / merged["market_cap"]
-    average_equity = (
-        merged["equity_parent_company"] + grouped["equity_parent_company"].shift(4)
-    ) / 2
-    merged["roe"] = merged["profit_ttm"] / average_equity
-    merged["gross_margin"] = merged["gross_profit_ttm"] / merged["revenue_ttm"]
-    merged["leverage"] = merged["total_liabilities"] / merged["total_assets"]
-    merged["profit_growth"] = grouped["profit_ttm"].pct_change(4, fill_method=None)
-    merged["revenue_growth"] = grouped["revenue_ttm"].pct_change(4, fill_method=None)
+    previous_equity = lookup(balance_lookup, "equity_parent_company", periods - 4, "balance_date")
+    previous_assets = lookup(balance_lookup, "total_assets", periods - 4, "balance_date")
+    equity = merged.equity_parent_company
+    average_equity = ((equity + previous_equity) / 2).where(equity.gt(0) & previous_equity.gt(0))
+    average_assets = ((merged.total_assets + previous_assets) / 2).where(merged.total_assets.gt(0) & previous_assets.gt(0))
+    merged["roe"] = merged.profit_ttm / average_equity
+    merged["roe_latest_equity"] = merged.profit_ttm / equity.where(equity.gt(0))
+    merged["roa"] = merged.profit_ttm / average_assets
+    merged["gross_margin"] = merged.gross_profit_ttm / merged.revenue_ttm.where(merged.revenue_ttm.gt(0))
+    merged["leverage"] = merged.total_liabilities / merged.total_assets.where(merged.total_assets.gt(0))
+    for column, target, previous in (("net_profit_parent_company", "profit_growth", "profit_ttm"),
+                                      ("revenue_base", "revenue_growth", "revenue_ttm")):
+        prior_ttm = ttm(column, periods - 4)
+        # A loss-to-profit reversal is not ordinary percentage growth.
+        merged[target] = merged[previous] / prior_ttm.where(prior_ttm.gt(0)) - 1
+    merged["book_equity"] = equity
 
     columns = [
         "quarter",
@@ -137,6 +167,10 @@ def build_canonical_fundamentals(
         "symbol",
         "shares",
         "market_cap",
+        "profit_ttm",
+        "revenue_ttm",
+        "book_equity",
+        "roe_latest_equity",
         *CANONICAL_FIELDS,
     ]
     output = merged[columns].replace([np.inf, -np.inf], np.nan)
@@ -155,13 +189,9 @@ def _quarter_parts(frame: pd.DataFrame) -> pd.DataFrame:
     return result.dropna(subset=["year", "quarter_no"])
 
 
-def _single_quarter(frame: pd.DataFrame, column: str) -> pd.Series:
-    cumulative = frame.groupby(["symbol", "year"], sort=False)[column]
-    single = cumulative.diff()
-    return single.where(frame["quarter_no"].ne(1), frame[column])
-
-
 def _raw_price_on_or_before(bars: pd.DataFrame, rows: pd.DataFrame) -> pd.Series:
+    if bars.empty or rows.empty:
+        return pd.Series(np.nan, index=rows.index, dtype=float)
     price_column = "raw_close" if "raw_close" in bars else "close"
     prices = bars[["date", "symbol", price_column]].copy()
     prices["date"] = pd.to_datetime(prices["date"], errors="coerce")
@@ -189,6 +219,10 @@ def _empty() -> pd.DataFrame:
             "symbol",
             "shares",
             "market_cap",
+            "profit_ttm",
+            "revenue_ttm",
+            "book_equity",
+            "roe_latest_equity",
             *CANONICAL_FIELDS,
         ]
     )

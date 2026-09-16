@@ -77,7 +77,7 @@ jobs:
           node-version-file: .node-version
       - run: python -m pip install -e ".[dev,app]"
       - run: python scripts/build_conexus_runtime.py
-      - run: npm --prefix build/conexus-source test
+      - run: python scripts/check_conexus_runtime.py
       - run: npm --prefix build/conexus audit --omit=dev
       - run: python -m pytest tests/api/test_local_agent_integration.py tests/contracts/test_conexus_distribution.py -q
       - run: git diff --exit-code

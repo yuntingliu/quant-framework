@@ -8,6 +8,7 @@ from alphalab.dataio.engine import (
     create_runtime_engine,
 )
 from alphalab.dataio.errors import DataLoadError, DataValidationError, MissingDataError
+from alphalab.dataio.fundamentals import build_canonical_fundamentals, first_disclosures
 from alphalab.dataio.providers import (
     FactorProvider,
     FundamentalProvider,
@@ -62,4 +63,6 @@ __all__ = [
     "create_rq_engine_from_env",
     "to_long",
     "to_wide",
+    "build_canonical_fundamentals",
+    "first_disclosures",
 ]

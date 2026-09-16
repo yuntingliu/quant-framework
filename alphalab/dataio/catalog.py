@@ -217,8 +217,30 @@ class DataCatalog:
     def path(self, dataset: str) -> Path:
         return self.root / self.spec(dataset).relative_path
 
-    def files(self, dataset: str) -> list[Path]:
-        return sorted(self.path(dataset).rglob("*.parquet"))
+    @staticmethod
+    def clear_cache() -> None:
+        """Discard shared coverage metadata for an explicit refresh."""
+        with _COVERAGE_LOCK:
+            _file_coverage.cache_clear()
+
+    def files(
+        self, dataset: str, *, start: str | None = None, end: str | None = None,
+    ) -> list[Path]:
+        files = sorted(self.path(dataset).rglob("*.parquet"))
+        if start is None and end is None:
+            return files
+        lower = pd.Timestamp(start) if start is not None else None
+        upper = pd.Timestamp(end) if end is not None else None
+        selected = []
+        date_column = self.spec(dataset).date_column
+        for path in files:
+            info = _coverage(path, date_column)
+            if lower is not None and info.end is not None and info.end < lower:
+                continue
+            if upper is not None and info.start is not None and info.start > upper:
+                continue
+            selected.append(path)
+        return selected
 
     def symbols(self, dataset: str, *, dated_only: bool = False) -> list[str]:
         spec = self.spec(dataset)

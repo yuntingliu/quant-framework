@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from alphalab.analytics.factor_evidence import factor_research_report
 
@@ -105,3 +106,37 @@ def test_factor_research_audit_surfaces_future_input_cutoffs() -> None:
     audit = result["point_in_time_audit"]
     assert audit["factor_observation_at_or_before_signal"] is False
     assert audit["input_cutoff_violations"][0]["field"] == "factor_input_max_date"
+
+
+def test_missing_future_prices_do_not_reassign_quantile_membership() -> None:
+    snapshots, bars = _synthetic_factor_evidence(periods=10)
+    full = factor_research_report(snapshots, bars, frequency="weekly")
+    exit_date = pd.Timestamp(full["rows"][0]["exit_date"])
+    # S12 belongs to the highest quintile at formation. Its absent exit must
+    # not promote S11 from quintile four or manufacture target turnover.
+    bars.loc[bars.date.eq(exit_date) & bars.symbol.eq("S12"), "open"] = np.nan
+    result = factor_research_report(snapshots, bars, frequency="weekly")
+    scores = {row["symbol"]: row["value"] for row in snapshots[0]["values"]}
+    assert result["rows"][0]["quantile_returns"]["5"] == pytest.approx(
+        (scores["S13"] + scores["S14"]) * 0.01 / 2
+    )
+    assert result["rows"][0]["formation_count"] == 15
+    assert result["rows"][0]["missing_forward_count"] == 1
+    assert result["rows"][1]["top_turnover"] == 0.0
+
+
+def test_entire_missing_exit_bucket_is_unavailable_instead_of_replaced() -> None:
+    snapshots, bars = _synthetic_factor_evidence(periods=10)
+    full = factor_research_report(snapshots, bars, frequency="weekly")
+    exit_date = pd.Timestamp(full["rows"][0]["exit_date"])
+    bars.loc[bars.date.eq(exit_date) & bars.symbol.isin(["S12", "S13", "S14"]), "open"] = np.nan
+    result = factor_research_report(snapshots, bars, frequency="weekly")
+    assert "5" not in result["rows"][0]["quantile_returns"]
+    assert result["rows"][0]["long_short"] is None
+
+
+def test_absent_input_audit_cannot_be_reported_as_verified():
+    snapshots, bars = _synthetic_factor_evidence(periods=10)
+    result = factor_research_report(snapshots, bars, frequency="weekly")
+    assert result["point_in_time_audit"]["context_as_of_enforced"] is None
+    assert any("unverified" in warning for warning in result["warnings"])

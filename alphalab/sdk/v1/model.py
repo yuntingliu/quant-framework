@@ -431,7 +431,8 @@ class StrategyContext:
         if field not in self._bars:
             raise KeyError(f"market field is unavailable: {field}")
         rows = self._bars.loc[
-            self._bars["date"].le(self._as_of) & self._bars["symbol"].isin(requested)
+            self._bars["date"].le(self._as_of) & self._bars["symbol"].isin(requested),
+            list(dict.fromkeys(["date", "symbol", field])),
         ].sort_values("date")
         latest = rows.drop_duplicates("symbol", keep="last").set_index("symbol")
         return pd.to_numeric(latest[field], errors="coerce").reindex(requested).copy()
@@ -451,19 +452,23 @@ class StrategyContext:
         if missing:
             raise KeyError(f"market fields are unavailable: {missing}")
         rows = self._bars.loc[
-            self._bars["date"].le(self._as_of) & self._bars["symbol"].isin(requested)
+            self._bars["date"].le(self._as_of) & self._bars["symbol"].isin(requested),
+            list(dict.fromkeys(["date", "symbol", *names])),
         ].sort_values("date")
+
+        def last_window(name: str) -> pd.DataFrame:
+            # Match pivot_table's removal of all-NaN dates before taking the
+            # window. Pivot only those sessions, rather than years of history.
+            available = rows.loc[rows[name].notna(), ["date", "symbol", name]]
+            dates = available["date"].drop_duplicates().tail(int(window))
+            available = available.loc[available["date"].isin(dates)]
+            return available.pivot_table(
+                index="date", columns="symbol", values=name, aggfunc="last"
+            ).reindex(columns=requested)
+
         if len(names) == 1:
-            result = rows.pivot_table(
-                index="date", columns="symbol", values=names[0], aggfunc="last"
-            )
-            return result.reindex(columns=requested).tail(int(window)).copy()
-        pieces = {
-            name: rows.pivot_table(index="date", columns="symbol", values=name, aggfunc="last")
-            .reindex(columns=requested)
-            .tail(int(window))
-            for name in names
-        }
+            return last_window(names[0]).copy()
+        pieces = {name: last_window(name) for name in names}
         return pd.concat(pieces, axis=1).copy()
 
     def fundamental(self, field: str, *, symbols: Sequence[str] | None = None) -> pd.Series:

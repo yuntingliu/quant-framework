@@ -41,6 +41,7 @@ data/*
 !data/factors/factor_returns.parquet
 data/app/
 data/runtime/
+.alphalab-release.json
 logs/
 artifacts/
 outputs/

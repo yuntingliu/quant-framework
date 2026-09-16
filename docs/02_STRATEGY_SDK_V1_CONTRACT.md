@@ -244,12 +244,12 @@ The workbench MUST recognize literal decorator arguments. For example:
 ```python
 @signal(
     id="monthly_top1",
-    label="月末 Top1",
+    label="Month-end Top 1",
     schedule=Monthly.last_trading_day(at="close"),
 )
 ```
 
-The Signal Workbench can display `每月 / 最后交易日 / 收盘`.
+The Signal Workbench can display `Monthly / Last trading day / Close`.
 
 Valid Python that is not a recognized literal remains supported:
 
@@ -294,7 +294,7 @@ from typing import Annotated
 def momentum(
     context: FactorContext,
     *,
-    window: Annotated[int, Parameter(label="窗口", minimum=2, maximum=500)] = 20,
+    window: Annotated[int, Parameter(label="Window", minimum=2, maximum=500)] = 20,
 ):
     ...
 ```

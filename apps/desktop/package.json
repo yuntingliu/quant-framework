@@ -2,7 +2,7 @@
   "name": "alphalab-dashboard",
   "private": true,
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.7.0",
   "main": "../../build/electron/main.mjs",
   "engines": {
     "node": "^22.18.0 || ^24.0.0"
@@ -15,8 +15,9 @@
     "build:desktop": "tsc -b && tsc -p tsconfig.electron.json && cross-env WEB_ONLY=0 vite build",
     "pack": "npm run build:desktop && electron-builder --config electron-builder.yml --publish never",
     "lint": "eslint .",
-    "test": "node --test tests/*.test.ts",
-    "preview": "vite preview"
+    "test": "node --test tests/*.test.ts ../../tests/conexus-*.test.mjs",
+    "preview": "vite preview",
+    "build:web": "npm run build"
   },
   "dependencies": {
     "@codingame/monaco-vscode-base-service-override": "^25.1.2",

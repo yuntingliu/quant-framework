@@ -393,14 +393,14 @@ class PartitionedParquetMarketDataProvider(LocalParquetMarketDataProvider):
     def _load_range(
         self, symbols: list[str] | None = None, start: str | None = None, end: str | None = None,
     ) -> pd.DataFrame:
-        files = self.catalog.files("rq.bars")
+        files = self.catalog.files("rq.bars", start=start, end=end)
         if not files:
             return pd.DataFrame(columns=["date", "symbol", "close"])
         frame = pd.concat((self._read_partition(path, symbols, start, end) for path in files), ignore_index=True)
         frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
         frame["symbol"] = frame["symbol"].astype(str).str.upper()
         for dataset, field in (("rq.paused", "paused"), ("rq.is_st", "is_st")):
-            state_files = self.catalog.files(dataset)
+            state_files = self.catalog.files(dataset, start=start, end=end)
             if not state_files:
                 continue
             state = pd.concat(

@@ -11,7 +11,7 @@ from apps.api.main import app
 
 
 def test_default_repositories_use_isolated_local_state():
-    expected = Path(os.environ["ALPHALAB_APP_DATA_DIR"]) / "alphalab.db"
+    expected = Path(os.environ["ALPHALAB_RUNTIME_DIR"]) / "app" / "alphalab.db"
     store = ResultStore()
     repository = StrategyRepository()
     try:

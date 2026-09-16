@@ -448,3 +448,5 @@ npm audit --omit=dev
 Also run `git diff --check` and validate every Conexus JSON document. Generated
 databases, caches, frontend builds, pytest scratch, and local environment files
 must not be committed. Do not push unless explicitly requested.
+
+Maintain project documentation and examples in English. Keep machine names, private domains, credentials, incident logs, and acceptance records out of tracked documentation. Store verification artifacts in ignored build or artifacts directories.

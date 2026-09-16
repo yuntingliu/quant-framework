@@ -8,9 +8,13 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from alphalab import ResultStore
+from alphalab.dataio.catalog import DataCatalog
+from alphalab.utils.build_info import build_info
+from apps.api.auth import HttpBasicAuthMiddleware
 from apps.api.config import LOADED_ENV_FILES
 from apps.api.routers import (
     agent_context,
@@ -21,6 +25,7 @@ from apps.api.routers import (
     data,
     data_sync,
     market,
+    model_providers,
     paper,
     python_editor,
     sdk_docs,
@@ -28,13 +33,13 @@ from apps.api.routers import (
     system,
     validation,
 )
-from apps.api.services.agent_run_service import run_recovery_lifespan
+
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "build" / "web"
 
 app = FastAPI(
-    lifespan=run_recovery_lifespan,
     title="AlphaLab Barebone API",
     description="Provider-first quant framework workstation API",
-    version="0.5.0",
+    version="0.7.0",
 )
 app.state.loaded_env_files = tuple(str(path) for path in LOADED_ENV_FILES)
 
@@ -50,6 +55,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(HttpBasicAuthMiddleware)
 
 
 _PRIVATE_ERROR_KEYS = {
@@ -131,20 +137,44 @@ app.include_router(sdk_docs.router)
 app.include_router(system.router)
 app.include_router(compat.router)
 app.include_router(conexus.router)
+app.include_router(model_providers.router)
 
 
-@app.get("/")
-def root() -> dict:
+@app.get("/", response_model=None)
+def root() -> dict | RedirectResponse:
+    if FRONTEND_DIST.is_dir():
+        return RedirectResponse(url="/app/")
     return {"status": "ok", "name": "AlphaLab Barebone API"}
+
+
+@app.get("/api/health")
+def health() -> dict:
+    store = ResultStore()
+    try:
+        stats = store.stats()
+    finally:
+        store.close()
+    return {
+        "status": "ok",
+        "name": "AlphaLab Barebone API",
+        **build_info(),
+        "frontend": "ready" if FRONTEND_DIST.is_dir() else "not_built",
+        # Detailed coverage scans read market datasets and are inappropriate
+        # for a frequent deployment probe with a bounded request timeout.
+        "runtime_profile": "not_checked",
+        "data_status_url": "/api/data/providers",
+        "store": {
+            "status": "ready",
+            "backtests": stats["backtests"],
+            "strategies": stats["strategies"],
+        },
+    }
 
 
 @app.post("/api/cache/clear")
 def clear_cache() -> dict:
-    # Engines are short-lived in the barebone backend, so there is no global
-    # process cache to clear yet. Keep the endpoint for frontend compatibility.
+    DataCatalog.clear_cache()
     return {"status": "ok"}
 
-
-FRONTEND_DIST = Path(__file__).resolve().parents[2] / "build" / "web"
 if FRONTEND_DIST.is_dir():
     app.mount("/app", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

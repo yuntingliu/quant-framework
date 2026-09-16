@@ -100,7 +100,8 @@ async function startClient(
       }
     : {
         settings: {
-          configuration: "pyproject.toml",
+          configuration: "apps/desktop/ruff-editor.toml",
+          configurationPreference: "editorOnly",
           organizeImports: true,
           fixAll: true,
         },

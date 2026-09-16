@@ -131,6 +131,9 @@ def _payload() -> dict:
 def test_builtin_factor_catalog_is_native_sdk_python_and_all_templates_install(tmp_path: Path):
     templates = list_factor_templates()
     assert {item.id for item in templates} == {
+        "lower_shadow_recovery",
+        "three_white_soldiers",
+        "volume_confirmed_breakout",
         "bp",
         "custom_factor",
         "ep",
@@ -141,6 +144,7 @@ def test_builtin_factor_catalog_is_native_sdk_python_and_all_templates_install(t
         "momentum_20d",
         "momentum_60d",
         "profit_growth",
+        "quality_profitability",
         "reversal_5d",
         "range_volatility_20d",
         "revenue_growth",

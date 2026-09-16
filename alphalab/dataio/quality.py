@@ -28,6 +28,7 @@ def validate_dataset(
     as_of_date: str | None = None,
     fail_on_gap: bool = False,
     symbols: Iterable[str] | None = None,
+    required_fields: Iterable[str] | None = None,
 ) -> dict:
     """Validate one dataset without loading large daily histories at once."""
 
@@ -80,6 +81,7 @@ def validate_dataset(
             as_of_date=as_of_date,
             fail_on_gap=fail_on_gap,
             symbols=selected_symbols,
+            required_fields=required_fields,
         )
     else:
         issues, metrics = _validate_compact(
@@ -102,6 +104,7 @@ def validate_all(
     as_of_date: str | None = None,
     fail_on_gap: bool = False,
     symbols: Iterable[str] | None = None,
+    required_fields: Iterable[str] | None = None,
 ) -> list[dict]:
     selected_symbols = tuple(symbols) if symbols is not None else None
     selected = (
@@ -122,6 +125,7 @@ def validate_all(
             as_of_date=as_of_date,
             fail_on_gap=fail_on_gap,
             symbols=selected_symbols,
+            required_fields=required_fields,
         )
         for dataset in selected
     ]
@@ -221,6 +225,21 @@ def _validate_bars(
             "invalid_ohlc": invalid_ohlc_count,
         }
     )
+    observed_keys = _bar_keys(store, start_date=start_date, as_of_date=as_of_date, symbols=symbols)
+    required_keys = _expected_daily_keys(
+        store, start_date=start_date, as_of_date=as_of_date, symbols=symbols,
+        exclude_paused=True,
+    )
+    missing_keys = required_keys - observed_keys
+    metrics.update({
+        "required_keys": len(required_keys), "missing_keys": len(missing_keys),
+        "calendar_basis": "local_observed_sessions",
+        "missing_key_sample": [[str(date.date()), symbol] for date, symbol in sorted(missing_keys)[:10]],
+    })
+    if fail_on_gap and missing_keys:
+        issues.append(QualityIssue("bar_key_gap", f"{len(missing_keys)} required symbol/session bars are missing"))
+    if fail_on_gap and not observed_keys:
+        issues.append(QualityIssue("empty_requested_scope", "No bars in the requested scope"))
     _check_bounds(metrics, issues, start_date, as_of_date, fail_on_gap)
     return issues, metrics
 
@@ -270,14 +289,14 @@ def _validate_market_state(
     )
     if invalid_value_count:
         issues.append(QualityIssue("invalid_state", f"{invalid_value_count} invalid {field} rows"))
-    required_keys = _bar_keys(
+    required_keys = _expected_daily_keys(
         store,
         start_date=start_date,
         as_of_date=as_of_date,
         symbols=symbols,
     )
     coverage = float(len(required_keys & state_keys) / len(required_keys)) if required_keys else 0.0
-    if fail_on_gap and coverage < 0.98:
+    if fail_on_gap and coverage < 1.0:
         issues.append(
             QualityIssue(
                 "bar_key_gap", f"{field} covers only {coverage:.2%} of required RQ bar keys"
@@ -304,11 +323,14 @@ def _validate_daily_factors(
     as_of_date: str | None,
     fail_on_gap: bool,
     symbols: set[str] | None,
+    required_fields: Iterable[str] | None,
 ) -> tuple[list[QualityIssue], dict]:
     required = {"date", "symbol", "field", "value"}
     dates: set[pd.Timestamp] = set()
     observed_symbols: set[str] = set()
-    field_keys: dict[str, set[tuple[pd.Timestamp, str]]] = {}
+    field_keys: dict[str, set[tuple[pd.Timestamp, str]]] = {
+        str(field).strip(): set() for field in (required_fields or ()) if str(field).strip()
+    }
     missing_columns: set[str] = set()
     duplicate_count = invalid_date_count = invalid_value_count = 0
     for frame in _partitions(store, "rq.daily_factors"):
@@ -346,7 +368,7 @@ def _validate_daily_factors(
         issues.append(
             QualityIssue("invalid_factor_values", f"{invalid_value_count} invalid factor values")
         )
-    required_keys = _bar_keys(
+    required_keys = _expected_daily_keys(
         store,
         start_date=start_date,
         as_of_date=as_of_date,
@@ -356,7 +378,7 @@ def _validate_daily_factors(
         field: float(len(values & required_keys) / len(required_keys)) if required_keys else 0.0
         for field, values in sorted(field_keys.items())
     }
-    incomplete = {field: value for field, value in coverage.items() if value < 0.98}
+    incomplete = {field: value for field, value in coverage.items() if value < 1.0}
     if fail_on_gap and incomplete:
         details = ", ".join(f"{field}={value:.2%}" for field, value in incomplete.items())
         issues.append(
@@ -368,6 +390,7 @@ def _validate_daily_factors(
     metrics.update(
         {
             "fields": sorted(field_keys),
+            "required_fields": sorted(set(required_fields or ())),
             "field_key_coverage": coverage,
             "field_start_dates": {
                 field: min(date for date, _symbol in values).strftime("%Y-%m-%d")
@@ -565,6 +588,54 @@ def _bar_keys(
         keys.update(
             (date, str(symbol).upper())
             for date, symbol in frame[["date", "symbol"]].dropna().itertuples(index=False)
+        )
+    return keys
+
+
+
+def _expected_daily_keys(
+    store: RuntimeStore, *, start_date: str | None, as_of_date: str | None,
+    symbols: set[str] | None, exclude_paused: bool = False,
+) -> set[tuple[pd.Timestamp, str]]:
+    """Build an eligibility grid from locally observed sessions and listing dates.
+
+    This does not invent weekday trading sessions. A date absent from every local
+    market dataset requires an external exchange calendar to identify.
+    Only an explicit true suspension can excuse a missing price row.
+    """
+    sessions: set[pd.Timestamp] = set()
+    observed: set[str] = set()
+    paused: set[tuple[pd.Timestamp, str]] = set()
+    for dataset in ("rq.bars", "rq.paused", "rq.is_st"):
+        for path in store.catalog.files(dataset):
+            columns = ["date", "symbol", *(["paused"] if dataset == "rq.paused" else [])]
+            frame = pd.read_parquet(path, columns=columns)
+            frame, dates, _ = _bounded_daily_frame(frame, start_date, as_of_date)
+            sessions.update(dates.dropna())
+            observed.update(frame["symbol"].dropna().astype(str).str.upper())
+            if exclude_paused and dataset == "rq.paused":
+                accepted = _coerce_boolean(frame["paused"]).fillna(False)
+                paused.update(zip(dates.loc[accepted], frame.loc[accepted, "symbol"].astype(str).str.upper(), strict=False))
+    selected = symbols if symbols is not None else observed
+    intervals = {}
+    if store.catalog.files("rq.instruments"):
+        master = store.read("rq.instruments")
+        if {"symbol", "listed_date", "de_listed_date"}.issubset(master.columns):
+            if "snapshot_date" in master:
+                master = master.sort_values("snapshot_date")
+            for row in master.drop_duplicates("symbol", keep="last").to_dict("records"):
+                intervals[str(row["symbol"]).upper()] = (
+                    pd.to_datetime(row["listed_date"], errors="coerce"),
+                    pd.to_datetime(row["de_listed_date"], errors="coerce"),
+                )
+    keys = set()
+    for symbol in selected:
+        listed, delisted = intervals.get(symbol, (pd.NaT, pd.NaT))
+        keys.update(
+            (date, symbol) for date in sessions
+            if (pd.isna(listed) or date >= listed)
+            and (pd.isna(delisted) or date < delisted)
+            and (date, symbol) not in paused
         )
     return keys
 

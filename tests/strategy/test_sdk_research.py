@@ -85,6 +85,10 @@ def test_optimizer_enforces_turnover_and_rejects_infeasible_requests() -> None:
         minimum_observations=60,
     )
     assert constrained.diagnostics["expected_turnover"] <= 0.05 + 1e-8
+    covariance = returns.cov().to_numpy()
+    before = np.array([current[symbol] for symbol in returns.columns])
+    after = np.array([constrained.weights.get(symbol, 0.0) for symbol in returns.columns])
+    assert after @ covariance @ after < before @ covariance @ before
 
     with pytest.raises(PortfolioOptimizationError, match="infeasible"):
         optimize_portfolio(method="equal_weight", symbols=["A", "B"], max_weight=0.40)
@@ -92,7 +96,7 @@ def test_optimizer_enforces_turnover_and_rejects_infeasible_requests() -> None:
         optimize_portfolio(
             returns, method="max_sharpe", max_weight=0.60, minimum_observations=60
         )
-    with pytest.raises(PortfolioOptimizationError, match="did not converge"):
+    with pytest.raises(PortfolioOptimizationError, match="infeasible"):
         optimize_portfolio(
             returns,
             method="minimum_variance",
@@ -100,6 +104,27 @@ def test_optimizer_enforces_turnover_and_rejects_infeasible_requests() -> None:
             max_turnover=0.20,
             minimum_observations=60,
         )
+
+
+def test_zero_turnover_preserves_existing_unequal_weights() -> None:
+    result = optimize_portfolio(
+        method="equal_weight", symbols=["A", "B"],
+        current_weights={"A": 0.7, "B": 0.3}, max_weight=0.8, max_turnover=0.0,
+    )
+    assert result.weights == pytest.approx({"A": 0.7, "B": 0.3}, abs=1e-8)
+    assert result.diagnostics["expected_turnover"] <= 1e-8
+
+
+def test_turnover_budget_counts_cash_and_exited_holdings() -> None:
+    arguments = dict(
+        method="equal_weight", symbols=["A", "B"], target_gross=0.8,
+        current_weights={"A": 0.3, "B": 0.3, "OUTSIDE": 0.1}, max_weight=0.5,
+    )
+    result = optimize_portfolio(**arguments, max_turnover=0.2)
+    assert result.weights == pytest.approx({"A": 0.4, "B": 0.4}, abs=1e-8)
+    assert result.diagnostics["expected_turnover"] == pytest.approx(0.2)
+    with pytest.raises(PortfolioOptimizationError):
+        optimize_portfolio(**arguments, max_turnover=0.15)
 
 
 def test_max_sharpe_requires_and_uses_explicit_forecasts() -> None:

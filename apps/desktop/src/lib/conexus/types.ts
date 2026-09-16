@@ -4,6 +4,8 @@ export interface ConexusStatus {
   model_configured?: boolean
   publication?: string
   error?: string
+  message?: string
+  upstream_status?: number
 }
 
 export type PublishedHarnessExposureSurface = "agent_tool" | "page" | "api"

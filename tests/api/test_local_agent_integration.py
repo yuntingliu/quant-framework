@@ -86,8 +86,9 @@ def test_local_agent_calls_python_tools_persists_report_and_recovers(tmp_path, m
     thread = threading.Thread(target=model.serve_forever, daemon=True)
     thread.start()
     monkeypatch.setenv("CONEXUS_MODEL_API_KEY", "")
-    monkeypatch.setenv("CONEXUS_MODEL_ID", "test/local")
-    monkeypatch.setenv("CONEXUS_MODEL_BASE_URL", f"http://127.0.0.1:{model.server_port}/v1")
+    monkeypatch.setenv("CONEXUS_MODEL_ID", "")
+    monkeypatch.setenv("CONEXUS_MODEL_BASE_URL", "")
+    monkeypatch.setenv("ALPHALAB_RUNTIME_DIR", str(tmp_path / "runtime"))
     monkeypatch.setenv("ALPHALAB_AGENT_MODE", "local")
     monkeypatch.setattr("alphalab.local_agent.RUNTIME_DIR", tmp_path / "runtime")
     api_port = free_port()
@@ -101,9 +102,16 @@ def test_local_agent_calls_python_tools_persists_report_and_recovers(tmp_path, m
                     )
                     try:
                         with httpx.Client(base_url=f"http://127.0.0.1:{api_port}", trust_env=False, timeout=2) as client:
-                            wait_for(client, "/")
+                            wait_for(client, "/api/health")
                             assert client.get("/api/conexus/status").json()["mode"] == "local_harness"
                             if attempt == 0:
+                                assert client.get("/api/conexus/status").json()["available"] is False
+                                configured = client.put("/api/model-providers", json={
+                                    "id": "integration", "name": "Integration model", "model": "test/local",
+                                    "base_url": f"http://127.0.0.1:{model.server_port}/v1", "api_key": "",
+                                })
+                                assert configured.status_code == 200, configured.text
+                                assert client.get("/api/conexus/status").json()["available"] is True
                                 created = client.post("/api/conexus/runs", json={
                                     "exposureId": "alphalab-research-agent", "input": {"request": "Read local context and save an integration report."},
                                     "conversation": {

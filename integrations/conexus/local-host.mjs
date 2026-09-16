@@ -1,4 +1,5 @@
 import { researchCanvas } from './research-canvas.mjs'
+import { configuredCompletion, readActiveProvider } from './model-providers.mjs'
 import { writeFile, rename } from 'node:fs/promises'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -30,8 +31,8 @@ async function webSearch(params) {
   } catch { return { result: { success: false, error: 'Search provider request failed or timed out.' } } }
 }
 
-const model = process.env.CONEXUS_MODEL_ID?.trim() || 'unconfigured'
-const baseUrl = process.env.CONEXUS_MODEL_BASE_URL?.trim()
+const model = 'alphalab/configured-provider'
+const providerPath = process.env.ALPHALAB_MODEL_PROVIDERS_FILE || resolve(process.env.CONEXUS_LOCAL_ROOT, '..', 'secrets/model-providers.json')
 const slug = 'alphalab-research-agent'
 const projectRoot = process.env.CONEXUS_LOCAL_ROOT
 const runtime = createLocalRuntime({ projectRoot,
@@ -42,8 +43,19 @@ const workspace = await researchCanvas(resolve(sourceRoot, 'integrations/conexus
 const release = compileHarnessWorkspace({ workspace, harnessNodeId: 'alphalab-research-harness-v1' })
 const token = process.env.CONEXUS_LOCAL_TOKEN
 const host = await createLocalHost({ projectRoot, release, slug, token, model, runtimeAdapter: runtime.adapter,
-  complete: baseUrl && model !== 'unconfigured'
-    ? createModelCompletion({ baseUrl, model, apiKey: process.env.CONEXUS_MODEL_API_KEY?.trim() || '' }) : undefined,
+  complete: configuredCompletion(providerPath, createModelCompletion),
+})
+host.app.addHook('preSerialization', async (request, _reply, payload) => {
+  if (request.routeOptions.url !== '/health') return payload
+  return { ...payload, modelConfigured: Boolean(await readActiveProvider(providerPath)) }
+})
+host.app.addHook('preHandler', async request => {
+  if (request.method === 'POST' && request.routeOptions.url === `/api/public/harnesses/${slug}/runs`
+      && !(await readActiveProvider(providerPath))) {
+    const error = new Error('Open Model providers and configure a model before starting the Agent.')
+    error.statusCode = 503
+    throw error
+  }
 })
 let closing
 function close() {

@@ -9,11 +9,12 @@ from pathlib import Path
 from typing import Iterable
 
 from alphalab.factors.expression import factor_dependencies
+from alphalab.store import ResultStore
 from alphalab.strategy.config import FactorSpec
-from alphalab.utils.paths import APP_DATA_DIR
+from alphalab.utils.paths import RUNTIME_APP_DIR
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schema.sql"
-_DEFAULT_DB = APP_DATA_DIR / "alphalab.db"
+_DEFAULT_DB = RUNTIME_APP_DIR / "alphalab.db"
 _NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,79}$")
 
 
@@ -22,6 +23,8 @@ class FactorDefinitionRepository:
 
     def __init__(self, db_path: str | Path | None = None):
         self.path = Path(db_path) if db_path else _DEFAULT_DB
+        if db_path is None and not self.path.exists():
+            ResultStore().close()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row

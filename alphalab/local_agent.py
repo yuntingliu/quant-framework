@@ -76,6 +76,7 @@ def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[s
         "CONEXUS_LOCAL_TOKEN": admin_path.read_text(encoding="utf-8").strip(),
         "CONEXUS_LOCAL_PORT": str(port),
         "ALPHALAB_AGENT_CONNECTION_FILE": str(connection),
+        "ALPHALAB_MODEL_PROVIDERS_FILE": str(secret_root / "model-providers.json"),
         "CONEXUS_PUBLICATION_SLUG": "alphalab-research-agent",
         "ALPHALAB_API_ORIGIN": f"http://127.0.0.1:{api_port}",
         "ALPHALAB_AGENT_MODE": "local",
@@ -128,7 +129,7 @@ def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[s
                 os.environ[name] = value
             print("Local Conexus Agent ready.", flush=True)
             if not env.get("CONEXUS_MODEL_ID", "").strip() or not env.get("CONEXUS_MODEL_BASE_URL", "").strip():
-                print("Configure CONEXUS_MODEL_BASE_URL and CONEXUS_MODEL_ID in .env to use the Agent.", flush=True)
+                print("Open Model providers in the workstation to configure or test a model.", flush=True)
             yield child
         finally:
             # EOF also reaches Node when this launcher is forcibly terminated.

@@ -1,10 +1,84 @@
 from __future__ import annotations
 
+import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from apps.api.routers import conexus
+
+
+def _manifest() -> dict:
+    return {
+        "identityPolicy": "enterprise",
+        "defaultExposureId": "research",
+        "exposures": [{"id": "research", "nodeType": "agent", "surfaces": ["api"]}],
+    }
+
+
+def _status_client(monkeypatch, handler) -> TestClient:
+    monkeypatch.setenv("CONEXUS_WEB_ORIGIN", "http://conexus.test")
+    monkeypatch.setenv("CONEXUS_PUBLICATION_SLUG", "research-agent")
+    monkeypatch.setenv("CONEXUS_PUBLICATION_WORKSPACE_TOKEN", "server-only-token")
+    client_type = httpx.AsyncClient
+    monkeypatch.setattr(
+        conexus.httpx,
+        "AsyncClient",
+        lambda **kwargs: client_type(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    app = FastAPI()
+    app.include_router(conexus.router)
+    return TestClient(app)
+
+
+def test_status_authenticates_manifest_instead_of_public_descriptor(monkeypatch):
+    def handler(request):
+        assert str(request.url) == "http://conexus.test/api/public/harnesses/research-agent"
+        assert request.headers["authorization"] == "Bearer server-only-token"
+        return httpx.Response(200, json=_manifest())
+
+    with _status_client(monkeypatch, handler) as client:
+        result = client.get("/api/conexus/status", headers={"Authorization": "Basic browser-secret"}).json()
+    assert result == {"available": True, "mode": "published_harness", "publication": "research-agent"}
+
+
+@pytest.mark.parametrize(
+    ("upstream_status", "code"),
+    [(401, "service_authentication_failed"), (403, "service_authentication_failed"),
+     (404, "publication_unavailable"), (409, "publication_incompatible"), (500, "upstream_error")],
+)
+def test_status_explains_upstream_failures_without_echoing_payload(monkeypatch, upstream_status, code):
+    with _status_client(
+        monkeypatch, lambda request: httpx.Response(upstream_status, json={"error": "private-upstream-detail"})
+    ) as client:
+        response = client.get("/api/conexus/status")
+    value = response.json()
+    assert value["available"] is False
+    assert value["error"] == code
+    assert value["upstream_status"] == upstream_status
+    assert "private-upstream-detail" not in response.text
+    assert "server-only-token" not in response.text
+
+
+def test_status_reports_transport_failure(monkeypatch):
+    def handler(request):
+        raise httpx.ConnectError("private transport detail", request=request)
+
+    with _status_client(monkeypatch, handler) as client:
+        value = client.get("/api/conexus/status").json()
+    assert value["available"] is False
+    assert value["error"] == "connection_failed"
+
+
+@pytest.mark.parametrize("payload", [None, {}, {**_manifest(), "defaultExposureId": "missing"}, {
+    **_manifest(), "exposures": [{"id": "research", "nodeDefinition": "agent", "surfaces": ["api"]}],
+}])
+def test_status_rejects_unrecognized_manifest_contract(monkeypatch, payload):
+    with _status_client(monkeypatch, lambda request: httpx.Response(200, json=payload)) as client:
+        value = client.get("/api/conexus/status").json()
+    assert value["available"] is False
+    assert value["error"] == "publication_incompatible"
 
 
 def _request(authorization: str = "Bearer browser-token") -> Request:

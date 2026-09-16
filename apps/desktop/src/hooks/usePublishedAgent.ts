@@ -412,6 +412,12 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
     }
   }, [acceptError, refreshSharedHistory, reloadStatus])
 
+  useEffect(() => {
+    const refresh = () => { void reloadStatus() }
+    window.addEventListener("alphalab:model-provider-changed", refresh)
+    return () => window.removeEventListener("alphalab:model-provider-changed", refresh)
+  }, [reloadStatus])
+
   const finalizeRun = useCallback(async (
     completed: PublishedHarnessRun, conversationId: string, signal?: AbortSignal,
   ) => {

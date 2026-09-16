@@ -15,8 +15,7 @@ from starlette.staticfiles import StaticFiles
 
 from apps.api.main import app as api_app
 
-
-_DIST = Path("/home/dev/apps/dev版/build/web")
+_DIST = Path("/home/dev/apps/dev版/apps/desktop/dist")
 _BACKEND_PATHS = ("/api", "/docs", "/redoc", "/openapi.json", "/health")
 _HEALTH_PATHS = {"/health", "/api/health"}
 _TRUE_VALUES = {"1", "true", "yes", "on"}

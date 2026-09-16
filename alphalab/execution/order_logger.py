@@ -28,4 +28,3 @@ class OrderLogger:
         )
         self.store._conn.commit()
         return str(order["id"])
-

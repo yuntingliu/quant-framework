@@ -15,6 +15,7 @@ import type { WorkspaceMode } from "@/layouts/presets"
 import { cn } from "@/lib/utils"
 import { preloadPythonEditor } from "@/components/python/pythonEditorLoader"
 import { SdkDocumentation } from "@/components/shared/SdkDocumentation"
+import { ModelProviderSettings } from "@/components/ModelProviderSettings"
 
 import { MODE_CONFIG, WORKSPACE_MODES } from "./modes"
 
@@ -105,6 +106,7 @@ export function ModeSidebar({
 
       <div className="mt-auto shrink-0 space-y-1 border-t border-border p-2">
         <div className="space-y-1">
+          <ModelProviderSettings collapsed={collapsed} />
           <SdkDocumentation
             topic={activeMode === "project" ? "overview" : activeMode}
             trigger={<button

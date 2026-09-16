@@ -1,0 +1,6 @@
+interface:
+  display_name: "AlphaLab 因子复现审计"
+  short_description: "对照讲义或论文复算因子表现，区分表格算术、独立复现与透明近似结果"
+  default_prompt: "使用 $alphalab-factor-replication-audit 对照指定讲义表格复算因子结果并解释差异。"
+policy:
+  allow_implicit_invocation: true
