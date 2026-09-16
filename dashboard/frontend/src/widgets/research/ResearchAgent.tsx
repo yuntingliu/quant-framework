@@ -421,8 +421,8 @@ export function ResearchAgentPanel() {
     return (
       <div className="flex h-full items-center justify-center p-3">
         <div className="space-y-2 rounded border border-rose-500/30 bg-rose-500/5 p-3 text-xs text-rose-700 dark:text-rose-300">
-          <div>{copy.unavailable}</div>
-          <div className="font-mono text-[10px] opacity-80">{copy.notConfigured}</div>
+          <div>{agent.status.message || copy.unavailable}</div>
+          <div className="font-mono text-[10px] opacity-80">{agent.status.error || copy.notConfigured}</div>
           <button className="rounded border border-current px-2 py-1" onClick={() => void agent.reloadStatus()}>{copy.retry}</button>
         </div>
       </div>

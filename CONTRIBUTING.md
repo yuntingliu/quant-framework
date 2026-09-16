@@ -48,6 +48,10 @@ a fake market adapter and a FastAPI plus React widget vertical slice.
 
 ## Documentation
 
+Write maintained project documentation and examples in English, including the
+canonical SDK guide served by the workstation. Preserve stable API identifiers
+and source-topic markers when translating or restructuring a guide.
+
 Keep project documentation portable. Describe supported behavior, interfaces,
 configuration variables, and reproducible examples. Use relative paths,
 environment variables, or explicit placeholders for deployment-specific values.

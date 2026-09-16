@@ -9,7 +9,7 @@ from alphalab.data_sdk.v1 import (
     normalize_rq_suspension, rq, rq_order_book_ids,
 )
 
-@data_recipe(id="research_data", label="ETF 日线", template="rq.etf_daily")
+@data_recipe(id="research_data", label="ETF daily bars", template="rq.etf_daily")
 def research_data(
     context,
     *,

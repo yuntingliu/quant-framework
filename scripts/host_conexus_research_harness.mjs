@@ -22,15 +22,28 @@ const runtimeModule = resolve(
   "trusted-web-runtime.js",
 )
 
-await access(hostingModule).catch(() => {
-  throw new Error(`Conexus Web Host is not built: ${hostingModule}`)
-})
+// This adapter is specific to the legacy internal API. Newer Web Hosts manage
+// credentials and activation through the administrator hosting operation.
+for (const modulePath of [hostingModule, runtimeModule]) {
+  await access(modulePath).catch(() => {
+    throw new Error(
+      "This Conexus checkout is incompatible with the legacy hosting helper. " +
+      "Use the checkout's administrator Host operation to migrate and host the Harness, " +
+      "then configure its enterprise service credential. See deploy/conexus-cloud/README.md. " +
+      `Missing module: ${modulePath}`,
+    )
+  })
+}
+if (process.argv.includes("--check")) {
+  console.log(JSON.stringify({ legacyModulesPresent: true, hosted: false, modelVerified: false }))
+  process.exit(0)
+}
 
 const [{ WebHarnessHostingStore }, { TRUSTED_WEB_RUNTIME_PROFILE }] = await Promise.all([
   import(pathToFileURL(hostingModule).href),
   import(pathToFileURL(runtimeModule).href),
 ])
-const canvas = JSON.parse(await readFile(resolve(projectRoot, ".conexus", "canvas.json"), "utf8"))
+const canvas = JSON.parse(await readFile(resolve(projectRoot, process.env.CONEXUS_CANVAS_PATH || ".conexus/canvas.json"), "utf8"))
 const store = new WebHarnessHostingStore({
   projectRoot,
   runtimeProfile: TRUSTED_WEB_RUNTIME_PROFILE,

@@ -149,12 +149,40 @@ def _unavailable_response() -> JSONResponse:
     )
 
 
-async def _fetch_json(path: str) -> dict:
+async def _fetch_manifest(slug: str) -> dict:
     async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
-        response = await client.get(f"{_web_origin()}{path}", headers={"Accept": "application/json"})
+        response = await client.get(
+            f"{_web_origin()}/api/public/harnesses/{_path_segment(slug)}",
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {_workspace_token()}",
+            },
+        )
         response.raise_for_status()
         value = response.json()
-        return value if isinstance(value, dict) else {}
+        if not isinstance(value, dict):
+            raise ValueError("Expected a hosted Harness manifest")
+        return value
+
+
+def _has_supported_agent(manifest: dict) -> bool:
+    """Match the manifest boundary currently consumed by the workstation."""
+    exposures = manifest.get("exposures")
+    default = manifest.get("defaultExposureId")
+    return (
+        manifest.get("identityPolicy") == "enterprise"
+        and isinstance(default, str)
+        and bool(default.strip())
+        and isinstance(exposures, list)
+        and any(
+            isinstance(exposure, dict)
+            and exposure.get("id") == default
+            and exposure.get("nodeType") == "agent"
+            and isinstance(exposure.get("surfaces"), list)
+            and "api" in exposure["surfaces"]
+            for exposure in exposures
+        )
+    )
 
 
 async def _forward(
@@ -201,19 +229,34 @@ async def conexus_status() -> dict:
             "error": "workspace_not_configured",
         }
     try:
-        await _fetch_json(f"/api/public/harnesses/{_path_segment(slug)}/descriptor")
+        manifest = await _fetch_manifest(slug)
+        if not _has_supported_agent(manifest):
+            raise ValueError("Unsupported hosted Agent contract")
         return {
             "available": True,
             "mode": "published_harness",
             "publication": slug,
         }
-    except (httpx.HTTPError, ValueError) as error:
-        return {
-            "available": False,
-            "mode": "not_configured",
-            "publication": slug,
-            "error": type(error).__name__,
+    except httpx.HTTPStatusError as error:
+        status = error.response.status_code
+        code, message = {
+            401: ("service_authentication_failed", "Conexus rejected the publication service credential."),
+            403: ("service_authentication_failed", "The service credential cannot access this publication."),
+            404: ("publication_unavailable", "Conexus cannot load this publication. Check its slug and stored release compatibility."),
+            409: ("publication_incompatible", "The hosted release is incompatible with this Conexus runtime."),
+        }.get(status, ("upstream_error", "Conexus returned an unexpected HTTP error."))
+        detail = {"error": code, "message": message, "upstream_status": status}
+    except httpx.RequestError:
+        detail = {
+            "error": "connection_failed",
+            "message": "The AlphaLab backend could not reach Conexus. Check the configured origin and server process.",
         }
+    except ValueError:
+        detail = {
+            "error": "publication_incompatible",
+            "message": "Conexus did not return a supported AlphaLab Agent manifest. Check the server and integration versions.",
+        }
+    return {"available": False, "mode": "not_configured", "publication": slug, **detail}
 
 
 @router.get("/conversations")

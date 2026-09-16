@@ -3,6 +3,8 @@ export interface ConexusStatus {
   mode?: "published_harness" | "not_configured"
   publication?: string
   error?: string
+  message?: string
+  upstream_status?: number
 }
 
 export type PublishedHarnessExposureSurface = "agent_tool" | "page" | "api"

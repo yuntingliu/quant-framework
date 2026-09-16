@@ -1,10 +1,10 @@
-# 通用部署
+# Deployment
 
-本页说明从源码构建和持续运行 AlphaLab 的通用要求。首次启动见 [README](../README.md)，开发热更新见 [开发指南](03_DEVELOPMENT_GUIDE.md)，Linux 服务示例见 [Linux 部署](guides/linux-deployment.md)。
+This guide covers building AlphaLab from source and keeping it running. See the [README](../README.md) for first startup, [development guide](03_DEVELOPMENT_GUIDE.md) for hot reload, and [Linux deployment](guides/linux-deployment.md) for service configuration.
 
-## 构建与启动
+## Build and start
 
-在仓库根目录准备 Python 虚拟环境，并使用 `.node-version` 指定的 Node.js 主版本：
+From the repository root, create a Python virtual environment and use the Node.js major version specified in `.node-version`:
 
 ```bash
 python3 -m venv .venv
@@ -14,69 +14,69 @@ npm --prefix dashboard/frontend run build:web
 .venv/bin/python -m uvicorn dashboard.backend.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-Windows 将 Python 路径替换为 `.\.venv\Scripts\python.exe`。构建后的页面位于 `/app/`。使用单个后端 worker，使后台任务和进程内状态保持一致；持续运行时由操作系统服务管理器负责启动和重启。
+On Windows, use `.\.venv\Scripts\python.exe`. The built client is served at `/app/`. Use one backend worker to keep background tasks and in-process state consistent. Use an operating-system service manager for persistent startup and restart.
 
-## 配置
+## Configuration
 
-| 配置 | 用途 |
+| Setting | Purpose |
 | --- | --- |
-| `ALPHALAB_RUNTIME_DIR` | 持久运行目录；默认 `data/runtime/`，应在进程启动前设置 |
-| `ALPHALAB_ENV_FILE` | 指定本地配置文件；进程已有环境变量优先 |
-| `ALPHALAB_WEB_AUTH_ENABLED` | 启用网页 HTTP Basic 认证 |
-| `ALPHALAB_WEB_USERNAME`、`ALPHALAB_WEB_PASSWORD` | 网页认证凭据 |
-| `RQ_USER`、`RQ_PASSWORD`、`RQ_HOST` | RQ 数据访问配置 |
-| `ALPHALAB_INSTANCE_ID` | 使用独立 Agent 工具绑定时的实例标识 |
-| `CONEXUS_WEB_ORIGIN`、`CONEXUS_PUBLICATION_SLUG`、`CONEXUS_PUBLICATION_WORKSPACE_TOKEN` | 可选 Conexus 接入配置 |
+| `ALPHALAB_RUNTIME_DIR` | Persistent runtime directory; defaults to `data/runtime/`; set before starting the process |
+| `ALPHALAB_ENV_FILE` | Local configuration file; existing process environment values take precedence |
+| `ALPHALAB_WEB_AUTH_ENABLED` | Enable HTTP Basic authentication |
+| `ALPHALAB_WEB_USERNAME`, `ALPHALAB_WEB_PASSWORD` | Workstation credentials |
+| `RQ_USER`, `RQ_PASSWORD`, `RQ_HOST` | RQ data access |
+| `ALPHALAB_INSTANCE_ID` | Instance identity for bound Agent tools |
+| `CONEXUS_WEB_ORIGIN`, `CONEXUS_PUBLICATION_SLUG`, `CONEXUS_PUBLICATION_WORKSPACE_TOKEN` | Optional Conexus connection |
 
-运行目录与源码发布目录分开。环境文件、凭据和运行数据不进入 Git。对外访问由 TLS 反向代理或隧道转发到回环地址，并保留 WebSocket 与事件流支持；网页认证也必须覆盖 API 访问。
+Keep the runtime directory separate from release source. Configuration files, credentials, and runtime data do not belong in Git. For external access, forward a TLS reverse proxy or tunnel to the loopback listener and preserve WebSocket and event-stream support. Authentication must protect API access as well as HTML.
 
-## 持久化
+## Persistence
 
-| 内容 | 位置 |
+| Content | Location |
 | --- | --- |
-| 项目、源码包、冻结回测 | `runtime/app/alphalab.db` |
-| 数据配方、同步任务、分区登记 | `runtime/app/dataio.db` |
-| Agent 会话与研究检查点 | `runtime/app/agent-conversations.sqlite3` |
-| 行情、财务及派生数据 | runtime 下的数据分区 |
-| 可重建的语言服务镜像 | `runtime/editor/` |
-| Conexus 报告 Documents | Conexus 自己的持久 workspace |
+| Projects, source packages, frozen backtests | `runtime/app/alphalab.db` |
+| Data recipes, sync jobs, partition registry | `runtime/app/dataio.db` |
+| Agent conversations and research checkpoints | `runtime/app/agent-conversations.sqlite3` |
+| Market, financial, and derived data | Dataset partitions beneath runtime |
+| Rebuildable language-server mirrors | `runtime/editor/` |
+| Conexus report Documents | Conexus's persistent workspace |
 
-表中的 `runtime` 指配置后的运行目录。每个独立实例使用自己的可写数据库。迁移 SQLite 使用在线备份或停机后一致性备份；Conexus 报告需要单独迁移。应用升级不会自动同步两个实例的数据。
+Here, `runtime` means the configured runtime directory. Each independent instance needs its own writable databases. Migrate SQLite using online backups or consistent backups taken while the application is stopped. Migrate Conexus reports separately. Upgrading code does not synchronize the data of different instances.
 
-## 更新流程
+## Updates
 
-1. 选择明确的源码提交，在独立目录安装依赖并构建。
-2. 运行 [开发指南](03_DEVELOPMENT_GUIDE.md) 要求的检查。
-3. 确认后台任务状态，备份数据库和需要保留的研究数据。
-4. 切换至已验证的发布目录，重启相关服务。
-5. 核对应用版本、数据访问和需要启用的 Agent 能力；失败时回退代码发布。
+1. Select a specific source commit; install and build it in a separate directory.
+2. Run the checks required by the [development guide](03_DEVELOPMENT_GUIDE.md).
+3. Check background-task state and back up databases and research data.
+4. Switch to the verified release and restart the relevant services.
+5. Verify the application version, data access, and required Agent capabilities. Roll back the code release if verification fails.
 
-发布目录、服务配置、域名、隧道和回滚记录由部署环境管理。回退代码不应覆盖更新后产生的研究数据。
+The deployment environment owns release paths, service configuration, domains, tunnels, and rollback records. A code rollback must not overwrite research data produced after the update.
 
-## 运行检查
+## Operational checks
 
-先检查应用部署，再检查所需的外部服务。空数据目录能够启动应用，但不具备真实行情研究条件；RQ 和 Conexus 的可用性需要分别验收。
+Verify the application first, then its external services. An empty runtime directory can start the application but cannot support research with real market data. Verify RQ and Conexus independently.
 
-| 检查入口 | 含义 |
+| Check | What it establishes |
 | --- | --- |
-| `/api/health` | `status: "ok"`、`frontend: "ready"`、版本和结果库状态；不扫描完整数据覆盖 |
-| `/app/` | 页面及脚本、样式资源可加载，可新建项目并打开编辑器 |
-| `/api/data/providers`、`/api/data-sync/health` | 数据目录、新鲜度和同步状态 |
-| `/api/python-editor/capabilities` | Python 编辑器工具是否可用 |
-| `/api/agent/identity` | 工具请求是否命中预期实例 |
-| 完整的只读 Agent 运行 | 同时验证模型、工具、事件流和结果交付 |
+| `/api/health` | `status: "ok"`, `frontend: "ready"`, version, and result-store state; no full coverage scan |
+| `/app/` | HTML, scripts, and styles load; projects and editors can be opened |
+| `/api/data/providers`, `/api/data-sync/health` | Data directories, freshness, and sync state |
+| `/api/python-editor/capabilities` | Local Python editor tools are available |
+| `/api/agent/identity` | Agent tool requests reach the intended instance |
+| Complete read-only Agent run | Model access, tools, event stream, and delivery work together |
 
-启用认证后应使用认证请求检查受保护接口。数据可访问仍需按研究区间检验覆盖；Conexus manifest 可读也不能替代完整运行检查。接入细节见 [Conexus 配置](../deploy/conexus-cloud/README.md)。
+Use authenticated requests when authentication is enabled. Check data coverage over the intended research period. Reading a Conexus manifest is not a substitute for a completed run; see [Conexus integration](../deploy/conexus-cloud/README.md).
 
-## 部署验收标准
+## Acceptance criteria
 
-| 层次 | 实际验收动作 |
+| Layer | Real verification |
 | --- | --- |
-| 安装与构建 | 从指定 Git 提交和空虚拟环境安装；执行 `python -m pip check`，使用 Node 22 和 `npm ci` 构建网页 |
-| 应用运行 | 打开网页，新建可编辑项目；启用认证时，匿名页面与 API 请求返回 401，正确认证后可以访问 |
-| 编辑器 | 打开 Python 文档，验证 Pyrefly 和 Ruff 的 WebSocket 初始化与诊断；确认镜像写入配置的 `runtime/editor/` |
-| 持久化与更新 | 保存项目后重启或更新服务，核对项目源码仍一致；运行目录独立于发布目录 |
-| 数据研究 | 配置有权限的 RQ 账户，完成少量标的同步、区间覆盖检查与一次回测 |
-| 可选 Agent | 配置 Conexus 后完成一次只读运行，检查工具目标、模型调用、事件流和文档持久化 |
+| Installation and build | Install a specific commit into an empty virtual environment; run `python -m pip check`; build with Node 22 and `npm ci` |
+| Application | Open the client and create an editable project; anonymous HTML/API requests return 401 when authentication is enabled, and valid credentials work |
+| Editor | Open Python source; verify Pyrefly and Ruff WebSocket initialization and diagnostics; confirm mirrors use `runtime/editor/` |
+| Persistence and updates | Save a project, restart or upgrade, and compare the canonical source; runtime state survives release changes |
+| Data research | Configure an authorized RQ account; sync a small scope, check coverage, and complete a backtest |
+| Optional Agent | Configure Conexus; complete a read-only run and verify the tool target, model, event stream, and document persistence |
 
-自动测试验证接口与执行规则，不能替代真实安装和服务启动；健康接口通过也不代表后两层已经通过。维护者应把所测提交、Python/Node 版本、结果和未验证项保存在验收记录中。主机名、域名、凭据和现场日志由部署环境保存，不进入项目文档。
+Automated tests verify interfaces and execution rules; installation and startup still need real checks. A healthy application does not establish data or Agent readiness. Record the commit, Python/Node versions, results, and unverified items. Keep machine inventories, private domains, credentials, and field logs in the deployment environment rather than project documentation.

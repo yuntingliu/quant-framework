@@ -1,10 +1,10 @@
-# Linux 服务部署
+# Linux Service Deployment
 
-本示例使用 systemd 用户服务管理单个 AlphaLab 后端。构建、认证和数据持久化的通用要求见 [部署说明](../05_DEPLOYMENT.md)。
+This example uses a systemd user service for a single AlphaLab backend. See [Deployment](../05_DEPLOYMENT.md) for build, authentication, and persistence requirements.
 
-## 前置条件
+## Prerequisites
 
-运行用户需要可用的 systemd 用户会话、Git 仓库读取权限、Python >= 3.10（含 `venv` 和 `pip`）、Node.js 22/npm、`flock`、`tar` 和 GNU 文件工具。Node 22 的可执行目录应位于执行发布脚本时的 `PATH` 中。不同发行版的安装命令不同，请先确认以下命令可用：
+The service user needs a working systemd user session, repository read access, Python >= 3.10 with `venv` and `pip`, Node.js 22/npm, `flock`, `tar`, and GNU file utilities. Put Node 22 on the `PATH` used to run the release script. Package installation varies by distribution; first verify:
 
 ```bash
 python3 --version
@@ -14,11 +14,11 @@ npm --version
 systemctl --user status
 ```
 
-## 目录与配置
+## Directories and configuration
 
-发布脚本的默认目录均位于运行用户的主目录，可以通过环境变量覆盖：
+Default paths are relative to the service user's home directory and can be overridden:
 
-| 变量 | 默认值 |
+| Variable | Default |
 | --- | --- |
 | `ALPHALAB_SOURCE_DIR` | `$HOME/src/quant-framework` |
 | `ALPHALAB_RELEASES_DIR` | `$HOME/releases` |
@@ -30,16 +30,16 @@ systemctl --user status
 | `ALPHALAB_STATE_DIR` | `$HOME/.local/state/alphalab` |
 | `ALPHALAB_BACKUP_DIR` | `$HOME/backups/alphalab` |
 
-配置文件由运行用户读取，文件权限设为 `0600`。按需设置网页认证、RQ 和 Conexus 配置。若调整运行目录，发布脚本与服务进程必须使用同一个绝对路径。
+The service user must be able to read the environment file; set its permissions to `0600`. Configure authentication, RQ, and Conexus as needed. The release script and service process must use the same absolute runtime path.
 
-使用默认目录时，首次准备源码和配置目录：
+For the default layout, prepare the source checkout and configuration directories:
 
 ```bash
 mkdir -p "$HOME/src" "$HOME/.config/alphalab" "$HOME/.config/systemd/user"
 git clone https://github.com/yuntingliu/quant-framework.git "$HOME/src/quant-framework"
 ```
 
-创建 `$HOME/.config/alphalab/alphalab.env`，填入自己的用户名和非空密码。服务管理器和发布脚本共同读取此文件；使用 JSON 双引号表示值，不使用 shell 的 `export` 或变量展开。
+Create `$HOME/.config/alphalab/alphalab.env` with your username and a nonempty password. Both systemd and the release script read this file. Use JSON double-quoted values, without shell `export` statements or variable expansion:
 
 ```dotenv
 ALPHALAB_WEB_AUTH_ENABLED="true"
@@ -51,11 +51,11 @@ ALPHALAB_WEB_PASSWORD=""
 chmod 600 "$HOME/.config/alphalab/alphalab.env"
 ```
 
-RQ 与 Conexus 可以在应用部署验收通过后再配置。认证启用但密码为空时，应用返回配置错误，发布检查会失败。
+RQ and Conexus can be configured after application acceptance. Enabling authentication with an empty password causes a configuration error and fails the release health check.
 
-## 用户服务示例
+## User service
 
-在 `$HOME/.config/systemd/user/alphalab.service` 中保存下列内容，根据所选目录调整：
+Save the following as `$HOME/.config/systemd/user/alphalab.service`, adjusting paths as needed:
 
 ```ini
 [Unit]
@@ -77,11 +77,11 @@ UMask=0077
 WantedBy=default.target
 ```
 
-`%h` 由 systemd 展开为运行用户的主目录。需要退出登录后继续运行时，由管理员为该运行用户配置 lingering。
+systemd expands `%h` to the service user's home directory. An administrator can enable lingering for that user if the service must survive logout.
 
-## 发布脚本
+## Release script
 
-先准备好配置文件、用户服务以及 `ALPHALAB_SOURCE_DIR` 下的 Git checkout，并确认该 checkout 的 `origin` 指向目标仓库。加载服务定义后，在源码目录执行：
+Prepare the environment file, user service, and checkout in `ALPHALAB_SOURCE_DIR`. Confirm that the checkout's `origin` points to the intended repository. Then run:
 
 ```bash
 systemctl --user daemon-reload
@@ -89,13 +89,13 @@ cd "$HOME/src/quant-framework"
 bash scripts/deploy_linux.sh origin/main
 ```
 
-脚本获取指定 ref 对应的提交，在独立目录构建 Web 和 Python 环境、运行检查，再切换当前发布符号链接、重启服务并校验认证后的健康接口。失败时恢复此前的有效发布；首次发布失败则停止新服务。
+The script fetches the requested ref, builds the web client and Python environment in a separate release directory, runs checks, switches the current-release symlink, restarts the service, and checks the authenticated health endpoint. On failure it restores the previous valid release; a failed first deployment stops the new service.
 
-构建默认设置 4 GiB Node 堆上限，可通过 `NODE_OPTIONS` 调整。脚本依赖 Linux 的 systemd、flock 和 GNU 文件工具，不能直接作为其他操作系统的安装器。
+The build defaults to a 4 GiB Node heap limit, configurable through `NODE_OPTIONS`. The script requires Linux systemd, `flock`, and GNU utilities; it is not an installer for other operating systems.
 
-脚本目前自动备份 `app/alphalab.db`。完整迁移或恢复还需自行备份 `dataio.db`、`agent-conversations.sqlite3`、研究分区及 Conexus workspace；自动回滚代码不会替代完整数据备份。
+The script automatically backs up `app/alphalab.db`. Complete migration or recovery also requires backups of `dataio.db`, `agent-conversations.sqlite3`, research partitions, and the Conexus workspace. Code rollback does not replace data backups.
 
-## 运行管理
+## Service management
 
 ```bash
 systemctl --user enable alphalab.service
@@ -103,4 +103,4 @@ systemctl --user status alphalab.service
 journalctl --user -u alphalab.service
 ```
 
-服务名改变时同步调整命令。外部访问由部署环境选择 TLS 反向代理或隧道，保留 WebSocket 和事件流转发。域名、SSH 路由、访问策略及主机服务文件在环境中维护。
+Use the configured service name if it differs. External access requires a TLS reverse proxy or tunnel with WebSocket and event-stream forwarding. Maintain domains, SSH routes, access policies, and host service files in the deployment environment.

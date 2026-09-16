@@ -419,18 +419,18 @@ def test_sdk_documentation_uses_one_versioned_guide() -> None:
         "sdk_version": 1,
         "document": "docs/06_ALPHALAB_SDK_GUIDE.md",
         "topics": [
-            {"id": "overview", "title": "SDK 总览"},
-            {"id": "factor", "title": "因子 SDK"},
-            {"id": "strategy", "title": "策略 SDK"},
-            {"id": "data", "title": "数据配方 SDK"},
-            {"id": "validation", "title": "验证 SDK"},
-            {"id": "report", "title": "报告结果协议"},
+            {"id": "overview", "title": "SDK Overview"},
+            {"id": "factor", "title": "Factor SDK"},
+            {"id": "strategy", "title": "Strategy SDK"},
+            {"id": "data", "title": "Data Recipe SDK"},
+            {"id": "validation", "title": "Validation SDK"},
+            {"id": "report", "title": "Report Result Protocol"},
         ],
     }
 
     factor = client.get("/api/sdk-docs/factor")
     assert factor.status_code == 200
-    assert factor.json()["title"] == "因子 SDK"
+    assert factor.json()["title"] == "Factor SDK"
     assert "context.history" in factor.json()["markdown"]
     assert "alphalab-sdk-topic" not in factor.json()["markdown"]
     assert client.get("/api/sdk-docs/unknown").status_code == 404

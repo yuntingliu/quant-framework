@@ -220,23 +220,25 @@ funding. Refresh the local canvas and staged bundle with:
 node scripts\register_conexus_research_harness.mjs
 ```
 
-Create a local hosted revision from the default Canvas with:
+For a checkout exposing the legacy hosting modules, check compatibility before
+creating a local hosted revision:
 
 ```powershell
-node scripts\host_conexus_research_harness.mjs
+node scripts\host_conexus_research_harness.mjs --check
 ```
 
-Hosting a local revision is separate from publishing to the Conexus account
-registry. `host_conexus_research_harness.mjs` loads modules from
-`CONEXUS_ROOT/apps/web/server-dist` and reads the default `.conexus/canvas.json`.
-Independent snapshots and shared-host deployments use the administrator
-`harness:host` operation described in the deployment runbook, with a distinct
-slug and credentials.
+This checks module files only. Running without `--check` uses those legacy
+modules to host the Canvas selected by `CONEXUS_CANVAS_PATH` (default:
+`.conexus/canvas.json`). Newer checkouts must use the supported administrator
+Host operation, which also handles service credentials and activation. See the
+[configuration guide](../deploy/conexus-cloud/README.md) for compatibility and
+migration requirements. Hosting locally is separate from account publication.
 
-`scripts/start_conexus_web.ps1` still targets the older `backend/dist/web-host.js`
-and `dist/web` repository layout. Use the Conexus checkout's matching
-build/start documentation and verify the public
-run, event, cancel, and workspace contracts before connecting AlphaLab.
+`scripts/start_conexus_web.ps1` recognizes the workspace and legacy Web Host
+build layouts. Its `-Check` option validates local files and configuration
+without starting a server. It requires a persistent administrator token and
+does not configure model access. Verify the manifest, run, event, cancellation,
+and workspace contracts before connecting AlphaLab.
 
 Each independent AlphaLab instance needs a matching publication and bound tool
 origin. Registration can bind `ALPHALAB_TOOL_API_ORIGIN` and

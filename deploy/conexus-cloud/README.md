@@ -1,57 +1,164 @@
-# Conexus 接入配置
+# Conexus configuration
 
-AlphaLab 可连接兼容的 Conexus Web Host，将研究 Agent 作为独立的 hosted Harness 运行。Conexus 可以与 AlphaLab 同机部署，也可以通过受控网络访问；部署位置不改变项目和回测的规范接口。
+AlphaLab connects to a compatible Conexus Web Host. The Research Agent runs as
+a hosted Harness, while project execution remains in AlphaLab's existing backend
+and task queue. Conexus can run on the same computer or on a privately reachable
+server. Installing AlphaLab does not install Conexus.
 
-Agent 行为见 [功能契约](../../docs/04_CONEXUS_AGENT.md)，AlphaLab 的构建与持久化见 [通用部署](../../docs/05_DEPLOYMENT.md)。
+See the [Agent contract](../../docs/04_CONEXUS_AGENT.md) and
+[AlphaLab deployment guide](../../docs/05_DEPLOYMENT.md).
 
-## 连接关系
+## Connection and compatibility
 
 ```text
-浏览器 → AlphaLab 后端 → Conexus Web Host → 模型服务
-                              │
-                              └→ AlphaLab 工具接口 → 项目、数据、回测
+Browser -> AlphaLab backend -> Conexus Web Host -> Model provider
+                                  |
+                                  +-> AlphaLab tool API -> Projects, data, backtests
 ```
 
-浏览器通过 AlphaLab 后端访问 Conexus。服务凭据保存在后端，项目执行继续使用 AlphaLab 的现有进程和任务队列。研究报告由 Conexus workspace 持久化，会话文本由 AlphaLab 保存。
+The browser communicates through AlphaLab. Publication credentials stay on the
+backend. Conexus persists research reports in its workspace; AlphaLab persists
+conversation transcripts separately.
 
-## 配置与凭据
+A branch named `local` is not sufficient evidence of compatibility. The checkout
+must build a **Web Host**, persist hosted releases, and provide the Harness
+manifest, run, event, cancellation, and workspace APIs used by AlphaLab. A desktop
+Canvas alone does not provide those HTTP endpoints. Record and pin the tested
+Conexus commit alongside the AlphaLab release.
 
-| 配置 | 所在位置与用途 |
+The current AlphaLab client expects an enterprise manifest with
+`defaultExposureId` and an Agent exposure containing `nodeType: "agent"` and the
+`api` surface. Conexus revisions that require `nodeDefinition` instead have a
+different contract. They need a coordinated Canvas/release/client migration and
+acceptance test. Renaming a field in stored JSON is not a supported migration:
+the executable release, checksums, runtime capabilities, and credentials must
+also remain consistent.
+
+## Configuration and identities
+
+| Setting | Owner and purpose |
 | --- | --- |
-| `CONEXUS_WEB_ORIGIN` | AlphaLab 后端；Conexus 服务地址 |
-| `CONEXUS_PUBLICATION_SLUG` | AlphaLab 后端；匹配要使用的 hosted Harness |
-| `CONEXUS_PUBLICATION_WORKSPACE_TOKEN` | AlphaLab 后端；该 publication 的企业服务身份 |
-| `ALPHALAB_INSTANCE_ID` | AlphaLab 后端及工具注册；实例一致性检查 |
-| `ALPHALAB_TOOL_API_ORIGIN` | 工具注册；从 Conexus 运行环境可访问的 HTTP 回环转发地址 |
+| `CONEXUS_WEB_ORIGIN` | AlphaLab backend: reachable Conexus HTTP origin |
+| `CONEXUS_PUBLICATION_SLUG` | AlphaLab backend: exact hosted Harness slug |
+| `CONEXUS_PUBLICATION_WORKSPACE_TOKEN` | AlphaLab backend: enterprise service credential for that publication |
+| `ALPHALAB_INSTANCE_ID` | AlphaLab backend and tool registration: expected workstation identity |
+| `ALPHALAB_TOOL_API_ORIGIN` | Tool registration: private AlphaLab API address reachable from the Conexus runtime |
+| `CONEXUS_WEB_TOKEN` | Conexus process: persistent administrator token; never substitute it for the publication credential |
+| `CONEXUS_PROJECT_ROOT` | Conexus process and registration: persistent project, Canvas, and hosted releases |
+| `CONEXUS_SECRET_ROOT` | Conexus process: persistent credentials outside the tracked project |
 
-企业服务身份凭据负责请求认证；模型提供商或 publisher funding 配置负责模型调用，两者分别配置。使用 Conexus 账户付费时，需要为相应 slug 配置有效授权；不能把其他 slug 的授权视为可复用的通用凭据。共享服务的全局模型配置变更会影响其他使用方。
+Service identity authenticates access to a publication. Model-provider credentials
+or publisher funding authorize model calls. Configure both. Account-funded
+authorization can be scoped to a particular slug; do not assume another
+publication's authorization applies.
 
-## 注册与实例绑定
+For a same-host AlphaLab process, the connection settings can use:
 
-注册脚本 `scripts/register_conexus_research_harness.mjs` 生成 Canvas 和工具资源。独立发布可使用：
+```dotenv
+CONEXUS_WEB_ORIGIN="http://127.0.0.1:3000"
+CONEXUS_PUBLICATION_SLUG="alphalab-research-agent"
+CONEXUS_PUBLICATION_WORKSPACE_TOKEN="REPLACE_WITH_PUBLICATION_SERVICE_CREDENTIAL"
+```
 
-- `CONEXUS_CANVAS_PATH`：独立 Canvas 文件。
-- `ALPHALAB_STAGED_BUNDLE_PATH`：独立 staged bundle 目录。
-- `ALPHALAB_TOOL_API_ORIGIN`：固定工具 origin。
-- `ALPHALAB_INSTANCE_ID`：预期实例标识。
+Load these values using the service's environment mechanism. A container's
+`127.0.0.1` refers to that container, so use the actual private network address
+when the processes do not share a network namespace.
 
-绑定后的工具在执行命令前检查 `/api/agent/identity`；共享主机的全局 API origin 不会替换已绑定地址。复制网页配置时也要核对工具所指向的实例，防止 Agent 与网页读写不同数据库。
+## Starting a local Web Host
 
-使用兼容 Conexus 版本的管理员 `harness:host` 操作创建 hosted revision，并设置匹配的 slug、enterprise identity 和 publisher billing。默认本地 Canvas 的辅助命令与版本要求见 [注册说明](../../docs/04_CONEXUS_AGENT.md#registration-and-hosting)。
+Build the Conexus checkout using its own version-specific instructions. The
+AlphaLab PowerShell launcher recognizes these existing build layouts:
 
-## 受控网络访问
+| Layout | Server entry | Frontend |
+| --- | --- | --- |
+| Workspace | `apps/web/server-dist/apps/web/server/entrypoints/web-host.js` | `apps/web/dist` |
+| Legacy | `backend/dist/web-host.js` | `dist/web` |
 
-同机部署使用回环访问。跨主机时，可通过受限 SSH 转发或私有网络连接；端口、账号、密钥与路由由环境配置决定。
+It requires Node.js 22.12 or later and an explicitly configured administrator
+token. It does not silently generate an unrecoverable token. Provide an
+untracked environment file with JSON-quoted strings, or export process variables;
+process variables take precedence.
 
-`scripts/serve_conexus_private_api.py` 提供到现有认证后端的回环转发，可通过 `--port` 和 `--backend-port` 指定端口。它读取 `--env-file` 中 JSON 引号包围的配置值，并在本机注入网页认证；浏览器密码不进入工具 bundle。运行该转发时，不再另起一个共享同一数据库的任务执行后端。
+```powershell
+.\scripts\start_conexus_web.ps1 -ConexusRoot C:\src\Conexus -ProjectRoot C:\data\conexus -EnvFile C:\config\conexus.env -Check
+.\scripts\start_conexus_web.ps1 -ConexusRoot C:\src\Conexus -ProjectRoot C:\data\conexus -EnvFile C:\config\conexus.env
+```
 
-转发地址应仅对受信任的 Conexus 运行环境可达。升级转发代码后重启对应进程，再校验实例标识。
+The directories must already exist. `-Check` validates files, Node, and the
+administrator token format. It does **not** start the server or verify HTTP,
+publication access, or model execution. The launcher binds to loopback. Add
+`-TrustedRuntime` only for a trusted, single-tenant workspace requiring local
+tool execution; follow that Conexus version's capability and model configuration.
 
-## 验证与迁移
+On macOS/Linux, use the matching checkout's start command with the same
+persistent project, secret, administrator, and model settings.
 
-1. 确认 manifest 和 workspace 可以通过预期服务身份读取。
-2. 确认工具返回的实例标识、项目和冻结结果与网页一致。
-3. 完成一次只读 Agent 运行，验证模型接入、事件流、状态和交付。
-4. 重启后确认所需报告与会话仍可读取。
+## Registration and hosting
 
-迁移时分别处理 AlphaLab 数据库和 Conexus workspace，并验证目标实例后再切换配置。若创建运行返回 `public_runtime_unavailable`，应检查具体错误和模型授权，不能仅凭 manifest 成功判定服务可用。
+`scripts/register_conexus_research_harness.mjs` stages the AlphaLab bundle and
+Canvas. It supports:
+
+- `CONEXUS_CANVAS_PATH` for an independent Canvas file.
+- `ALPHALAB_STAGED_BUNDLE_PATH` for a bundle directory inside the workspace.
+- `ALPHALAB_TOOL_API_ORIGIN` for the bound tool origin.
+- `ALPHALAB_INSTANCE_ID` for the expected workstation identity.
+
+Bound tools check `/api/agent/identity` before executing commands. A shared host's
+global origin cannot override this binding. Verify it after copying configuration
+so the browser and Agent access the same instance.
+
+Use the compatible Conexus administrator **Host** operation (`harness:host`) to
+create a hosted revision with the intended slug, enterprise identity, and
+publisher billing. Hosting locally is separate from publishing to an account
+registry. Older Canvas bundles may need migration before hosting on a newer
+Conexus revision.
+
+The legacy `scripts/host_conexus_research_harness.mjs` helper relies on internal
+modules that newer Conexus releases no longer expose. `node
+scripts/host_conexus_research_harness.mjs --check` checks for those module files
+without hosting anything. If incompatible, use the supported administrator
+workflow. Do not bypass activation and credential handling by importing a newly
+relocated storage class.
+
+## Private tool access
+
+Same-host processes can use loopback. Across hosts, use a restricted private
+network or SSH forwarding with environment-specific addresses and credentials.
+
+`scripts/serve_conexus_private_api.py` forwards to the existing authenticated
+AlphaLab backend. It accepts `--port` and `--backend-port`, reads JSON-quoted
+values from `--env-file`, and injects workstation authentication locally. Browser
+passwords do not enter the tool bundle. Do not launch a second job-execution
+backend against the same database to provide this access.
+
+The forwarder must be reachable only by the trusted Conexus runtime. Restart it
+after upgrading its code, then recheck instance identity.
+
+## Acceptance and troubleshooting
+
+Validate each boundary independently:
+
+1. Read `/api/conexus/status` and `/api/conexus/manifest` through AlphaLab.
+   Status checks the authenticated manifest and the supported Agent exposure.
+2. Read `/api/conexus/workspace` using the intended service identity.
+3. Confirm tool identity, project records, and frozen results match the browser.
+4. Complete one read-only Agent request, including model execution, events,
+   terminal Run state, and delivered output.
+5. Restart the services and confirm reports and conversations remain readable.
+
+| Status error | Meaning and next check |
+| --- | --- |
+| `workspace_not_configured` | AlphaLab has no publication service credential. Configure it in the backend process. |
+| `connection_failed` | AlphaLab cannot reach the origin. Check server startup, bind address, port, and network namespace. |
+| `service_authentication_failed` | The server rejected access. Check credential scope and the selected slug. |
+| `publication_unavailable` / HTTP 404 | The server cannot load the publication. Check both its slug and stored release compatibility; files can exist but fail validation. |
+| `publication_incompatible` | The release or manifest contract is unsupported by the server or AlphaLab client. Check the pinned versions and supported migration procedure. |
+| `upstream_error` | Inspect the Conexus service logs for the returned HTTP status. |
+
+A successful manifest does not prove model funding or execution. A failed Run
+such as `public_runtime_unavailable` requires inspection of the specific runtime
+and model authorization error. An isolated AlphaLab deployment with no Conexus
+configuration is expected to show the optional Agent as unavailable.
+
+Back up AlphaLab databases and the Conexus project/secret stores separately.
+Validate the target instance and one complete Run before switching the origin.
