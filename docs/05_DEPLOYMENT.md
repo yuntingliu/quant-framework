@@ -1,6 +1,6 @@
 # 通用部署
 
-本页说明从源码构建和持续运行 AlphaLab 的通用要求。本地开发启动见 [README](../README.md)，Linux 服务示例见 [Linux 部署](guides/linux-deployment.md)。
+本页说明从源码构建和持续运行 AlphaLab 的通用要求。首次启动见 [README](../README.md)，开发热更新见 [开发指南](03_DEVELOPMENT_GUIDE.md)，Linux 服务示例见 [Linux 部署](guides/linux-deployment.md)。
 
 ## 构建与启动
 
@@ -55,12 +55,28 @@ Windows 将 Python 路径替换为 `.\.venv\Scripts\python.exe`。构建后的�
 
 ## 运行检查
 
+先检查应用部署，再检查所需的外部服务。空数据目录能够启动应用，但不具备真实行情研究条件；RQ 和 Conexus 的可用性需要分别验收。
+
 | 检查入口 | 含义 |
 | --- | --- |
-| `/api/health` | 应用、版本和结果库状态；不扫描完整数据覆盖 |
+| `/api/health` | `status: "ok"`、`frontend: "ready"`、版本和结果库状态；不扫描完整数据覆盖 |
+| `/app/` | 页面及脚本、样式资源可加载，可新建项目并打开编辑器 |
 | `/api/data/providers`、`/api/data-sync/health` | 数据目录、新鲜度和同步状态 |
 | `/api/python-editor/capabilities` | Python 编辑器工具是否可用 |
 | `/api/agent/identity` | 工具请求是否命中预期实例 |
 | 完整的只读 Agent 运行 | 同时验证模型、工具、事件流和结果交付 |
 
 启用认证后应使用认证请求检查受保护接口。数据可访问仍需按研究区间检验覆盖；Conexus manifest 可读也不能替代完整运行检查。接入细节见 [Conexus 配置](../deploy/conexus-cloud/README.md)。
+
+## 部署验收标准
+
+| 层次 | 实际验收动作 |
+| --- | --- |
+| 安装与构建 | 从指定 Git 提交和空虚拟环境安装；执行 `python -m pip check`，使用 Node 22 和 `npm ci` 构建网页 |
+| 应用运行 | 打开网页，新建可编辑项目；启用认证时，匿名页面与 API 请求返回 401，正确认证后可以访问 |
+| 编辑器 | 打开 Python 文档，验证 Pyrefly 和 Ruff 的 WebSocket 初始化与诊断；确认镜像写入配置的 `runtime/editor/` |
+| 持久化与更新 | 保存项目后重启或更新服务，核对项目源码仍一致；运行目录独立于发布目录 |
+| 数据研究 | 配置有权限的 RQ 账户，完成少量标的同步、区间覆盖检查与一次回测 |
+| 可选 Agent | 配置 Conexus 后完成一次只读运行，检查工具目标、模型调用、事件流和文档持久化 |
+
+自动测试验证接口与执行规则，不能替代真实安装和服务启动；健康接口通过也不代表后两层已经通过。维护者应把所测提交、Python/Node 版本、结果和未验证项保存在验收记录中。主机名、域名、凭据和现场日志由部署环境保存，不进入项目文档。

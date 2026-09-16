@@ -85,6 +85,10 @@ Two fixed local language-server bridges enrich each Python model:
   project factors, decorators, parameter contracts, and installed `rqdatac`
   operations, while backend contract diagnostics add SDK-specific markers.
 
+Ruff uses `dashboard/ruff-editor.toml` for open research documents, including
+those in ignored runtime directories. Repository lint exclusions
+remain in `pyproject.toml`; they must not suppress diagnostics for open mirrors.
+
 The browser cannot choose a command or executable. The backend accepts only the
 fixed `pyrefly lsp` and `ruff server` server IDs, validates document paths and
 message sizes, and translates bounded WebSocket JSON messages to LSP stdio

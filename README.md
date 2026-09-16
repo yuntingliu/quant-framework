@@ -1,41 +1,34 @@
 # AlphaLab
 
-AlphaLab 是以 Python 为核心的量化研究工作台，连接数据采集、因子研究、选股策略、日度事件回测、验证与研究报告。当前版本为 **0.6.2**。
+AlphaLab 是面向 Python 量化研究的工作台：将数据配方、因子、选股策略和验证代码放在同一个项目中，通过统一的日度事件引擎生成可追溯的回测结果。当前版本为 **0.6.2**。
 
-使用说明、开发参考和版本记录见 [文档导航](docs/README.md)。
+适合需要检查因子定义、数据时点、交易规则和回测证据的研究者。内置 RQ 数据接入，也可通过 Data SDK 扩展数据源。
 
-## 当前能做什么
-
-| 环节 | 当前能力 |
-| --- | --- |
-| 数据 | RQ 股票、ETF、行情、停牌/ST、财务、日因子和历史指数成分；可编辑采集配方、分块同步、增量续跑和覆盖校验 |
-| 因子 | SDK 原生因子、PIT 财务处理、中性化、Rank IC/ICIR、分组收益、衰减与时序留出诊断 |
-| 技术证据 | 均线、MACD、RSI、KDJ、ATR、布林带、CCI、OBV；下影线收回、三连阳实体和放量突破模板 |
-| 策略与组合 | 日/周/月日程、自定义日程、事件规则、等权、最小方差、风险平价、HRP 等组合方法 |
-| 回测与验证 | 日度事件引擎、下一交易日执行、交易约束与成本、冻结源码及结果、独立验证代码和研究证据 |
-| 工作台与 Agent | 六个工作台、共享 Python 编辑器；可选 Conexus Agent 通过相同项目和回测接口开展研究 |
-
-日度事件引擎支持每日生成信号；实际调仓频率由项目日程、目标权重和执行条件决定。它不表示默认每天交易，也不是分钟级交易系统。主题轮动、图形筛选和机器学习效果仍需按具体项目检验，不能从框架支持某项功能推导出收益改善。
-
-## 一个项目，一条执行流程
+## 研究流程
 
 ```text
-研究项目（数据库保存规范源代码）
-├── recipe.py               数据采集与本地发布
-├── factors/<factor_id>.py   每个文件一个注册因子
-├── strategy.py             股票池、日程、信号、组合、事件和执行规则
-└── validation.py           冻结回测结果的研究验证
-
-数据 → 因子 → 策略源码组装 → 日度事件回测 → 验证 → 报告
+数据准备 → 因子研究 → 策略选股与组合 → 回测与验证 → 研究报告
 ```
 
-项目、数据、因子、策略、验证、报告六个工作台使用相同的项目状态。表单和编辑器修改同一份规范源码；保存自动记录不可变源码包，回测固定策略与验证版本。编辑器磁盘镜像只供语言服务使用。
+| 工作台 | 用途 |
+| --- | --- |
+| 项目 | 创建研究项目，管理规范源码和不可变版本 |
+| 数据 | 编辑、运行数据配方，检查同步进度与数据覆盖 |
+| 因子 | 编写因子，查看截面快照、历史 Rank IC 等诊断 |
+| 策略 | 定义股票池、调仓日程、信号、组合与执行规则 |
+| 验证 | 运行回测，检查收益、交易约束和冻结的源码及结果 |
+| 报告 | 通过可选的 Conexus Agent 整理并保存研究文档 |
 
-策略使用 `alphalab.sdk.v1`；数据配方和验证代码分别使用自己的 SDK。完整示例、参数与研究命令统一维护在 [中文 SDK 指南](docs/06_ALPHALAB_SDK_GUIDE.md)，该文件也由网页内的文档面板读取。
+一个项目包含 `recipe.py`、`factors/<factor_id>.py`、`strategy.py` 和 `validation.py`。表单和编辑器修改同一份规范源码，保存时记录版本，回测固定策略与验证版本。日度引擎支持日、周、月及自定义调仓日程；实际成交还取决于目标权重、交易约束和执行条件。
 
-## 本地启动
+## 快速启动
 
-在仓库根目录运行。需要 Python >= 3.10，并使用 `.node-version` 指定的 Node.js 主版本。Python 的 `dev` 依赖包含 Pyrefly、Ruff 等编辑器工具。
+需要 Git、Python >= 3.10 和 Node.js 22（见 [`.node-version`](.node-version)）。以下命令构建网页并由一个后端进程提供服务；启动界面不需要 RQ 或 Conexus 凭据。Python 的 `dev` 依赖包含编辑器使用的 Pyrefly 和 Ruff。
+
+```bash
+git clone https://github.com/yuntingliu/quant-framework.git
+cd quant-framework
+```
 
 ### Windows PowerShell
 
@@ -43,22 +36,9 @@ AlphaLab 是以 Python 为核心的量化研究工作台，连接数据采集、
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dashboard,dev,rq]"
 npm --prefix dashboard/frontend ci
-.\.venv\Scripts\python.exe -m alphalab.cli dev doctor
+npm --prefix dashboard/frontend run build:web
+.\.venv\Scripts\python.exe -m uvicorn dashboard.backend.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
-
-在两个终端中分别运行，均从仓库根目录开始：
-
-```powershell
-# 终端一：后端
-.\.venv\Scripts\python.exe -m uvicorn dashboard.backend.main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-```powershell
-# 终端二：前端
-npm --prefix dashboard/frontend run dev:web
-```
-
-打开 [本地开发工作台](http://localhost:5173)。Vite 将 `/api` 和语言服务 WebSocket 代理到后端 8000 端口。
 
 ### macOS / Linux
 
@@ -66,63 +46,37 @@ npm --prefix dashboard/frontend run dev:web
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[dashboard,dev,rq]'
 npm --prefix dashboard/frontend ci
-.venv/bin/python -m alphalab.cli dev doctor
-.venv/bin/python -m uvicorn dashboard.backend.main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-另开终端，从仓库根目录执行 `npm --prefix dashboard/frontend run dev:web`。
-
-`doctor` 只读检查环境，不打印凭据。首次安装尚无 RQ 配置或研究数据时，它可能报告未就绪；按报告补齐对应配置和数据即可。
-
-### 使用构建后的网页
-
-```powershell
 npm --prefix dashboard/frontend run build:web
-.\.venv\Scripts\python.exe -m uvicorn dashboard.backend.main:app --host 127.0.0.1 --port 8000 --workers 1
+.venv/bin/python -m uvicorn dashboard.backend.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-打开 [本地构建工作台](http://127.0.0.1:8000/app/)。macOS/Linux 将 Python 路径替换为 `.venv/bin/python`。持续运行的配置与更新流程见 [通用部署](docs/05_DEPLOYMENT.md)。
+打开 [AlphaLab 工作台](http://127.0.0.1:8000/app/)。[健康检查](http://127.0.0.1:8000/api/health) 应返回 `status: "ok"` 和 `frontend: "ready"`。首次启动没有行情缓存，需要完成下一节的数据准备。若要修改前端并使用热更新，见 [开发指南](docs/03_DEVELOPMENT_GUIDE.md)。
 
-## 数据准备
+## 完成第一次研究
 
-在忽略的 `.env` 中配置 `RQ_USER`、`RQ_PASSWORD`、`RQ_HOST`。RQ 使用 SDK 直连配置的地址。应用只有 `runtime` 数据档案，不会把内置测试样本作为真实研究数据回退使用。
+1. 在「项目」中新建项目。内置项目是只读模板，可用来了解代码结构。
+2. 在仓库根目录的 `.env` 中配置 `RQ_USER`、`RQ_PASSWORD`、`RQ_HOST`，然后重启后端。需要具有相应数据权限的 RQ 账户。
+3. 在「数据」中选择模板，先填写少量标的，日期覆盖因子回看窗口和待测区间，保存代码后点击「运行并同步」。确认任务完成且所需数据有覆盖；标的留空会使用模板的完整范围。
+4. 在「因子」和「策略」中查看、修改并保存代码，选择调仓日程、组合和执行规则。
+5. 在「验证」中运行覆盖已准备数据区间的回测，检查交易明细和验证结果，再扩大样本。
 
-默认数据目录为 `data/runtime/`。独立部署通过启动进程的 `ALPHALAB_RUNTIME_DIR` 指定持久目录，必须在 Python 导入应用前设置；每个实例使用独立数据库。
+数据权限、同步范围、财务口径及历史成分限制见 [数据操作](docs/04_DATA_OPERATIONS.md)；源码结构、可运行示例和研究命令见 [中文 SDK 指南](docs/06_ALPHALAB_SDK_GUIDE.md)。网页内的 SDK 文档面板读取同一份指南。
 
-先查看模板和计划，再同步选定范围。以下是 Windows 的小范围示例；日期是历史示例，不代表最新行情：
+## 部署与可选服务
 
-```powershell
-.\.venv\Scripts\python.exe -m alphalab.cli data templates
-.\.venv\Scripts\python.exe -m alphalab.cli data plan rq --template rq.a_share_daily --symbols 000001.SZ --start 2025-01-01 --end 2025-12-31
-.\.venv\Scripts\python.exe -m alphalab.cli data sync rq --template rq.a_share_daily --symbols 000001.SZ --start 2025-01-01 --end 2025-12-31
-.\.venv\Scripts\python.exe -m alphalab.cli data validate --datasets rq.bars,rq.paused,rq.is_st --start 2025-01-01 --as-of 2025-12-31 --fail-on-gap
-```
+默认运行数据保存在 Git 忽略的 `data/runtime/`。持续运行时应将数据库、缓存和编辑器临时文件放入独立的持久目录，通过启动环境中的 `ALPHALAB_RUNTIME_DIR` 指定。认证、配置、备份与更新见 [通用部署](docs/05_DEPLOYMENT.md)；Linux 的发布脚本和服务管理见 [Linux 部署](docs/guides/linux-deployment.md)。
 
-省略 `--symbols` 会按模板解析完整范围；默认研究模板包含更多财务与因子数据。上述 CLI 校验面向所选数据集中的本地数据，不是仅按前一条同步命令的股票过滤。大范围同步、强制回补、财报口径和历史成分限制见 [数据操作](docs/04_DATA_OPERATIONS.md)。已有旧财务缓存需要显式重建才能采用修正后的 ROE/TTM 口径。
+Conexus Agent 是可选服务，需要兼容的 Conexus Web Host、服务身份以及有效的模型调用授权。手动编辑代码、同步数据和运行回测不依赖 Agent。接入要求见 [Conexus 配置](deploy/conexus-cloud/README.md)。
 
-## 可选的 Conexus Agent
+## 使用边界
 
-Conexus 是可选的 Agent 运行服务。AlphaLab 后端代理其接口，项目源码、数据和回测仍由 AlphaLab 保存与执行；研究报告 Documents 由 Conexus 持久化，会话文本保存在 AlphaLab。
+技术形态、因子诊断和组合方法是研究工具；支持某项功能不代表已经证明收益改善。比较结果时需要统一股票池、数据时点、调仓、交易成本和账户模型。
 
-每个独立实例需匹配自己的数据库、实例标识、Conexus slug、服务凭据和工具目标地址。服务身份凭据与模型付费授权是两项配置；接口可读不代表 Agent 已能调用模型。
+项目 Python 代码在本地子进程中执行，有超时、日志和契约检查，但不是安全沙箱。仅执行可信源码；凭据、个人数据、运行数据库和生成的研究附件不要提交到 Git。
 
-功能与工具契约见 [Conexus Agent](docs/04_CONEXUS_AGENT.md)，连接参数、实例绑定和模型授权见 [接入配置](deploy/conexus-cloud/README.md)。
+## 进一步阅读
 
-## 研究结果的边界
-
-技术形态、因子诊断和组合方法是研究工具，效果需要在明确的样本、调仓与成本假设下检验。比例权重回测与整手现金账户的收益不可直接比较。质量组合复现实验及其限制见 [0.6.2 研究记录](docs/releases/0.6.2-dev-liu.md)。
-
-Python 源码在本地子进程中执行，有超时、日志和契约检查，但不是安全沙箱。研究时使用可信源码，并在结论中说明股票池、数据可用时点、缺失值、交易约束与成本假设。
-
-## 验证与贡献
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest tests/contracts -q --basetemp=artifacts/pytest-contracts
-.\.venv\Scripts\python.exe scripts/check_facade_imports.py
-.\.venv\Scripts\python.exe scripts/check_repository_hygiene.py
-npm --prefix dashboard/frontend run lint
-npm --prefix dashboard/frontend test
-npm --prefix dashboard/frontend run build:web
-```
-
-按变更范围补充测试；完整规则见 [开发指南](docs/03_DEVELOPMENT_GUIDE.md)。内置样本用于测试，个人数据、运行数据库、凭据、构建产物和研究附件留在 Git 之外。
+- [文档导航](docs/README.md)：按使用、开发和部署查找说明。
+- [架构](docs/01_ARCHITECTURE.md)：模块边界与公开接口。
+- [开发指南](docs/03_DEVELOPMENT_GUIDE.md)：开发环境与按变更范围选择检查。
+- [贡献指南](CONTRIBUTING.md)：提交与文档维护约定。

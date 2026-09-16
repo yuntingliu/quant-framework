@@ -2,6 +2,18 @@
 
 本示例使用 systemd 用户服务管理单个 AlphaLab 后端。构建、认证和数据持久化的通用要求见 [部署说明](../05_DEPLOYMENT.md)。
 
+## 前置条件
+
+运行用户需要可用的 systemd 用户会话、Git 仓库读取权限、Python >= 3.10（含 `venv` 和 `pip`）、Node.js 22/npm、`flock`、`tar` 和 GNU 文件工具。Node 22 的可执行目录应位于执行发布脚本时的 `PATH` 中。不同发行版的安装命令不同，请先确认以下命令可用：
+
+```bash
+python3 --version
+python3 -m venv --help
+node --version
+npm --version
+systemctl --user status
+```
+
 ## 目录与配置
 
 发布脚本的默认目录均位于运行用户的主目录，可以通过环境变量覆盖：
@@ -20,9 +32,30 @@
 
 配置文件由运行用户读取，文件权限设为 `0600`。按需设置网页认证、RQ 和 Conexus 配置。若调整运行目录，发布脚本与服务进程必须使用同一个绝对路径。
 
+使用默认目录时，首次准备源码和配置目录：
+
+```bash
+mkdir -p "$HOME/src" "$HOME/.config/alphalab" "$HOME/.config/systemd/user"
+git clone https://github.com/yuntingliu/quant-framework.git "$HOME/src/quant-framework"
+```
+
+创建 `$HOME/.config/alphalab/alphalab.env`，填入自己的用户名和非空密码。服务管理器和发布脚本共同读取此文件；使用 JSON 双引号表示值，不使用 shell 的 `export` 或变量展开。
+
+```dotenv
+ALPHALAB_WEB_AUTH_ENABLED="true"
+ALPHALAB_WEB_USERNAME="your-username"
+ALPHALAB_WEB_PASSWORD=""
+```
+
+```bash
+chmod 600 "$HOME/.config/alphalab/alphalab.env"
+```
+
+RQ 与 Conexus 可以在应用部署验收通过后再配置。认证启用但密码为空时，应用返回配置错误，发布检查会失败。
+
 ## 用户服务示例
 
-在用户 systemd 配置目录创建 `alphalab.service`，根据所选目录调整：
+在 `$HOME/.config/systemd/user/alphalab.service` 中保存下列内容，根据所选目录调整：
 
 ```ini
 [Unit]
@@ -52,6 +85,7 @@ WantedBy=default.target
 
 ```bash
 systemctl --user daemon-reload
+cd "$HOME/src/quant-framework"
 bash scripts/deploy_linux.sh origin/main
 ```
 
@@ -64,6 +98,7 @@ bash scripts/deploy_linux.sh origin/main
 ## 运行管理
 
 ```bash
+systemctl --user enable alphalab.service
 systemctl --user status alphalab.service
 journalctl --user -u alphalab.service
 ```
