@@ -79,3 +79,78 @@ def test_sdk_option_fields_are_close_only_and_never_carry_missing_day():
     assert context(Event.SESSION_OPEN, "2025-01-07").daily_factor("option_smirk").iloc[0] == 0.1
     assert pd.isna(context(Event.SESSION_CLOSE, "2025-01-07").daily_factor("option_smirk").iloc[0])
     assert pd.isna(context(Event.SESSION_OPEN, "2025-01-08").daily_factor("option_smirk").iloc[0])
+
+
+def test_intraday_recipe_respects_listing_and_recomputes_retained_variance(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from alphalab.data_sdk.v1 import DataRecipeContext, rq
+    from alphalab.dataio.option_intraday import render_intraday_recipe
+    from alphalab.dataio.runtime import RuntimeStore
+
+    listings = {"510050.XSHG": "2025-01-06", "510300.XSHG": "2025-01-07"}
+    store = RuntimeStore(tmp_path)
+    history = pd.DataFrame(
+        [
+            {
+                "date": day,
+                "symbol": symbol,
+                "raw_close": 3.0,
+                "adjusted_close": 3.0,
+                "source": "synthetic",
+            }
+            for symbol, listed in listings.items()
+            for day in pd.bdate_range(listed, "2025-01-08")
+        ]
+    )
+    store.write("rq.option_underlyings", history)
+
+    class Vendor:
+        def instruments(self, symbols):
+            return [SimpleNamespace(order_book_id=s, listed_date=listings[s]) for s in symbols]
+
+        def get_trading_dates(self, start, end, **kwargs):
+            return pd.bdate_range(start, end)
+
+        def get_price(self, symbols, **kwargs):
+            records = []
+            for symbol in symbols:
+                for day in pd.bdate_range(kwargs["start_date"], kwargs["end_date"]):
+                    if day < pd.Timestamp(listings[symbol]):
+                        continue
+                    times = pd.date_range(
+                        day + pd.Timedelta(hours=9, minutes=35), periods=24, freq="5min"
+                    ).append(
+                        pd.date_range(
+                            day + pd.Timedelta(hours=13, minutes=5), periods=24, freq="5min"
+                        )
+                    )
+                    records.extend(
+                        {"order_book_id": symbol, "datetime": stamp, "open": 3.0, "close": 3.0}
+                        for stamp in times
+                    )
+            return pd.DataFrame(records).set_index(["order_book_id", "datetime"])
+
+    monkeypatch.setattr(rq, "_connected_module", Vendor())
+    source = render_intraday_recipe(start="2025-01-06", end="2025-01-08", symbols=tuple(listings))
+    scope = {}
+    exec(source, scope)
+    run = DataRecipeContext(mode="run", root=str(tmp_path))
+    scope["etf_intraday"](run)
+    run.finalize()
+    assert len(store.read("rq.option_etf_5m")) == 5 * 48
+    # A correction outside the next requested date must update its old overnight
+    # variance too; preserving a stale derived value would hide the correction.
+    history.loc[
+        history.symbol.eq("510050.XSHG") & history.date.eq(pd.Timestamp("2025-01-06")),
+        "adjusted_close",
+    ] = 2.9
+    store.write("rq.option_underlyings", history)
+    scope["etf_intraday"](
+        DataRecipeContext(mode="run", root=str(tmp_path)), start="2025-01-08", end="2025-01-08"
+    )
+    derived = store.read("research.option_intraday_variance")
+    corrected = derived.loc[
+        derived.symbol.eq("510050.XSHG") & derived.date.eq(pd.Timestamp("2025-01-07"))
+    ]
+    assert corrected.realized_variance.iloc[0] == pytest.approx(np.log(3 / 2.9) ** 2)

@@ -52,7 +52,7 @@ from alphalab.dataio.option_rq import normalize, recover_daily_closes
 from alphalab.dataio.option_snapshots import (
     normalize_option_snapshot, option_sync_dates, validate_option_dates,
 )
-from alphalab.dataio.symbols import to_rq_symbol
+from alphalab.dataio.symbols import to_framework_symbol, to_rq_symbol
 from alphalab.options.curves import normalize_yield_curve
 from alphalab.dataio.option_underlyings import normalize_etf_history
 
@@ -115,6 +115,15 @@ def etf_options(
     dates = _retry(lambda: rq.get_trading_dates(start, end, market="cn"))
     if any(not pd.Timestamp(start) <= pd.Timestamp(d) <= pd.Timestamp(end) for d in dates):
         raise ValueError("RQ calendar returned dates outside the requested interval")
+    asset_dates = {symbol: dates for symbol in symbols}
+    if INCLUDE_UNDERLYINGS and len(dates):
+        etf_info = _retry(lambda: rq.instruments(list(symbols)))
+        if not isinstance(etf_info, (list, tuple)):
+            etf_info = [etf_info]
+        listings = {str(item.order_book_id): pd.Timestamp(item.listed_date) for item in etf_info}
+        if set(listings) != set(symbols) or any(pd.isna(value) for value in listings.values()):
+            raise ValueError("Missing ETF listing history")
+        asset_dates = {symbol: [day for day in dates if pd.Timestamp(day) >= listings[symbol]] for symbol in symbols}
     if INCLUDE_RATES and len(dates):
         try:
             stored_rates = context.read("rq.option_rates")
@@ -133,7 +142,7 @@ def etf_options(
             stored_keys = set()
         rq_symbols = [to_rq_symbol(value) for value in symbols]
         missing_history = any((pd.Timestamp(day).normalize(), symbol) not in stored_keys
-                              for day in dates for symbol in rq_symbols)
+                              for symbol in rq_symbols for day in asset_dates[symbol])
         if missing_history or OVERLAP_SESSIONS:
             # Rebase all retained history together: pre-adjusted levels can change
             # after a distribution, so merging only new dates invents a return jump.
@@ -151,7 +160,7 @@ def etf_options(
             ))
             history = normalize_etf_history(raw_etfs, adjusted_etfs)
             required = {(d, s) for d, s in stored_keys if s in rq_symbols}
-            required.update((pd.Timestamp(d).normalize(), s) for d in dates for s in rq_symbols)
+            required.update((pd.Timestamp(d).normalize(), s) for s in rq_symbols for d in asset_dates[s])
             actual = set(zip(pd.to_datetime(history.date).dt.normalize(), history.symbol))
             if not required.issubset(actual):
                 raise ValueError("ETF history is missing requested or retained sessions")
@@ -292,8 +301,32 @@ def etf_options(
         from alphalab.dataio.option_features import iter_feature_batches
         # These calls share the existing context and job; all acquisition source
         # is visible below, and no vendor access happens at module import time.
-        _sync_etf_market(context, start=start, end=end, symbols=symbols)
+        # A new distribution rebases pre-adjusted prices. Refresh every retained
+        # canonical ETF bar together, including warm-up dates before the option
+        # history, so a short incremental request cannot create a splice jump.
+        market_start, market_end = pd.Timestamp(start), pd.Timestamp(end)
+        market_symbols = set(symbols) | {to_framework_symbol(value) for value in symbols}
+        for part in context.iter_partitions("rq.bars", columns=("date", "symbol")):
+            retained = part.loc[part.symbol.isin(market_symbols)]
+            if not retained.empty:
+                market_start = min(market_start, pd.to_datetime(retained.date).min())
+                market_end = max(market_end, pd.to_datetime(retained.date).max())
+        _sync_etf_market(context, start=str(market_start.date()), end=str(market_end.date()), symbols=symbols)
         _sync_etf_intraday(context, start=start, end=end, symbols=symbols)
-        for batch in iter_feature_batches(context, start=start, end=end, symbols=symbols):
+        feature_start, feature_end = pd.Timestamp(start), pd.Timestamp(end)
+        try:
+            retained_features = context.read("research.option_features")
+            retained_features = retained_features.loc[retained_features.symbol.isin(symbols)]
+            if not retained_features.empty:
+                feature_start = min(feature_start, pd.to_datetime(retained_features.date).min())
+                feature_end = max(feature_end, pd.to_datetime(retained_features.date).max())
+        except DataLoadError:
+            pass
+        for batch in iter_feature_batches(context, start=str(feature_start.date()), end=str(feature_end.date()), symbols=symbols):
             context.publish("research.option_features", batch, wait_seconds=60)
+        # A completed process is not a quality verdict. Run the same checks
+        # exposed by the workstation before marking the full sync successful.
+        for dataset in ("rq.option_rates", "rq.option_underlyings", "rq.option_etf_5m",
+                        "research.option_intraday_variance", "research.option_features"):
+            context.require_coverage(dataset, start=start, end=end, fail_on_gap=True)
 '''

@@ -204,7 +204,7 @@ class DataRecipeContext:
             raise RuntimeError("context.read() is available only while running a recipe")
         return self._store.read(str(dataset).strip())
 
-    def iter_partitions(self, dataset: str, *, start=None, end=None, symbols=None):
+    def iter_partitions(self, dataset: str, *, start=None, end=None, symbols=None, columns=None):
         """Read partitions one at a time, pruning dated option partitions first."""
         if self.mode != "run":
             raise RuntimeError("Partition iteration is available only in run mode")
@@ -218,7 +218,7 @@ class DataRecipeContext:
                 continue
             if selected is not None and "underlying" in partitions and partitions["underlying"] not in selected:
                 continue
-            yield pd.read_parquet(path)
+            yield pd.read_parquet(path, columns=list(columns) if columns is not None else None)
 
     def sync_batches(
         self,

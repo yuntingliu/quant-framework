@@ -12,6 +12,8 @@ import pandas as pd
 from alphalab.dataio.catalog import DATASETS
 from alphalab.dataio.runtime import RuntimeStore
 
+QUALITY_REPORT_VERSION = 2
+
 
 @dataclass(frozen=True)
 class QualityIssue:
@@ -587,6 +589,10 @@ def _validate_compact(
         try:
             validate_feature_frame(frame)
             metrics["missing_indicators"] = int(frame.filter(like="option_").isna().sum().sum())
+            invalid = int(frame.issue.fillna("").ne("").sum()) if "issue" in frame else 0
+            metrics["invalid_observations"] = invalid
+            if invalid:
+                issues.append(QualityIssue("failed_option_feature_calculations", f"Option feature calculations failed for {invalid} observations"))
         except ValueError as exc:
             issues.append(QualityIssue("invalid_option_features", str(exc)))
     elif dataset == "rq.option_etf_5m":
@@ -890,6 +896,7 @@ def _dated_mapping(values: pd.Series) -> dict[str, str]:
 def _report(dataset: str, status: dict, issues: list[QualityIssue], metrics: dict) -> dict:
     return {
         "dataset": dataset,
+        "validation_version": QUALITY_REPORT_VERSION,
         "status": "failed" if any(item.severity == "error" for item in issues) else "passed",
         "rows": status.get("rows", 0),
         "files": status.get("files", 0),

@@ -10,7 +10,7 @@ import pyarrow.parquet as pq
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.dataio.errors import MissingDataError
 from alphalab.dataio.option_data import load_option_snapshot
-from alphalab.dataio.quality import validate_dataset
+from alphalab.dataio.quality import QUALITY_REPORT_VERSION, validate_dataset
 from alphalab.dataio.runtime import OperationsStore, RuntimeStore
 from alphalab.dataio.symbols import to_rq_symbol
 from alphalab.options import analyze_chain
@@ -219,7 +219,8 @@ def quality(root=None):
             checked_ns = pd.Timestamp(saved["checked_at"]).value
             # Reuse only a full-scope check newer than every retained partition.
             # File rewrites, removed partitions, and unresolved gaps invalidate it.
-            if (status["status"] == "ready" and prior["rows"] == status["rows"]
+            if (prior.get("validation_version") == QUALITY_REPORT_VERSION
+                    and status["status"] == "ready" and prior["rows"] == status["rows"]
                     and prior["files"] == status["files"] and checked_ns >= latest_change
                     and metrics.get("start_date") == status["date_start"]
                     and metrics.get("end_date") == status["date_end"]

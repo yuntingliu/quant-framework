@@ -1,5 +1,7 @@
 /** Domain copy shared by option views, including labels retained in basket state. */
 export const optionStrings: Record<string, string> = {
+  "ETF 复权行情会统一刷新已保存历史，避免分红拼接跳变；历史指标只重算输入已变化的日期。": "Adjusted ETF prices refresh retained history consistently to avoid distribution splice jumps; historical features rebuild only when inputs change.",
+  "数据任务执行中：下载、增量入库和质量校验；完成后显示结果。": "Data task running: acquisition, incremental writes and quality checks; results appear on completion.", "最近数据任务：": "Latest data task: ", "指标缺失单元格": "Missing indicator cells", "计算失败记录": "Failed calculations",
   "ETF 期权": "ETF options", "五分钟ETF行情": "ETF five-minute prices", "五分钟已实现方差": "Five-minute realized variance",
   "期权链": "Option chain", "波动率": "Volatility", "组合压力": "Portfolio stress", "数据质量": "Data quality", "文献与预测": "Literature & prediction",
   "可分析": "Eligible", "价格边界异常": "Invalid price bounds", "无成交/持仓不足": "No trade / low open interest", "远期配对不足": "Forward unavailable", "到期日": "Expiry date", "零价格": "Zero price",
@@ -28,6 +30,7 @@ const metacharacters = "^$.*+?()[]{}|" + String.fromCharCode(92)
 const escapePattern = (value: string) => [...value].map(c => metacharacters.includes(c) ? String.fromCharCode(92)+c : c).join("")
 const fragments = new RegExp(Object.keys(optionStrings).sort((a, b) => b.length-a.length).map(escapePattern).join("|"), "g")
 const diagnosticZh: Record<string, string> = {
+  "Option feature calculations failed for ": "期权指标计算失败，观测数：", " observations": " 条",
   "Inconsistent source closes reconstructed from complete intraday trades; original prices and evidence retained": "异常源收盘价已用完整日内成交重建，原始价格和证据均已保留",
   "No eligible IV observations": "没有可用的 IV 观测",
   "Fitted total variance decreases across maturities at shared forward moneyness": "相同远期价内外程度下，拟合总方差随期限下降",

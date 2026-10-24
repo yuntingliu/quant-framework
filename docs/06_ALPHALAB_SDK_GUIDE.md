@@ -532,6 +532,21 @@ counts and date bounds match and its check is newer than every source partition.
 Rewrites, removals and unresolved gaps invalidate that reuse. An initial full
 scan of a long history can take several minutes.
 
+The History sync button runs a persisted Python recipe through the existing
+background worker; an LLM/data agent is not required for acquisition or quality
+decisions. Options reuse complete saved sessions and refresh the configured
+overlap. ETF and intraday coverage exclude dates before each ETF's listing.
+Pre-adjusted canonical market bars refresh the selected ETF's entire retained
+interval, including warm-up dates. Retained realized variance and previously
+materialized option features are checked again after source corrections;
+unchanged feature fingerprints are reused. Actual feature calculation failures
+fail quality review, while expected warm-up or unobserved-wing NaNs remain
+explicit missing values. Full sync checks derived datasets even when a feature
+batch is unchanged. Quality-cache reuse also requires the current validation
+version. A task's numeric publication counts appear after completion; they are
+not an estimated download percentage. Daily scheduling and alert delivery are
+separate operational choices and are not enabled by opening this workbench.
+
 Saved predictors enter the existing research-factor provider:
 
 ```python

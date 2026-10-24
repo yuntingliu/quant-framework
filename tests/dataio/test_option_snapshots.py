@@ -132,6 +132,100 @@ def test_recipe_plan_is_offline_and_visible(tmp_path, monkeypatch):
     )
 
 
+def test_short_sync_rebases_retained_market_and_revalidates_prior_features(monkeypatch):
+    from alphalab.dataio import option_features
+
+    monkeypatch.setattr(rq, "_connected_module", FakeRQ())
+    source = render_builtin_recipe("rq.etf_options", start="2025-01-08", end="2025-01-08")
+    for flag in ("INCLUDE_OPTIONS", "INCLUDE_RATES", "INCLUDE_UNDERLYINGS"):
+        source = source.replace(f"{flag} = True", f"{flag} = False")
+    scope, requests, checks = {}, {}, []
+    exec(source, scope)
+    scope["_sync_etf_market"] = lambda context, **kwargs: requests.update(market=kwargs)
+    scope["_sync_etf_intraday"] = lambda context, **kwargs: requests.update(intraday=kwargs)
+
+    def features(context, **kwargs):
+        requests["features"] = kwargs
+        return iter(())
+
+    monkeypatch.setattr(option_features, "iter_feature_batches", features)
+
+    class Context:
+        mode = "run"
+
+        def iter_partitions(self, dataset, **kwargs):
+            assert dataset == "rq.bars" and kwargs["columns"] == ("date", "symbol")
+            # An unrelated older stock must not expand this ETF refresh.
+            yield pd.DataFrame(
+                {
+                    "date": pd.to_datetime(["2022-01-03", "2025-01-10", "2000-01-03"]),
+                        "symbol": ["510050.SH", "510050.SH", "430047.BJ"],
+                }
+            )
+
+        def read(self, dataset):
+            assert dataset == "research.option_features"
+            return pd.DataFrame(
+                {"date": pd.to_datetime(["2023-01-03", "2025-01-10"]), "symbol": UNDERLYING}
+            )
+
+        def output(self, *args):
+            pass
+
+        def require_coverage(self, dataset, **kwargs):
+            checks.append(dataset)
+
+    scope["etf_options"](Context())
+    assert (requests["market"]["start"], requests["market"]["end"]) == ("2022-01-03", "2025-01-10")
+    assert (requests["features"]["start"], requests["features"]["end"]) == (
+        "2023-01-03",
+        "2025-01-10",
+    )
+    assert set(checks) == {
+        "rq.option_rates",
+        "rq.option_underlyings",
+        "rq.option_etf_5m",
+        "research.option_intraday_variance",
+        "research.option_features",
+    }
+
+
+def test_underlying_history_does_not_require_quotes_before_etf_listing(tmp_path, monkeypatch):
+    later = "510300.XSHG"
+
+    class Listed(FakeRQ):
+        def instruments(self, ids):
+            values = super().instruments(ids)
+            for value in values:
+                value.listed_date = "2025-01-07" if value.order_book_id == later else "2025-01-06"
+            return values
+
+        def get_price(self, ids, **kwargs):
+            return pd.DataFrame(
+                [
+                    {"date": day, "order_book_id": symbol, "close": 3.0, "volume": 100.0}
+                    for symbol in ids
+                    for day in pd.bdate_range(kwargs["start_date"], kwargs["end_date"])
+                    if day >= pd.Timestamp("2025-01-07" if symbol == later else "2025-01-06")
+                ]
+            )
+
+    monkeypatch.setattr(rq, "_connected_module", Listed())
+    source = render_builtin_recipe(
+        "rq.etf_options", start="2025-01-06", end="2025-01-08", symbols=[UNDERLYING, later]
+    )
+    for flag in ("INCLUDE_OPTIONS", "INCLUDE_RATES", "INCLUDE_RESEARCH"):
+        source = source.replace(f"{flag} = True", f"{flag} = False")
+    scope = {}
+    exec(source, scope)
+    context = DataRecipeContext(mode="run", root=str(tmp_path))
+    scope["etf_options"](context)
+    context.finalize()
+    frame = RuntimeStore(tmp_path).read("rq.option_underlyings")
+    assert len(frame) == 5
+    assert frame.loc[frame.symbol.eq(later)].date.min() == pd.Timestamp("2025-01-07")
+
+
 def test_incremental_adjusted_history_rebases_retained_dates(tmp_path, monkeypatch):
     fake = FakeRQ()
     run_recipe(tmp_path, fake, monkeypatch)

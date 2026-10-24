@@ -251,6 +251,13 @@ def test_feature_recipe_is_incremental_and_uses_existing_daily_factor_provider(t
         ["510050.SH"], ["option_atm_iv_30"], DAY, DAY
     )
     assert factors.value.iloc[0] == pytest.approx(0.2, abs=1e-8)
+    invalid = batches[0].copy()
+    invalid["issue"] = "Missing or stale curve"
+    context.publish("research.option_features", invalid)
+    # Expected warm-up/wing NaNs remain allowed; an actual calculation failure
+    # is a quality failure and cannot produce a successful completion verdict.
+    with pytest.raises(ValueError, match="quality validation failed"):
+        context.finalize()
 
 
 def test_quality_view_reuses_only_a_fresh_full_scope_check(tmp_path, monkeypatch):

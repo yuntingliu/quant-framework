@@ -99,26 +99,36 @@ def etf_intraday(context, *, start: str = {start!r}, end: str = {end!r}, symbols
         context.expect("research.option_intraday_variance", "complete 48-bar realized variance + adjusted overnight")
         return
     dates = [pd.Timestamp(v).normalize() for v in rq.get_trading_dates(start, end, market="cn")]
+    info = rq.instruments(list(symbols))
+    if not isinstance(info, (list, tuple)):
+        info = [info]
+    listings = {{str(item.order_book_id): pd.Timestamp(item.listed_date) for item in info}}
+    if set(listings) != set(symbols) or any(pd.isna(value) for value in listings.values()):
+        raise ValueError("Missing ETF listing history for intraday coverage")
+    expected = {{(day, symbol) for day in dates for symbol in symbols if day >= listings[symbol]}}
     try:
         existing = context.read("rq.option_etf_5m")
         counts = existing.groupby(["date", "symbol"]).size().to_dict()
     except DataLoadError:
         counts = {{}}
-    pending = [day for day in dates if any(counts.get((day, symbol)) != 48 for symbol in symbols) or day in dates[-3:]]
+    pending = [day for day in dates if any((day, symbol) in expected and (counts.get((day, symbol)) != 48 or day in dates[-3:]) for symbol in symbols)]
     for offset in range(0, len(pending), 20):
         batch = pending[offset:offset+20]
         # Raw intraday returns are scale invariant. Overnight returns below use
         # the full daily adjustment history, including ex-distribution dates.
-        raw = rq.get_price(list(symbols), start_date=str(batch[0].date()), end_date=str(batch[-1].date()), frequency="5m", fields=["open", "close"], adjust_type="none", expect_df=True)
+        active_symbols = [symbol for symbol in symbols if any((day, symbol) in expected for day in batch)]
+        raw = rq.get_price(active_symbols, start_date=str(batch[0].date()), end_date=str(batch[-1].date()), frequency="5m", fields=["open", "close"], adjust_type="none", expect_df=True)
         frame = normalize_intraday(raw)
         keys = set(zip(frame.date, frame.symbol))
-        if any((day, symbol) not in keys for day in batch for symbol in symbols):
+        if any(key not in keys for key in expected if key[0] in batch):
             raise ValueError("Missing requested five-minute ETF session")
         context.publish("rq.option_etf_5m", frame)
     history = context.read("rq.option_underlyings")
     # Recompute compact daily variance after any raw correction or daily rebase.
     for frame in context.iter_partitions("rq.option_etf_5m"):
-        frame = frame.loc[frame.symbol.isin(symbols) & pd.to_datetime(frame.date).between(pd.Timestamp(start), pd.Timestamp(end))]
+        # Daily history may have corrected an older distribution or close.
+        # Recompute retained realized variance too, not only the request window.
+        frame = frame.loc[frame.symbol.isin(symbols)]
         if not frame.empty:
             context.publish("research.option_intraday_variance", intraday_variance(frame, history))
 '''
