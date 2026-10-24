@@ -472,12 +472,13 @@ def _validate_options(store, *, start_date, as_of_date, fail_on_gap):
     from alphalab.dataio.option_snapshots import validate_option_partitions
 
     issues, sessions, expected, symbols = [], {}, {}, set()
+    manifest_cache = {}
     rows = 0
-    quote_counts = {"zero_volume": 0, "zero_volume_close_outside_range": 0, "adjusted_contracts": 0}
+    quote_counts = {"zero_volume": 0, "zero_volume_close_outside_range": 0, "adjusted_contracts": 0, "reconstructed_closes": 0}
     for path in store.catalog.files("rq.option_snapshots"):
         frame = pd.read_parquet(path)
         try:
-            validate_option_partitions(frame)
+            reports = validate_option_partitions(frame)
         except (ValueError, TypeError, KeyError) as exc:
             issues.append(QualityIssue("invalid_option_snapshot", str(exc)))
             continue
@@ -485,12 +486,12 @@ def _validate_options(store, *, start_date, as_of_date, fail_on_gap):
             for underlying, group in frame.groupby("underlying"):
                 for raw in group.expected_sessions.dropna().unique():
                     try:
-                        values = json.loads(raw)
-                        if not isinstance(values, list):
-                            raise ValueError("Expected a session list")
-                        expected.setdefault(underlying, set()).update(
-                            pd.Timestamp(v).normalize() for v in values
-                        )
+                        if raw not in manifest_cache:
+                            values = json.loads(raw)
+                            if not isinstance(values, list):
+                                raise ValueError("Expected a session list")
+                            manifest_cache[raw] = {pd.Timestamp(v).normalize() for v in values}
+                        expected.setdefault(underlying, set()).update(manifest_cache[raw])
                     except (ValueError, TypeError):
                         issues.append(
                             QualityIssue(
@@ -501,8 +502,10 @@ def _validate_options(store, *, start_date, as_of_date, fail_on_gap):
         if frame.empty:
             continue
         try:
-            reports = validate_option_partitions(frame)
             for report in reports:
+                if ((start_date is not None and pd.Timestamp(report["day"]) < pd.Timestamp(start_date))
+                        or (as_of_date is not None and pd.Timestamp(report["day"]) > pd.Timestamp(as_of_date))):
+                    continue
                 sessions.setdefault(report["underlying"], set()).add(pd.Timestamp(report["day"]))
                 for name in quote_counts:
                     quote_counts[name] += report[name]
@@ -538,6 +541,12 @@ def _validate_options(store, *, start_date, as_of_date, fail_on_gap):
                 severity="warning",
             )
         )
+    if quote_counts["reconstructed_closes"]:
+        issues.append(QualityIssue(
+            "audited_intraday_close_recovery",
+            "Inconsistent source closes reconstructed from complete intraday trades; original prices and evidence retained",
+            severity="warning",
+        ))
     metrics = {
         **_coverage_metrics(dates, symbols),
         "validated_rows": rows,
@@ -573,7 +582,25 @@ def _validate_compact(
     symbols = set(frame["symbol"].dropna().astype(str).str.upper()) if "symbol" in frame else set()
     metrics = _coverage_metrics(dates, symbols)
 
-    if dataset == "rq.option_underlyings":
+    if dataset == "research.option_features":
+        from alphalab.dataio.option_features import validate_feature_frame
+        try:
+            validate_feature_frame(frame)
+            metrics["missing_indicators"] = int(frame.filter(like="option_").isna().sum().sum())
+        except ValueError as exc:
+            issues.append(QualityIssue("invalid_option_features", str(exc)))
+    elif dataset == "rq.option_etf_5m":
+        from alphalab.dataio.option_intraday import validate_intraday
+        try:
+            validate_intraday(frame)
+        except ValueError as exc:
+            issues.append(QualityIssue("invalid_intraday_session", str(exc)))
+    elif dataset == "research.option_intraday_variance":
+        if not {"realized_variance", "intraday_variance", "bars"}.issubset(frame) or not frame.bars.eq(48).all():
+            issues.append(QualityIssue("invalid_realized_variance", "Realized variance requires complete 48-bar sessions"))
+        elif frame.intraday_variance.lt(0).any() or frame.realized_variance.dropna().lt(0).any():
+            issues.append(QualityIssue("invalid_realized_variance", "Negative realized variance"))
+    elif dataset == "rq.option_underlyings":
         if not {"date", "symbol", "raw_close", "adjusted_close"}.issubset(frame):
             issues.append(QualityIssue("invalid_etf_history", "Missing adjusted ETF history fields"))
         else:

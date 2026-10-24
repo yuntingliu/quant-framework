@@ -210,3 +210,84 @@ def test_workstation_uses_real_dated_curve_and_source_contracts(tmp_path):
     assert len(result["scenarios"]) == 33
     assert result["monte_carlo"]["base"]["measure"] == "Q"
     assert options_service.universe(tmp_path)["total_rows"] == 36
+
+
+def test_feature_recipe_is_incremental_and_uses_existing_daily_factor_provider(tmp_path):
+    from alphalab import create_runtime_engine
+    from alphalab.data_sdk.v1 import DataRecipeContext
+    from alphalab.dataio.option_features import iter_feature_batches
+
+    store = RuntimeStore(tmp_path)
+    store.write("rq.option_snapshots", market_snapshot())
+    store.write("rq.option_rates", rate_frame())
+    dates = pd.bdate_range(end=DAY, periods=30)
+    store.write(
+        "rq.option_underlyings",
+        pd.DataFrame(
+            {
+                "date": dates,
+                "symbol": ETF,
+                "raw_close": 3.0,
+                "adjusted_close": 3.0,
+                "source": "synthetic_test",
+            }
+        ),
+    )
+    context = DataRecipeContext(mode="run", root=str(tmp_path))
+    batches = list(iter_feature_batches(context, start=DAY, end=DAY, symbols=[ETF]))
+    assert len(batches) == 1
+    assert batches[0].option_atm_iv_30.iloc[0] == pytest.approx(0.2, abs=1e-8)
+    assert pd.isna(batches[0].option_vrp_hf_30.iloc[0])
+    context.publish("research.option_features", batches[0])
+    assert list(iter_feature_batches(context, start=DAY, end=DAY, symbols=[ETF])) == []
+    from alphalab.dataio.option_features import render_feature_recipe
+    from alphalab.dataio.recipes import execute_data_recipe
+
+    source = render_feature_recipe(start=DAY, end=DAY, symbols=[ETF])
+    repeated = execute_data_recipe(source, mode="run", root=tmp_path)
+    assert repeated["published"] == []
+    assert repeated["outputs"][0]["name"] == "published_feature_rows"
+    factors = create_runtime_engine(tmp_path).get_daily_factors(
+        ["510050.SH"], ["option_atm_iv_30"], DAY, DAY
+    )
+    assert factors.value.iloc[0] == pytest.approx(0.2, abs=1e-8)
+
+
+def test_quality_view_reuses_only_a_fresh_full_scope_check(tmp_path, monkeypatch):
+    store = RuntimeStore(tmp_path)
+    frame = market_snapshot()
+    store.write("rq.option_snapshots", frame)
+    store.write("rq.option_rates", rate_frame())
+    store.write(
+        "rq.option_underlyings",
+        pd.DataFrame(
+            {
+                "date": [pd.Timestamp(DAY)],
+                "symbol": [ETF],
+                "raw_close": [3.0],
+                "adjusted_close": [3.0],
+                "source": ["synthetic_test"],
+            }
+        ),
+    )
+    first = options_service.quality(tmp_path)
+    assert first["snapshots"]["status"] == "passed"
+    # Quality timestamps use whole seconds; move the fixture's file mtime into
+    # the checked interval without changing its content.
+    import os
+
+    for dataset in ("rq.option_snapshots", "rq.option_rates", "rq.option_underlyings"):
+        checked = pd.Timestamp(store.operations.latest_quality(dataset)["checked_at"]).timestamp()
+        for path in store.catalog.files(dataset):
+            os.utime(path, (checked - 1, checked - 1))
+    original, calls = options_service.validate_dataset, []
+
+    def tracked(dataset, *args, **kwargs):
+        calls.append(dataset)
+        return original(dataset, *args, **kwargs)
+
+    monkeypatch.setattr(options_service, "validate_dataset", tracked)
+    assert options_service.quality(tmp_path)["snapshots"]["status"] == "passed" and not calls
+    store.write("rq.option_snapshots", frame)
+    options_service.quality(tmp_path)
+    assert calls == ["rq.option_snapshots"]

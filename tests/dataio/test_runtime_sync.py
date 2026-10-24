@@ -153,6 +153,24 @@ def test_runtime_store_allows_concurrent_readers_and_excludes_a_writer(tmp_path)
         pass
 
 
+def test_recipe_publication_waits_for_a_reader_without_breaking_its_snapshot(tmp_path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from alphalab.data_sdk.v1 import DataRecipeContext
+
+    first, context = RuntimeStore(tmp_path), DataRecipeContext(mode="run", root=str(tmp_path))
+    frame = pd.DataFrame({"date": [pd.Timestamp("2025-01-06")], "symbol": ["510050.SH"], "paused": [False]})
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with first.dataset_read_lock("rq.paused"):
+            pending = pool.submit(context.publish, "rq.paused", frame, wait_seconds=2)
+            assert not pending.done()
+            assert not first.catalog.files("rq.paused")
+        assert pending.result(timeout=3)["status"] == "written"
+    assert first.read("rq.paused").paused.eq(False).all()
+    with pytest.raises(ValueError, match="sixty"):
+        context.publish("rq.paused", frame, wait_seconds=61)
+
+
 def test_operations_store_requeues_unfinished_jobs_and_honors_cancellation(tmp_path) -> None:
     operations = OperationsStore(tmp_path)
     resumable_id = operations.create_job({"source": "rq"})

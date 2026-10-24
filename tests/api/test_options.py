@@ -100,6 +100,8 @@ def test_sync_plan_is_visible_and_offline():
         "rq.option_snapshots",
         "rq.option_rates",
         "rq.option_underlyings",
+        "rq.instruments", "rq.bars", "rq.paused", "rq.option_etf_5m",
+        "research.option_intraday_variance", "research.option_features",
     }
     assert "OVERLAP_SESSIONS = 1" in report["source"]
     assert "rq.options.get_contract_property" in report["source"]

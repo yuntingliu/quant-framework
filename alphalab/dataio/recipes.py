@@ -100,6 +100,12 @@ def render_builtin_recipe(
     end: str,
     symbols: list[str] | tuple[str, ...] | None = None,
 ) -> str:
+    if template_id == "rq.etf_option_intraday":
+        from alphalab.dataio.option_intraday import render_intraday_recipe
+        return render_intraday_recipe(start=start, end=end, symbols=symbols or ("510050.XSHG",))
+    if template_id == "research.option_features":
+        from alphalab.dataio.option_features import render_feature_recipe
+        return render_feature_recipe(start=start, end=end, symbols=symbols or ("510050.XSHG",))
     if template_id == "rq.etf_options":
         from alphalab.dataio.option_recipe import render_option_recipe
 
@@ -630,6 +636,11 @@ def _add_builtin_recipe_comments(source: str) -> str:
 
 def builtin_recipe_catalog(*, start: str, end: str) -> list[dict[str, Any]]:
     return [
+        {"id": "research.option_features", "label": "Option literature features",
+         "description": "Incremental local option predictors with source fingerprints.",
+         "market": "cn", "instrument_types": ("ETF",), "datasets": ("research.option_features",),
+         "scope": "option_research", "kind": "built_in",
+         "source": render_builtin_recipe("research.option_features", start=start, end=end)},
         {
             "id": "rq.etf_options",
             "label": "ETF options daily",
@@ -689,7 +700,7 @@ def migrate_legacy_builtin_recipe(source: str) -> str:
     """Upgrade untouched built-in drafts while preserving edited custom Python."""
 
     inspection = inspect_data_recipe_source(source)
-    if not inspection.template_id:
+    if inspection.template_id not in {item.id for item in list_rq_sync_templates()}:
         return source
     parameters = {item.name: item.default for item in inspection.parameters if item.editable}
     start, end = parameters.get("start"), parameters.get("end")

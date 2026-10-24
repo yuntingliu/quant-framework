@@ -1029,6 +1029,8 @@ def _runtime_datasets_for_backtest(package: Mapping[str, Any]) -> tuple[str, ...
         datasets.add("rq.is_st")
     if requirements.get("daily_factors"):
         datasets.add("rq.daily_factors")
+        if any(str(field).startswith("option_") for field in requirements["daily_factors"]):
+            datasets.update(("research.option_features", "research.option_predictions"))
     if requirements.get("index_components"):
         datasets.add("rq.index_components")
     if requirements.get("fundamentals"):

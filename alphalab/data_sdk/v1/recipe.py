@@ -156,10 +156,12 @@ class DataRecipeContext:
 
         return rq
 
-    def publish(self, dataset: str, frame: pd.DataFrame) -> dict[str, Any]:
+    def publish(self, dataset: str, frame: pd.DataFrame, *, wait_seconds: float = 0) -> dict[str, Any]:
         """Validate and materialize one canonical runtime dataset batch."""
 
         dataset_id = str(dataset).strip()
+        if not 0 <= float(wait_seconds) <= 60:
+            raise ValueError("Publication wait must be between zero and sixty seconds")
         spec = self._catalog.spec(dataset_id)
         if not isinstance(frame, pd.DataFrame):
             raise TypeError("context.publish() requires a pandas.DataFrame")
@@ -176,7 +178,7 @@ class DataRecipeContext:
         }
         if self.mode == "run":
             assert self._store is not None
-            written = self._store.write(dataset_id, frame)
+            written = self._store.write(dataset_id, frame, lock_timeout_seconds=wait_seconds) if wait_seconds else self._store.write(dataset_id, frame)
             summary["files_written"] = len(written["written"])
             summary["status"] = "written"
         self._published.append(summary)
@@ -201,6 +203,22 @@ class DataRecipeContext:
         if self.mode != "run" or self._store is None:
             raise RuntimeError("context.read() is available only while running a recipe")
         return self._store.read(str(dataset).strip())
+
+    def iter_partitions(self, dataset: str, *, start=None, end=None, symbols=None):
+        """Read partitions one at a time, pruning dated option partitions first."""
+        if self.mode != "run":
+            raise RuntimeError("Partition iteration is available only in run mode")
+        first = pd.Timestamp(start).date().isoformat() if start is not None else None
+        last = pd.Timestamp(end).date().isoformat() if end is not None else None
+        selected = set(symbols) if symbols is not None else None
+        for path in self._catalog.files(str(dataset).strip()):
+            partitions = dict(part.split("=", 1) for part in path.parts if "=" in part)
+            day = partitions.get("date")
+            if day and ((first is not None and day < first) or (last is not None and day > last)):
+                continue
+            if selected is not None and "underlying" in partitions and partitions["underlying"] not in selected:
+                continue
+            yield pd.read_parquet(path)
 
     def sync_batches(
         self,

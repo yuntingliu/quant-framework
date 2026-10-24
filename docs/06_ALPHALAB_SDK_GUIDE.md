@@ -288,8 +288,11 @@ Incremental execution validates saved partitions, fills every missing or invalid
 session and refreshes the last three requested trading sessions. Edit
 `OVERLAP_SESSIONS` to receive older corrections. A revised daily universe replaces
 the entire partition, including removal of contracts withdrawn by the source.
-Contract discovery runs for every historical session; price/property requests
-are batched across ten-session chunks and contract IDs. Earlier completed days
+Contract discovery uses RQ historical option masters for every session, shared
+across selected ETFs (the same master filtered by RQ `options.get_contracts`).
+Discovery and acquisition have bounded concurrency; daily publication is
+serialized through the existing exclusive store. Price/property requests are
+batched across session chunks and contract IDs. Earlier completed days
 survive a later request failure; retry the same recipe to resume. No download runs during application startup or recipe planning.
 
 Every partition includes the discovered contract IDs and requested exchange
@@ -374,8 +377,10 @@ For example:
 python -m alphalab.options stress --spot 3 --strike 3 --maturity 0.08219178082 --rate 0.02 --volatility 0.25 --dividend-yield 0.01 --option-type P --multiplier 10000 --quantity -2 --paths 200000 --output artifacts/option-stress.json
 ```
 
-The **Data > ETF options** workbench provides four views: option chains,
-volatility, portfolio stress and data quality. Its selector includes Shanghai
+The **Data > ETF options** workbench provides five views: option chains,
+volatility, portfolio stress, data quality, and literature/return prediction.
+Its labels, controls, chart legends, retained basket labels and research
+definitions follow the application Chinese/English language selection. Its selector includes Shanghai
 50/300/500, Shenzhen 300/500, ChiNext, Shenzhen 100 and both STAR 50 ETFs.
 Select the analysis date and close or settlement price. A chain row displays its
 eligibility status; only eligible contracts can enter the signed portfolio.
@@ -385,8 +390,11 @@ recipes and options preserves the editor and basket state.
 **Historical synchronization** previews the full built-in source before using
 the existing data-recipe job manager. Jobs are cancellable and resumable;
 new partition revisions invalidate the chain, history, quality and cached
-portfolio results. The source flags `INCLUDE_OPTIONS`, `INCLUDE_RATES` and
-`INCLUDE_UNDERLYINGS` allow independent history backfills. Alongside snapshots,
+portfolio results. The source flags `INCLUDE_OPTIONS`, `INCLUDE_RATES`, `INCLUDE_UNDERLYINGS`
+and `INCLUDE_RESEARCH` allow independent backfills. The comprehensive default
+includes the complete visible ETF market-data recipe, five-minute acquisition
+and local feature materialization in the same persisted job. Planning remains
+offline. The historical master for one date is shared across underlyings. Alongside snapshots,
 `rq.option_rates` stores the original dated sovereign yield-curve nodes, and
 `rq.option_underlyings` stores aligned raw and pre-adjusted ETF closes. Prices
 must not be guessed or substituted when the source is unavailable. An ETF history
@@ -432,7 +440,7 @@ The HTTP API includes:
 | `GET /api/options/universe` | Local dates, row counts, data revision and sync status |
 | `GET /api/options/analysis` | Dated market-rate chain, forwards, surface and realized volatility |
 | `GET /api/options/history` | Bounded ATM IV history, at most 90 sessions |
-| `GET /api/options/quality` | Three shared datasets and partition completeness |
+| `GET /api/options/quality` | Shared option, curve, ETF, intraday and feature quality / partition completeness |
 | `POST /api/options/sync/plan`, `/sync/jobs` | Known visible recipe plan or existing job-manager submission |
 | `POST /api/options/portfolio` | Data-resolved signed basket, stress grid and joint MC |
 | `GET /api/options/chain` | Explicit rate/carry numerical chain analysis |
@@ -441,6 +449,153 @@ The HTTP API includes:
 Portfolio MC is bounded to 250,000 paths; standalone numerical MC is bounded to
 500,000 paths per scenario. Operational recipe routes own acquisition; pricing
 and analysis endpoints do not start downloads.
+
+### Literature predictors and return research
+
+Open **Literature & prediction** to inspect cited definitions, data coverage,
+historical features, purged out-of-sample results, and editable SDK project
+previews. The module registers nineteen option features in the existing Factor
+Workbench's **Options** category. Each catalog entry includes Chinese/English
+names, units, formula, source reference, close-time availability and a hypothesis
+status; a suggested direction is not evidence of local predictive skill.
+
+The feature families are:
+
+| Family | Saved fields / meaning |
+| --- | --- |
+| Level and term structure | `option_atm_iv_30/60/90`, `option_term_slope` |
+| Delta smile | `option_rr25_30`, `option_bf25_30`; spot BS Delta at fixed effective carry |
+| Literature smirk | `option_smirk`, `option_smirk_volume`; explicit moneyness and maturity selection |
+| Finite-strike replication | `option_mf_variance_30`, `option_q_skew_30`, `option_q_kurt_30` |
+| Variance premium | `option_vrp_daily_30`, `option_vrp_hf_30`; separately labeled daily and five-minute realized-variance inputs |
+| Realized variance/controls/activity | `option_rv5m_1`, `option_rv5m_20`, `option_rv20`, `option_momentum20`, `option_oi_pcr`, `option_volume_pcr` |
+
+Constant-maturity IV interpolates total variance between observed maturities;
+25-delta call and put legs are interpolated separately. Maturity extrapolation is
+refused. The smirk selection follows the cited paper's daily moneyness rules,
+with the European ETF IV/liquidity conventions disclosed as an adaptation.
+Risk-neutral log moments use static payoff-replication integrals over the
+reported observed strike bounds. Missing wings are not invented. Their central
+moments are finite-strike proxies, distinct from RR25 and from physical return
+skewness; the fourth moment is non-excess kurtosis. None of these daily ETF
+calculations is an exact reproduction of a US individual-stock study or an
+official VIX index.
+
+`rq.option_etf_5m` retains original unadjusted open/close bars with timestamps.
+Each saved trading day requires the complete 48-bar Chinese exchange grid.
+`research.option_intraday_variance` stores the sum of squared five-minute log
+returns and an overnight contribution adjusted with the retained daily ETF
+history, preventing distributions from creating false overnight jumps. Its first
+observation can lack a prior adjusted close and remains missing, not zero.
+`option_rv5m_20` requires twenty consecutive complete dated observations and
+annualizes their mean realized variance using 252 sessions. The high-frequency
+VRP variant subtracts that trailing annual variance from finite-strike implied
+variance. It never subtracts a subsequently realized future variance as a signal.
+
+`research.option_features` has one row per date/ETF with source fingerprints,
+formula version, availability and per-expiry diagnostics. Its visible local
+recipe rebuilds changed inputs and preserves explicit NaNs; invalid observations
+replace previously valid values rather than carrying stale signals. The Data
+SDK's `context.iter_partitions(dataset, start=..., end=..., symbols=...)` prunes
+known daily option partitions before reading them. This is a recipe API, not a
+provider handle exposed to a strategy.
+`context.publish(..., wait_seconds=60)` lets the feature recipe wait at most one
+minute for an existing backtest's dataset read lock. The default remains an
+immediate lock check; the wait never permits writes during a frozen backtest.
+An unchanged local feature build returns `published_feature_rows = 0` successfully.
+
+Historical option availability starts at the earliest contract listing in RQ's
+complete instrument master for each ETF. Pre-listing dates are excluded from
+that ETF's required-session manifest; a missing post-listing master or contract
+still fails synchronization. The exact inclusive option listing/delisting rule
+used by RQ's installed `all_instruments(date=...)` is applied to the selected ETF
+subset of its complete master. Network reads are bounded and concurrent, and
+publication remains exclusive.
+The store reconciles its option inventory once per writer and updates partition
+counts incrementally instead of rescanning every retained file after each day.
+
+An inconsistent traded daily close is never accepted merely by relaxing its
+OHLC check. The recipe requests the same contract's complete 48 five-minute
+bars, reconciles total volume and checks traded closes and the 15:00 reference
+against daily price bounds. It also requires the following dated contract
+multiplier and strike adjustment to explain the original close's scale within
+tick-rounding bounds. Only then can the same-day 15:00 reference replace the
+inconsistent close. RQ minute opens can carry a preceding reference; a closing
+reference is not necessarily the last trade or an executable fill. Following
+contract properties are retrospective data-quality evidence, not model inputs.
+`source_close`, `close_recovery`, and the complete timestamped `close_evidence`
+are retained and revalidated on publication and quality review. Missing or
+inconsistent evidence still fails the job. Quality reports count reconstructed
+closes and retain a warning; the original vendor reference remains auditable.
+The workbench reuses a saved full-scope quality report only when its row/file
+counts and date bounds match and its check is newer than every source partition.
+Rewrites, removals and unresolved gaps invalidate that reuse. An initial full
+scan of a long history can take several minutes.
+
+Saved predictors enter the existing research-factor provider:
+
+```python
+@factor(id="smirk_hypothesis", label="Smirk hypothesis")
+def smirk_hypothesis(context):
+    """Read the current eligible daily ETF smirk without stale-day carry."""
+    return context.daily_factor("option_smirk")
+```
+
+Declare `DATA_REQUIREMENTS = {"daily_factors": ["option_smirk"]}` together with
+the normal market/instrument requirements. The SDK enforces exact-session
+availability for `option_` fields: close events may read that session; open events
+may read only the preceding strategy session. Missing dates remain NaN. This
+rule also covers experiment-scoped forecasts. No strategy directly opens a
+parquet file or contacts RQ.
+
+Return research uses close-t predictors and an executable label from adjusted
+open at t+1 to adjusted close at t+h, where h is 1, 5 or 20 trading sessions. Each
+expanding-window fit uses only training labels completed before its test block,
+plus the selected embargo. Means, scales, ETF intercepts and coefficients are
+estimated on training rows only. A fixed ridge penalty and refit interval are
+chosen before the reported test; no best test direction is selected. The default
+baseline uses the same ETF intercepts plus RV20 and 20-session momentum. A
+control selected as a predictor stays in the baseline and does not receive false
+incremental R-squared credit.
+
+Reports contain out-of-sample daily cross-sectional Rank IC with horizon-lag
+HAC inference, incremental prediction R-squared, predictor group returns,
+coverage, fold cutoffs, and latest forecasts. Training OLS coefficients use
+within-date clustered scores and Newey-West aggregation across dates; they are
+explicitly not significance tests of post-selected out-of-sample predictions.
+Unknown tail returns remain unscored forecasts. Overlapping group returns are
+not a tradable NAV. Short tests, large IC/R-squared, correlated ETFs, fixed-universe
+selection, vendor historical revisions and repeated experiment selection have
+explicit warnings. Building the pipeline does not establish successful alpha.
+
+**Preview feature strategy** creates a signed rank blend of selected indicators;
+**Preview OOS forecast strategy** uses the saved experiment's unique forecast
+field. Inspect the replacement universe, signal, allocation and factor bodies,
+then create an editable project through the canonical project API and source
+probes. Data acquisition uses the complete visible ETF recipe. The usual Factor,
+Strategy and Validation workbenches own subsequent editing and backtests.
+Weekly/monthly close decisions, next-session open fills, costs, suspensions,
+limits, cash and NAV remain in the single existing SDK engine. Each forecast
+experiment uses a distinct `option_prediction_<run_id>` field, and backtest data
+locks include the derived datasets; a new experiment cannot redirect an older
+project to another forecast vector.
+
+The pure numerical facade also exports `literature_catalog`, `option_features`,
+`strip_moments`, `research_panel`, and `walk_forward_research`. HTTP additions:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/options/research/catalog` | Cited bilingual definitions, coverage and saved experiment summaries |
+| `GET /api/options/features` | Bounded dated feature history |
+| `POST /api/options/features/plan`, `/features/jobs` | Offline local-feature source preview / existing job-manager submission |
+| `POST /api/options/research/run` | Bounded purged walk-forward study and dated forecasts |
+| `GET /api/options/research/runs/{id}` | Reproducible saved research JSON |
+| `POST /api/options/research/projects/plan`, `/projects` | Reviewable canonical project specification / confirmed project creation |
+
+Numerical experiments are persisted as reproducible JSON research artifacts in
+the ignored runtime store. The view exports the complete JSON and a bilingual
+Markdown interpretation with citations. These artifacts are research diagnostics;
+AlphaLab's global published Report Workbench continues to use Conexus Documents.
 
 Jump parameters are conditional scenario assumptions, not market-calibrated
 crash forecasts. Sampling intervals exclude model/calibration uncertainty;

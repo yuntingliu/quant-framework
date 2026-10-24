@@ -572,6 +572,23 @@ class PartitionedParquetResearchDataProvider:
         end: str,
     ) -> pd.DataFrame:
         frame = self._load("rq.daily_factors")
+        option_fields = [field for field in fields if str(field).startswith("option_")]
+        pieces = [frame] if not frame.empty else []
+        if option_fields:
+            from alphalab.dataio.symbols import to_framework_symbol
+            features = self._load("research.option_features")
+            columns = [name for name in option_fields if name in features]
+            if columns and not features.empty:
+                part = features[["date", "symbol", *columns]].melt(
+                    id_vars=["date", "symbol"], var_name="field", value_name="value")
+                part["symbol"] = part.symbol.map(to_framework_symbol)
+                pieces.append(part)
+            forecasts = self._load("research.option_predictions")
+            if not forecasts.empty:
+                part = forecasts[["date", "symbol", "field", "value"]].copy()
+                part["symbol"] = part.symbol.map(to_framework_symbol)
+                pieces.append(part)
+        frame = pd.concat(pieces, ignore_index=True) if pieces else pd.DataFrame()
         if frame.empty:
             return pd.DataFrame(columns=["date", "symbol", "field", "value"])
         selected_symbols = set(_normal_symbols(symbols))

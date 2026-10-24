@@ -31,7 +31,7 @@ ETF_NAMES = {
 }
 
 
-@lru_cache(maxsize=4096)
+@lru_cache(maxsize=65536)
 def _row_count(path, size, mtime):
     return pq.ParquetFile(path).metadata.num_rows
 
@@ -63,7 +63,7 @@ def universe(root=None):
                 "latest": dates[-1] if dates else None,
             }
         )
-    for dataset in ("rq.option_rates", "rq.option_underlyings"):
+    for dataset in ("rq.option_rates", "rq.option_underlyings", "research.option_features", "research.option_predictions", "research.option_intraday_variance"):
         for path in catalog.files(dataset):
             revision = max(revision, path.stat().st_mtime_ns)
     jobs = OperationsStore(root).list_jobs(limit=8)
@@ -206,11 +206,36 @@ def history(underlying, *, end=None, limit=40, root=None):
 
 
 def quality(root=None):
-    return {
-        "snapshots": validate_dataset("rq.option_snapshots", root, fail_on_gap=True),
-        "rates": validate_dataset("rq.option_rates", root),
-        "underlyings": validate_dataset("rq.option_underlyings", root),
+    catalog, operations = DataCatalog(root), OperationsStore(root)
+
+    def checked(dataset):
+        status = catalog.status(dataset)
+        saved = operations.latest_quality(dataset)
+        if saved:
+            prior = saved["report"]
+            metrics = prior.get("metrics", {})
+            files = catalog.files(dataset)
+            latest_change = max((p.stat().st_mtime_ns for p in files), default=0)
+            checked_ns = pd.Timestamp(saved["checked_at"]).value
+            # Reuse only a full-scope check newer than every retained partition.
+            # File rewrites, removed partitions, and unresolved gaps invalidate it.
+            if (status["status"] == "ready" and prior["rows"] == status["rows"]
+                    and prior["files"] == status["files"] and checked_ns >= latest_change
+                    and metrics.get("start_date") == status["date_start"]
+                    and metrics.get("end_date") == status["date_end"]
+                    and not metrics.get("missing_sessions")):
+                return {**prior, "checked_at": saved["checked_at"]}
+        return validate_dataset(dataset, root, fail_on_gap=dataset == "rq.option_snapshots")
+
+    report = {
+        "snapshots": checked("rq.option_snapshots"),
+        "rates": checked("rq.option_rates"),
+        "underlyings": checked("rq.option_underlyings"),
     }
+    for key, dataset in (("features", "research.option_features"), ("intraday", "rq.option_etf_5m"), ("realized", "research.option_intraday_variance")):
+        if DataCatalog(root).files(dataset):
+            report[key] = checked(dataset)
+    return report
 
 
 def portfolio(request, root=None):

@@ -505,6 +505,18 @@ class StrategyContext:
             & frame["field"].astype(str).eq(str(field))
             & frame["symbol"].isin(requested)
         ].sort_values("date")
+        if str(field).startswith("option_"):
+            # Daily option references exist only after the close. Never carry an
+            # old option signal over a missing day or expose today's close at open.
+            visible = self._as_of.normalize()
+            if self._event == Event.SESSION_OPEN:
+                prior = [day for day in self.calendar.sessions if day < visible]
+                if not prior:
+                    return pd.Series(float("nan"), index=requested, dtype=float)
+                visible = max(prior)
+            rows = rows.loc[rows.date.eq(visible)]
+            if rows.empty:
+                return pd.Series(float("nan"), index=requested, dtype=float)
         if rows.empty:
             raise KeyError(f"daily factor is unavailable: {field}")
         latest = rows.drop_duplicates("symbol", keep="last").set_index("symbol")

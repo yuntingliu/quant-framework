@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useStrategySdk, type SdkEntrypoint } from "@/contexts/StrategySdkContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
+import { useLanguage } from "@/contexts/LanguageContext"
 import { useConfirm } from "@/hooks/useConfirm"
 import { api, type MarketBar, type MarketInstrument } from "@/lib/api"
 import { normalizeMarketSymbol } from "@/lib/marketSymbols"
@@ -87,7 +88,8 @@ interface FactorResearchResult {
 interface FactorTemplate {
   id: string
   label: string
-  category: "technical" | "fundamental"
+  category: "technical" | "fundamental" | "options"
+  label_zh?: string; label_en?: string; description_zh?: string; description_en?: string; hypothesis_direction?: string
   description: string
   inputs: string[]
   requirements: Record<string, string[]>
@@ -357,6 +359,7 @@ function FactorResultPanels({ snapshot, history, research }: {
 }
 
 export function FactorWorkbenchWidget() {
+  const { language } = useLanguage()
   const sdk = useStrategySdk()
   const confirm = useConfirm()
   const project = sdk.project
@@ -375,7 +378,7 @@ export function FactorWorkbenchWidget() {
   const [history, setHistory] = useState<FactorHistoryResult | null>(null)
   const [research, setResearch] = useState<FactorResearchResult | null>(null)
   const [templateQuery, setTemplateQuery] = useState("")
-  const [templateCategory, setTemplateCategory] = useState<"all" | "technical" | "fundamental">("all")
+  const [templateCategory, setTemplateCategory] = useState<"all" | "technical" | "fundamental" | "options">("all")
   const [installingTemplate, setInstallingTemplate] = useState("")
   const factors = useMemo(() => project?.inspection.entrypoints.filter((item) => item.kind === "factor") ?? [], [project?.inspection.entrypoints])
   const activeFactor = factors.find((item) => item.id === selectedFactor) ?? factors[0]
@@ -391,11 +394,20 @@ export function FactorWorkbenchWidget() {
     queryFn: () => api.get<FactorTemplateCatalog>("/strategy/factor-templates"),
     staleTime: Number.POSITIVE_INFINITY,
   })
+  const L = (zh: string, en: string) => language === "zh" ? zh : en
+  const factorLabel = (factor: { id: string; label?: string | null }) => {
+    const template = templatesQuery.data?.templates.find(item => item.id === factor.id && item.category === "options")
+    if (template && [template.label, template.label_en, template.label_zh].includes(factor.label ?? "")) {
+      return language === "zh" ? template.label_zh ?? template.label : template.label_en ?? template.label
+    }
+    if (factor.id.startsWith("option_prediction_") && factor.label === "Purged OOS forecast") return L("隔离标签样本外预测", "Purged OOS forecast")
+    return factor.label || factor.id
+  }
   const templates = useMemo(() => {
     const needle = templateQuery.trim().toLowerCase()
     return (templatesQuery.data?.templates ?? []).filter((template) => (
       (templateCategory === "all" || template.category === templateCategory)
-      && (!needle || template.id.toLowerCase().includes(needle) || template.label.toLowerCase().includes(needle) || template.description.toLowerCase().includes(needle))
+      && (!needle || template.id.toLowerCase().includes(needle) || [template.label, template.label_zh, template.label_en, template.description, template.description_zh, template.description_en].some(value => value?.toLowerCase().includes(needle)))
     ))
   }, [templateCategory, templateQuery, templatesQuery.data?.templates])
 
@@ -581,7 +593,7 @@ export function FactorWorkbenchWidget() {
         <FactorMarketBrowser fields={fields} />
         <Tabs className="factor-workbench-tabs" value={workspaceView} onValueChange={(value) => setWorkspaceView(value as "build" | "results")}>
           <div className="factor-workbench-toolbar">
-            <TabsList><TabsTrigger value="build">因子库与编辑</TabsTrigger><TabsTrigger value="results">因子检验{hasUnsavedChanges ? <span className="factor-tab-warning">尚未保存</span> : null}</TabsTrigger></TabsList>
+            <TabsList><TabsTrigger value="build">{L("因子库与编辑", "Factor library & editor")}</TabsTrigger><TabsTrigger value="results">{L("因子检验", "Factor tests")}{hasUnsavedChanges ? <span className="factor-tab-warning">尚未保存</span> : null}</TabsTrigger></TabsList>
             <div className="factor-workbench-actions">
               <span className={hasUnsavedChanges ? "factor-build-hint" : "factor-validation-ready"}>{hasUnsavedChanges ? "当前因子尚未保存" : "已保存"}</span>
             </div>
@@ -590,17 +602,17 @@ export function FactorWorkbenchWidget() {
 
           <TabsContent className="factor-workbench-content" value="build"><div className="factor-build-grid">
             <section className="factor-lab-panel embedded">
-              <header className="factor-panel-header"><span><strong><Library size={14} /> 因子库</strong></span><Button size="sm" variant="outline" disabled={!project.editable || busy || factorDirty} onClick={() => void addFactor()}><Plus />新因子</Button></header>
-              <div className="factor-template-controls"><label><Search size={12} /><input value={templateQuery} onChange={(event) => setTemplateQuery(event.target.value)} placeholder={`搜索 ${templatesQuery.data?.templates.length ?? 0} 个默认因子`} /></label><div>{(["all", "technical", "fundamental"] as const).map((category) => <button type="button" key={category} className={templateCategory === category ? "active" : ""} onClick={() => setTemplateCategory(category)}>{category === "all" ? "全部" : category === "technical" ? "技术" : "基本面"}</button>)}</div></div>
+              <header className="factor-panel-header"><span><strong><Library size={14} /> {L("因子库", "Factor library")}</strong></span><Button size="sm" variant="outline" disabled={!project.editable || busy || factorDirty} onClick={() => void addFactor()}><Plus />{L("新因子", "New factor")}</Button></header>
+              <div className="factor-template-controls"><label><Search size={12} /><input value={templateQuery} onChange={(event) => setTemplateQuery(event.target.value)} placeholder={L(`搜索 ${templatesQuery.data?.templates.length ?? 0} 个默认因子`, `Search ${templatesQuery.data?.templates.length ?? 0} factor templates`)} /></label><div>{(["all", "technical", "fundamental", "options"] as const).map((category) => <button type="button" key={category} className={templateCategory === category ? "active" : ""} onClick={() => setTemplateCategory(category)}>{language === "en" ? ({all:"All",technical:"Technical",fundamental:"Fundamental",options:"Options"})[category] : ({all:"全部",technical:"技术",fundamental:"基本面",options:"期权"})[category]}</button>)}</div></div>
               <div className="factor-panel-scroll">
-                <div className="factor-section-heading"><span>项目因子</span><strong>{factors.length}</strong></div>
-                <div className="factor-project-list">{factors.map((factor) => <button type="button" key={factor.id} className={activeFactor?.id === factor.id ? "active" : ""} onClick={() => selectProjectFactor(factor.id)}><span><strong>{factor.id}</strong><small>{factor.label ? `${factor.label} · ` : ""}{factor.function}</small></span></button>)}</div>
-                <div className="factor-section-heading mt-4"><span>默认因子库</span><strong>{templates.length}</strong></div>
+                <div className="factor-section-heading"><span>{L("项目因子", "Project factors")}</span><strong>{factors.length}</strong></div>
+                <div className="factor-project-list">{factors.map((factor) => <button type="button" key={factor.id} className={activeFactor?.id === factor.id ? "active" : ""} onClick={() => selectProjectFactor(factor.id)}><span><strong>{factor.id}</strong><small>{factor.label ? `${factorLabel(factor)} · ` : ""}{factor.function}</small></span></button>)}</div>
+                <div className="factor-section-heading mt-4"><span>{L("默认因子库", "Factor templates")}</span><strong>{templates.length}</strong></div>
                 {templatesQuery.isLoading ? <div className="analytics-empty">正在读取因子模板…</div> : null}
                 {templatesQuery.error instanceof Error ? <div className="workbench-message error">{templatesQuery.error.message}</div> : null}
-                <div className="factor-template-list">{templates.map((template) => <article key={template.id}><div><span><strong>{template.label}</strong><small>{template.description}</small><small>数据：{template.inputs.join("、")}</small></span><em>{template.category === "technical" ? "技术" : "基本面"} · {template.recommended_direction === "higher" ? "高值优先" : "低值优先"}</em></div><footer><code>{template.id}</code><button type="button" disabled={!project.editable || localDirty || Boolean(installingTemplate)} onClick={() => void installTemplate(template)}><Plus size={11} />{installingTemplate === template.id ? "加入中" : "加入项目"}</button></footer></article>)}</div>
+                <div className="factor-template-list">{templates.map((template) => <article key={template.id}><div><span><strong>{language === "en" ? template.label_en ?? template.label : template.label_zh ?? template.label}</strong><small>{language === "en" ? template.description_en ?? template.description : template.description_zh ?? template.description}</small><small>{L("数据：", "Data: ")}{template.inputs.join(", ")}</small></span><em>{language === "en" ? ({technical:"Technical",fundamental:"Fundamental",options:"Options"})[template.category] : ({technical:"技术",fundamental:"基本面",options:"期权"})[template.category]} · {template.hypothesis_direction === "test" ? (language === "en" ? "Direction untested" : "方向待检验") : language === "en" ? (template.recommended_direction === "higher" ? "Higher first" : "Lower first") : (template.recommended_direction === "higher" ? "高值优先" : "低值优先")}</em></div><footer><code>{template.id}</code><button type="button" disabled={!project.editable || localDirty || Boolean(installingTemplate)} onClick={() => void installTemplate(template)}><Plus size={11} />{installingTemplate === template.id ? L("加入中", "Adding…") : L("加入项目", "Add to project")}</button></footer></article>)}</div>
                 <div className="factor-section-heading mt-4">可复用因子依赖</div>
-                <div className="factor-catalog-list">{factors.filter((factor) => factor.id !== activeFactor?.id).map((factor) => <button type="button" key={factor.id} onClick={() => insertFactorDependency(factor)}><span><strong>{factor.label || factor.id}</strong><small>插入 context.factor("{factor.id}")</small></span><Plus size={13} /></button>)}</div>
+                <div className="factor-catalog-list">{factors.filter((factor) => factor.id !== activeFactor?.id).map((factor) => <button type="button" key={factor.id} onClick={() => insertFactorDependency(factor)}><span><strong>{factorLabel(factor)}</strong><small>插入 context.factor("{factor.id}")</small></span><Plus size={13} /></button>)}</div>
               </div>
             </section>
             <section className="factor-lab-panel embedded">
@@ -614,7 +626,7 @@ export function FactorWorkbenchWidget() {
                 disabled={!project.editable}
                 height={640}
                 fields={Object.entries(fields?.datasets ?? {}).flatMap(([dataset, items]) => items.map((item) => ({ name: item.name, dataset, detail: `${item.data_type}${item.nullable ? " · 可空" : ""}` })))}
-                factors={factors.map((factor) => ({ id: factor.id, label: factor.label }))}
+                factors={factors.map((factor) => ({ id: factor.id, label: factorLabel(factor) }))}
                 parameters={activeFactor.parameters}
                 onChange={setFactorSource}
                 onSave={(nextSource) => saveActiveFactor(nextSource)}
@@ -623,7 +635,7 @@ export function FactorWorkbenchWidget() {
           </div></TabsContent>
 
           <TabsContent className="factor-workbench-content" value="results"><div className="factor-final-validation">
-            <div className="factor-final-validation-intro"><div><FlaskConical size={16} /><span><strong>单因子检验</strong><small>选择一个已保存因子，运行截面、历史分布或点时研究证据。</small></span></div><div className="factor-validation-controls"><label className="factor-validation-control"><span>检验因子</span><select value={activeFactor?.id ?? ""} disabled={busy || factorDirty || factors.length === 0} onChange={(event) => selectProjectFactor(event.target.value)}>{factors.map((factor) => <option key={factor.id} value={factor.id}>{factor.label ? `${factor.label} (${factor.id})` : factor.id}</option>)}</select></label><label className="factor-validation-control"><span>开始</span><Input className="h-8" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label className="factor-validation-control"><span>结束</span><Input className="h-8" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label><Button size="sm" variant="outline" disabled={busy || hasUnsavedChanges || !activeFactor} onClick={() => void evaluate("snapshot")}><Play />截面检验</Button><Button size="sm" variant="outline" disabled={busy || hasUnsavedChanges || !activeFactor} onClick={() => void evaluate("history")}><Play />历史分布</Button><Button size="sm" disabled={busy || hasUnsavedChanges || !activeFactor} onClick={() => void evaluate("research")}><Play />研究证据</Button></div></div>
+            <div className="factor-final-validation-intro"><div><FlaskConical size={16} /><span><strong>单因子检验</strong><small>选择一个已保存因子，运行截面、历史分布或点时研究证据。</small></span></div><div className="factor-validation-controls"><label className="factor-validation-control"><span>检验因子</span><select value={activeFactor?.id ?? ""} disabled={busy || factorDirty || factors.length === 0} onChange={(event) => selectProjectFactor(event.target.value)}>{factors.map((factor) => <option key={factor.id} value={factor.id}>{factor.label ? `${factorLabel(factor)} (${factor.id})` : factor.id}</option>)}</select></label><label className="factor-validation-control"><span>开始</span><Input className="h-8" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label className="factor-validation-control"><span>结束</span><Input className="h-8" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label><Button size="sm" variant="outline" disabled={busy || hasUnsavedChanges || !activeFactor} onClick={() => void evaluate("snapshot")}><Play />截面检验</Button><Button size="sm" variant="outline" disabled={busy || hasUnsavedChanges || !activeFactor} onClick={() => void evaluate("history")}><Play />历史分布</Button><Button size="sm" disabled={busy || hasUnsavedChanges || !activeFactor} onClick={() => void evaluate("research")}><Play />研究证据</Button></div></div>
             <FactorResultPanels snapshot={snapshot} history={history} research={research} />
           </div></TabsContent>
         </Tabs>

@@ -441,3 +441,29 @@ selection is dated, and diagnostic SVI fits cannot silently become valuation
 inputs. Joint portfolio MC shares asset paths rather than independently sampling
 each contract. No derivative fills or margin accounting are added to the core
 stock backtester.
+
+
+Option literature research extends the same data-mode slice. The complete
+RQ option master is narrowed to ETFs and its inclusive listing intervals drive
+dated discovery; vendor reads are bounded and
+parallel, while publication is serialized. An option publication reconciles the
+partition inventory once per store lifetime, then relies on locked partition
+updates rather than scanning the complete daily tree on every write. Quality
+checks still inspect saved partitions and discovery manifests.
+
+`rq.option_etf_5m` and `research.option_intraday_variance` retain complete exchange
+sessions and adjusted overnight variance. `research.option_features` records
+nineteen formula-versioned close-time predictors with source hashes. The local
+research-factor provider exposes their numeric columns through existing
+`daily_factor` requirements, so no new strategy context or backtest pipeline is
+introduced. The option namespace refuses stale carry and same-day close data at
+open events.
+
+`alphalab/options/research.py` owns label alignment and purged expanding-window
+statistical diagnostics. `options_research_service.py` persists reproducible JSON
+experiments and unique forecast fields in `research.option_predictions`, and
+creates projects by replacing registered default functions through the existing
+project service. Those projects use the normal engine, source hashes, input
+locks and result store. Research JSON and downloadable interpretations do not
+create a second global Report document store. The frontend's language-aware
+option views and Options factor category use one bilingual literature catalog.

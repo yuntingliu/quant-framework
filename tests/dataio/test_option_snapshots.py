@@ -100,6 +100,8 @@ def run_recipe(root, fake, monkeypatch, overlap=0, start="2025-01-06", end="2025
     monkeypatch.setattr(rq, "_connected_module", fake)
     source = render_builtin_recipe("rq.etf_options", start=start, end=end)
     source = source.replace("OVERLAP_SESSIONS = 3", f"OVERLAP_SESSIONS = {overlap}")
+    source = source.replace("INCLUDE_RESEARCH = True", "INCLUDE_RESEARCH = False")
+    source = source.replace("DAILY_MASTER_DISCOVERY = True", "DAILY_MASTER_DISCOVERY = False")
     scope = {}
     exec(source, scope)
     context = DataRecipeContext(mode="run", root=str(root))
@@ -252,3 +254,142 @@ def test_zero_volume_reference_condition_reaches_quality_report(tmp_path, monkey
         issue["code"] == "non_trading_reference_close" and issue["severity"] == "warning"
         for issue in report["issues"]
     )
+
+
+def test_option_publications_do_not_rescan_the_entire_history_per_day(tmp_path, monkeypatch):
+    fake = FakeRQ()
+    run_recipe(tmp_path, fake, monkeypatch)
+    store = RuntimeStore(tmp_path)
+    original = store.catalog.files
+    calls = []
+
+    def inventory(dataset):
+        calls.append(dataset)
+        return original(dataset)
+
+    monkeypatch.setattr(store.catalog, "files", inventory)
+    frame = store.read("rq.option_snapshots")
+    calls.clear()
+    for _, day in frame.groupby("date"):
+        store.write("rq.option_snapshots", day)
+    assert calls.count("rq.option_snapshots") == 1
+    status = store.operations.dataset_status("rq.option_snapshots")
+    assert status["rows"] == 6 and status["files"] == 3
+
+
+def test_anomalous_close_requires_complete_reconciled_trade_evidence(tmp_path, monkeypatch):
+    from alphalab.dataio.option_rq import recover_daily_closes
+
+    fake = FakeRQ()
+    run_recipe(tmp_path, fake, monkeypatch)
+    frame = RuntimeStore(tmp_path).read("rq.option_snapshots")
+    day = frame.loc[frame.date.eq(pd.Timestamp("2025-01-08"))].copy()
+    day.loc[day.index[0], "close"] = 0.04
+    times = pd.date_range("2025-01-08 09:35", periods=24, freq="5min").union(
+        pd.date_range("2025-01-08 13:05", periods=24, freq="5min")
+    )
+    minute = pd.DataFrame(
+        {
+            "datetime": times,
+            "order_book_id": day.order_book_id.iloc[0],
+            "open": 0.1,
+            "high": 0.12,
+            "low": 0.08,
+            "close": 0.1,
+            "volume": 0.0,
+        }
+    )
+    minute.loc[0, "volume"] = 100.0
+    following = pd.DataFrame(
+        {
+            "order_book_id": [day.order_book_id.iloc[0]],
+            "date": [pd.Timestamp("2025-01-09")],
+            "contract_multiplier": [25550.0],
+            "strike_price": [1.176],
+        }
+    )
+    fixed = recover_daily_closes(day, minute, following)
+    assert fixed.close.iloc[0] == 0.1 and fixed.source_close.iloc[0] == 0.04
+    store = RuntimeStore(tmp_path)
+    store.write("rq.option_snapshots", fixed)
+    report = validate_dataset("rq.option_snapshots", tmp_path, fail_on_gap=True)
+    assert report["status"] == "passed" and report["metrics"]["reconstructed_closes"] == 1
+    assert any(i["code"] == "audited_intraday_close_recovery" for i in report["issues"])
+    with pytest.raises(ValueError, match="48-bar"):
+        recover_daily_closes(day, minute.iloc[:-1], following)
+    bad = minute.copy()
+    bad.loc[0, "volume"] = 99.0
+    with pytest.raises(ValueError, match="reconcile"):
+        recover_daily_closes(day, bad, following)
+    fixed.loc[fixed.index[0], "close"] = 0.11
+    with pytest.raises(QualityError, match="evidence"):
+        store.write("rq.option_snapshots", fixed)
+
+
+def test_parallel_underlying_reads_keep_shared_publication_exclusive(tmp_path, monkeypatch):
+    import time
+
+    class Multi(FakeRQ):
+        def all_instruments(self, type, date=None):
+            self.calls.append(date)
+            return pd.DataFrame(
+                [
+                    {
+                        "order_book_id": symbol[:6] + kind,
+                        "underlying_order_book_id": symbol,
+                        "listed_date": "2025-01-07" if symbol == "510300.XSHG" else "2024-12-01",
+                        "de_listed_date": "2025-02-26",
+                    }
+                    for symbol in (UNDERLYING, "510300.XSHG")
+                    for kind in ("0001", "0002")
+                ]
+            )
+
+        def get_contracts(self, underlying, trading_date):
+            return [underlying[:6] + "0001", underlying[:6] + "0002"]
+
+        def get_price(self, ids, **kwargs):
+            if isinstance(ids, str) or all("." in code for code in ids):
+                symbols = [ids] if isinstance(ids, str) else ids
+                return pd.DataFrame(
+                    [
+                        {"date": day, "order_book_id": symbol, "close": 3.0, "volume": 100.0}
+                        for day in pd.bdate_range(kwargs["start_date"], kwargs["end_date"])
+                        for symbol in symbols
+                    ]
+                )
+            return super().get_price(ids, **kwargs)
+
+        def instruments(self, ids):
+            values = super().instruments(ids)
+            for item in values:
+                item.underlying_order_book_id = item.order_book_id[:6] + ".XSHG"
+            return values
+
+    fake = Multi()
+    monkeypatch.setattr(rq, "_connected_module", fake)
+    original = RuntimeStore._partitions
+
+    def slower(self, dataset, frame):
+        if dataset == "rq.option_snapshots":
+            time.sleep(0.02)
+        return original(self, dataset, frame)
+
+    monkeypatch.setattr(RuntimeStore, "_partitions", slower)
+    source = render_builtin_recipe(
+        "rq.etf_options", start="2025-01-06", end="2025-01-08", symbols=[UNDERLYING, "510300.XSHG"]
+    )
+    source = source.replace("INCLUDE_RESEARCH = True", "INCLUDE_RESEARCH = False")
+    scope = {}
+    exec(source, scope)
+    context = DataRecipeContext(mode="run", root=str(tmp_path))
+    scope["etf_options"](context)
+    frame = RuntimeStore(tmp_path).read("rq.option_snapshots")
+    assert len(frame) == 10 and frame.underlying.nunique() == 2
+    later = frame.loc[frame.underlying.eq("510300.XSHG")]
+    assert later.date.min() == pd.Timestamp("2025-01-07")
+    assert all(
+        json.loads(value) == ["2025-01-07", "2025-01-08"] for value in later.expected_sessions
+    )
+    assert fake.calls == [None]
+    assert validate_dataset("rq.option_snapshots", tmp_path, fail_on_gap=True)["status"] == "passed"

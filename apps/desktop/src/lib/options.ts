@@ -54,7 +54,7 @@ export const optionApi = {
   analysis: (symbol: string, day: string, field: string, rate?: number) => api.get<OptionAnalysis>(
     `/options/analysis?${new URLSearchParams({ underlying: symbol, day, price_field: field, ...(rate === undefined ? {} : { rate: String(rate) }) })}`,
     { timeoutMs: 60000 }),
-  quality: () => api.get<OptionQuality>("/options/quality", { timeoutMs: 60000 }),
+  quality: () => api.get<OptionQuality>("/options/quality", { timeoutMs: 300000 }),
   history: (symbol: string, day: string) => api.get<{ points: Array<{ date: string; atm_iv: number | null; eligible: number }> }>(
     `/options/history?${new URLSearchParams({ underlying: symbol, end: day, limit: "40" })}`, { timeoutMs: 60000 }),
   portfolio: (body: unknown) => api.post<BasketRisk>("/options/portfolio", body),

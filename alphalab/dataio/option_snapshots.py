@@ -3,6 +3,7 @@
 import json
 import re
 from datetime import datetime, timezone
+from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -10,6 +11,17 @@ import pandas as pd
 from alphalab.options.quality import QualityError, validate_snapshot
 
 OPTION_DATASET = "rq.option_snapshots"
+
+
+@lru_cache(maxsize=256)
+def _manifest_sessions(raw):
+    sessions = json.loads(raw)
+    if not isinstance(sessions, list) or not sessions or not all(isinstance(v, str) for v in sessions):
+        raise ValueError("Invalid trading sessions")
+    dates = pd.to_datetime(sessions, errors="raise")
+    if dates.isna().any():
+        raise ValueError("Invalid trading sessions")
+    return frozenset(dates)
 
 
 def normalize_option_snapshot(bars, properties, instruments, spot, expected_ids, underlying, day):
@@ -92,15 +104,8 @@ def validate_option_partitions(frame):
         if group.expected_sessions.nunique() != 1:
             raise QualityError("Inconsistent expected trading session manifest")
         try:
-            sessions = json.loads(group.expected_sessions.iloc[0])
-            if (
-                not isinstance(sessions, list)
-                or not sessions
-                or not all(isinstance(x, str) for x in sessions)
-            ):
-                raise ValueError("Invalid trading sessions")
-            session_dates = pd.to_datetime(sessions, errors="raise")
-            if session_dates.isna().any() or pd.Timestamp(day).normalize() not in session_dates:
+            session_dates = _manifest_sessions(group.expected_sessions.iloc[0])
+            if pd.Timestamp(day).normalize() not in session_dates:
                 raise ValueError("Quote date missing from session manifest")
         except (ValueError, TypeError) as exc:
             raise QualityError("Invalid expected trading session manifest") from exc

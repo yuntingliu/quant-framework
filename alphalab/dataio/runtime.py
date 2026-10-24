@@ -468,6 +468,15 @@ class OperationsStore:
             )
         return run_id
 
+    def latest_quality(self, dataset: str) -> dict | None:
+        """Read the latest saved check; callers must verify source freshness."""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT report_json, created_at FROM quality_runs WHERE dataset_id=? "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1", (dataset,),
+            ).fetchone()
+        return {"report": json.loads(row["report_json"]), "checked_at": row["created_at"]} if row else None
+
     def get_recipe_draft(self, project_id: str) -> dict[str, Any] | None:
         with self._connect() as connection:
             row = connection.execute(
@@ -580,6 +589,7 @@ class RuntimeStore:
         self.root = Path(root) if root is not None else RUNTIME_DIR
         self.catalog = DataCatalog(self.root)
         self.operations = OperationsStore(self.root)
+        self._option_inventory_ready = False
 
     @contextmanager
     def _dataset_lock(
@@ -680,16 +690,32 @@ class RuntimeStore:
                 f"Could not read runtime dataset {dataset}: {_safe_error(exc)}"
             ) from exc
 
-    def write(self, dataset: str, frame: pd.DataFrame) -> dict:
+    def write(self, dataset: str, frame: pd.DataFrame, *, lock_timeout_seconds: float = 0) -> dict:
+        if not 0 <= float(lock_timeout_seconds) <= 60:
+            raise ValueError("Publication wait must be between zero and sixty seconds")
         if frame is None or frame.empty:
             raise MissingDataError(f"Refusing to overwrite {dataset} with an empty response")
         spec = self.catalog.spec(dataset)
+        if dataset == "rq.option_etf_5m":
+            from alphalab.dataio.option_intraday import validate_intraday
+            validate_intraday(frame)
+        if dataset == "research.option_features":
+            from alphalab.dataio.option_features import validate_feature_frame
+            validate_feature_frame(frame)
         if dataset == "rq.option_snapshots":
             from alphalab.dataio.option_snapshots import validate_option_partitions
 
             validate_option_partitions(frame)
         written: list[str] = []
-        with self.dataset_lock(dataset):
+        with self.dataset_lock(dataset, timeout_seconds=lock_timeout_seconds):
+            if dataset == "rq.option_snapshots" and not self._option_inventory_ready:
+                # A recipe can publish thousands of daily chains. Reconcile
+                # restored files once, then trust the locked per-partition DB
+                # updates; rescanning the full tree per day is quadratic.
+                files = self.catalog.files(dataset)
+                if self.operations.partition_count(dataset) != len(files):
+                    self._reconcile_partition_inventory(dataset, files)
+                self._option_inventory_ready = True
             for path, part in self._partitions(dataset, frame):
                 merged = part
                 if path.exists() and dataset != "rq.option_snapshots":
@@ -709,6 +735,8 @@ class RuntimeStore:
                     max_date=max_date,
                 )
                 written.append(str(path))
+        if dataset == "rq.option_snapshots":
+            return {"dataset": dataset, "written": written, "status": self.operations.dataset_status(dataset)}
         files = self.catalog.files(dataset)
         if self.operations.partition_count(dataset) != len(files):
             status = self._reconcile_partition_inventory(dataset, files)
@@ -866,7 +894,7 @@ class RuntimeStore:
                 )
                 for date, part in value.groupby("snapshot_date", sort=True)
             ]
-        if dataset in {"rq.bars", "rq.paused", "rq.is_st", "rq.daily_factors", "rq.option_rates", "rq.option_underlyings"}:
+        if dataset in {"rq.bars", "rq.paused", "rq.is_st", "rq.daily_factors", "rq.option_rates", "rq.option_underlyings", "research.option_features", "research.option_predictions", "rq.option_etf_5m", "research.option_intraday_variance"}:
             value["date"] = pd.to_datetime(value["date"]).dt.normalize()
             return [
                 (

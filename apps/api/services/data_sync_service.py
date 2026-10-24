@@ -27,7 +27,6 @@ from alphalab.dataio.recipes import (
 )
 from alphalab.dataio.rq_templates import (
     DEFAULT_RQ_SYNC_TEMPLATE_ID,
-    get_rq_sync_template,
     list_rq_sync_templates,
 )
 from alphalab.dataio.sync import SyncJobManager, SyncRequest, build_sync_plan
@@ -452,14 +451,17 @@ def submit_recipe(project_id: str) -> dict:
 
 
 def test_connection(template_id: str) -> dict:
-    template = get_rq_sync_template(template_id)
+    definitions = {item["id"]: item for item in builtin_recipe_catalog(**_recipe_bounds())}
+    if template_id not in definitions:
+        raise ValueError(f"Unknown built-in data recipe: {template_id}")
+    template = definitions[template_id]
     client = RQDataClient.from_env()
     rq = client.connect()
     try:
-        latest = rq.get_latest_trading_date(market=template.market)
+        latest = rq.get_latest_trading_date(market=template["market"])
     except Exception as exc:
         raise DataLoadError(
-            f"RQData connection succeeded but calendar probe failed for {template.market}"
+            f"RQData connection succeeded but calendar probe failed for {template['market']}"
         ) from exc
     try:
         sdk_version = version("rqdatac")
@@ -468,9 +470,9 @@ def test_connection(template_id: str) -> dict:
     return {
         "status": "connected",
         "connected": True,
-        "template_id": template.id,
-        "market": template.market,
-        "instrument_types": list(template.instrument_types),
+        "template_id": template["id"],
+        "market": template["market"],
+        "instrument_types": list(template["instrument_types"]),
         "latest_trading_date": str(latest),
         "rqdatac_version": sdk_version,
     }

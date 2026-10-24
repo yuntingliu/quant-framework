@@ -3,6 +3,8 @@
 import numpy as np
 import pandas as pd
 
+from .quote_evidence import validate_close_evidence
+
 
 class QualityError(ValueError):
     pass
@@ -83,6 +85,10 @@ def validate_snapshot(frame: pd.DataFrame, expected_ids, day, underlying: str) -
     )
     if (close_outside & numeric.volume.gt(0)).any():
         raise QualityError("Traded close is outside the OHLC range")
+    try:
+        recovered = validate_close_evidence(frame)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise QualityError(str(exc)) from None
     return {
         "status": "passed",
         "expected": len(expected),
@@ -92,4 +98,5 @@ def validate_snapshot(frame: pd.DataFrame, expected_ids, day, underlying: str) -
         "zero_close": int(numeric.close.eq(0).sum()),
         "zero_volume_close_outside_range": int((close_outside & numeric.volume.eq(0)).sum()),
         "adjusted_contracts": int(numeric.contract_multiplier.ne(10000).sum()),
+        "reconstructed_closes": recovered,
     }

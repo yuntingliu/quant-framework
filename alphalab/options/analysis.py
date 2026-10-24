@@ -135,6 +135,8 @@ def analyze_chain(
             "maturity": t,
             "iv": None,
             "status": "eligible",
+            "close_recovery": item.get("close_recovery") if pd.notna(item.get("close_recovery")) else None,
+            "source_close": float(item["source_close"]) if pd.notna(item.get("source_close")) else None,
         }
         row["rate"] = rate_for_expiry(row["expiry"])
         if t <= 0:

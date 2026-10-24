@@ -32,6 +32,20 @@ class DatasetSpec:
 
 
 DATASET_SPECS: tuple[DatasetSpec, ...] = (
+    DatasetSpec("rq.option_etf_5m", "ETF five-minute prices", "rq/option_etf_5m",
+        ("timestamp", "symbol"), "date", "rq", ("get_price",), "realized_variance_input", "complete_48_bar_sessions"),
+    DatasetSpec("research.option_intraday_variance", "ETF intraday realized variance", "research/option_intraday_variance",
+        ("date", "symbol"), "date", "derived", ("intraday_variance",), "point_in_time_factor_input", "five_minute_plus_adjusted_overnight"),
+    DatasetSpec(
+        "research.option_features", "Option literature predictors", "research/option_features",
+        ("date", "symbol"), "date", "derived", ("local_option_features",),
+        "point_in_time_factor_input", "dated_source_fingerprints_and_explicit_missing_values",
+    ),
+    DatasetSpec(
+        "research.option_predictions", "Purged walk-forward option forecasts", "research/option_predictions",
+        ("date", "symbol", "field"), "date", "derived", ("local_walk_forward",),
+        "out_of_sample_signal_input", "run_scoped_fields_with_training_cutoffs",
+    ),
     DatasetSpec(
         "rq.option_underlyings", "RQ ETF adjusted option-underlying history", "rq/option_underlyings",
         ("date", "symbol"), "date", "rq", ("get_price",),
@@ -49,7 +63,7 @@ DATASET_SPECS: tuple[DatasetSpec, ...] = (
         ("date", "underlying", "symbol"),
         "date",
         "rq",
-        ("options.get_contracts", "instruments", "get_price", "options.get_contract_property"),
+        ("all_instruments", "options.get_contracts", "instruments", "get_price", "options.get_contract_property"),
         "option_research_input",
         "complete_daily_chain_with_dated_contract_properties",
     ),

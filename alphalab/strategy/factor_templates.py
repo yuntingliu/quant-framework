@@ -30,6 +30,11 @@ class FactorTemplate:
         payload["requirements"] = {
             dataset: list(fields) for dataset, fields in self.requirements.items()
         }
+        if self.category == "options":
+            spec = _OPTION_FEATURES[self.id]
+            payload.update(label_zh=spec["zh"], label_en=spec["en"],
+                hypothesis_direction=spec["direction"], description_zh=spec["formula"] + "；收盘可用，预测方向需要样本外检验。",
+                description_en=spec["formula"] + "; close-only; predictive direction requires OOS evidence.")
         return payload
 
 
@@ -368,6 +373,25 @@ def custom_factor(context, *, window: int = 20):
     return close.iloc[-1]
 """,
     ),
+)
+
+# Copies remain ordinary editable SDK factor functions, using the existing
+# point-in-time daily-factor provider rather than opening files from user code.
+from alphalab.options.literature import FEATURES as _OPTION_FEATURES
+
+FACTOR_TEMPLATES += tuple(
+    FactorTemplate(
+        id=field, label=spec["zh"] + " / " + spec["en"], category="options",
+        description=spec["formula"] + "; session-close ETF research hypothesis; not validated alpha.",
+        inputs=(field,), requirements={"daily_factors": (field,)},
+        recommended_direction=spec["direction"] if spec["direction"] != "test" else "higher",
+        source=f'''@factor(id="{field}", label="{spec['en']}")
+def {field}(context):
+    """Read the dated option predictor; absent or invalid observations remain NaN."""
+    # The SDK enforces session-close availability and refuses stale-day carry.
+    return context.daily_factor("{field}")
+''',
+    ) for field, spec in _OPTION_FEATURES.items()
 )
 
 _BY_ID = {item.id: item for item in FACTOR_TEMPLATES}

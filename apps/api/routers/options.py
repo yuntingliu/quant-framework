@@ -17,7 +17,7 @@ from alphalab.options import (
     monte_carlo,
     stress_grid,
 )
-from apps.api.services import options_service
+from apps.api.services import options_research_service, options_service
 
 router = APIRouter(prefix="/api/options", tags=["options"])
 
@@ -64,6 +64,116 @@ class OptionSyncRequest(BaseModel):
     end: date
     overlap: int = Field(default=3, ge=0, le=60)
     confirm_python_execution: bool = False
+
+
+class ResearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    underlyings: list[str] = Field(min_length=1, max_length=9)
+    fields: list[str] = Field(min_length=1, max_length=8)
+    start: date
+    end: date
+    horizon: Literal[1, 5, 20] = 5
+    min_train: int = Field(default=120, ge=60, le=2000)
+    refit_every: int = Field(default=20, ge=1, le=60)
+    ridge: float = Field(default=1, ge=0, le=1000)
+    embargo: int = Field(default=1, ge=0, le=20)
+    controls: bool = True
+
+
+class ResearchProjectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    project_id: str = Field(pattern=r"^[a-z][a-z0-9-]{1,63}$")
+    name: str = Field(min_length=1, max_length=100)
+    research_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{20}$")
+    weights: dict[str, float] = Field(default_factory=dict, max_length=8)
+    underlyings: list[str] = Field(default_factory=list, max_length=9)
+    start: date = date(2023, 1, 3)
+    end: date
+    top_n: int = Field(default=3, ge=1, le=9)
+    frequency: Literal["weekly", "monthly"] = "weekly"
+    confirm_save: bool = False
+    confirm_python_execution: bool = False
+
+
+def _research_call(function, *args, **kwargs):
+    try:
+        return function(*args, **kwargs)
+    except MissingDataError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(422, str(exc)) from None
+    except OSError:
+        raise HTTPException(503, "Option research storage is unavailable") from None
+
+
+@router.get("/research/catalog")
+def research_catalog():
+    return _research_call(options_research_service.research_catalog)
+
+
+@router.get("/features")
+def features(underlying: str, start: date, end: date):
+    return _research_call(
+        options_research_service.feature_history, underlying, str(start), str(end)
+    )
+
+
+def _feature_source(request):
+    from alphalab.dataio.option_features import render_feature_recipe
+    from alphalab.dataio.option_snapshots import validate_option_dates
+    from alphalab.dataio.symbols import to_rq_symbol
+
+    validate_option_dates(request.start, request.end)
+    symbols = list(dict.fromkeys(to_rq_symbol(v) for v in request.underlyings))
+    if not set(symbols).issubset(options_service.ETF_NAMES):
+        raise ValueError("Select supported ETF option underlyings")
+    return render_feature_recipe(start=str(request.start), end=str(request.end), symbols=symbols)
+
+
+@router.post("/features/plan")
+def feature_plan(request: OptionSyncRequest):
+    from alphalab.dataio.recipes import execute_data_recipe
+
+    source = _research_call(_feature_source, request)
+    return {"source": source, **_research_call(execute_data_recipe, source, mode="plan")}
+
+
+@router.post("/features/jobs", status_code=202)
+def feature_job(request: OptionSyncRequest):
+    from apps.api.services.data_sync_service import get_job_manager
+
+    if not request.confirm_python_execution:
+        raise HTTPException(422, "Confirm execution of the visible local feature recipe")
+    source = _research_call(_feature_source, request)
+    try:
+        job = get_job_manager().submit_recipe(source, project_id="etf-options-feature-build")
+        return {k: job.get(k) for k in ("id", "status", "progress", "total")}
+    except RuntimeError:
+        raise HTTPException(409, "A data job is active; wait or cancel it first") from None
+
+
+@router.post("/research/run")
+def research_run(request: ResearchRequest):
+    return _research_call(options_research_service.run_research, request.model_dump(mode="json"))
+
+
+@router.get("/research/runs/{run_id}")
+def research_result(run_id: str):
+    return _research_call(options_research_service.read_research, run_id)
+
+
+@router.post("/research/projects/plan")
+def research_project_plan(request: ResearchProjectRequest):
+    return _research_call(options_research_service.project_spec, request.model_dump(mode="json"))
+
+
+@router.post("/research/projects", status_code=201)
+def research_project(request: ResearchProjectRequest):
+    if not request.confirm_save or not request.confirm_python_execution:
+        raise HTTPException(422, "Confirm saving and probing the visible SDK project source")
+    return _research_call(
+        options_research_service.create_research_project, request.model_dump(mode="json")
+    )
 
 
 class PortfolioLegRequest(BaseModel):

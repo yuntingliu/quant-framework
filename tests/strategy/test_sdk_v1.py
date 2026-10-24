@@ -129,6 +129,7 @@ def _payload() -> dict:
 
 
 def test_builtin_factor_catalog_is_native_sdk_python_and_all_templates_install(tmp_path: Path):
+    from alphalab.options.literature import FEATURES
     templates = list_factor_templates()
     assert {item.id for item in templates} == {
         "lower_shadow_recovery",
@@ -154,7 +155,7 @@ def test_builtin_factor_catalog_is_native_sdk_python_and_all_templates_install(t
         "turnover_20d",
         "volatility_20d",
         "volume_ratio",
-    }
+    } | set(FEATURES)
     assert all(item.source.startswith("@factor(") for item in templates)
     assert all("# " in item.source for item in templates)
     assert all(
@@ -183,6 +184,7 @@ def test_builtin_factor_catalog_is_native_sdk_python_and_all_templates_install(t
     }
     assert "def momentum_60d(context" in source
     assert 'return context.fundamental("roe")' in source
+    assert set(inspection.data_requirements["daily_factors"]) == set(FEATURES)
 
     repository = StrategyRepository(tmp_path / "all-templates.db")
     try:
