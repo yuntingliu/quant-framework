@@ -51,7 +51,10 @@ def validate_dataset(
         store.operations.record_quality(dataset, report)
         return report
 
-    if dataset == "rq.bars":
+    if dataset == "rq.option_snapshots":
+        issues, metrics = _validate_options(store, start_date=start_date,
+                                            as_of_date=as_of_date, fail_on_gap=fail_on_gap)
+    elif dataset == "rq.bars":
         issues, metrics = _validate_bars(
             store,
             start_date=start_date,
@@ -463,6 +466,89 @@ def _validate_instruments(
     return issues, metrics
 
 
+def _validate_options(store, *, start_date, as_of_date, fail_on_gap):
+    import json
+
+    from alphalab.dataio.option_snapshots import validate_option_partitions
+
+    issues, sessions, expected, symbols = [], {}, {}, set()
+    rows = 0
+    quote_counts = {"zero_volume": 0, "zero_volume_close_outside_range": 0, "adjusted_contracts": 0}
+    for path in store.catalog.files("rq.option_snapshots"):
+        frame = pd.read_parquet(path)
+        try:
+            validate_option_partitions(frame)
+        except (ValueError, TypeError, KeyError) as exc:
+            issues.append(QualityIssue("invalid_option_snapshot", str(exc)))
+            continue
+        if "underlying" in frame and "expected_sessions" in frame:
+            for underlying, group in frame.groupby("underlying"):
+                for raw in group.expected_sessions.dropna().unique():
+                    try:
+                        values = json.loads(raw)
+                        if not isinstance(values, list):
+                            raise ValueError("Expected a session list")
+                        expected.setdefault(underlying, set()).update(
+                            pd.Timestamp(v).normalize() for v in values
+                        )
+                    except (ValueError, TypeError):
+                        issues.append(
+                            QualityIssue(
+                                "invalid_session_manifest", "Invalid expected session manifest"
+                            )
+                        )
+        frame = _bounded(frame, start_date, as_of_date)
+        if frame.empty:
+            continue
+        try:
+            reports = validate_option_partitions(frame)
+            for report in reports:
+                sessions.setdefault(report["underlying"], set()).add(pd.Timestamp(report["day"]))
+                for name in quote_counts:
+                    quote_counts[name] += report[name]
+            symbols.update(frame.symbol.astype(str))
+            rows += len(frame)
+        except (ValueError, TypeError, KeyError) as exc:
+            issues.append(QualityIssue("invalid_option_snapshot", str(exc)))
+    gaps = {}
+    for underlying, required in expected.items():
+        bounded = {
+            day
+            for day in required
+            if (start_date is None or day >= pd.Timestamp(start_date))
+            and (as_of_date is None or day <= pd.Timestamp(as_of_date))
+        }
+        missing = bounded - sessions.get(underlying, set())
+        if missing:
+            gaps[underlying] = sorted(str(day.date()) for day in missing)
+    if gaps:
+        issues.append(
+            QualityIssue(
+                "missing_option_sessions",
+                "Missing complete ETF option sessions",
+                severity="error" if fail_on_gap else "warning",
+            )
+        )
+    dates = set().union(*sessions.values()) if sessions else set()
+    if quote_counts["zero_volume_close_outside_range"]:
+        issues.append(
+            QualityIssue(
+                "non_trading_reference_close",
+                "Zero-volume reference closes differ from non-trading OHLC; excluded from IV analysis",
+                severity="warning",
+            )
+        )
+    metrics = {
+        **_coverage_metrics(dates, symbols),
+        "validated_rows": rows,
+        "missing_sessions": gaps,
+        "quote_quality": "daily_indicative",
+        **quote_counts,
+    }
+    _check_bounds(metrics, issues, start_date, as_of_date, fail_on_gap)
+    return issues, metrics
+
+
 def _validate_compact(
     store: RuntimeStore,
     dataset: str,
@@ -487,7 +573,24 @@ def _validate_compact(
     symbols = set(frame["symbol"].dropna().astype(str).str.upper()) if "symbol" in frame else set()
     metrics = _coverage_metrics(dates, symbols)
 
-    if dataset == "rq.index_components":
+    if dataset == "rq.option_underlyings":
+        if not {"date", "symbol", "raw_close", "adjusted_close"}.issubset(frame):
+            issues.append(QualityIssue("invalid_etf_history", "Missing adjusted ETF history fields"))
+        else:
+            prices = frame[["raw_close", "adjusted_close"]].apply(pd.to_numeric, errors="coerce")
+            if not np.isfinite(prices.to_numpy()).all() or prices.le(0).any().any():
+                issues.append(QualityIssue("invalid_etf_history", "Invalid adjusted ETF prices"))
+    elif dataset == "rq.option_rates":
+        required = {"date", "tenor", "maturity", "annual_yield", "continuous_rate", "discount_factor"}
+        if not required.issubset(frame):
+            issues.append(QualityIssue("invalid_rate_schema", "Missing option discount curve fields"))
+        else:
+            values = frame[["maturity", "annual_yield", "continuous_rate", "discount_factor"]].apply(pd.to_numeric, errors="coerce")
+            if (not np.isfinite(values.to_numpy(dtype=float)).all()
+                    or values.maturity.le(0).any() or values.discount_factor.le(0).any()
+                    or values.annual_yield.le(-.2).any() or values.annual_yield.ge(.5).any()):
+                issues.append(QualityIssue("invalid_rate_values", "Invalid annual decimal rates or discount factors"))
+    elif dataset == "rq.index_components":
         required = {"date", "index_symbol", "symbol"}
         missing_components = sorted(required - set(frame))
         if missing_components:

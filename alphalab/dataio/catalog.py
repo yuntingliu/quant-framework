@@ -33,6 +33,27 @@ class DatasetSpec:
 
 DATASET_SPECS: tuple[DatasetSpec, ...] = (
     DatasetSpec(
+        "rq.option_underlyings", "RQ ETF adjusted option-underlying history", "rq/option_underlyings",
+        ("date", "symbol"), "date", "rq", ("get_price",),
+        "realized_volatility_input", "aligned_raw_and_pre_adjusted_close",
+    ),
+    DatasetSpec(
+        "rq.option_rates", "RQ sovereign option discount curve", "rq/option_rates",
+        ("date", "tenor"), "date", "rq", ("get_yield_curve",),
+        "option_discount_input", "annual_decimal_yields_and_zero_rate_proxy",
+    ),
+    DatasetSpec(
+        "rq.option_snapshots",
+        "RQ ETF option daily chains",
+        "rq/option_snapshots",
+        ("date", "underlying", "symbol"),
+        "date",
+        "rq",
+        ("options.get_contracts", "instruments", "get_price", "options.get_contract_property"),
+        "option_research_input",
+        "complete_daily_chain_with_dated_contract_properties",
+    ),
+    DatasetSpec(
         "rq.instruments",
         "RQ instruments",
         "rq/instruments",

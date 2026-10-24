@@ -26,6 +26,7 @@ from apps.api.routers import (
     data_sync,
     market,
     model_providers,
+    options,
     paper,
     python_editor,
     sdk_docs,
@@ -140,6 +141,7 @@ app.include_router(compat.router)
 app.include_router(conexus.router)
 app.include_router(model_providers.router)
 app.include_router(search_providers.router)
+app.include_router(options.router)
 
 
 @app.get("/", response_model=None)

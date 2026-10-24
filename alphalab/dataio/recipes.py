@@ -100,6 +100,10 @@ def render_builtin_recipe(
     end: str,
     symbols: list[str] | tuple[str, ...] | None = None,
 ) -> str:
+    if template_id == "rq.etf_options":
+        from alphalab.dataio.option_recipe import render_option_recipe
+
+        return render_option_recipe(start=start, end=end, symbols=symbols)
     source = _render_builtin_recipe_base(
         template_id,
         start=start,
@@ -627,11 +631,24 @@ def _add_builtin_recipe_comments(source: str) -> str:
 def builtin_recipe_catalog(*, start: str, end: str) -> list[dict[str, Any]]:
     return [
         {
-            **item.to_dict(),
+            "id": "rq.etf_options",
+            "label": "ETF options daily",
+            "description": "Complete daily option chains, dated strikes/multipliers and gap recovery.",
+            "market": "cn",
+            "instrument_types": ("Option",),
+            "datasets": ("rq.option_snapshots",),
+            "scope": "etf_options",
             "kind": "built_in",
-            "source": render_builtin_recipe(item.id, start=start, end=end),
-        }
-        for item in list_rq_sync_templates()
+            "source": render_builtin_recipe("rq.etf_options", start=start, end=end),
+        },
+        *[
+            {
+                **item.to_dict(),
+                "kind": "built_in",
+                "source": render_builtin_recipe(item.id, start=start, end=end),
+            }
+            for item in list_rq_sync_templates()
+        ],
     ]
 
 

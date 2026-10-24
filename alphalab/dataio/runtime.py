@@ -684,11 +684,15 @@ class RuntimeStore:
         if frame is None or frame.empty:
             raise MissingDataError(f"Refusing to overwrite {dataset} with an empty response")
         spec = self.catalog.spec(dataset)
+        if dataset == "rq.option_snapshots":
+            from alphalab.dataio.option_snapshots import validate_option_partitions
+
+            validate_option_partitions(frame)
         written: list[str] = []
         with self.dataset_lock(dataset):
             for path, part in self._partitions(dataset, frame):
                 merged = part
-                if path.exists():
+                if path.exists() and dataset != "rq.option_snapshots":
                     previous = pd.read_parquet(path)
                     merged = pd.concat([previous, part], ignore_index=True)
                 keys = [key for key in spec.key_columns if key in merged]
@@ -847,6 +851,12 @@ class RuntimeStore:
     def _partitions(self, dataset: str, frame: pd.DataFrame) -> list[tuple[Path, pd.DataFrame]]:
         value = frame.copy()
         base = self.catalog.path(dataset)
+        if dataset == "rq.option_snapshots":
+            value["date"] = pd.to_datetime(value["date"]).dt.normalize()
+            return [
+                (base / f"date={day:%Y-%m-%d}" / f"underlying={underlying}" / "part.parquet", part)
+                for (day, underlying), part in value.groupby(["date", "underlying"], sort=True)
+            ]
         if dataset == "rq.instruments":
             value["snapshot_date"] = pd.to_datetime(value["snapshot_date"]).dt.normalize()
             return [
@@ -856,7 +866,7 @@ class RuntimeStore:
                 )
                 for date, part in value.groupby("snapshot_date", sort=True)
             ]
-        if dataset in {"rq.bars", "rq.paused", "rq.is_st", "rq.daily_factors"}:
+        if dataset in {"rq.bars", "rq.paused", "rq.is_st", "rq.daily_factors", "rq.option_rates", "rq.option_underlyings"}:
             value["date"] = pd.to_datetime(value["date"]).dt.normalize()
             return [
                 (

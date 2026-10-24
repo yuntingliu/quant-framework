@@ -17,6 +17,7 @@ import { useStrategySdk } from "@/contexts/StrategySdkContext"
 import { useConfirm } from "@/hooks/useConfirm"
 import { api } from "@/lib/api"
 import { Widget } from "@/widgets/Widget"
+import { OptionsWorkbench } from "./OptionsWorkbench"
 
 interface RecipeParameter {
   name: string
@@ -81,6 +82,21 @@ interface SyncJob {
 }
 
 export function DataWorkbenchWidget() {
+  const [view, setView] = useState<"recipe" | "options">("recipe")
+  const [optionsOpened, setOptionsOpened] = useState(false)
+  return <div className="flex h-full min-h-0 flex-col">
+    <div className="flex shrink-0 gap-1 border-b border-border px-3 py-2">
+      <Button size="sm" variant={view === "recipe" ? "default" : "ghost"} onClick={() => setView("recipe")}>数据同步</Button>
+      <Button size="sm" variant={view === "options" ? "default" : "ghost"} onClick={() => { setOptionsOpened(true); setView("options") }}>ETF 期权</Button>
+    </div>
+    <div className="min-h-0 flex-1">
+      <div className={view === "recipe" ? "h-full" : "hidden"}><DataRecipeWorkbench /></div>
+      {optionsOpened && <div className={view === "options" ? "h-full" : "hidden"}><OptionsWorkbench /></div>}
+    </div>
+  </div>
+}
+
+function DataRecipeWorkbench() {
   const sdk = useStrategySdk()
   const confirm = useConfirm()
   const project = sdk.project

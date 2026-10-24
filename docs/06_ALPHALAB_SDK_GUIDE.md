@@ -274,6 +274,189 @@ Switching a built-in template replaces editor source. Save modifications as a cu
 
 The synchronization end date can be today to extend beyond the last local date. Saved recipes retain their end date until edited. The connection test reports the provider's latest session but downloads no bars. Date changes update `recipe.py`; Run and Sync extends local coverage. Factor checks and backtests remain bounded by synchronized data.
 
+### ETF option data and pricing
+
+Choose **ETF options daily** in the Data Workbench template catalog. Its editable
+`recipe.py` visibly calls RQData's calendar, historical contract discovery,
+instruments, unadjusted prices and dated contract-property APIs. Select explicit
+ETF underlyings; the initial example is `510050.XSHG`. This is a research data
+module, separate from strategy execution and derivative-account backtesting.
+
+The recipe publishes `rq.option_snapshots` through the existing shared runtime
+store and job runner. One underlying/session is one atomic parquet partition.
+Incremental execution validates saved partitions, fills every missing or invalid
+session and refreshes the last three requested trading sessions. Edit
+`OVERLAP_SESSIONS` to receive older corrections. A revised daily universe replaces
+the entire partition, including removal of contracts withdrawn by the source.
+Contract discovery runs for every historical session; price/property requests
+are batched across ten-session chunks and contract IDs. Earlier completed days
+survive a later request failure; retry the same recipe to resume. No download runs during application startup or recipe planning.
+
+Every partition includes the discovered contract IDs and requested exchange
+sessions. Publication requires complete contract coverage, unique keys, aligned
+ETF/option dates, finite nonnegative prices and activity, consistent OHLC,
+positive dated strike/multiplier, and valid European contract lifetimes. The
+quality report also detects a missing whole session from the saved exchange
+calendar manifest. Zero-volume options are stored as `no_trade_reference` and
+excluded from IV analysis. Their reference close may differ from non-trading
+OHLC placeholders; the quality report counts that condition while still checking
+open/high/low consistency. A traded close outside the range fails publication.
+Latest instrument strikes/multipliers never overwrite historical
+properties: ETF distributions can change both without changing the contract ID.
+Option and valuation spot prices are unadjusted. Accept daily data only through yesterday in
+`Asia/Shanghai`; an unfinished current-day bar cannot pass as a completed session.
+
+From the repository root:
+
+```powershell
+# Offline plan using the same data-recipe runner as the workbench
+python -m alphalab.options sync --underlying 510050.XSHG --start 2025-01-06 --end 2025-01-10
+# Download with the project's existing RQ_USER/RQ_PASSWORD/RQ_HOST configuration
+python -m alphalab.options sync --underlying 510050.XSHG --start 2025-01-06 --end 2025-01-10 --execute
+python -m alphalab.options health
+python -m alphalab.options chain --underlying 510050.XSHG --date 2025-01-10 --rate 0.02 --dividend-yield 0.01 --output artifacts/option-chain.json
+# Mathematical demonstration, explicitly labeled as non-market data
+python -m alphalab.options demo --output artifacts/option-pricing-demo.json
+```
+
+Dates, rates and dividend yields above are examples, not current market inputs.
+`--store` optionally selects a shared runtime root. Credentials remain in the
+existing private configuration; this module does not edit it. Workbench recipe
+saves and execution retain the existing confirmation and source-hash audit.
+
+`from alphalab.options import EuropeanOption, black_scholes, implied_volatility,
+greeks, monte_carlo, analyze_chain, stress_grid` exposes the numerical API.
+Prices and Greeks are per underlying unit; multiply by the day's actual contract
+multiplier and signed quantity for contract values. Maturity uses ACT/365F;
+volatility, continuously compounded rates and continuous dividend yields are
+annual decimals. Theta is per calendar day; Vega and Rho are per percentage point.
+
+IV uses a bracketed Brent solve with European no-arbitrage bounds. Expired,
+illiquid, zero-price and non-identifiable boundary quotes receive explicit
+statuses. The chain report contains IV/Greeks, log moneyness, smile observations,
+nearest-ATM term structure, matched-multiplier put/call parity and strike
+monotonicity/convexity diagnostics. Daily close/settlement prices are indicative;
+the source does not provide synchronized bid/ask here. An IV inversion followed
+by BS repricing is a numerical check, not evidence of predictive mispricing.
+
+The optional `carry_mode="put_call_forward"` infers a separate forward for each
+expiry instead of imposing one dividend-yield assumption on every maturity.
+It uses the median of up to seven matched call/put pairs within 5% absolute
+log strike/spot moneyness. Coarse strike ladders expand only enough to include
+the nearest three distinct paired strikes, bounded at 15%; the report records
+that expansion. At least three distinct paired strikes are required, and a
+relative pair-forward range above 1% is rejected.
+Illiquid and zero-price legs are excluded. Reports retain pair counts, spread
+and effective per-expiry carry; insufficient or inconsistent pairs produce
+`forward_unavailable`, with no silent fallback. That effective carry includes
+financing, borrow and quote basis, so it is not a cash-dividend forecast. Greeks
+hold the selected carry fixed. The default `input_yield` mode still requires an
+explicit dividend yield. Omit `--dividend-yield` in forward mode:
+
+```powershell
+python -m alphalab.options chain --underlying 510050.XSHG --date 2025-01-10 --rate 0.02 --carry-mode put_call_forward --output artifacts/option-chain-forward.json
+```
+
+Monte Carlo supports GBM and risk-neutral Merton jump diffusion with exact
+terminal draws for European vanilla payoffs. Log jumps have user-supplied mean
+and standard deviation, and Poisson intensity is jumps/year. The drift includes
+the compensator `-lambda * (exp(mu_J + sigma_J**2/2) - 1)`. Results include seed,
+path count, standard error, 95% sampling confidence interval and a discounted
+spot martingale diagnostic. Fewer than 100 positive payoffs produce a tail
+sampling warning and suppress the confidence interval; a zero-hit simulation
+must not be interpreted as zero tail risk.
+
+Stress grids combine spot shocks, volatility shifts and time decay, revalue with
+BS and jump MC, and report signed contract P&L against each model's own baseline.
+For example:
+
+```powershell
+python -m alphalab.options stress --spot 3 --strike 3 --maturity 0.08219178082 --rate 0.02 --volatility 0.25 --dividend-yield 0.01 --option-type P --multiplier 10000 --quantity -2 --paths 200000 --output artifacts/option-stress.json
+```
+
+The **Data > ETF options** workbench provides four views: option chains,
+volatility, portfolio stress and data quality. Its selector includes Shanghai
+50/300/500, Shenzhen 300/500, ChiNext, Shenzhen 100 and both STAR 50 ETFs.
+Select the analysis date and close or settlement price. A chain row displays its
+eligibility status; only eligible contracts can enter the signed portfolio.
+Chain and portfolio reports can be exported as JSON. Switching between data
+recipes and options preserves the editor and basket state.
+
+**Historical synchronization** previews the full built-in source before using
+the existing data-recipe job manager. Jobs are cancellable and resumable;
+new partition revisions invalidate the chain, history, quality and cached
+portfolio results. The source flags `INCLUDE_OPTIONS`, `INCLUDE_RATES` and
+`INCLUDE_UNDERLYINGS` allow independent history backfills. Alongside snapshots,
+`rq.option_rates` stores the original dated sovereign yield-curve nodes, and
+`rq.option_underlyings` stores aligned raw and pre-adjusted ETF closes. Prices
+must not be guessed or substituted when the source is unavailable. An ETF history
+refresh rebases the full retained interval together, so a distribution cannot
+splice different pre-adjustment anchors into a false realized return; requested
+and previously retained sessions must remain complete.
+
+The default analysis uses the latest curve at or before the requested date,
+with a maximum age of seven calendar days. RQ annual decimal yields are
+converted with `log1p(y)` and treated explicitly as sovereign zero-rate proxies;
+this is not a bootstrapped OIS curve. Interpolation is linear in log discount
+factors, with flat boundary rates. Manual annual continuous rates remain an
+explicit override. RV20/RV60 use adjusted close-to-close log returns and 252
+sessions/year, while all option valuation uses raw spot prices.
+
+The volatility view fits positive-minimum-total-variance SVI to distinct eligible
+OTM strikes, with robust least squares, observed IV points, RMSE, 25-delta risk
+reversal and butterfly, ATM term structure, and an observed-domain variance
+heatmap. It also shows forty sessions of approximately 30-day ATM IV. Strike
+monotonicity/convexity, convergence and calendar-total-variance diagnostics are
+reported. `volatility_surface` and `surface_iv` are numerical facade exports.
+Interpolation is disabled if diagnostics require review; neither wings nor
+maturity boundaries are silently extrapolated. These checks do not certify an
+arbitrage-free surface.
+
+Add up to twenty signed positions across ETFs in **Portfolio stress**. Every
+contract's price, IV and historical multiplier are resolved from local data.
+`basket_stress` aggregates cash Delta, 1pp Vega, daily Theta and full BS
+revaluation across eleven spot shocks and three volatility shifts. Time decay
+cannot cross the earliest selected expiry. The joint Monte Carlo model uses one
+shared path per ETF across contracts and expiries, the observed forward curves,
+a flat approximately 30-day ATM volatility per asset, user-supplied Brownian
+correlation and compensated systemic Merton jumps. The workbench compares a
+baseline with a -30% spot/+20pp volatility scenario using each model's own
+baseline. Reports retain seeds, standard errors, sampling intervals and payoff
+quantiles; a rare-payoff warning suppresses unreliable intervals. The Q-payoff
+quantiles are not physical-measure portfolio VaR or ES.
+
+The HTTP API includes:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/options/universe` | Local dates, row counts, data revision and sync status |
+| `GET /api/options/analysis` | Dated market-rate chain, forwards, surface and realized volatility |
+| `GET /api/options/history` | Bounded ATM IV history, at most 90 sessions |
+| `GET /api/options/quality` | Three shared datasets and partition completeness |
+| `POST /api/options/sync/plan`, `/sync/jobs` | Known visible recipe plan or existing job-manager submission |
+| `POST /api/options/portfolio` | Data-resolved signed basket, stress grid and joint MC |
+| `GET /api/options/chain` | Explicit rate/carry numerical chain analysis |
+| `POST /api/options/price`, `/stress` | Explicit-input BS/IV/MC and single-contract scenarios |
+
+Portfolio MC is bounded to 250,000 paths; standalone numerical MC is bounded to
+500,000 paths per scenario. Operational recipe routes own acquisition; pricing
+and analysis endpoints do not start downloads.
+
+Jump parameters are conditional scenario assumptions, not market-calibrated
+crash forecasts. Sampling intervals exclude model/calibration uncertainty;
+P&L excludes financing, distributions received, costs and liquidity impacts.
+Continuous dividend yield approximates discrete ETF distributions. Minute/tick
+quote synchronization, bootstrapped discount curves and discrete cash-dividend
+models, arbitrage-certified surface calibration, Heston/Bates calibration,
+importance sampling, American/exotic
+payoffs, margin and physical-measure portfolio VaR/ES remain separate extensions.
+Source-data acceptance should include ordinary sessions, expiry, an actual ETF
+distribution adjustment, interrupted recovery and provider corrections.
+
+Official references: [RQ option APIs](https://www.ricequant.com/doc/rqdata/python/options-mod),
+[RQ common APIs](https://www.ricequant.com/doc/rqdata/python/generic-api), and
+[Merton model conventions](https://www.mathworks.com/help/finance/merton.html).
+
 <!-- alphalab-sdk-topic:validation -->
 ## Validation SDK
 

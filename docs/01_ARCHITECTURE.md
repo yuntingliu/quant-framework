@@ -404,6 +404,9 @@ and cannot create a second authoritative result.
 | `alphalab/dataio/recipes.py` | Built-in recipe source, AST inspection, LibCST edits, local execution |
 | `alphalab/dataio/rq_frames.py` | Stable adapters from raw rqdatac frames to runtime contracts |
 | `alphalab/dataio/rq_templates.py` | Declarative RQ acquisition templates |
+| `alphalab/dataio/option_recipe.py`, `option_snapshots.py` | Visible ETF option acquisition, complete daily snapshot contracts and gap recovery in the shared runtime store |
+| `alphalab/options/` | European IV/Greeks, BS, dated discount curves, diagnostic SVI, signed basket stress and shared-path systemic-jump Monte Carlo |
+| `apps/api/routers/options.py`, `services/options_service.py` | Bounded local chain/surface/history/portfolio analysis; built-in recipe submission through the existing job manager |
 | `alphalab/strategy/factor_templates.py` | Built-in SDK Python factor templates and CST-aware installation |
 | `alphalab/strategy/source.py` | Source-unit split/assembly, AST inspection, dependency checks, and LibCST edits |
 | `alphalab/strategy/repository.py` | Authoring units, assembled drafts, immutable packages, probes, migration |
@@ -427,3 +430,14 @@ and cannot create a second authoritative result.
 
 The package facade in `alphalab/__init__.py` intentionally exports only data,
 source, repository, evaluation, backtest, and result-store entry points.
+
+ETF option research remains a data-mode extension, separate from the strategy
+execution/accounting engine. `OptionsWorkbench` consumes typed endpoints and
+shared `rq.option_snapshots`, `rq.option_rates`, and `rq.option_underlyings`
+datasets. Per-session atomic replacement and coverage manifests support gap
+recovery; ten-session vendor batches do not weaken publication validation. A
+local data revision invalidates derived UI results after synchronization. Rate
+selection is dated, and diagnostic SVI fits cannot silently become valuation
+inputs. Joint portfolio MC shares asset paths rather than independently sampling
+each contract. No derivative fills or margin accounting are added to the core
+stock backtester.

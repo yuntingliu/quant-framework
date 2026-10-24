@@ -1,0 +1,288 @@
+"""ETF option workstation services over shared, dated local research data."""
+
+from collections import Counter
+from functools import lru_cache
+
+import numpy as np
+import pandas as pd
+import pyarrow.parquet as pq
+
+from alphalab.dataio.catalog import DataCatalog
+from alphalab.dataio.errors import MissingDataError
+from alphalab.dataio.option_data import load_option_snapshot
+from alphalab.dataio.quality import validate_dataset
+from alphalab.dataio.runtime import OperationsStore, RuntimeStore
+from alphalab.dataio.symbols import to_rq_symbol
+from alphalab.options import analyze_chain
+from alphalab.options.curves import DiscountCurve
+from alphalab.options.portfolio import basket_stress, joint_monte_carlo
+from alphalab.options.surface import volatility_surface
+
+ETF_NAMES = {
+    "510050.XSHG": "上证50ETF",
+    "510300.XSHG": "沪深300ETF·沪市",
+    "159919.XSHE": "沪深300ETF·深市",
+    "510500.XSHG": "中证500ETF·沪市",
+    "159922.XSHE": "中证500ETF·深市",
+    "159915.XSHE": "创业板ETF",
+    "159901.XSHE": "深证100ETF",
+    "588000.XSHG": "科创50ETF·华夏",
+    "588080.XSHG": "科创50ETF·易方达",
+}
+
+
+@lru_cache(maxsize=4096)
+def _row_count(path, size, mtime):
+    return pq.ParquetFile(path).metadata.num_rows
+
+
+def universe(root=None):
+    catalog = DataCatalog(root)
+    found = {}
+    revision = 0
+    for path in catalog.files("rq.option_snapshots"):
+        underlying = path.parent.name.removeprefix("underlying=")
+        day = path.parent.parent.name.removeprefix("date=")
+        stat = path.stat()
+        revision = max(revision, stat.st_mtime_ns)
+        value = found.setdefault(underlying, {"dates": [], "rows": 0})
+        value["dates"].append(day)
+        value["rows"] += _row_count(str(path), stat.st_size, stat.st_mtime_ns)
+    rows = []
+    for symbol in dict.fromkeys([*ETF_NAMES, *found]):
+        value = found.get(symbol, {"dates": [], "rows": 0})
+        dates = sorted(set(value["dates"]))
+        rows.append(
+            {
+                "symbol": symbol,
+                "name": ETF_NAMES.get(symbol, symbol),
+                "dates": dates,
+                "sessions": len(dates),
+                "rows": value["rows"],
+                "start": dates[0] if dates else None,
+                "latest": dates[-1] if dates else None,
+            }
+        )
+    for dataset in ("rq.option_rates", "rq.option_underlyings"):
+        for path in catalog.files(dataset):
+            revision = max(revision, path.stat().st_mtime_ns)
+    jobs = OperationsStore(root).list_jobs(limit=8)
+    return {
+        "revision": str(revision),
+        "underlyings": rows,
+        "total_rows": sum(r["rows"] for r in rows),
+        "rates": {
+            key: value
+            for key, value in catalog.status("rq.option_rates").items()
+            if key in {"status", "date_start", "date_end", "rows"}
+        },
+        "jobs": [
+            {key: job.get(key) for key in ("id", "status", "progress", "total", "message")}
+            for job in jobs
+            if job.get("request", {}).get("project_id", "").startswith("etf-options")
+        ],
+    }
+
+
+def _dated_curve(day, root):
+    try:
+        frame = RuntimeStore(root).read("rq.option_rates")
+    except MissingDataError as exc:
+        raise MissingDataError(
+            "Synchronize the sovereign discount curve before market-rate analysis"
+        ) from exc
+    return DiscountCurve.as_of(frame, day)
+
+
+def realized_volatility(underlying, day, root=None):
+    try:
+        frame = RuntimeStore(root).read("rq.option_underlyings")
+    except MissingDataError:
+        return {"status": "missing_adjusted_history", "rv20": None, "rv60": None, "returns": []}
+    dates = pd.to_datetime(frame.date)
+    frame = frame.loc[frame.symbol.eq(underlying) & dates.le(pd.Timestamp(day))].sort_values("date")
+    close = frame.drop_duplicates("date").set_index("date").adjusted_close.astype(float)
+    returns = np.log(close / close.shift(1)).dropna()
+    result = {
+        "status": "ready" if len(returns) >= 20 else "insufficient_history",
+        "observations": len(returns),
+        "source": "RQ pre-adjusted ETF close; 252 sessions/year",
+        "rv20": float(returns.tail(20).std(ddof=1) * np.sqrt(252)) if len(returns) >= 20 else None,
+        "rv60": float(returns.tail(60).std(ddof=1) * np.sqrt(252)) if len(returns) >= 60 else None,
+        "returns": [
+            {"date": str(pd.Timestamp(d).date()), "return": float(v)}
+            for d, v in returns.tail(90).items()
+        ],
+    }
+    return result
+
+
+def analyze_snapshot(
+    underlying,
+    day,
+    *,
+    rate=None,
+    dividend_yield=None,
+    carry_mode="put_call_forward",
+    price_field="close",
+    include_surface=True,
+    root=None,
+):
+    underlying = to_rq_symbol(underlying)
+    frame = load_option_snapshot(underlying, day, root=root)
+    kwargs = {"rate": rate}
+    curve = None
+    if rate is None:
+        curve = _dated_curve(day, root)
+        rates = {
+            str(pd.Timestamp(expiry).date()): curve.rate(
+                max(0.0, (pd.Timestamp(expiry) - pd.Timestamp(day)).days / 365)
+            )
+            for expiry in frame.maturity_date.unique()
+        }
+        kwargs = {"rates_by_expiry": rates}
+    chain = analyze_chain(
+        frame,
+        **kwargs,
+        dividend_yield=dividend_yield,
+        carry_mode=carry_mode,
+        price_field=price_field,
+    )
+    chain["discount_curve"] = (
+        curve.describe() if curve else {"source": "explicit_manual_rate", "rate": rate}
+    )
+    chain["name"] = ETF_NAMES.get(underlying, underlying)
+    chain["source"] = "real_rqdata"
+    chain["retrieved_at"] = str(frame.retrieved_at.max()) if "retrieved_at" in frame else None
+    chain["status_counts"] = dict(Counter(r["status"] for r in chain["contracts"]))
+    activity = frame.groupby("option_type")[["volume", "open_interest"]].sum()
+    call_volume = float(activity.loc["C", "volume"]) if "C" in activity.index else 0.0
+    put_volume = float(activity.loc["P", "volume"]) if "P" in activity.index else 0.0
+    call_oi = float(activity.loc["C", "open_interest"]) if "C" in activity.index else 0.0
+    put_oi = float(activity.loc["P", "open_interest"]) if "P" in activity.index else 0.0
+    chain["activity"] = {
+        "call_volume": call_volume,
+        "put_volume": put_volume,
+        "call_oi": call_oi,
+        "put_oi": put_oi,
+        "volume_pcr": put_volume / call_volume if call_volume else None,
+        "oi_pcr": put_oi / call_oi if call_oi else None,
+    }
+    chain["realized_volatility"] = realized_volatility(underlying, day, root)
+    if include_surface:
+        chain["surface"] = volatility_surface(chain)
+    return chain
+
+
+def history(underlying, *, end=None, limit=40, root=None):
+    if not 1 <= limit <= 90:
+        raise ValueError("History limit must be between 1 and 90 sessions")
+    underlying = to_rq_symbol(underlying)
+    listing = next((r for r in universe(root)["underlyings"] if r["symbol"] == underlying), None)
+    dates = [d for d in (listing["dates"] if listing else []) if end is None or d <= str(end)][
+        -limit:
+    ]
+    points = []
+    for day in dates:
+        report = analyze_snapshot(underlying, day, include_surface=False, root=root)
+        rows = [r for r in report["contracts"] if r["status"] == "eligible"]
+        if not rows:
+            points.append({"date": day, "atm_iv": None, "eligible": 0})
+            continue
+        selected = min(
+            rows,
+            key=lambda r: (abs(r["maturity"] - 30 / 365), abs(np.log(r["strike"] / r["forward"]))),
+        )
+        points.append(
+            {
+                "date": day,
+                "atm_iv": selected["iv"],
+                "maturity": selected["maturity"],
+                "eligible": len(rows),
+                "volume_pcr": report["activity"]["volume_pcr"],
+            }
+        )
+    return {"underlying": underlying, "points": points}
+
+
+def quality(root=None):
+    return {
+        "snapshots": validate_dataset("rq.option_snapshots", root, fail_on_gap=True),
+        "rates": validate_dataset("rq.option_rates", root),
+        "underlyings": validate_dataset("rq.option_underlyings", root),
+    }
+
+
+def portfolio(request, root=None):
+    reports, legs, sizes = {}, [], {}
+    for item in request["legs"]:
+        symbol = to_rq_symbol(item["underlying"])
+        key = (symbol, str(item["contract"]))
+        sizes[key] = sizes.get(key, 0.0) + item["quantity"]
+    for (symbol, contract), quantity in sizes.items():
+        if quantity == 0:
+            continue
+        if symbol not in reports:
+            reports[symbol] = analyze_snapshot(
+                symbol, request["day"], rate=request.get("rate"), include_surface=False, root=root
+            )
+        row = next(
+            (r for r in reports[symbol]["contracts"] if r["order_book_id"] == contract), None
+        )
+        if row is None or row["status"] != "eligible":
+            raise ValueError("A selected contract has no eligible IV on the selected date")
+        legs.append({**row, "underlying": symbol, "quantity": quantity})
+    result = basket_stress(
+        legs,
+        days_forward=request.get("days_forward", 0),
+        spot_shocks=request.get(
+            "spot_shocks", [-0.4, -0.3, -0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2, 0.3, 0.4]
+        ),
+        volatility_shifts=request.get("volatility_shifts", [0, 0.1, 0.3]),
+    )
+    if request.get("include_mc", True):
+        assets = {}
+        for symbol, report in reports.items():
+            rows = [r for r in report["contracts"] if r["status"] == "eligible"]
+            reference = min(
+                rows,
+                key=lambda r: (
+                    abs(r["maturity"] - 30 / 365),
+                    abs(np.log(r["strike"] / r["forward"])),
+                ),
+            )
+            assets[symbol] = {
+                "spot": reference["spot"],
+                "volatility": reference["iv"],
+                "forwards": [
+                    {
+                        "maturity": (pd.Timestamp(f["expiry"]) - pd.Timestamp(request["day"])).days
+                        / 365,
+                        "forward": f["forward"],
+                    }
+                    for f in report["forward_curve"]
+                    if f["status"] == "ready"
+                ],
+            }
+        settings = {
+            k: request[k]
+            for k in (
+                "paths",
+                "seed",
+                "correlation",
+                "jump_intensity",
+                "jump_mean",
+                "jump_volatility",
+                "days_forward",
+            )
+            if k in request
+        }
+        base = joint_monte_carlo(legs, assets, **settings)
+        crash = joint_monte_carlo(legs, assets, **settings, spot_shock=-0.3, volatility_shift=0.2)
+        result["monte_carlo"] = {
+            "base": base,
+            "crash": crash,
+            "model_pnl": crash["value"] - base["value"],
+            "underlying_models": assets,
+        }
+    return result
