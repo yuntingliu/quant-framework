@@ -20,7 +20,16 @@ def _allocation(tree):
         "return PortfolioDecision(target_weights={s: weight for s in chosen}, state=state)"
     ).body
     for function in (n for n in tree.body if isinstance(n, ast.FunctionDef)):
-        if [ast.dump(n) for n in function.body[-3:]] != [ast.dump(n) for n in expected]:
+        body = [
+            n
+            for n in function.body
+            if not (
+                isinstance(n, ast.Expr)
+                and isinstance(n.value, ast.Constant)
+                and isinstance(n.value.value, str)
+            )
+        ]
+        if [ast.dump(n) for n in body] != [ast.dump(n) for n in expected]:
             continue
         for arg, value in zip(function.args.kwonlyargs, function.args.kw_defaults):
             if arg.arg == "max_weight" and value is not None:
@@ -82,12 +91,77 @@ def frozen_rule(source):
                                     for s in items
                                 ):
                                     symbols = list(items)
+                selection = "custom"
+                for node in ast.walk(function):
+                    if (
+                        isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Attribute)
+                        and node.func.attr in {"nlargest", "nsmallest"}
+                        and node.args
+                        and isinstance(node.args[0], ast.Name)
+                        and node.args[0].id == "top_n"
+                    ):
+                        selection = "highest" if node.func.attr == "nlargest" else "lowest"
+                if selection != "custom":
+                    method = "nlargest" if selection == "highest" else "nsmallest"
+                    expected = ast.parse(
+                        f"scores = context.combine_factors(weights={weights!r}, normalization={args.get('normalization')!r}).dropna()\nselected = list(scores.{method}(top_n).index)\nreturn SignalResult(selected=selected, scores=scores, state=state)"
+                    ).body
+                    body = [
+                        n
+                        for n in function.body
+                        if not (
+                            isinstance(n, ast.Expr)
+                            and isinstance(n.value, ast.Constant)
+                            and isinstance(n.value.value, str)
+                        )
+                    ]
+                    if [ast.dump(n) for n in body] != [ast.dump(n) for n in expected]:
+                        selection = "custom"
+                universe_verified = False
+                for candidate in (n for n in tree.body if isinstance(n, ast.FunctionDef)):
+                    if not symbols:
+                        break
+                    expected = ast.parse(
+                        f"return UniverseResult(symbols=[s for s in context.universe if s in {symbols!r}])"
+                    ).body
+                    body = [
+                        n
+                        for n in candidate.body
+                        if not (
+                            isinstance(n, ast.Expr)
+                            and isinstance(n.value, ast.Constant)
+                            and isinstance(n.value.value, str)
+                        )
+                    ]
+                    if [ast.dump(n) for n in body] == [ast.dump(n) for n in expected]:
+                        universe_verified = True
+                schedule_day, decision_time = "custom", "custom"
+                for decorator in function.decorator_list:
+                    for node in ast.walk(decorator):
+                        if (
+                            isinstance(node, ast.Call)
+                            and isinstance(node.func, ast.Attribute)
+                            and node.func.attr in {"last_trading_day", "first_trading_day"}
+                            and isinstance(node.func.value, ast.Name)
+                            and node.func.value.id in {"Weekly", "Monthly"}
+                        ):
+                            schedule_day = (
+                                "last" if node.func.attr == "last_trading_day" else "first"
+                            )
+                            for kw in node.keywords:
+                                if kw.arg == "at":
+                                    decision_time = ast.literal_eval(kw.value)
                 return {
+                    "selection": selection,
+                    "schedule_day": schedule_day,
+                    "decision_time": decision_time,
                     "weights": weights,
                     "normalization": args.get("normalization"),
                     "top_n": defaults.get("top_n"),
                     "frequency": frequency,
-                    "symbols": symbols,
+                    "symbols": symbols if universe_verified else [],
+                    "universe_verified": universe_verified,
                     "execution": "unknown",
                     **_allocation(tree),
                 }
@@ -115,8 +189,23 @@ def _card(record, rule):
         "execution": next(iter(activations)) if len(activations) == 1 else "mixed_or_unknown",
     }
     summary = result_service.build_backtest_summary(record)
-    family, zh, en = _family(rule["weights"])
+    family, zh, en = (
+        _family(rule["weights"])
+        if rule["selection"] == "highest"
+        else ("custom", "自定义期权信号策略", "Custom option-signal strategy")
+    )
     research_id = record.get("settings", {}).get("option_research_id")
+    if research_id:
+        try:
+            experiment = options_research_service.read_research(research_id)
+            if experiment.get("independent_holdout") and family == "forecast":
+                family, zh, en = (
+                    "forecast_holdout",
+                    "预测 ETF 轮动·冻结保留样本",
+                    "ETF forecast rotation · frozen holdout",
+                )
+        except MissingDataError:
+            pass
     return {
         "backtest_id": record["id"],
         "project_id": record["project_id"],
@@ -130,6 +219,8 @@ def _card(record, rule):
         "run_at": record.get("run_at"),
         "warnings": summary["warnings"],
         "execution_reliable": summary["execution_reliable"],
+        "research_valid": summary.get("research_valid"),
+        "research_invalid_reasons": summary.get("research_invalid_reasons", []),
         "research_id": research_id,
         "revision": record.get("strategy_revision"),
         "source_sha256": record.get("strategy_source_sha256"),

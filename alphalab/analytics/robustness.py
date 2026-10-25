@@ -39,6 +39,7 @@ def equal_weight_benchmark(
     frequency: str = "monthly",
     warmup_days: int = 240,
     execution_price: str = "next_open",
+    label_period_end: bool = False,
 ) -> pd.Series:
     """Build a same-universe benchmark on the strategy execution calendar."""
 
@@ -106,7 +107,7 @@ def equal_weight_benchmark(
         )
         period_returns = exit_values.loc[valid] / entry_values.loc[valid] - 1.0
         if not period_returns.empty:
-            values[entry_date] = float(period_returns.mean())
+            values[exit_date if label_period_end else entry_date] = float(period_returns.mean())
     return pd.Series(values, name="benchmark", dtype=float).sort_index()
 
 

@@ -298,3 +298,103 @@ def test_quality_view_reuses_only_a_fresh_full_scope_check(tmp_path, monkeypatch
     store.write("rq.option_snapshots", frame)
     options_service.quality(tmp_path)
     assert calls == ["rq.option_snapshots"]
+
+
+def test_portfolio_keeps_selected_settlement_basis(tmp_path):
+    store = RuntimeStore(tmp_path)
+    frame = market_snapshot()
+    frame["settlement"] = frame.close * 0.98
+    store.write("rq.option_snapshots", frame)
+    store.write("rq.option_rates", rate_frame())
+    report = options_service.analyze_snapshot(ETF, DAY, price_field="settlement", root=tmp_path)
+    row = next(r for r in report["contracts"] if r["status"] == "eligible")
+    risk = options_service.portfolio(
+        {
+            "day": DAY,
+            "price_field": "settlement",
+            "legs": [{"underlying": ETF, "contract": row["order_book_id"], "quantity": 1}],
+            "include_mc": False,
+        },
+        root=tmp_path,
+    )
+    assert risk["positions"][0]["market_price"] == pytest.approx(row["market_price"])
+    assert risk["valuation_context"]["price_field"] == "settlement"
+    source = frame.loc[frame.order_book_id.eq(row["order_book_id"])].iloc[0]
+    assert risk["market_value"] == pytest.approx(source.settlement * source.contract_multiplier)
+
+
+def test_compact_feature_quality_rejects_missing_etf_day(tmp_path):
+    from alphalab.dataio.quality import validate_dataset
+    from alphalab.options.features import FORMULA_VERSION
+    from alphalab.options.literature import FEATURES
+
+    days = pd.bdate_range("2025-01-06", periods=3)
+    rows = [
+        {
+            "date": d,
+            "symbol": s,
+            **{f: 0.1 for f in FEATURES},
+            "source_hash": "a",
+            "formula_version": FORMULA_VERSION,
+            "availability": "session_close",
+            "issue": "",
+        }
+        for d in days
+        for s in [ETF, "510300.XSHG"]
+        if (d, s) != (days[1], "510300.XSHG")
+    ]
+    RuntimeStore(tmp_path).write("research.option_features", pd.DataFrame(rows))
+    result = validate_dataset(
+        "research.option_features",
+        tmp_path,
+        start_date="2025-01-06",
+        as_of_date="2025-01-08",
+        fail_on_gap=True,
+    )
+    assert result["status"] == "failed"
+    assert result["metrics"]["missing_keys"] == 1
+    assert result["metrics"]["missing_key_sample"] == [["2025-01-07", "510300.XSHG"]]
+
+
+def test_surface_model_pricing_and_merton_fit_are_dated(tmp_path):
+    from apps.api.services import options_model_service
+
+    store = RuntimeStore(tmp_path)
+    store.write("rq.option_snapshots", market_snapshot())
+    store.write("rq.option_rates", rate_frame())
+    request = {
+        "underlying": ETF,
+        "day": DAY,
+        "model": "ssvi",
+        "price_field": "close",
+        "strike": 3.0,
+        "maturity_days": 60.0,
+        "option_type": "C",
+    }
+    value = options_model_service.surface_price(request, root=tmp_path)
+    assert value["price"] > 0 and 0.19 < value["iv"] < 0.24
+    with pytest.raises(ValueError, match="outside"):
+        options_model_service.surface_price({**request, "strike": 5.0}, root=tmp_path)
+    fit = options_model_service.calibrate(request, root=tmp_path)
+    assert fit["training_quotes"] >= 8 and fit["holdout_quotes"] >= 3
+    assert fit["holdout_vega_scaled_rmse"] < 0.05
+    assert options_model_service.read_calibration(fit["id"], tmp_path) == fit
+
+
+def test_fast_constant_atm_matches_full_research_and_names_need_no_curve(tmp_path):
+    from alphalab.options import constant_maturity_atm, option_features
+
+    frame = market_snapshot()
+    chain = analyze_chain(frame, rate=0.02, carry_mode="put_call_forward")
+    expected = option_features(chain, pd.DataFrame(columns=["date", "adjusted_close"]))[
+        "option_atm_iv_30"
+    ]
+    fast = constant_maturity_atm(frame, rate=0.02)
+    assert fast["atm_iv"] == pytest.approx(expected, abs=1e-10)
+    store = RuntimeStore(tmp_path)
+    frame.loc[0, "strike_price"] = 2.91
+    frame.loc[0, "contract_multiplier"] = 10220.0
+    store.write("rq.option_snapshots", frame)
+    names = options_service.contract_identities(ETF, DAY, root=tmp_path)["contracts"]
+    assert "2.9100" in names[0]["contract_name_zh"]
+    assert "10220" in names[0]["contract_name_zh"]

@@ -182,6 +182,7 @@ export function ValidationWorkbenchWidget() {
         if (batch.length && batch.every((job) => !["queued", "running"].includes(job.status))) {
           const ids = batch.filter((job) => job.status === "succeeded" && job.result_id).map((job) => job.result_id!)
           const failures = batch.filter((job) => job.status !== "succeeded")
+          if (ids.length) window.dispatchEvent(new Event("alphalab:refreshData"))
           setComparisonIds(ids)
           if (ids.length) setSelectedBacktest(ids[0])
           if (ids.length >= 2) setTab("compare")

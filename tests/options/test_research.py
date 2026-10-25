@@ -140,3 +140,16 @@ def test_selecting_a_control_as_predictor_does_not_invent_incremental_r_squared(
     )
     assert report["config"]["controls"] == ["option_rv20", "option_momentum20"]
     assert report["oos_r2_vs_controls"] == pytest.approx(0, abs=1e-12)
+
+
+def test_reserved_holdout_freezes_training_for_every_reserved_fold():
+    features, bars = synthetic_panel(260)
+    report = walk_forward_research(
+        research_panel(features, bars), fields=["option_smirk"], min_train=60
+    )
+    held = [f for f in report["folds"] if f["phase"] == "frozen_holdout"]
+    assert len(held) >= 2
+    assert len({f["training_label_end"] for f in held}) == 1
+    assert all(f["training_label_end"] < report["independent_holdout"]["start"] for f in held)
+    assert report["independent_holdout"]["method"] == "single_frozen_pre_holdout_fit_no_retuning"
+    assert report["holdout_ablations"][0]["field"] == "option_smirk"

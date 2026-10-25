@@ -95,6 +95,9 @@ def run_research(request, root=None):
     features = features.loc[
         features.symbol.isin(symbols) & pd.to_datetime(features.date).between(start, end)
     ].copy()
+    from alphalab.options.features import FORMULA_VERSION
+    if not features.empty and (not features.formula_version.eq(FORMULA_VERSION).all()):
+        raise ValueError("Option feature version changed; rebuild the requested history before research")
     if features.empty:
         raise MissingDataError("Build dated option features before return research")
     underlying = store.read("rq.option_underlyings")
@@ -114,8 +117,10 @@ def run_research(request, root=None):
         key: request[key]
         for key in ("fields", "horizon", "min_train", "refit_every", "ridge", "embargo", "controls")
     }
+    settings["holdout_start"] = request.get("holdout_start")
     panel = research_panel(features, bars, horizon=settings["horizon"])
     report = walk_forward_research(panel, **settings)
+    report["feature_formula_version"] = FORMULA_VERSION
     report["scope"] = {"start": str(start.date()), "end": str(end.date()), "underlyings": symbols}
     report["literature"] = literature_catalog()["papers"]
     path = _report_path(report["id"], root)

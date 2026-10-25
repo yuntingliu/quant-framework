@@ -725,8 +725,8 @@ async function fetchText(url: string): Promise<string> {
 export const api = {
   get: <T>(url: string, options?: ApiRequestInit) => fetchJSON<T>(url, options),
   getText: (url: string) => fetchText(url),
-  post: <T>(url: string, body: unknown) =>
-    fetchJSON<T>(url, { method: "POST", body: JSON.stringify(body) }),
+  post: <T>(url: string, body: unknown, options?: ApiRequestInit) =>
+    fetchJSON<T>(url, { ...options, method: "POST", body: JSON.stringify(body) }),
   put: <T>(url: string, body: unknown) =>
     fetchJSON<T>(url, { method: "PUT", body: JSON.stringify(body) }),
   patch: <T>(url: string, body: unknown) =>

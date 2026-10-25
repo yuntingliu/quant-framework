@@ -17,7 +17,12 @@ from alphalab.options import (
     monte_carlo,
     stress_grid,
 )
-from apps.api.services import options_research_service, options_service, options_strategy_service
+from apps.api.services import (
+    options_model_service,
+    options_research_service,
+    options_service,
+    options_strategy_service,
+)
 
 router = APIRouter(prefix="/api/options", tags=["options"])
 
@@ -78,6 +83,7 @@ class ResearchRequest(BaseModel):
     ridge: float = Field(default=1, ge=0, le=1000)
     embargo: int = Field(default=1, ge=0, le=20)
     controls: bool = True
+    holdout_start: date | None = None
 
 
 class ResearchProjectRequest(BaseModel):
@@ -196,6 +202,7 @@ class PortfolioLegRequest(BaseModel):
 class PortfolioRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     day: date
+    price_field: Literal["close", "settlement"] = "close"
     legs: list[PortfolioLegRequest] = Field(min_length=1, max_length=20)
     rate: float | None = None
     days_forward: float = Field(default=0, ge=0, le=365)
@@ -211,6 +218,9 @@ class PortfolioRequest(BaseModel):
     paths: int = Field(default=100000, ge=1000, le=250000)
     seed: int = Field(default=42, ge=0)
     correlation: float = Field(default=0.8, ge=0, le=1)
+    calibration_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{20}$")
+    sampling: Literal["standard", "importance"] = "standard"
+    importance_tilt: float = Field(default=-2, ge=-6, le=6)
     jump_intensity: float = Field(default=1, ge=0, le=100)
     jump_mean: float = Field(default=-0.15, ge=-5, le=2)
     jump_volatility: float = Field(default=0.15, ge=0, le=2)
@@ -242,10 +252,11 @@ def analysis(
 
 @router.get("/history")
 def history(
-    underlying: str, end: date | None = None, limit: int = Query(default=40, ge=1, le=90)
+    underlying: str, end: date | None = None, limit: int = Query(default=40, ge=1, le=90),
+    price_field: Literal["close", "settlement"] = "close", rate: float | None = None
 ) -> dict:
     try:
-        return options_service.history(underlying, end=end, limit=limit)
+        return options_service.history(underlying, end=end, limit=limit, price_field=price_field, rate=rate)
     except (MissingDataError, ValueError) as exc:
         raise HTTPException(422, str(exc)) from None
 
@@ -369,3 +380,44 @@ def stress(request: StressRequest) -> dict:
         )
     except (ValueError, OverflowError, FloatingPointError):
         raise HTTPException(422, "Invalid stress scenario or numerical inputs") from None
+
+
+class CalibrationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    underlying: str = Field(max_length=32)
+    day: date
+    price_field: Literal["close", "settlement"] = "close"
+    rate: float | None = None
+
+
+class SurfacePriceRequest(CalibrationRequest):
+    model: Literal["svi", "ssvi"] = "ssvi"
+    strike: float = Field(gt=0)
+    maturity_days: float = Field(gt=0, le=365)
+    option_type: Literal["C", "P"] = "C"
+
+
+@router.post("/models/calibrate")
+def calibrate_model(request: CalibrationRequest):
+    return _research_call(options_model_service.calibrate, request.model_dump(mode="json"))
+
+
+@router.get("/models/calibrations/{model_id}")
+def calibrated_model(model_id: str):
+    return _research_call(options_model_service.read_calibration, model_id)
+
+
+@router.post("/surface/price")
+def model_surface_price(request: SurfacePriceRequest):
+    return _research_call(options_model_service.surface_price, request.model_dump(mode="json"))
+
+
+@router.get("/research/comparison")
+def compare_strategies(ids: str = Query(default="", max_length=1000)):
+    from apps.api.services import options_comparison_service
+    return _research_call(options_comparison_service.compare, [v for v in ids.split(",") if v] or None)
+
+
+@router.get("/names")
+def contract_identities(underlying: str, day: date):
+    return _research_call(options_service.contract_identities, underlying, str(day))

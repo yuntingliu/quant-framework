@@ -12,7 +12,7 @@ import pandas as pd
 from alphalab.dataio.catalog import DATASETS
 from alphalab.dataio.runtime import RuntimeStore
 
-QUALITY_REPORT_VERSION = 2
+QUALITY_REPORT_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -95,6 +95,7 @@ def validate_dataset(
             start_date=start_date,
             as_of_date=as_of_date,
             fail_on_gap=fail_on_gap,
+            symbols=selected_symbols,
         )
     report = _report(dataset, status, issues, metrics)
     store.operations.record_quality(dataset, report)
@@ -567,8 +568,13 @@ def _validate_compact(
     start_date: str | None,
     as_of_date: str | None,
     fail_on_gap: bool,
+    symbols: set[str] | None = None,
 ) -> tuple[list[QualityIssue], dict]:
-    frame = store.read(dataset)
+    frame = _bounded(store.read(dataset), start_date, as_of_date)
+    if symbols is not None and "symbol" in frame:
+        from alphalab.dataio.symbols import to_rq_symbol
+        requested = {to_rq_symbol(s) for s in symbols}
+        frame = frame.loc[frame.symbol.map(to_rq_symbol).isin(requested)]
     spec = DATASETS[dataset]
     issues: list[QualityIssue] = []
     missing = sorted(set(spec.key_columns) - set(frame))
@@ -581,8 +587,8 @@ def _validate_compact(
         if spec.date_column and spec.date_column in frame
         else set()
     )
-    symbols = set(frame["symbol"].dropna().astype(str).str.upper()) if "symbol" in frame else set()
-    metrics = _coverage_metrics(dates, symbols)
+    observed_symbols = set(frame["symbol"].dropna().astype(str).str.upper()) if "symbol" in frame else set()
+    metrics = _coverage_metrics(dates, observed_symbols)
 
     if dataset == "research.option_features":
         from alphalab.dataio.option_features import validate_feature_frame
@@ -699,6 +705,13 @@ def _validate_compact(
             values = frame[list(required - {"date"})].apply(pd.to_numeric, errors="coerce")
             if values[["MKT", "rf"]].isna().any().any():
                 issues.append(QualityIssue("invalid_factor_returns", "MKT and rf must be finite"))
+    if dataset in {"research.option_features", "rq.option_underlyings", "rq.option_etf_5m", "research.option_intraday_variance"}:
+        from alphalab.dataio.option_coverage import compact_option_gaps
+        coverage = compact_option_gaps(store, dataset, frame, start_date, as_of_date, symbols)
+        metrics["scope_symbols"] = sorted(symbols) if symbols else None
+        metrics.update(coverage)
+        if coverage.get("missing_keys"):
+            issues.append(QualityIssue("option_session_key_gap", f"{coverage['missing_keys']} required ETF/session observations are missing", severity="error" if fail_on_gap else "warning"))
     _check_bounds(metrics, issues, start_date, as_of_date, fail_on_gap)
     return issues, metrics
 

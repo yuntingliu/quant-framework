@@ -17,6 +17,20 @@ from .symbols import to_rq_symbol
 
 
 def _digest(frame):
+    # Economic inputs determine calculations; retrieval times/manifests are
+    # retained as provenance and must not invalidate unchanged prices.
+    ignored = {
+        "retrieved_at",
+        "generated_at",
+        "expected_sessions",
+        "expected_contracts",
+        "vendor_name",
+        "trading_code",
+        "source_retrieved_at",
+    }
+    frame = frame[[c for c in sorted(frame.columns) if c not in ignored]]
+    if "order_book_id" in frame:
+        frame = frame.sort_values(["date", "order_book_id"])
     return hashlib.sha256(
         pd.util.hash_pandas_object(frame, index=False).to_numpy().tobytes()
     ).hexdigest()
@@ -65,7 +79,9 @@ def iter_feature_batches(context, *, start, end, symbols):
         history_end = dated.date.searchsorted(day, side="right")
         dated = dated.iloc[:history_end]
         history_digest = hashlib.sha256(
-            history_hashes.get(symbol, np.array([], dtype="uint64"))[:history_end].tobytes()
+            history_hashes.get(symbol, np.array([], dtype="uint64"))[
+                max(0, history_end - 21) : history_end
+            ].tobytes()
         ).hexdigest()
         hf = hf_histories.get(symbol, intraday.iloc[:0])
         hf_end = hf.date.searchsorted(day, side="right")
@@ -161,5 +177,6 @@ def option_features(context, *, start: str = {start!r}, end: str = {end!r}, symb
     for batch in iter_feature_batches(context, start=start, end=end, symbols=symbols):
         context.publish("research.option_features", batch, wait_seconds=60)
         published += len(batch)
+    context.require_coverage("research.option_features", start=start, end=end, symbols=symbols, fail_on_gap=True)
     context.output("published_feature_rows", published)
 '''

@@ -169,40 +169,46 @@ def analyze_snapshot(
         "oi_pcr": put_oi / call_oi if call_oi else None,
     }
     chain["realized_volatility"] = realized_volatility(underlying, day, root)
+    from alphalab.options.features import option_features
+    predictors = option_features(chain, pd.DataFrame(columns=["date", "adjusted_close"]))
+    chain["constant_maturity"] = {"atm_iv_30": predictors["option_atm_iv_30"], "atm_iv_60": predictors["option_atm_iv_60"], "atm_iv_90": predictors["option_atm_iv_90"]}
+    chain["atm_definition"] = "forward_atm_constant_maturity_total_variance"
     if include_surface:
         chain["surface"] = volatility_surface(chain)
+        from alphalab.options.ssvi import ssvi_surface
+        chain["surface"]["ssvi"] = ssvi_surface(chain["surface"])
     return chain
 
 
-def history(underlying, *, end=None, limit=40, root=None):
-    if not 1 <= limit <= 90:
-        raise ValueError("History limit must be between 1 and 90 sessions")
-    underlying = to_rq_symbol(underlying)
-    listing = next((r for r in universe(root)["underlyings"] if r["symbol"] == underlying), None)
-    dates = [d for d in (listing["dates"] if listing else []) if end is None or d <= str(end)][
-        -limit:
-    ]
+def _file_key(paths):
+    return tuple((str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in paths)
+
+
+@lru_cache(maxsize=32)
+def _history_cached(underlying, snapshots, rate_files, price_field, rate):
+    rates = pd.concat([pq.ParquetFile(p).read().to_pandas() for p, _, _ in rate_files], ignore_index=True) if rate_files else pd.DataFrame()
     points = []
-    for day in dates:
-        report = analyze_snapshot(underlying, day, include_surface=False, root=root)
-        rows = [r for r in report["contracts"] if r["status"] == "eligible"]
-        if not rows:
-            points.append({"date": day, "atm_iv": None, "eligible": 0})
-            continue
-        selected = min(
-            rows,
-            key=lambda r: (abs(r["maturity"] - 30 / 365), abs(np.log(r["strike"] / r["forward"]))),
-        )
-        points.append(
-            {
-                "date": day,
-                "atm_iv": selected["iv"],
-                "maturity": selected["maturity"],
-                "eligible": len(rows),
-                "volume_pcr": report["activity"]["volume_pcr"],
-            }
-        )
-    return {"underlying": underlying, "points": points}
+    for path, _, _ in snapshots:
+        frame = pq.ParquetFile(path).read().to_pandas()
+        day = pd.Timestamp(frame.date.iloc[0])
+        settings = {"rate": rate}
+        if rate is None:
+            curve = DiscountCurve.as_of(rates, day)
+            settings = {"rates_by_expiry": {str(pd.Timestamp(e).date()): curve.rate(max(0, (pd.Timestamp(e)-day).days/365)) for e in frame.maturity_date.unique()}}
+        from alphalab.dataio.option_snapshots import validate_option_partitions
+        from alphalab.options import constant_maturity_atm
+        validate_option_partitions(frame)
+        points.append(constant_maturity_atm(frame, **settings, price_field=price_field))
+    return {"underlying": underlying, "points": points, "price_field": price_field, "atm_definition": "forward_atm_constant_30d", "rate": rate}
+
+
+def history(underlying, *, end=None, limit=40, price_field="close", rate=None, root=None):
+    if not 1 <= limit <= 90 or price_field not in {"close", "settlement"}:
+        raise ValueError("Invalid history limit or price field")
+    underlying = to_rq_symbol(underlying)
+    catalog = DataCatalog(root)
+    paths = sorted(p for p in catalog.files("rq.option_snapshots") if p.parent.name == f"underlying={underlying}" and (end is None or p.parent.parent.name <= f"date={end}"))[-limit:]
+    return _history_cached(underlying, _file_key(paths), _file_key(catalog.files("rq.option_rates")) if rate is None else (), price_field, rate)
 
 
 def quality(root=None):
@@ -224,9 +230,10 @@ def quality(root=None):
                     and prior["files"] == status["files"] and checked_ns >= latest_change
                     and metrics.get("start_date") == status["date_start"]
                     and metrics.get("end_date") == status["date_end"]
-                    and not metrics.get("missing_sessions")):
+                    and not metrics.get("missing_sessions") and not metrics.get("missing_keys")
+                    and metrics.get("scope_symbols") is None):
                 return {**prior, "checked_at": saved["checked_at"]}
-        return validate_dataset(dataset, root, fail_on_gap=dataset == "rq.option_snapshots")
+        return validate_dataset(dataset, root, fail_on_gap=True)
 
     report = {
         "snapshots": checked("rq.option_snapshots"),
@@ -250,7 +257,7 @@ def portfolio(request, root=None):
             continue
         if symbol not in reports:
             reports[symbol] = analyze_snapshot(
-                symbol, request["day"], rate=request.get("rate"), include_surface=False, root=root
+                symbol, request["day"], rate=request.get("rate"), price_field=request.get("price_field", "close"), include_surface=False, root=root
             )
         row = next(
             (r for r in reports[symbol]["contracts"] if r["order_book_id"] == contract), None
@@ -266,6 +273,7 @@ def portfolio(request, root=None):
         ),
         volatility_shifts=request.get("volatility_shifts", [0, 0.1, 0.3]),
     )
+    result["valuation_context"] = {"day": request["day"], "price_field": request.get("price_field", "close"), "rate": request.get("rate")}
     if request.get("include_mc", True):
         assets = {}
         for symbol, report in reports.items():
@@ -300,9 +308,20 @@ def portfolio(request, root=None):
                 "jump_mean",
                 "jump_volatility",
                 "days_forward",
+                "sampling",
+                "importance_tilt",
             )
             if k in request
         }
+        if request.get("calibration_id"):
+            from apps.api.services.options_model_service import read_calibration
+            calibration = read_calibration(request["calibration_id"], root)
+            if (not calibration["usable"] or set(assets) != {calibration["underlying"]} or calibration["date"] != str(request["day"]) or calibration["price_field"] != request.get("price_field", "close") or calibration["manual_rate"] != request.get("rate")):
+                raise ValueError("Calibration diagnostics or valuation context do not match this single-ETF basket")
+            params = calibration["parameters"]
+            assets[calibration["underlying"]]["volatility"] = params["diffusion_volatility"]
+            settings.update({key: params[key] for key in ("jump_intensity", "jump_mean", "jump_volatility")})
+            result["calibration_id"] = calibration["id"]
         base = joint_monte_carlo(legs, assets, **settings)
         crash = joint_monte_carlo(legs, assets, **settings, spot_shock=-0.3, volatility_shift=0.2)
         result["monte_carlo"] = {
@@ -312,3 +331,10 @@ def portfolio(request, root=None):
             "underlying_models": assets,
         }
     return result
+
+
+def contract_identities(underlying, day, root=None):
+    from alphalab.options.contracts import contract_names
+    underlying = to_rq_symbol(underlying)
+    frame = load_option_snapshot(underlying, day, root=root)
+    return {"contracts": [{"underlying":underlying,"order_book_id":str(r.order_book_id),**contract_names(underlying,str(pd.Timestamp(r.maturity_date).date()),r.option_type,float(r.strike_price),float(r.contract_multiplier))} for r in frame.itertuples()]}

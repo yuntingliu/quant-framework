@@ -122,6 +122,8 @@ def joint_monte_carlo(
     spot_shock=0.0,
     volatility_shift=0.0,
     days_forward=0.0,
+    sampling="standard",
+    importance_tilt=-2.0,
 ):
     """One shared asset path per ETF: calls/puts and maturities cannot drift apart.
 
@@ -151,6 +153,12 @@ def joint_monte_carlo(
         or spot_shock <= -1
     ):
         raise ValueError("Invalid joint MC scenario parameters")
+    if (
+        sampling not in {"standard", "importance"}
+        or not isfinite(importance_tilt)
+        or abs(importance_tilt) > 6
+    ):
+        raise ValueError("Invalid sampling method or importance tilt")
     names = sorted({leg["underlying"] for leg in legs})
     last_time = {
         name: max(
@@ -190,12 +198,23 @@ def joint_monte_carlo(
             raise ValueError("MC maturity exceeds the observed forward domain")
         curves[name] = nodes
     pv = np.zeros(paths)
+    likelihood = np.ones(paths)
+    log_ratio = np.zeros(paths)
+    mixture = rng.integers(0, 2, paths) if sampling == "importance" else np.zeros(paths)
+    leg_samples = {}
     previous_t = 0.0
     compensator = exp(jump_mean + jump_volatility**2 / 2) - 1
     for t in times:
         dt = t - previous_t
         if dt > 0:
             common_z = rng.standard_normal(paths)
+            active_count = sum(t <= last_time[name] + 1e-10 for name in names)
+            tilt = importance_tilt if sampling == "importance" else 0.0
+            denominator = 1 + (active_count - 1) * correlation
+            common_shift = tilt * sqrt(correlation) * active_count / denominator * sqrt(dt)
+            independent_shift = tilt * sqrt(1 - correlation) / denominator * sqrt(dt)
+            common_z = common_z + common_shift * mixture
+            log_ratio += common_shift * common_z - 0.5 * common_shift**2
             counts = rng.poisson(jump_intensity * dt, paths)
             jump = counts * jump_mean + np.sqrt(counts) * jump_volatility * rng.standard_normal(
                 paths
@@ -208,9 +227,10 @@ def joint_monte_carlo(
                     np.exp(np.interp(t, [n[0] for n in curve], np.log([n[1] for n in curve])))
                 )
                 vol = assets[name]["volatility"] + volatility_shift
-                z = sqrt(correlation) * common_z + sqrt(1 - correlation) * rng.standard_normal(
-                    paths
-                )
+                independent_z = rng.standard_normal(paths)
+                independent_z = independent_z + independent_shift * mixture
+                log_ratio += independent_shift * independent_z - 0.5 * independent_shift**2
+                z = sqrt(correlation) * common_z + sqrt(1 - correlation) * independent_z
                 drift = (
                     log(forward / previous_forward[name])
                     - (jump_intensity * compensator + vol * vol / 2) * dt
@@ -218,31 +238,69 @@ def joint_monte_carlo(
                 with np.errstate(over="raise", invalid="raise"):
                     prices[name] *= np.exp(drift + vol * sqrt(dt) * z + jump)
                 previous_forward[name] = forward
-        for leg in legs:
+            # Defensive 50/50 mixture retains the ordinary region as well as
+            # rare tails. The exact likelihood is bounded by two.
+            likelihood = np.exp(-np.logaddexp(np.log(0.5), np.log(0.5) + log_ratio))
+        for index, leg in enumerate(legs):
             remaining = max(0.0, leg["maturity"] - days_forward / 365)
             if abs(remaining - t) < 1e-10:
                 sign = 1 if leg["option_type"] == "C" else -1
                 payoff = np.maximum(sign * (prices[leg["underlying"]] - leg["strike"]), 0.0)
-                pv += payoff * exp(-leg["rate"] * t) * leg["quantity"] * leg["multiplier"]
+                contribution = payoff * exp(-leg["rate"] * t) * leg["quantity"] * leg["multiplier"]
+                pv += contribution
+                # Lock each leg's likelihood at its own expiry. Later asset
+                # increments must not add noise to a settled cash flow.
+                leg_samples[index] = (
+                    contribution * likelihood.copy(),
+                    int(np.count_nonzero(payoff)),
+                )
         previous_t = t
-    mean, stderr = float(pv.mean()), float(pv.std(ddof=1) / sqrt(paths))
-    hits = int(np.count_nonzero(pv))
+    diagnostics, estimate = [], np.zeros(paths)
+    for index, leg in enumerate(legs):
+        contribution, hits = leg_samples[index]
+        estimate += contribution
+        mass = np.abs(contribution)
+        ess = float(mass.sum() ** 2 / (mass @ mass)) if (mass @ mass) > 0 else 0.0
+        insufficient = (hits < 100 or (sampling == "importance" and ess < 30)) and leg[
+            "maturity"
+        ] > days_forward / 365
+        diagnostics.append(
+            {
+                "contract": leg.get("order_book_id", str(index)),
+                "positive_payoffs": hits,
+                "effective_payoffs": ess,
+                "value": float(contribution.mean()),
+                "standard_error": float(contribution.std(ddof=1) / sqrt(paths)),
+                "warning": "rare_payoff_insufficient_sampling" if insufficient else None,
+            }
+        )
+    mean, stderr = float(estimate.mean()), float(estimate.std(ddof=1) / sqrt(paths))
+    warning = (
+        "rare_payoff_insufficient_sampling" if any(d["warning"] for d in diagnostics) else None
+    )
+    order = np.argsort(pv)
+    cdf = np.cumsum(likelihood[order])
+    cdf /= cdf[-1]
+    quantiles = {str(p): float(np.interp(p, cdf, pv[order])) for p in (0.01, 0.05, 0.5, 0.95, 0.99)}
     return {
         "model": "joint_systemic_merton" if jump_intensity else "joint_gbm",
         "measure": "Q",
         "value": mean,
         "standard_error": stderr,
-        "ci95": [mean - 1.96 * stderr, mean + 1.96 * stderr] if hits >= 100 else None,
+        "ci95": [mean - 1.96 * stderr, mean + 1.96 * stderr] if warning is None else None,
         "paths": paths,
         "seed": seed,
         "correlation": correlation,
         "jump_intensity": jump_intensity,
         "jump_mean": jump_mean,
         "jump_volatility": jump_volatility,
-        "warning": "rare_payoff_insufficient_sampling" if hits < 100 else None,
-        "payoff_quantiles": {
-            str(p): float(np.quantile(pv, p)) for p in (0.01, 0.05, 0.5, 0.95, 0.99)
-        },
+        "warning": warning,
+        "sampling": sampling,
+        "importance_tilt": importance_tilt if sampling == "importance" else 0.0,
+        "effective_paths": float(likelihood.sum() ** 2 / (likelihood @ likelihood)),
+        "likelihood_mean": float(likelihood.mean()),
+        "leg_diagnostics": diagnostics,
+        "payoff_quantiles": quantiles,
         "spot_shock": spot_shock,
         "volatility_shift": volatility_shift,
         "interpretation": "Joint discounted Q terminal payoffs, not physical-measure VaR. Flat ATM vol per ETF; forward curves retained; systemic jumps and supplied correlation are scenario assumptions.",

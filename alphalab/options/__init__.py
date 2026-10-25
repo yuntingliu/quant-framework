@@ -1,6 +1,7 @@
 """European ETF option analysis and pricing. No data connections at import time."""
 
-from .analysis import analyze_chain, stress_grid
+from .analysis import analyze_chain, constant_maturity_atm, stress_grid
+from .calibration import calibrate_merton, merton_prices
 from .curves import DiscountCurve
 from .features import option_features, strip_moments
 from .literature import literature_catalog
@@ -8,9 +9,11 @@ from .portfolio import basket_stress, joint_monte_carlo
 from .pricing import EuropeanOption, black_scholes, greeks, implied_volatility, monte_carlo
 from .quality import QualityError, validate_snapshot
 from .research import research_panel, walk_forward_research
+from .ssvi import ssvi_iv, ssvi_surface, ssvi_variance
 from .surface import surface_iv, volatility_surface
 
 __all__ = [
+    "calibrate_merton", "merton_prices", "ssvi_iv", "ssvi_surface", "ssvi_variance",
     "option_features",
     "strip_moments",
     "literature_catalog",
@@ -24,6 +27,7 @@ __all__ = [
     "EuropeanOption",
     "QualityError",
     "analyze_chain",
+    "constant_maturity_atm",
     "black_scholes",
     "greeks",
     "implied_volatility",

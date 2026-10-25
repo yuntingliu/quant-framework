@@ -8,15 +8,26 @@ import pandas as pd
 
 from .literature import FEATURES
 
-RESEARCH_VERSION = "option-walk-forward-v1"
+RESEARCH_VERSION = "option-walk-forward-v2-holdout"
 
 
-def research_panel(features, bars, *, horizon=5):
+def research_panel(features, bars, *, horizon=5, sessions=None):
     """Close-t predictors, adjusted next-open to horizon-close return labels."""
     if horizon not in (1, 5, 20):
         raise ValueError("Return horizon must be 1, 5 or 20 trading sessions")
     if features.duplicated(["date", "symbol"]).any() or bars.duplicated(["date", "symbol"]).any():
         raise ValueError("Research data contains duplicate date/symbol keys")
+    # Reindex before shifting: a missing quote must not turn a later session
+    # into tomorrow's open. Feature dates also expose gaps in a single asset.
+    calendar = (
+        pd.DatetimeIndex(
+            pd.to_datetime(
+                sessions if sessions is not None else pd.concat([features.date, bars.date]).unique()
+            )
+        )
+        .sort_values()
+        .unique()
+    )
     labels = []
     for symbol, group in bars.groupby("symbol"):
         group = group.sort_values("date").copy()
@@ -29,9 +40,24 @@ def research_panel(features, bars, *, horizon=5):
                 raise ValueError(
                     "Research labels require finite positive adjusted open/close prices"
                 )
+        observed = pd.to_datetime(group.date)
+        grid = calendar[(calendar >= observed.min()) & (calendar <= calendar.max())]
+        group = group.assign(date=observed).set_index("date").reindex(grid)
+        group["symbol"] = symbol
+        group["date"] = group.index
+        # Every close within the forecast holding interval is required.
+        complete = (
+            group.close.notna()
+            .rolling(horizon, min_periods=horizon)
+            .sum()
+            .shift(-horizon)
+            .eq(horizon)
+        )
         group["label_start"] = group.date.shift(-1)
         group["label_end"] = group.date.shift(-horizon)
         group["target_return"] = group.close.shift(-horizon) / group.open.shift(-1) - 1
+        group.loc[~complete, "target_return"] = np.nan
+        group = group.reset_index(drop=True)
         labels.append(group[["date", "symbol", "label_start", "label_end", "target_return"]])
     if not labels:
         raise ValueError("No market history for return labels")
@@ -104,7 +130,16 @@ def _training_inference(train, fields, symbols, horizon):
 
 
 def walk_forward_research(
-    panel, *, fields, horizon=5, min_train=120, refit_every=20, ridge=1.0, embargo=1, controls=True
+    panel,
+    *,
+    fields,
+    horizon=5,
+    min_train=120,
+    refit_every=20,
+    ridge=1.0,
+    embargo=1,
+    controls=True,
+    holdout_start=None,
 ):
     """Fit using labels completed before each test block; retain live unscored rows.
 
@@ -142,10 +177,27 @@ def walk_forward_research(
     dates = [pd.Timestamp(v) for v in dates]
     symbols = sorted(data.symbol.unique())
     predictions, folds, last_train = [], [], None
-    for index in range(min_train + horizon + embargo, len(dates), refit_every):
-        first, last = dates[index], dates[min(index + refit_every - 1, len(dates) - 1)]
-        cutoff = dates[index - embargo - 1]
-        train = data.loc[data.label_end.le(cutoff) & data.date.lt(first)].dropna(
+    holdout_index = (
+        int(len(dates) * 0.8)
+        if holdout_start is None
+        else int(np.searchsorted(dates, pd.Timestamp(holdout_start)))
+    )
+    if holdout_index < min_train + horizon + embargo or holdout_index >= len(dates) - 5:
+        if holdout_start is not None:
+            raise ValueError(
+                "Holdout requires sufficient training history and at least six reserved sessions"
+            )
+        holdout_index = None
+    anchors = list(range(min_train + horizon + embargo, len(dates), refit_every))
+    if holdout_index is not None:
+        anchors = sorted(set(anchors + [holdout_index]))
+    for fold_index, index in enumerate(anchors):
+        next_index = anchors[fold_index + 1] if fold_index + 1 < len(anchors) else len(dates)
+        first, last = dates[index], dates[next_index - 1]
+        frozen_holdout = holdout_index is not None and index >= holdout_index
+        origin = holdout_index if frozen_holdout else index
+        cutoff = dates[origin - embargo - 1]
+        train = data.loc[data.label_end.le(cutoff) & data.date.lt(dates[origin])].dropna(
             subset=["target_return"]
         )
         if train.date.nunique() < min_train or len(train) < len(all_fields) + len(symbols) + 10:
@@ -175,6 +227,7 @@ def walk_forward_research(
         predictions.append(test)
         folds.append(
             {
+                "phase": "frozen_holdout" if frozen_holdout else "walk_forward",
                 "test_start": str(first.date()),
                 "test_end": str(last.date()),
                 "training_label_end": str(train.label_end.max().date()),
@@ -249,6 +302,7 @@ def walk_forward_research(
         "refit_every": refit_every,
         "ridge": ridge,
         "embargo": embargo,
+        "holdout_start": str(dates[holdout_index].date()) if holdout_index is not None else None,
     }
     fingerprint = sha256(
         pd.util.hash_pandas_object(panel, index=False).to_numpy().tobytes()
@@ -280,7 +334,51 @@ def walk_forward_research(
                 lambda d: None if pd.isna(d) else str(pd.Timestamp(d).date())
             )
     output = records.astype(object).where(pd.notna(records), None).to_dict("records")
+    holdout = (
+        prediction.loc[prediction.date.ge(dates[holdout_index])]
+        if holdout_index is not None
+        else prediction.iloc[:0]
+    )
+    reserved = None
+    ablations = []
+    if not holdout.empty:
+        scored_holdout = holdout.dropna(subset=["target_return"])
+
+        def metrics(frame):
+            daily_values = [
+                float(g.prediction.rank().corr(g.target_return.rank()))
+                for _, g in frame.groupby("date")
+                if len(g) >= 5 and g.prediction.nunique() > 1 and g.target_return.nunique() > 1
+            ]
+            denominator = float(((frame.target_return - frame.baseline_prediction) ** 2).sum())
+            return {
+                "rank_ic": _hac_mean(daily_values, horizon),
+                "oos_r2_vs_controls": 1
+                - float(((frame.target_return - frame.prediction) ** 2).sum()) / denominator
+                if denominator > 1e-16
+                else None,
+                "scored_rows": len(frame),
+            }
+
+        reserved = {
+            "start": str(holdout.date.min().date()),
+            "end": str(holdout.date.max().date()),
+            "training_label_end": str(holdout.training_label_end.max().date()),
+            "method": "single_frozen_pre_holdout_fit_no_retuning",
+            "sessions": int(scored_holdout.date.nunique()),
+            **metrics(scored_holdout),
+        }
+        for field in fields:
+            subset = list(dict.fromkeys([field, *controls_fields]))
+            x, xt = _design(last_train, scored_holdout, subset, symbols)
+            trial = scored_holdout.copy()
+            trial["prediction"] = _ridge_predict(
+                x, last_train.target_return.to_numpy(float), xt, ridge, len(subset)
+            )
+            ablations.append({"field": field, **metrics(trial)})
     return {
+        "independent_holdout": reserved,
+        "holdout_ablations": ablations,
         "id": run_id,
         "version": RESEARCH_VERSION,
         "data_hash": fingerprint,

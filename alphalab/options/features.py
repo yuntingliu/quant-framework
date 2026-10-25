@@ -8,7 +8,7 @@ from scipy.integrate import trapezoid
 
 from .literature import FEATURES
 
-FORMULA_VERSION = "option-research-v2"
+FORMULA_VERSION = "option-research-v3-forward-atm"
 
 
 def _interp(rows, column, target):
@@ -120,10 +120,8 @@ def option_features(chain, adjusted_history, intraday_history=None):
     nodes, diagnostics = [], []
     for expiry in sorted({r["expiry"] for r in rows}):
         group = [r for r in rows if r["expiry"] == expiry]
-        atm = _interp(group, "log_moneyness", 0.0) if "log_moneyness" in group[0] else None
-        if atm is None:
-            copied = [{**r, "k": log(r["strike"] / r["forward"])} for r in group]
-            atm = _interp(copied, "k", 0.0)
+        copied = [{**r, "k": log(r["strike"] / r["forward"])} for r in group]
+        atm = _interp(copied, "k", 0.0)
         call = _interp([r for r in group if r["option_type"] == "C"], "delta", 0.25)
         put = _interp([r for r in group if r["option_type"] == "P"], "delta", -0.25)
         moments = strip_moments(group)

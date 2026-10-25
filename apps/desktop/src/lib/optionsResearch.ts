@@ -4,6 +4,9 @@ import type { StrategyProject } from "@/contexts/StrategySdkContext"
 export interface ResearchFeature { field: string; zh: string; en: string; unit: string; formula: string; paper: string; direction: string }
 export interface Paper { id: string; title: string; authors: string; url: string; zh: string; en: string; classification: string }
 export interface ResearchResult {
+  version?: string; feature_formula_version?: string;
+  independent_holdout?: { start: string; end: string; training_label_end: string; scored_rows: number; sessions: number; rank_ic: {mean: number | null; hac_t: number | null}; oos_r2_vs_controls: number | null } | null
+  holdout_ablations?: Array<{field: string; rank_ic: {mean: number | null; hac_t: number | null}; oos_r2_vs_controls: number | null; scored_rows: number}>
   id: string; prediction_field: string; config: { fields: string[]; horizon: number; min_train: number; refit_every: number; ridge: number; embargo: number; controls: string[] }
   coverage: { input_rows: number; complete_feature_rows: number; prediction_rows: number; scored_rows: number; unscored_rows: number; oos_sessions: number; symbols: string[] }
   rank_ic: { mean: number | null; hac_t: number | null; observations: number }; oos_r2_vs_controls: number | null
@@ -20,9 +23,9 @@ export interface ResearchCatalog { features: ResearchFeature[]; papers: Paper[];
 export interface ProjectSpec { project_id: string; function_replacements: Array<{ entrypoint_id: string; function_source: string }>; factors: Array<{ factor_id: string; body: string }>; [key: string]: unknown }
 export interface OptionStrategy {
   backtest_id: string; project_id: string; strategy_id: string; project_exists?: boolean; name_zh: string; name_en: string; family: string
-  rule: { weights: Record<string, number>; normalization: string; top_n: number | null; frequency: string; symbols: string[]; execution: string; allocation: string; max_weight: number | null }
+  rule: { universe_verified: boolean; weights: Record<string, number>; normalization: string; top_n: number | null; frequency: string; symbols: string[]; execution: string; selection: string; schedule_day: string; decision_time: string; allocation: string; max_weight: number | null }
   period: { start_date: string; end_date: string }; metrics: { total_return: number; annual_return: number; sharpe: number; max_drawdown: number; annual_vol: number; n_periods: number }
-  warnings: string[]; execution_reliable: boolean | null; research_id: string | null; revision: number; source_sha256: string; benchmark_symbols: string[]
+  research_valid?: boolean | null; research_invalid_reasons?: string[]; warnings: string[]; execution_reliable: boolean | null; research_id: string | null; revision: number; source_sha256: string; benchmark_symbols: string[]
 }
 export interface OptionStrategyResult extends OptionStrategy {
   curve: Array<{ date: string; nav: number; benchmark_nav: number | null; drawdown: number }>
@@ -33,7 +36,14 @@ export interface OptionStrategyResult extends OptionStrategy {
   recent_executions: Array<{ decision_date: string; entry_date: string; turnover: number; total_cost: number; successful_trade_count: number }>
   forecast: ResearchSummary | null
 }
+export interface StrategyComparison {
+  period: {start: string; end: string; sessions: number} | null
+  rows: Array<{backtest_id: string; name_zh: string; name_en: string; total_return: number; pool_relative_return: number; index_relative_return: number; market_proxy_attribution: {alpha_annualized: number | null; betas: Record<string,number>; estimates: Record<string,{t_stat: number}>}; attribution_warnings: string[]; index_exposures: Array<{name_zh: string; name_en: string; mean_weight: number}>}>
+  benchmarks?: {pool_equal_weight: number; index_equal_weight: number}
+  curve: Array<Record<string,string | number>>
+}
 export const researchApi = {
+  comparison: (ids: string[]) => api.get<StrategyComparison>(`/options/research/comparison?${new URLSearchParams({ids:ids.join(",")})}`,{timeoutMs:120000}),
   strategies: () => api.get<{ strategies: OptionStrategy[] }>("/options/research/strategies"),
   strategy: (id: string) => api.get<OptionStrategyResult>(`/options/research/strategies/${id}`),
   catalog: () => api.get<ResearchCatalog>("/options/research/catalog", { timeoutMs: 60000 }),

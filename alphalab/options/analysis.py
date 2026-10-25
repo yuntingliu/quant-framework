@@ -136,11 +136,19 @@ def analyze_chain(
             "maturity": t,
             "iv": None,
             "status": "eligible",
-            "close_recovery": item.get("close_recovery") if pd.notna(item.get("close_recovery")) else None,
-            "source_close": float(item["source_close"]) if pd.notna(item.get("source_close")) else None,
+            "close_recovery": item.get("close_recovery")
+            if pd.notna(item.get("close_recovery"))
+            else None,
+            "source_close": float(item["source_close"])
+            if pd.notna(item.get("source_close"))
+            else None,
         }
         row["rate"] = rate_for_expiry(row["expiry"])
-        row.update(contract_names(underlying, row["expiry"], row["option_type"], row["strike"], row["multiplier"]))
+        row.update(
+            contract_names(
+                underlying, row["expiry"], row["option_type"], row["strike"], row["multiplier"]
+            )
+        )
         row["vendor_name"] = item.get("vendor_name") if pd.notna(item.get("vendor_name")) else None
         if t <= 0:
             row["status"] = "expired_or_expiry_day"
@@ -355,4 +363,62 @@ def stress_grid(
         "P&L is model-to-model, excludes financing, dividends received and trading costs. "
         "ci95 measures sampling error only; rare-payoff warnings invalidate naive confidence.",
         "scenarios": rows,
+    }
+
+
+def constant_maturity_atm(frame, *, rates_by_expiry=None, rate=None, price_field="close", days=30):
+    """Same forward-ATM definition as research, solving only the required brackets.
+
+    Missing/invalid nearest quotes expand the search; no wing or tenor
+    extrapolation is permitted. The count describes the inspected ATM quotes.
+    """
+    from .features import _at_maturity, _interp
+    from .quality import validate_snapshot
+
+    day = pd.Timestamp(frame.date.iloc[0])
+    validate_snapshot(frame, frame.order_book_id.tolist(), day, str(frame.underlying.iloc[0]))
+
+    def dated_rate(expiry):
+        value = rate if rate is not None else (rates_by_expiry or {}).get(expiry)
+        if value is None or not isfinite(value):
+            raise ValueError("Missing finite discount rate")
+        return value
+
+    forwards = _put_call_forwards(frame, day, dated_rate, price_field, 1, 1)
+    nodes = []
+    inspected = 0
+    for expiry, group in frame.groupby("maturity_date"):
+        key = str(pd.Timestamp(expiry).date())
+        node = forwards.get(key, {})
+        if node.get("status") != "ready":
+            continue
+        t = (pd.Timestamp(expiry) - day).days / 365
+        forward = node["forward"]
+        q = node["effective_dividend_yield"]
+        r = dated_rate(key)
+        group = group.loc[group.volume.gt(0) & group.open_interest.ge(1) & group[price_field].gt(0)]
+        strikes = sorted(group.strike_price.unique(), key=lambda k: abs(log(k / forward)))
+        values = []
+        atm = None
+        for strike in strikes:
+            for row in group.loc[group.strike_price.eq(strike)].to_dict("records"):
+                try:
+                    option = EuropeanOption(
+                        float(row["spot"]), float(strike), t, r, 0.2, row["option_type"], q
+                    )
+                    vol = implied_volatility(float(row[price_field]), option)
+                    values.append({"k": log(strike / forward), "iv": vol})
+                    inspected += 1
+                except ValueError:
+                    continue
+            atm = _interp(values, "k", 0.0)
+            if atm is not None:
+                break
+        nodes.append({"maturity": t, "variance": atm**2 if atm is not None else None})
+    variance = _at_maturity(nodes, days, "variance", variance=True)
+    return {
+        "date": str(day.date()),
+        "atm_iv": None if variance is None else variance**0.5,
+        "eligible": inspected,
+        "eligibility_scope": "inspected_atm_bracket_quotes",
     }

@@ -799,3 +799,79 @@ The `quality_profitability` template equally combines cross-sectional ranks of R
 The experiment selects the top 50 at month-end, executes at the next session's open, and separates equal weighting from total-market-cap weighting. SDK fractional weights omit a 100-share-lot, minimum-commission, and stamp-duty account ledger; capacity notional is not actual initial cash. Do not describe results as realizable returns for a CNY 200,000 account.
 
 Historical constituent caches are monthly. Saved `execution_data_fill` rules estimate missing price limits. Disclose both limitations: passing strict execution checks does not turn estimates into observed provider data.
+
+
+### Option model and research verification
+
+All workstation valuation requests carry the selected date and close/settlement
+price basis. Portfolio requests include `price_field`; history also accepts
+`price_field` and an optional manual `rate`. Changing the basis invalidates the
+old basket result. `GET /api/options/names` returns dated contract descriptions
+without requiring a curve or running IV fits, so distribution-adjusted strikes
+and multipliers are refreshed when the analysis date changes.
+
+The `option-research-v3-forward-atm` feature version uses log(K/F)=0 everywhere.
+Constant-maturity IV interpolates total variance and never extrapolates an
+unobserved tenor. Historical IV uses the identical definition, solves only the
+necessary forward-ATM brackets and caches by source file version, basis and
+rate. Economic input fingerprints exclude retrieval timestamps and discovery
+manifests; provenance is retained separately. Daily realized-return predictors
+fingerprint their actual 21-close lookback instead of all earlier history.
+
+Compact dataset quality gates check ETF/session keys against source grids,
+respecting observed listing intervals and requested scope. A missing date is
+not excused by matching global start/end dates. Return labels reindex the
+exchange/session grid before shifting; an absent open or intermediate close
+makes that label unscored rather than moving the horizon to a later quote.
+
+The Volatility view exposes both diagnostic raw SVI and power-law SSVI with
+gamma=1/2. SSVI fits monotone ATM total variance and bounds eta to satisfy the
+sufficient static-variance butterfly conditions for all positive theta. It
+retains market residuals. A failed tenor rejects queries touching that tenor;
+other validated tenor intervals remain available and are explicitly marked as
+partial coverage. `POST /api/options/surface/price` values European options
+inside the shared observed strike/maturity domain. These are model values,
+not executable bid/ask quotes. Method: [Gatheral and Jacquier](https://arxiv.org/abs/1204.0646).
+
+`POST /api/options/models/calibrate` fits a deterministic Q Merton Poisson-mixture
+price model to daily OTM quotes, using multiple initial points and holding out
+every fourth ordered strike. Reports retain train/holdout vega-scaled errors,
+Jacobian conditioning, dated quotes and parameter sensitivity scenarios.
+`GET /api/options/models/calibrations/{id}` reads the immutable artifact. Applying
+one to portfolio stress requires its exact ETF, date, basis and manual-rate
+context and successful diagnostics. Calibrated diffusion volatility replaces
+the ATM proxy only for that matching single-ETF basket. Sensitivity scenarios
+are not parameter confidence intervals or forecasts of real-world jump risk.
+
+Joint Monte Carlo reports nonzero-payoff counts, effective payoff sample sizes
+and errors for every leg under both baseline and stress scenarios. Any
+insufficient leg suppresses the portfolio sampling interval. The optional
+`sampling="importance"` uses a defensive 50/50 mixture of ordinary and Gaussian-
+tilted shared paths, exact bounded likelihood weights, and expiry-specific
+likelihoods for settled legs. `importance_tilt` controls the diffusion tilt;
+rare jump events can still require more paths. Weighted payoff quantiles,
+effective path counts and likelihood means are retained for diagnostics.
+
+New walk-forward experiments reserve the last 20% of sessions by default. The
+entire reserved block uses one pre-holdout training cutoff; means, scales,
+coefficients and control-model fits are frozen. An explicit `holdout_start` is
+also supported by the research endpoint. Reports show holdout IC, HAC inference,
+control-model R-squared and single-feature ablations. This fixed historical
+split is not a prospective blind test, and repeated manual experiments remain
+subject to multiple testing. Earlier experiments and frozen runs are retained.
+
+`GET /api/options/research/comparison` aligns all selected saved runs to shared
+valid dates, includes ETF-pool and one-ETF-per-index benchmarks, and reports
+average index weights plus descriptive monthly CAPM attribution. The canonical
+benchmark helper supports `label_period_end=True`; this view uses close-to-close
+returns labeled on the end session to match daily strategy marks. Its market
+proxy is the ETF pool with a zero risk-free assumption; benchmarks are gross
+and strategies net of recorded costs. The original saved benchmark is displayed
+separately under its frozen convention. Beta and intercept are not a claim of
+incremental option-signal alpha.
+
+Strategy descriptions accept only verified literal universe, selection and
+allocation bodies; unfamiliar edits are labeled custom. Completed backtests and
+research publish the existing workspace refresh event, and the manual refresh
+button invalidates the option-query family. Model errors, empty-data states and
+rare-payoff fallbacks participate in the same Chinese/English localization.

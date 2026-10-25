@@ -10,10 +10,15 @@ from apps.api.routers.options import router
 from apps.api.services import options_strategy_service as service
 
 SOURCE = """
+@universe(id="u")
+def universe(context):
+    return UniverseResult(symbols=[s for s in context.universe if s in ["510050.SH", "510300.SH"]])
+
 @signal(schedule=Weekly.last_trading_day(at="close"))
 def select(context, *, top_n=3):
-    universe = [s for s in context.universe if s in ["510050.SH", "510300.SH"]]
-    return context.combine_factors(weights={"option_smirk": -1}, normalization="rank")
+    scores = context.combine_factors(weights={"option_smirk": -1}, normalization="rank").dropna()
+    selected = list(scores.nlargest(top_n).index)
+    return SignalResult(selected=selected, scores=scores, state=state)
 """
 
 
@@ -84,7 +89,9 @@ def allocate(context, signal, state, *, max_weight=0.2):
     rule = service.frozen_rule(SOURCE + portfolio)
     assert rule["allocation"] == "capped_equal_weight"
     assert rule["max_weight"] == 0.2
-    edited = service.frozen_rule(SOURCE + portfolio.replace("min(max_weight, 1/len(chosen))", "0.5"))
+    edited = service.frozen_rule(
+        SOURCE + portfolio.replace("min(max_weight, 1/len(chosen))", "0.5")
+    )
     assert edited["allocation"] == "custom"
     assert edited["max_weight"] is None
 
