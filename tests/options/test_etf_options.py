@@ -54,6 +54,25 @@ def snapshot(day="2025-01-06"):
     return pd.DataFrame(rows)
 
 
+def test_contract_names_use_dated_terms_and_do_not_require_vendor_names():
+    frame = snapshot()
+    frame.loc[0, "strike_price"] = 2.95
+    frame.loc[0, "contract_multiplier"] = 10169
+    frame["vendor_name"] = "CURRENT MASTER NAME WITH A DIFFERENT STRIKE"
+    rows = analyze_chain(frame, rate=0.02, dividend_yield=0.01)["contracts"]
+    call, put = rows
+    assert "上证50ETF" in call["contract_name_zh"]
+    assert "认购 2.9500" in call["contract_name_zh"]
+    assert "调整合约 ×10169" in call["contract_name_zh"]
+    assert "Call 2.9500" in call["contract_name_en"]
+    assert "认沽 3.0000" in put["contract_name_zh"]
+    assert call["name_source"] == "dated_contract_terms"
+    assert call["vendor_name"] == frame.iloc[0].vendor_name
+    legacy = analyze_chain(snapshot(), rate=0.02, dividend_yield=0.01)["contracts"][0]
+    assert "Call 3.0000" in legacy["contract_name_en"]
+    assert legacy["vendor_name"] is None
+
+
 @pytest.mark.parametrize("kind", ["C", "P"])
 def test_bs_benchmark_parity_iv_and_greeks(kind):
     option = EuropeanOption(100, 100, 1, 0.05, 0.2, kind)

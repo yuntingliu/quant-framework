@@ -50,6 +50,8 @@ def normalize_option_snapshot(bars, properties, instruments, spot, expected_ids,
                 "exercise_type": item.exercise_type,
                 "listed_date": item.listed_date,
                 "maturity_date": item.maturity_date,
+                "vendor_name": getattr(item, "symbol", None),
+                "trading_code": getattr(item, "trading_code", None),
             }
             for item in instruments
         ]

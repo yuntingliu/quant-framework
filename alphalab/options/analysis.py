@@ -5,6 +5,7 @@ from math import exp, isfinite, log
 
 import pandas as pd
 
+from .contracts import contract_names
 from .pricing import EuropeanOption, black_scholes, greeks, implied_volatility, monte_carlo
 from .quality import NUMERIC, validate_snapshot
 
@@ -139,6 +140,8 @@ def analyze_chain(
             "source_close": float(item["source_close"]) if pd.notna(item.get("source_close")) else None,
         }
         row["rate"] = rate_for_expiry(row["expiry"])
+        row.update(contract_names(underlying, row["expiry"], row["option_type"], row["strike"], row["multiplier"]))
+        row["vendor_name"] = item.get("vendor_name") if pd.notna(item.get("vendor_name")) else None
         if t <= 0:
             row["status"] = "expired_or_expiry_day"
         elif (

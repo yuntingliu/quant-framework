@@ -1,5 +1,6 @@
 /** Domain copy shared by option views, including labels retained in basket state. */
 export const optionStrings: Record<string, string> = {
+  "合约名称 / 代码": "Contract name / code",
   "ETF 复权行情会统一刷新已保存历史，避免分红拼接跳变；历史指标只重算输入已变化的日期。": "Adjusted ETF prices refresh retained history consistently to avoid distribution splice jumps; historical features rebuild only when inputs change.",
   "数据任务执行中：下载、增量入库和质量校验；完成后显示结果。": "Data task running: acquisition, incremental writes and quality checks; results appear on completion.", "最近数据任务：": "Latest data task: ", "指标缺失单元格": "Missing indicator cells", "计算失败记录": "Failed calculations",
   "ETF 期权": "ETF options", "五分钟ETF行情": "ETF five-minute prices", "五分钟已实现方差": "Five-minute realized variance",

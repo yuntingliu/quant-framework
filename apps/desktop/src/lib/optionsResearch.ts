@@ -15,9 +15,27 @@ export interface ResearchResult {
   warnings: string[]; label_convention: string; inference: string; trading: string
   scope: { start: string; end: string; underlyings: string[] }
 }
-export interface ResearchCatalog { features: ResearchFeature[]; papers: Paper[]; data: { status: string; date_start?: string; date_end?: string; rows: number }; coverage: Array<{ field: string; valid: number; total: number }>; runs: ResearchResult[] }
+export type ResearchSummary = Pick<ResearchResult, "id" | "scope" | "config" | "coverage" | "rank_ic" | "oos_r2_vs_controls">
+export interface ResearchCatalog { features: ResearchFeature[]; papers: Paper[]; data: { status: string; date_start?: string; date_end?: string; rows: number }; coverage: Array<{ field: string; valid: number; total: number }>; runs: ResearchSummary[] }
 export interface ProjectSpec { project_id: string; function_replacements: Array<{ entrypoint_id: string; function_source: string }>; factors: Array<{ factor_id: string; body: string }>; [key: string]: unknown }
+export interface OptionStrategy {
+  backtest_id: string; project_id: string; strategy_id: string; project_exists?: boolean; name_zh: string; name_en: string; family: string
+  rule: { weights: Record<string, number>; normalization: string; top_n: number | null; frequency: string; symbols: string[]; execution: string; allocation: string; max_weight: number | null }
+  period: { start_date: string; end_date: string }; metrics: { total_return: number; annual_return: number; sharpe: number; max_drawdown: number; annual_vol: number; n_periods: number }
+  warnings: string[]; execution_reliable: boolean | null; research_id: string | null; revision: number; source_sha256: string; benchmark_symbols: string[]
+}
+export interface OptionStrategyResult extends OptionStrategy {
+  curve: Array<{ date: string; nav: number; benchmark_nav: number | null; drawdown: number }>
+  annual: Array<{ year: string; start: string; end: string; return: number; sessions: number }>
+  positions: Array<{ date: string; symbol: string; weight: number; name_zh: string; name_en: string }>; positions_date: string | null
+  common_period: { start: string | null; end: string | null; sessions: number; total_sessions: number; strategy_return: number | null; benchmark_return: number | null; relative_return: number | null }
+  trading: { rebalances: number; successful_trades: number; mean_turnover: number | null; sum_period_cost_rates: number }
+  recent_executions: Array<{ decision_date: string; entry_date: string; turnover: number; total_cost: number; successful_trade_count: number }>
+  forecast: ResearchSummary | null
+}
 export const researchApi = {
+  strategies: () => api.get<{ strategies: OptionStrategy[] }>("/options/research/strategies"),
+  strategy: (id: string) => api.get<OptionStrategyResult>(`/options/research/strategies/${id}`),
   catalog: () => api.get<ResearchCatalog>("/options/research/catalog", { timeoutMs: 60000 }),
   features: (symbol: string, start: string, end: string) => api.get<{ points: Array<Record<string, number | string | null>> }>(`/options/features?${new URLSearchParams({ underlying: symbol, start, end })}`),
   featurePlan: (body: unknown) => api.post<{ source: string }>("/options/features/plan", body),

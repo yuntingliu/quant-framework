@@ -17,7 +17,7 @@ from alphalab.options import (
     monte_carlo,
     stress_grid,
 )
-from apps.api.services import options_research_service, options_service
+from apps.api.services import options_research_service, options_service, options_strategy_service
 
 router = APIRouter(prefix="/api/options", tags=["options"])
 
@@ -109,6 +109,16 @@ def _research_call(function, *args, **kwargs):
 @router.get("/research/catalog")
 def research_catalog():
     return _research_call(options_research_service.research_catalog)
+
+
+@router.get("/research/strategies")
+def option_strategies():
+    return _research_call(options_strategy_service.strategies)
+
+
+@router.get("/research/strategies/{backtest_id}")
+def option_strategy_result(backtest_id: str):
+    return _research_call(options_strategy_service.strategy_result, backtest_id)
 
 
 @router.get("/features")

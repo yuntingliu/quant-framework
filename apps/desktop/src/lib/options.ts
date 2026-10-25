@@ -8,6 +8,7 @@ export interface OptionUniverse {
   jobs: Array<{ id: string; status: string; message: string; progress: number; total: number }>
 }
 export interface OptionRow {
+  contract_name_zh: string; contract_name_en: string; name_source: string; vendor_name?: string | null
   order_book_id: string; expiry: string; option_type: "C" | "P"; strike: number; multiplier: number
   market_price: number; spot: number; volume: number; open_interest: number; maturity: number
   iv: number | null; status: string; reason?: string; delta?: number; gamma?: number
@@ -31,7 +32,7 @@ export interface OptionAnalysis {
   surface: { fits: SmileFit[]; warnings: string[]; calendar_violations: number; usable_for_interpolation: boolean
     grid: Array<{ expiry: string; maturity: number; values: Array<{ k: number; iv: number; total_variance: number }> }> }
 }
-export interface BasketLeg { underlying: string; contract: string; quantity: number; label: string }
+export interface BasketLeg { underlying: string; contract: string; quantity: number; label: string; label_zh?: string; label_en?: string }
 export interface McResult {
   value: number; standard_error: number; ci95: number[] | null; paths: number; seed: number
   warning: string | null; interpretation: string; payoff_quantiles: Record<string, number>

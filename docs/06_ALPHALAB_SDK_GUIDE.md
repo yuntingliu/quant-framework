@@ -605,7 +605,45 @@ The pure numerical facade also exports `literature_catalog`, `option_features`,
 | `POST /api/options/features/plan`, `/features/jobs` | Offline local-feature source preview / existing job-manager submission |
 | `POST /api/options/research/run` | Bounded purged walk-forward study and dated forecasts |
 | `GET /api/options/research/runs/{id}` | Reproducible saved research JSON |
+| `GET /api/options/research/strategies` | Latest completed option-signal strategy runs, with named rules and net performance |
+| `GET /api/options/research/strategies/{id}` | Frozen rules, NAV/drawdown, matching-date benchmark comparison, annual returns, holdings and executions |
 | `POST /api/options/research/projects/plan`, `/projects` | Reviewable canonical project specification / confirmed project creation |
+
+The bilingual Literature & prediction view opens with **Strategies & results**.
+It compares completed SDK backtests rather than research-model configuration.
+The supported examples are low-smirk rotation (negative smirk weight), high-VRP
+rotation (positive high-frequency VRP weight), the three-feature rank blend
+(-smirk + term slope + high-frequency VRP), and experiment-scoped OOS forecast
+rotation. These examples rank ETFs at the weekly close, select the top three,
+and retain cash when eligible positions are insufficient. They allocate ETFs;
+they do not simulate executing option contracts. Paper definitions and signs
+are hypotheses adapted to Chinese ETF data, not evidence that these rules work.
+
+Results come from the canonical saved event-engine outputs. The displayed rule
+is inspected from the run's frozen source, not today's editable project draft.
+Actual execution timing, costs and fidelity warnings remain visible. Benchmark
+comparisons compound only dates where both returns exist, disclose their sample
+count, and never replace a missing benchmark return with zero. A benchmark NAV
+line stops at an internal gap rather than silently bridging it. Cost-rate sums
+use each period's capital and are not a cumulative fee ratio on initial capital.
+Forecast strategies can begin later than raw-feature strategies; compare aligned
+dates before interpreting relative performance. Positive ETF strategy returns
+alone do not establish incremental predictive value.
+
+**Forecast tests & literature** loads saved horizon-specific evidence, including
+the control-model OOS R-squared, rank IC, HAC inference, overlapping group-return
+estimates and training-label cutoffs. A nonpositive OOS R-squared is explicitly
+identified as no improvement over controls. **Custom research** retains feature
+construction, model settings, full evidence export and editable SDK project
+creation, with feature/weight settings collapsed initially.
+
+Option-chain and basket rows display a readable Chinese/English contract name
+alongside the code. The name uses the ETF, expiry, call/put, **dated** strike and
+adjusted multiplier. This is a reconstructed description, not a claim to be the
+exchange's official short name. Historical snapshots need no redownload to gain
+this label. Future RQ ingestion also preserves the optional current vendor
+master name and trading code; the current master name cannot override dated
+contract terms in historical labels.
 
 Numerical experiments are persisted as reproducible JSON research artifacts in
 the ignored runtime store. The view exports the complete JSON and a bilingual
