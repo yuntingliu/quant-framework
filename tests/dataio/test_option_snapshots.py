@@ -159,7 +159,7 @@ def test_short_sync_rebases_retained_market_and_revalidates_prior_features(monke
             yield pd.DataFrame(
                 {
                     "date": pd.to_datetime(["2022-01-03", "2025-01-10", "2000-01-03"]),
-                        "symbol": ["510050.SH", "510050.SH", "430047.BJ"],
+                    "symbol": ["510050.SH", "510050.SH", "430047.BJ"],
                 }
             )
 
@@ -340,10 +340,16 @@ def test_zero_volume_reference_condition_reaches_quality_report(tmp_path, monkey
     day = frame.loc[frame.date.eq(pd.Timestamp("2025-01-08"))].copy()
     day.loc[day.index[0], "volume"] = 0
     day.loc[day.index[0], "close"] = 0.07
+    day.loc[day.index[0], "open"] = 0.06
     store.write("rq.option_snapshots", day)
     report = validate_dataset("rq.option_snapshots", tmp_path, fail_on_gap=True)
     assert report["status"] == "passed"
     assert report["metrics"]["zero_volume_close_outside_range"] == 1
+    assert report["metrics"]["zero_volume_open_outside_range"] == 1
+    assert any(
+        issue["code"] == "non_trading_reference_open" and issue["severity"] == "warning"
+        for issue in report["issues"]
+    )
     assert any(
         issue["code"] == "non_trading_reference_close" and issue["severity"] == "warning"
         for issue in report["issues"]
@@ -487,3 +493,62 @@ def test_parallel_underlying_reads_keep_shared_publication_exclusive(tmp_path, m
     )
     assert fake.calls == [None]
     assert validate_dataset("rq.option_snapshots", tmp_path, fail_on_gap=True)["status"] == "passed"
+
+
+def test_reference_open_audit_certifies_hlcv_without_inventing_an_open(tmp_path, monkeypatch):
+    from alphalab.dataio.option_rq import audit_daily_opens
+
+    fake = FakeRQ()
+    run_recipe(tmp_path, fake, monkeypatch)
+    store = RuntimeStore(tmp_path)
+    frame = store.read("rq.option_snapshots")
+    day = frame.loc[frame.date.eq(pd.Timestamp("2025-01-08"))].copy()
+    day.loc[day.index[0], "open"] = 0.13
+    times = pd.date_range("2025-01-08 09:35", periods=24, freq="5min").union(
+        pd.date_range("2025-01-08 13:05", periods=24, freq="5min")
+    )
+    minute = pd.DataFrame(
+        {
+            "datetime": times,
+            "order_book_id": day.order_book_id.iloc[0],
+            "open": 0.1,
+            "high": 0.12,
+            "low": 0.08,
+            "close": 0.1,
+            "volume": 0.0,
+        }
+    )
+    minute.loc[0, "volume"] = 100.0
+    audited = audit_daily_opens(day, minute)
+    assert audited.open.iloc[0] == 0.13
+    store.write("rq.option_snapshots", audited)
+    report = validate_dataset("rq.option_snapshots", tmp_path, fail_on_gap=True)
+    assert report["status"] == "passed"
+    assert report["metrics"]["audited_reference_opens"] == 1
+    assert any(i["code"] == "audited_reference_open" for i in report["issues"])
+    # Reused DataFrame labels must not let one contract's audit certify another.
+    reused_index = audited.copy()
+    reused_index.loc[reused_index.index[1], "open"] = 0.14
+    reused_index.index = [0] * len(reused_index)
+    with pytest.raises(QualityError, match="OHLC"):
+        store.write("rq.option_snapshots", reused_index)
+    with pytest.raises(ValueError, match="48-bar"):
+        audit_daily_opens(day, minute.iloc[:-1])
+    wrong_volume = minute.copy()
+    wrong_volume.loc[0, "volume"] = 99
+    with pytest.raises(ValueError, match="HLCV"):
+        audit_daily_opens(day, wrong_volume)
+    wrong_high = minute.copy()
+    wrong_high.loc[0, "high"] = 0.14
+    with pytest.raises(ValueError, match="HLCV"):
+        audit_daily_opens(day, wrong_high)
+    quarantined = audit_daily_opens(day, wrong_high, quarantine_unverified=True)
+    assert quarantined.open.iloc[0] == day.open.iloc[0]
+    assert pd.isna(quarantined.open_audit.iloc[0])
+    store.write("rq.option_snapshots", quarantined)
+    q_report = validate_dataset("rq.option_snapshots", tmp_path, fail_on_gap=True)
+    assert q_report["status"] == "passed" and q_report["metrics"]["quarantined_quotes"] == 1
+    assert any(i["code"] == "quarantined_source_quotes" for i in q_report["issues"])
+    audited.loc[audited.index[0], "open"] = 0.14
+    with pytest.raises(QualityError, match="evidence"):
+        store.write("rq.option_snapshots", audited)

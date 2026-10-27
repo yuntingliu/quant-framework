@@ -398,3 +398,31 @@ def test_fast_constant_atm_matches_full_research_and_names_need_no_curve(tmp_pat
     names = options_service.contract_identities(ETF, DAY, root=tmp_path)["contracts"]
     assert "2.9100" in names[0]["contract_name_zh"]
     assert "10220" in names[0]["contract_name_zh"]
+
+
+def test_quarantined_atm_quote_is_excluded_from_fast_history_and_basket(tmp_path):
+    from alphalab.options import constant_maturity_atm, option_features
+
+    frame = market_snapshot()
+    selected = frame.order_book_id.eq("304C")
+    assert selected.sum() == 1
+    frame.loc[selected, "close"] = 1.0
+    frame.loc[selected, "quote_quarantine"] = "unresolved_source_ohlc"
+    frame.loc[selected, "quote_quarantine_reason"] = "Unreconciled source close"
+    chain = analyze_chain(frame, rate=0.02, carry_mode="put_call_forward")
+    expected = option_features(chain, pd.DataFrame(columns=["date", "adjusted_close"]))[
+        "option_atm_iv_30"
+    ]
+    assert constant_maturity_atm(frame, rate=0.02)["atm_iv"] == pytest.approx(expected, abs=1e-10)
+    store = RuntimeStore(tmp_path)
+    store.write("rq.option_snapshots", frame)
+    store.write("rq.option_rates", rate_frame())
+    with pytest.raises(ValueError):
+        options_service.portfolio(
+            {
+                "day": DAY,
+                "legs": [{"underlying": ETF, "contract": "304C", "quantity": 1}],
+                "include_mc": False,
+            },
+            root=tmp_path,
+        )

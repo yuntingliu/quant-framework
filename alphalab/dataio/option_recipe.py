@@ -48,7 +48,7 @@ import pandas as pd
 
 from alphalab.data_sdk.v1 import data_recipe, rq
 from alphalab.dataio import DataLoadError
-from alphalab.dataio.option_rq import normalize, recover_daily_closes
+from alphalab.dataio.option_rq import normalize, recover_daily_closes, audit_daily_opens
 from alphalab.dataio.option_snapshots import (
     normalize_option_snapshot, option_sync_dates, validate_option_dates,
 )
@@ -275,7 +275,18 @@ def etf_options(
                         end_date=str((timestamp + pd.Timedelta(days=30)).date()),
                         fields=["strike_price", "contract_multiplier"],
                     )))
-                    daily_bars = recover_daily_closes(daily_bars, minute, next_properties, properties)
+                    daily_bars = recover_daily_closes(daily_bars, minute, next_properties, properties, quarantine_unverified=True)
+                anomalous_open = daily_bars.loc[daily_bars.volume.gt(0) & (
+                    daily_bars.open.gt(daily_bars.high + 1e-10) |
+                    daily_bars.open.lt(daily_bars.low - 1e-10)
+                )]
+                if not anomalous_open.empty:
+                    minute = _retry(lambda: rq.get_price(
+                        anomalous_open.order_book_id.tolist(), start_date=day, end_date=day,
+                        frequency="5m", fields=["open", "high", "low", "close", "volume"],
+                        adjust_type="none", expect_df=True,
+                    ))
+                    daily_bars = audit_daily_opens(daily_bars, minute, quarantine_unverified=True)
                 # Unexpected source contracts must fail the coverage check, never be dropped.
                 daily_properties = properties.loc[properties.date.eq(timestamp)]
                 snapshot = normalize_option_snapshot(

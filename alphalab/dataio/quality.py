@@ -12,7 +12,7 @@ import pandas as pd
 from alphalab.dataio.catalog import DATASETS
 from alphalab.dataio.runtime import RuntimeStore
 
-QUALITY_REPORT_VERSION = 3
+QUALITY_REPORT_VERSION = 6
 
 
 @dataclass(frozen=True)
@@ -477,7 +477,7 @@ def _validate_options(store, *, start_date, as_of_date, fail_on_gap):
     issues, sessions, expected, symbols = [], {}, {}, set()
     manifest_cache = {}
     rows = 0
-    quote_counts = {"zero_volume": 0, "zero_volume_close_outside_range": 0, "adjusted_contracts": 0, "reconstructed_closes": 0}
+    quote_counts = {"zero_volume": 0, "zero_volume_close_outside_range": 0, "zero_volume_open_outside_range": 0, "adjusted_contracts": 0, "reconstructed_closes": 0, "audited_reference_opens": 0, "quarantined_quotes": 0}
     for path in store.catalog.files("rq.option_snapshots"):
         frame = pd.read_parquet(path)
         try:
@@ -544,6 +544,26 @@ def _validate_options(store, *, start_date, as_of_date, fail_on_gap):
                 severity="warning",
             )
         )
+    if quote_counts["zero_volume_open_outside_range"]:
+        issues.append(
+            QualityIssue(
+                "non_trading_reference_open",
+                "Zero-volume reference opens differ from reference high/low; raw values retained and excluded from IV analysis",
+                severity="warning",
+            )
+        )
+    if quote_counts["quarantined_quotes"]:
+        issues.append(QualityIssue(
+            "quarantined_source_quotes",
+            "Unresolved source OHLC quotes retained in quarantine and excluded from forwards, IV, surfaces and portfolio valuation",
+            severity="warning",
+        ))
+    if quote_counts["audited_reference_opens"]:
+        issues.append(QualityIssue(
+            "audited_reference_open",
+            "Unresolved source opens retained; daily high, low, close and volume verified against complete intraday evidence; do not use opens as fills",
+            severity="warning",
+        ))
     if quote_counts["reconstructed_closes"]:
         issues.append(QualityIssue(
             "audited_intraday_close_recovery",

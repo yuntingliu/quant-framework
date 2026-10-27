@@ -875,3 +875,24 @@ allocation bodies; unfamiliar edits are labeled custom. Completed backtests and
 research publish the existing workspace refresh event, and the manual refresh
 button invalidates the option-query family. Model errors, empty-data states and
 rare-payoff fallbacks participate in the same Chinese/English localization.
+
+Historical RQ no-trade rows may retain a reference open outside the reference
+high/low, just as reference closes can differ. Quality report version 6 preserves
+those raw values and counts `zero_volume_open_outside_range` with an explicit
+warning. All zero-volume rows remain excluded from IV, even with `min_volume=0`.
+Traded closes must still lie inside the range. An inconsistent traded open is
+rejected unless `open_audit` retains the original open and a complete same-day
+48-bar evidence grid exactly reconciles daily high, low, close and volume.
+The unresolved raw open is never replaced or certified as an executable opening
+fill; `audited_reference_opens` is counted and warned. Persisted evidence is
+revalidated, including its original-open binding. Unmarked reversed high/low,
+negative or nonfinite data, missing contracts and missing sessions are rejected.
+
+Unreconciled traded OHLC is retained only with explicit `quote_quarantine` and
+`quote_quarantine_reason` fields. This certifies record coverage, not price
+usability: those contracts receive `source_quote_invalid` and are excluded from
+forward estimation, IV (including the fast ATM history), surfaces, calibration
+and portfolio valuation. A quarantine flag on an otherwise consistent quote or
+unknown quarantine method is rejected. The raw prices and available intraday
+evidence are retained; no synthetic OHLC values are introduced. Quality reports
+count and warn on quarantined quotes. Missing contracts and sessions still fail.

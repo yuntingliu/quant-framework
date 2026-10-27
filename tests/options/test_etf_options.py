@@ -235,6 +235,46 @@ def test_chain_is_standard_json_serializable():
     assert restored["eligible"] == 2
 
 
+@pytest.mark.parametrize("direction", [-1, 1])
+def test_zero_volume_reference_open_is_preserved_but_never_used_for_iv(direction):
+    frame = snapshot()
+    frame.loc[0, "volume"] = 0
+    reference = frame.loc[0, "low" if direction < 0 else "high"] + direction * 0.01
+    frame.loc[0, "open"] = reference
+    report = validate_snapshot(frame, frame.order_book_id, "2025-01-06", UNDERLYING)
+    assert report["zero_volume_open_outside_range"] == 1
+    assert frame.loc[0, "open"] == reference
+    chain = analyze_chain(frame, rate=0.02, dividend_yield=0.01, min_volume=0)
+    assert chain["contracts"][0]["status"] == "illiquid"
+    assert chain["contracts"][0]["iv"] is None
+    frame.loc[0, "volume"] = 1
+    with pytest.raises(QualityError, match="OHLC"):
+        validate_snapshot(frame, frame.order_book_id, "2025-01-06", UNDERLYING)
+
+
+def test_zero_volume_reversed_high_low_is_still_rejected():
+    frame = snapshot()
+    frame.loc[0, "volume"] = 0
+    frame.loc[0, "high"] = frame.loc[0, "low"] - 0.01
+    with pytest.raises(QualityError, match="OHLC"):
+        validate_snapshot(frame, frame.order_book_id, "2025-01-06", UNDERLYING)
+
+
+def test_explicit_source_quarantine_preserves_coverage_but_never_values_bad_quote():
+    frame = snapshot()
+    frame.loc[0, "open"] = frame.loc[0, "high"] + 0.01
+    frame.loc[0, "quote_quarantine"] = "unresolved_source_ohlc"
+    frame.loc[0, "quote_quarantine_reason"] = "Daily and intraday high disagree"
+    report = validate_snapshot(frame, frame.order_book_id, "2025-01-06", UNDERLYING)
+    assert report["quarantined_quotes"] == 1 and report["coverage"] == 1
+    chain = analyze_chain(frame, rate=0.02, dividend_yield=0.01, min_volume=0)
+    assert chain["contracts"][0]["status"] == "source_quote_invalid"
+    assert chain["contracts"][0]["iv"] is None
+    frame.loc[0, "open"] = frame.loc[0, "close"]
+    with pytest.raises(QualityError, match="quarantine"):
+        validate_snapshot(frame, frame.order_book_id, "2025-01-06", UNDERLYING)
+
+
 def forward_snapshot():
     rows = []
     for days, q in [(30, 0.08), (90, 0.03)]:

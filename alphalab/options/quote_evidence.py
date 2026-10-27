@@ -71,3 +71,52 @@ def validate_close_evidence(frame):
         if not np.isclose(close, row["close"], rtol=0, atol=1e-10):
             raise ValueError("Recovered close disagrees with retained trade evidence")
     return len(recovered)
+
+
+def validate_open_evidence(frame):
+    """Certify daily HLCV against 48 bars while retaining an unresolved raw open.
+
+    This does not reconstruct an opening fill from minute OHLC. Only the daily
+    high, low, closing reference and volume are certified for close-based use.
+    """
+    if "open_audit" not in frame:
+        return set()
+    audited = frame.loc[frame.open_audit.notna()]
+    for row in audited.to_dict("records"):
+        if row["open_audit"] != "rq_5m_verified_hlcv_unresolved_open":
+            raise ValueError("Unknown open audit method")
+        evidence = json.loads(row["open_evidence"])
+        if not np.isclose(float(evidence["source_open"]), row["open"], rtol=0, atol=1e-10):
+            raise ValueError("Raw open disagrees with retained evidence")
+        if row["volume"] <= 0 or row["low"] - 1e-10 <= row["open"] <= row["high"] + 1e-10:
+            raise ValueError("Open audit requires an inconsistent traded source open")
+        minute = pd.DataFrame(evidence["bars"])
+        fields = ["open", "high", "low", "close", "volume"]
+        if not {"timestamp", *fields}.issubset(minute):
+            raise ValueError("Incomplete open audit evidence")
+        stamps = pd.to_datetime(minute.timestamp, errors="raise")
+        day = pd.Timestamp(row["date"]).normalize()
+        expected = pd.date_range(
+            day + pd.Timedelta(hours=9, minutes=35), periods=24, freq="5min"
+        ).union(pd.date_range(day + pd.Timedelta(hours=13, minutes=5), periods=24, freq="5min"))
+        if len(minute) != 48 or stamps.duplicated().any() or set(stamps) != set(expected):
+            raise ValueError("Open audit requires the complete same-day 48-bar grid")
+        minute = minute.assign(timestamp=stamps).sort_values("timestamp")
+        values = minute[fields].to_numpy(float)
+        if not np.isfinite(values).all() or (values < 0).any():
+            raise ValueError("Invalid open audit evidence")
+        traded = minute.loc[minute.volume.gt(0)]
+        if (
+            traded.empty
+            or (traded.high < traded.low).any()
+            or not traded.close.between(traded.low - 1e-10, traded.high + 1e-10).all()
+            or not np.isclose(traded.high.max(), row["high"], rtol=0, atol=1e-10)
+            or not np.isclose(traded.low.min(), row["low"], rtol=0, atol=1e-10)
+            or not np.isclose(minute.close.iloc[-1], row["close"], rtol=0, atol=1e-10)
+            or not np.isclose(minute.volume.sum(), row["volume"], rtol=0, atol=1e-8)
+        ):
+            raise ValueError("Intraday evidence does not reconcile daily HLCV")
+    return {
+        (pd.Timestamp(row.date).normalize(), str(row.order_book_id))
+        for row in audited.itertuples()
+    }

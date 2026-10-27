@@ -13,6 +13,8 @@ from .quality import NUMERIC, validate_snapshot
 def _put_call_forwards(frame, day, rate_for_expiry, price_field, min_volume, min_open_interest):
     """Infer expiry forwards from liquid near-ATM pairs; carry includes quote basis."""
     result = {}
+    if "quote_quarantine" in frame:
+        frame = frame.loc[frame.quote_quarantine.isna()]
     active = frame.loc[
         frame.volume.gt(0)
         & frame.volume.ge(min_volume)
@@ -150,7 +152,11 @@ def analyze_chain(
             )
         )
         row["vendor_name"] = item.get("vendor_name") if pd.notna(item.get("vendor_name")) else None
-        if t <= 0:
+        if pd.notna(item.get("quote_quarantine")):
+            row["status"] = "source_quote_invalid"
+            row["quote_status"] = "quarantined_source_ohlc"
+            row["reason"] = "Unresolved source OHLC; excluded from valuation"
+        elif t <= 0:
             row["status"] = "expired_or_expiry_day"
         elif (
             item["volume"] <= 0
@@ -396,6 +402,8 @@ def constant_maturity_atm(frame, *, rates_by_expiry=None, rate=None, price_field
         forward = node["forward"]
         q = node["effective_dividend_yield"]
         r = dated_rate(key)
+        if "quote_quarantine" in group:
+            group = group.loc[group.quote_quarantine.isna()]
         group = group.loc[group.volume.gt(0) & group.open_interest.ge(1) & group[price_field].gt(0)]
         strikes = sorted(group.strike_price.unique(), key=lambda k: abs(log(k / forward)))
         values = []
