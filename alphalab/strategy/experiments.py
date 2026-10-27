@@ -1,4 +1,4 @@
-"""Validated configuration for recorded, not yet scheduled, experiments."""
+"""Validated configuration for recorded strategy experiments."""
 
 from datetime import date
 from typing import Any, Literal

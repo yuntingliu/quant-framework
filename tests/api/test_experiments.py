@@ -1,3 +1,7 @@
+import json
+import sqlite3
+import time
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 
 import pytest
@@ -8,6 +12,8 @@ from alphalab import StrategyRepository
 from alphalab.strategy.source import update_parameter_default
 from alphalab.validation.repository import ValidationRepository
 from apps.api.routers import experiments
+from apps.api.services.backtest_job_service import BacktestJobManager
+from apps.api.services.experiment_service import ExperimentManager
 
 
 @pytest.fixture
@@ -137,3 +143,162 @@ def test_experiment_api_requires_confirmation_and_exposes_records(setup_experime
         assert client.post("/api/experiments", json=invalid).status_code == 422
         duplicate = {**payload, "candidates": [spec["candidates"][0]] * 2}
         assert client.post("/api/experiments", json=duplicate).status_code == 422
+
+
+def complete_trial(repository, job_id, score, *, reliable=True):
+    result = {
+        "metrics": {"sharpe": score}, "execution_reliable": reliable,
+        "research_invalid_reasons": [],
+    }
+    with repository._conn:
+        repository._conn.execute("INSERT INTO backtests(id, config_yaml) VALUES (?, '')", (job_id,))
+        repository._conn.execute(
+            "UPDATE backtest_jobs SET status = 'succeeded', result_id = ?, result_json = ? WHERE id = ?",
+            (job_id, json.dumps(result), job_id),
+        )
+
+
+def test_serial_progression_pins_selection_and_never_repeats_test(setup_experiment):
+    repository, spec = setup_experiment
+    experiment = repository.create_experiment(spec)
+    identity = experiment["id"]
+    repository.start_experiment(identity)
+    first = repository.advance_experiment(identity)
+    assert repository.advance_experiment(identity) == first
+    assert len(repository.get_experiment(identity)["trials"]) == 2
+    complete_trial(repository, first, 2.0)
+    second = repository.advance_experiment(identity)
+    complete_trial(repository, second, 1.0)
+    test = repository.advance_experiment(identity)
+    state = repository.get_experiment(identity)
+    assert state["execution"]["selection"]["candidate_id"] == "1"
+    assert len(state["trials"]) == 3
+    request = json.loads(repository._conn.execute("SELECT request_json FROM backtest_jobs WHERE id = ?", (test,)).fetchone()[0])
+    assert request["start_date"] == spec["test"]["start"]
+    assert request["revision"] == experiment["candidates"][0]["revision"]
+    assert request["settings"] == experiment["protocol"]["settings"]
+    complete_trial(repository, test, -100.0)
+    assert repository.advance_experiment(identity) is None
+    assert repository.start_experiment(identity)["execution"]["status"] == "succeeded"
+    repository.fail_experiment(identity, "late worker error")
+    assert repository.get_experiment(identity)["execution"]["status"] == "succeeded"
+    assert repository.advance_experiment(identity) is None
+    assert repository._conn.execute("SELECT COUNT(*) FROM backtest_jobs").fetchone()[0] == 3
+    assert repository.get_experiment(identity)["execution"]["selection"] == state["execution"]["selection"]
+    assert repository.get_experiment(identity)["execution"]["out_of_sample_verified"] is False
+
+
+@pytest.mark.parametrize("scores,reliable,direction,winner", [
+    ([1.0, 1.0], True, "maximize", "1"),
+    ([1.0, 2.0], True, "minimize", "1"),
+    ([float("nan"), 2.0], True, "maximize", "2"),
+    ([1.0, 2.0], False, "maximize", None),
+])
+def test_selection_handles_ties_nonfinite_and_invalid_evidence(setup_experiment, scores, reliable, direction, winner):
+    repository, spec = setup_experiment
+    spec["selection_direction"] = direction
+    identity = repository.create_experiment(spec)["id"]
+    repository.start_experiment(identity)
+    for score in scores:
+        complete_trial(repository, repository.advance_experiment(identity), score, reliable=reliable)
+    job_id = repository.advance_experiment(identity)
+    state = repository.get_experiment(identity)
+    assert state["execution"]["selection"]["candidate_id"] == winner
+    assert (job_id is None) == (winner is None)
+    assert len(state["trials"]) == (2 if winner is None else 3)
+
+
+def test_restart_and_concurrent_progression_reuse_durable_job(setup_experiment):
+    repository, spec = setup_experiment
+    identity = repository.create_experiment(spec)["id"]
+    repository.start_experiment(identity)
+    first = repository.advance_experiment(identity)
+
+    def advance():
+        other = StrategyRepository(repository.path)
+        try:
+            other.start_experiment(identity)
+            return other.advance_experiment(identity)
+        finally:
+            other.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        assert list(executor.map(lambda _: advance(), range(2))) == [first, first]
+    assert repository._conn.execute("SELECT COUNT(*) FROM backtest_jobs").fetchone()[0] == 1
+    complete_trial(repository, first, 1.0)
+    assert advance() != first
+
+
+def test_serial_manager_preserves_failed_trial_and_runs_only_winner_test(setup_experiment, monkeypatch):
+    repository, spec = setup_experiment
+    experiment = repository.create_experiment(spec)
+    calls = []
+
+    def runner(project_id, start_date, end_date, profile, revision, validation_revision=None,
+               backtest_id=None, settings=None, strategy_id=None, strategy_name=None, batch_id=None):
+        calls.append((start_date, revision, settings, validation_revision))
+        if revision == experiment["candidates"][0]["revision"]:
+            raise ValueError("candidate failed")
+        with sqlite3.connect(repository.path) as connection:
+            connection.execute("INSERT INTO backtests(id, config_yaml) VALUES (?, '')", (backtest_id,))
+        return {
+            "id": backtest_id, "metrics": {"sharpe": 1.0}, "execution_reliable": True,
+            "research_assessment": {"passed": True, "reasons": []},
+        }
+
+    jobs = BacktestJobManager(repository.path, runner=runner)
+    manager = ExperimentManager(repository.path, jobs)
+    monkeypatch.setattr(experiments.experiment_service, "manager", lambda: manager)
+    app = FastAPI()
+    app.include_router(experiments.router)
+    try:
+        with TestClient(app) as client:
+            assert client.post("/api/experiments/missing/run", json={"confirm_python_execution": True}).status_code == 404
+            for _ in range(2):
+                response = client.post(f"/api/experiments/{experiment['id']}/run", json={"confirm_python_execution": True})
+                assert response.status_code == 202
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            state = repository.get_experiment(experiment["id"])
+            if state["execution"]["status"] != "running":
+                break
+            time.sleep(0.02)
+        assert state["execution"]["status"] == "succeeded", state
+        assert [trial["status"] for trial in state["trials"]] == ["failed", "succeeded", "succeeded"]
+        assert state["execution"]["selection"]["candidate_id"] == "2"
+        assert [call[0] for call in calls] == [spec["validation"]["start"], spec["validation"]["start"], spec["test"]["start"]]
+        assert all(call[2] == experiment["protocol"]["settings"] and call[3] == 1 for call in calls)
+    finally:
+        manager.shutdown()
+        jobs.shutdown()
+
+
+def test_budget_blocks_new_jobs_and_preserves_completed_trials(setup_experiment):
+    repository, spec = setup_experiment
+    identity = repository.create_experiment(spec)["id"]
+    protocol = repository.get_experiment(identity)["protocol"]
+    protocol["max_trials"] = 1
+    with repository._conn:
+        repository._conn.execute(
+            "UPDATE research_experiments SET protocol_json = ? WHERE id = ?", (json.dumps(protocol), identity)
+        )
+    repository.start_experiment(identity)
+    complete_trial(repository, repository.advance_experiment(identity), 1.0)
+    assert repository.advance_experiment(identity) is None
+    state = repository.get_experiment(identity)
+    assert state["execution"]["error"] == "trial budget exhausted"
+    assert [trial["status"] for trial in state["trials"]] == ["succeeded", "planned"]
+    assert repository._conn.execute("SELECT COUNT(*) FROM backtest_jobs").fetchone()[0] == 1
+
+
+def test_start_requires_confirmation_and_rejects_unimplemented_training(setup_experiment, monkeypatch):
+    repository, spec = setup_experiment
+    spec["training"] = {"start": "2023-01-01", "end": "2023-12-31"}
+    identity = repository.create_experiment(spec)["id"]
+    with pytest.raises(ValueError, match="training"):
+        repository.start_experiment(identity)
+    assert repository.get_experiment(identity)["execution"] is None
+    app = FastAPI()
+    app.include_router(experiments.router)
+    with TestClient(app) as client:
+        assert client.post(f"/api/experiments/{identity}/run", json={}).status_code == 409

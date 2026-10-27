@@ -18,6 +18,15 @@ CREATE TABLE IF NOT EXISTS experiment_candidates (
     FOREIGN KEY (project_id, revision) REFERENCES strategy_source_packages(project_id, revision)
 );
 
+CREATE TABLE IF NOT EXISTS experiment_execution (
+    experiment_id TEXT PRIMARY KEY REFERENCES research_experiments(id),
+    status TEXT NOT NULL CHECK(status IN ('running', 'succeeded', 'failed')),
+    selection_json TEXT,
+    error TEXT,
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS experiment_trials (
     id TEXT PRIMARY KEY,
     experiment_id TEXT NOT NULL,

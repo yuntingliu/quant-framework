@@ -1,17 +1,37 @@
-"""Create and inspect experiment records without scheduling backtests."""
+"""Create, inspect and explicitly start serial strategy experiments."""
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, ConfigDict
 
 from alphalab.strategy.experiments import ExperimentSpec
 from alphalab.strategy.repository import StrategyRepository
 from alphalab.strategy.sdk_runtime import SdkRuntimeError
 from alphalab.strategy.source import StrategySourceError
+from apps.api.services import experiment_service
 
 router = APIRouter(prefix="/api/experiments", tags=["experiments"])
 
 
 class ExperimentRequest(ExperimentSpec):
     confirm_python_execution: bool = False
+
+
+class ExperimentStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirm_python_execution: bool = False
+
+
+@router.post("/{experiment_id}/run", status_code=202)
+def start_experiment(experiment_id: str, request: ExperimentStartRequest) -> dict:
+    if not request.confirm_python_execution:
+        raise HTTPException(status_code=409, detail="experiment backtests execute trusted local Python and require confirmation")
+    try:
+        return experiment_service.manager().start(experiment_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="experiment not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("", status_code=201)

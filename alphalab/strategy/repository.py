@@ -18,6 +18,7 @@ import pandas as pd
 
 from alphalab.store import ResultStore
 from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
+from alphalab.strategy.experiment_runs import ExperimentRuns
 from alphalab.strategy.experiments import ExperimentSpec
 from alphalab.strategy.factor_templates import get_factor_template
 from alphalab.strategy.project_strategies import ProjectStrategies
@@ -54,7 +55,7 @@ def normalize_project_id(value: str) -> str:
     return normalized
 
 
-class StrategyRepository(ProjectStrategies):
+class StrategyRepository(ProjectStrategies, ExperimentRuns):
     """Own mutable source units, their runtime bundle, and immutable packages."""
 
     def __init__(self, db_path: str | Path | None = None) -> None:
@@ -625,6 +626,14 @@ class StrategyRepository(ProjectStrategies):
                 return None
             result = dict(row)
             result["protocol"] = json.loads(result.pop("protocol_json"))
+            execution = self._conn.execute(
+                "SELECT * FROM experiment_execution WHERE experiment_id = ?", (experiment_id,)
+            ).fetchone()
+            result["execution"] = dict(execution) if execution else None
+            if execution:
+                result["execution"]["selection"] = json.loads(result["execution"].pop("selection_json") or "null")
+                result["execution"]["data_mode"] = "current_runtime"
+                result["execution"]["out_of_sample_verified"] = False
             result["candidates"] = []
             for candidate in self._conn.execute(
                 "SELECT * FROM experiment_candidates WHERE experiment_id = ? ORDER BY CAST(candidate_id AS INTEGER)",
