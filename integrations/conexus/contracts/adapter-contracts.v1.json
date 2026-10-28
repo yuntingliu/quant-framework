@@ -1,0 +1,739 @@
+{
+  "schema": "alphalab.conexus.adapter-contracts.v1",
+  "version": 1,
+  "verifiedCoreRevision": "9cd8c6934b4fac54cc513cba4f6e7960b57688c3",
+  "summary": "Versioned contracts for every adapter AlphaLab supplies to the pinned Conexus core. Language-neutral on purpose: integrations/conexus/contracts/adapters.mjs validates against this document, and tests/contracts/test_conexus_adapter_contracts.py re-validates the same document with jsonschema so one artifact governs both sides.",
+  "errorCodes": {
+    "model": {
+      "owner": "core",
+      "source": "vendor/conexus/apps/local-host/src/model-provider.mjs",
+      "codes": ["model_not_allowed", "model_provider_error", "invalid_model_response", "missing_model"]
+    },
+    "modelParse": {
+      "owner": "core",
+      "source": "vendor/conexus/packages/runtime-core/src/hosted/openai-completion.ts",
+      "codes": [
+        "invalid_payload",
+        "missing_choices",
+        "missing_message",
+        "invalid_content",
+        "invalid_tool_calls",
+        "malformed_tool_call"
+      ]
+    },
+    "search": {
+      "owner": "application",
+      "source": "integrations/conexus/web-search.mjs",
+      "codes": [
+        "invalid_query",
+        "search_disabled",
+        "search_not_configured",
+        "search_provider_error",
+        "search_no_sources",
+        "search_request_failed"
+      ]
+    },
+    "lifecycle": {
+      "owner": "core",
+      "source": "vendor/conexus/packages/runtime-core/src/hosted/hosted-runtime.ts",
+      "codes": [
+        "run_cancelled",
+        "run_timed_out",
+        "invalid_run_input",
+        "invalid_host_tool_result",
+        "invalid_node_agent_route",
+        "unsupported_agent_node",
+        "invalid_agent_runtime_config",
+        "hosted_execution_failed"
+      ]
+    },
+    "deployment": {
+      "owner": "core",
+      "source": "vendor/conexus/packages/runtime-core/src/hosted/hosted-runtime.ts",
+      "codes": [
+        "release_checksum_mismatch",
+        "unsupported_harness",
+        "unsupported_exposure_target",
+        "missing_node_adapter",
+        "missing_tool_adapter"
+      ]
+    },
+    "authorization": {
+      "owner": "core",
+      "source": "vendor/conexus/apps/local-host/src/index.mjs",
+      "codes": ["local_host_error"]
+    }
+  },
+  "retryableCodes": [
+    "model_provider_error",
+    "search_provider_error",
+    "search_request_failed",
+    "run_timed_out"
+  ],
+  "contracts": {
+    "model.completion.request": {
+      "title": "Model completion request",
+      "owner": "core",
+      "direction": "core-to-adapter",
+      "notes": "The JSON-representable projection of ModelCompletionRequest. `signal` is an AbortSignal carried out of band; it is declared so a whole request object validates, not to describe its shape. Every field except `messages` is optional, so an adapter must not require one.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["messages"],
+        "properties": {
+          "model": {"type": "string", "minLength": 1},
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["role"],
+              "properties": {
+                "role": {"type": "string", "minLength": 1},
+                "content": {},
+                "tool_calls": {"type": "array"},
+                "tool_call_id": {"type": "string"},
+                "name": {"type": "string"}
+              }
+            }
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["type"],
+              "properties": {
+                "type": {"type": "string"},
+                "function": {
+                  "type": "object",
+                  "required": ["name"],
+                  "properties": {
+                    "name": {"type": "string", "minLength": 1},
+                    "description": {"type": "string"},
+                    "parameters": {"type": "object"},
+                    "strict": {"type": "boolean"}
+                  }
+                }
+              }
+            }
+          },
+          "toolChoice": {"enum": ["auto", "none"]},
+          "maxTokens": {"type": "integer", "minimum": 1},
+          "trace": {"type": "object"},
+          "signal": {}
+        }
+      },
+      "examples": {
+        "valid": [
+          {"messages": [{"role": "user", "content": "Summarize the series."}]},
+          {
+            "model": "vendor/model-a",
+            "messages": [
+              {"role": "system", "content": "You are an Agent."},
+              {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [
+                  {"id": "call-1", "type": "function", "function": {"name": "use", "arguments": "{}"}}
+                ]
+              },
+              {"role": "tool", "tool_call_id": "call-1", "content": "{\"success\":true}"}
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {"name": "complete", "parameters": {"type": "object"}, "strict": false}
+              }
+            ],
+            "toolChoice": "auto",
+            "maxTokens": 2048
+          }
+        ],
+        "invalid": [
+          {"value": {}, "path": "/", "keyword": "required"},
+          {"value": {"messages": []}, "path": "/messages", "keyword": "minItems"},
+          {"value": {"messages": [{"content": "no role"}]}, "path": "/messages/0", "keyword": "required"},
+          {
+            "value": {"messages": [{"role": "user"}], "toolChoice": "required"},
+            "path": "/toolChoice",
+            "keyword": "enum"
+          },
+          {
+            "value": {"messages": [{"role": "user"}], "maxTokens": 0},
+            "path": "/maxTokens",
+            "keyword": "minimum"
+          },
+          {
+            "value": {"messages": [{"role": "user"}], "temperature": 0.2},
+            "path": "/",
+            "keyword": "additionalProperties"
+          }
+        ]
+      }
+    },
+    "model.completion.response": {
+      "title": "Model completion response",
+      "owner": "core",
+      "direction": "adapter-to-core",
+      "notes": "AgentLLMResult, the shape parseOpenAiCompletion produces. `content` is null on a tool-call turn, `tool_calls` is absent rather than empty when there are none, and every tool call carries a string `arguments` the core parses itself.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["content", "finish_reason"],
+        "properties": {
+          "content": {"type": ["string", "null"]},
+          "finish_reason": {"type": "string", "minLength": 1},
+          "tool_calls": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "type", "function"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "type": {"const": "function"},
+                "function": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "arguments"],
+                  "properties": {
+                    "name": {"type": "string", "minLength": 1},
+                    "arguments": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "examples": {
+        "valid": [
+          {"content": "Done.", "finish_reason": "stop"},
+          {
+            "content": null,
+            "finish_reason": "tool_calls",
+            "tool_calls": [
+              {
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "complete", "arguments": "{\"status\":\"done\"}"}
+              }
+            ]
+          }
+        ],
+        "invalid": [
+          {"value": {"finish_reason": "stop"}, "path": "/", "keyword": "required"},
+          {"value": {"content": "hi"}, "path": "/", "keyword": "required"},
+          {
+            "value": {"content": "hi", "finish_reason": "stop", "tool_calls": []},
+            "path": "/tool_calls",
+            "keyword": "minItems"
+          },
+          {
+            "value": {
+              "content": null,
+              "finish_reason": "tool_calls",
+              "tool_calls": [
+                {"id": "c", "type": "function", "function": {"name": "use", "arguments": {"node_id": "x"}}}
+              ]
+            },
+            "path": "/tool_calls/0/function/arguments",
+            "keyword": "type"
+          },
+          {
+            "value": {
+              "content": null,
+              "finish_reason": "tool_calls",
+              "tool_calls": [{"id": "c", "type": "custom", "function": {"name": "use", "arguments": "{}"}}]
+            },
+            "path": "/tool_calls/0/type",
+            "keyword": "const"
+          }
+        ]
+      }
+    },
+    "capability.response": {
+      "title": "Host capability response",
+      "owner": "application",
+      "direction": "adapter-to-core",
+      "notes": "What a `capabilities` entry returns from createLocalRuntime. A refusal is a successful invocation carrying success:false, so the Agent can read and correct it; throwing instead turns a configuration problem into a failed Run. `code` is required on failure so a caller can branch without parsing prose, and `retryable` says whether retrying can change the answer.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["result"],
+        "properties": {
+          "result": {
+            "oneOf": [
+              {"type": "object", "required": ["success"], "properties": {"success": {"const": true}}},
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["success", "code", "error", "retryable"],
+                "properties": {
+                  "success": {"const": false},
+                  "code": {"type": "string", "minLength": 1},
+                  "error": {"type": "string", "minLength": 1, "maxLength": 400},
+                  "retryable": {"type": "boolean"}
+                }
+              }
+            ]
+          }
+        }
+      },
+      "examples": {
+        "valid": [
+          {"result": {"success": true, "provider": "brave", "results": []}},
+          {
+            "result": {
+              "success": false,
+              "code": "search_disabled",
+              "error": "Web search is disabled.",
+              "retryable": false
+            }
+          }
+        ],
+        "invalid": [
+          {
+            "value": {"result": {"success": false, "error": "No code."}},
+            "path": "/result",
+            "keyword": "oneOf"
+          },
+          {
+            "value": {
+              "result": {
+                "success": false,
+                "code": "search_disabled",
+                "error": "Disabled.",
+                "retryable": "no"
+              }
+            },
+            "path": "/result",
+            "keyword": "oneOf"
+          },
+          {"value": {"success": true}, "path": "/", "keyword": "required"}
+        ]
+      }
+    },
+    "search.response": {
+      "title": "Search adapter response",
+      "owner": "application",
+      "direction": "adapter-to-core",
+      "notes": "A narrowing of capability.response for `web.search`. Results are leads, not facts: every url is http(s) with no embedded credentials, and snippets are bounded so a provider cannot flood the transcript. A failure names one of the search codes above.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["result"],
+        "properties": {
+          "result": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["success", "provider", "results"],
+                "properties": {
+                  "success": {"const": true},
+                  "provider": {"enum": ["brave", "openrouter"]},
+                  "results": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["url", "title", "snippet"],
+                      "properties": {
+                        "url": {"type": "string", "pattern": "^https?://", "maxLength": 2000},
+                        "title": {"type": "string", "maxLength": 500},
+                        "snippet": {"type": "string", "maxLength": 2000}
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["success", "code", "error", "retryable"],
+                "properties": {
+                  "success": {"const": false},
+                  "code": {
+                    "enum": [
+                      "invalid_query",
+                      "search_disabled",
+                      "search_not_configured",
+                      "search_provider_error",
+                      "search_no_sources",
+                      "search_request_failed"
+                    ]
+                  },
+                  "error": {"type": "string", "minLength": 1, "maxLength": 400},
+                  "retryable": {"type": "boolean"}
+                }
+              }
+            ]
+          }
+        }
+      },
+      "examples": {
+        "valid": [
+          {
+            "result": {
+              "success": true,
+              "provider": "brave",
+              "results": [{"url": "https://example.com/paper", "title": "Paper", "snippet": "Excerpt"}]
+            }
+          },
+          {"result": {"success": true, "provider": "openrouter", "results": []}},
+          {
+            "result": {
+              "success": false,
+              "code": "invalid_query",
+              "error": "Provide a nonempty search query.",
+              "retryable": false
+            }
+          }
+        ],
+        "invalid": [
+          {
+            "value": {"result": {"success": true, "provider": "exa", "results": []}},
+            "path": "/result",
+            "keyword": "oneOf"
+          },
+          {
+            "value": {
+              "result": {
+                "success": true,
+                "provider": "brave",
+                "results": [{"url": "javascript:alert(1)", "title": "x", "snippet": ""}]
+              }
+            },
+            "path": "/result",
+            "keyword": "oneOf"
+          },
+          {
+            "value": {
+              "result": {
+                "success": false,
+                "code": "quota_exceeded",
+                "error": "Out of quota.",
+                "retryable": true
+              }
+            },
+            "path": "/result",
+            "keyword": "oneOf"
+          }
+        ]
+      }
+    },
+    "financial.tool.request": {
+      "title": "Financial Tool node input",
+      "owner": "application",
+      "direction": "core-to-adapter",
+      "notes": "The command-and-args contract AlphaLab's financial Tool nodes accept. The declared confirmation flags are exactly the four the shipped bundle exposes; they stay top-level so an argument blob copied from untrusted text cannot smuggle one in, which the `not` rule on `args` enforces. `args` is otherwise unconstrained because each command validates its own arguments and returns a correction-oriented error.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command"],
+        "properties": {
+          "command": {"type": "string", "minLength": 1, "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"},
+          "args": {
+            "type": "object",
+            "not": {
+              "anyOf": [
+                {"required": ["confirm_python_execution"]},
+                {"required": ["confirm_write"]},
+                {"required": ["confirm_delete"]},
+                {"required": ["confirm_cancel"]}
+              ]
+            }
+          },
+          "confirm_python_execution": {"type": "boolean"},
+          "confirm_write": {"type": "boolean"},
+          "confirm_delete": {"type": "boolean"},
+          "confirm_cancel": {"type": "boolean"}
+        }
+      },
+      "examples": {
+        "valid": [
+          {"command": "data.status"},
+          {"command": "backtest.run", "args": {"strategy_id": "main"}, "confirm_python_execution": true}
+        ],
+        "invalid": [
+          {"value": {}, "path": "/", "keyword": "required"},
+          {"value": {"command": "Backtest.Run"}, "path": "/command", "keyword": "pattern"},
+          {
+            "value": {"command": "backtest.run", "args": {"confirm_python_execution": true}},
+            "path": "/args",
+            "keyword": "not"
+          },
+          {
+            "value": {"command": "backtest.run", "confirm_python_execution": "yes"},
+            "path": "/confirm_python_execution",
+            "keyword": "type"
+          }
+        ]
+      }
+    },
+    "financial.tool.response": {
+      "title": "Financial Tool node output",
+      "owner": "application",
+      "direction": "adapter-to-core",
+      "notes": "Every response echoes `command`, so a transcript stays readable when several calls interleave. A refusal is success:false with one bounded line and no traceback. Asynchronous work returns `job_id` plus `status` immediately; a wait that reaches its deadline returns success:true with timed_out:true, because an unfinished job is an answer, not a failed call.",
+      "schema": {
+        "type": "object",
+        "required": ["success", "command"],
+        "properties": {
+          "success": {"type": "boolean"},
+          "command": {"type": "string"},
+          "error": {"type": "string", "minLength": 1, "maxLength": 400},
+          "job_id": {"type": "string", "minLength": 1},
+          "status": {"type": "string", "minLength": 1},
+          "progress": {},
+          "timed_out": {"type": "boolean"},
+          "result": {"type": "object"}
+        }
+      },
+      "examples": {
+        "valid": [
+          {"success": true, "command": "data.status", "result": {"coverage": 0.98}},
+          {"success": true, "command": "backtest.run", "job_id": "job-1", "status": "queued"},
+          {
+            "success": true,
+            "command": "backtest.wait",
+            "job_id": "job-1",
+            "status": "running",
+            "timed_out": true
+          },
+          {
+            "success": false,
+            "command": "backtest.run",
+            "error": "backtest.run requires confirm_python_execution=true."
+          }
+        ],
+        "invalid": [
+          {"value": {"success": false}, "path": "/", "keyword": "required"},
+          {
+            "value": {"success": false, "command": "backtest.run", "error": ""},
+            "path": "/error",
+            "keyword": "minLength"
+          },
+          {"value": {"success": "no", "command": "data.status"}, "path": "/success", "keyword": "type"}
+        ]
+      }
+    },
+    "state.snapshot": {
+      "title": "Host state snapshot",
+      "owner": "core",
+      "direction": "storage",
+      "notes": "What openState will accept back from disk. A snapshot failing this contract is refused with existing data preserved rather than migrated in place, so a storage adapter must round-trip it unchanged. Run access tokens are stored only as hashes; a snapshot carrying a bearer token verbatim is a defect, which assertNoSecrets checks separately.",
+      "schema": {
+        "type": "object",
+        "required": ["schema", "runs", "nodes"],
+        "properties": {
+          "schema": {"const": "conexus.local-host.v1"},
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {
+                  "enum": [
+                    "queued",
+                    "running",
+                    "waiting",
+                    "completed",
+                    "blocked",
+                    "failed",
+                    "cancelled",
+                    "aborted"
+                  ]
+                },
+                "tokenHash": {"type": "string", "minLength": 1},
+                "sequence": {"type": "integer", "minimum": 0},
+                "events": {"type": "array"}
+              }
+            }
+          },
+          "nodes": {"type": "array"}
+        }
+      },
+      "examples": {
+        "valid": [
+          {"schema": "conexus.local-host.v1", "runs": [], "nodes": []},
+          {
+            "schema": "conexus.local-host.v1",
+            "runs": [
+              {"id": "run-1", "status": "completed", "tokenHash": "9f86d0", "sequence": 4, "events": []}
+            ],
+            "nodes": [{"id": "note-1"}]
+          }
+        ],
+        "invalid": [
+          {
+            "value": {"schema": "conexus.local-host.v2", "runs": [], "nodes": []},
+            "path": "/schema",
+            "keyword": "const"
+          },
+          {
+            "value": {"schema": "conexus.local-host.v1", "runs": {}, "nodes": []},
+            "path": "/runs",
+            "keyword": "type"
+          },
+          {
+            "value": {
+              "schema": "conexus.local-host.v1",
+              "runs": [{"id": "run-1", "status": "done"}],
+              "nodes": []
+            },
+            "path": "/runs/0/status",
+            "keyword": "enum"
+          },
+          {"value": {"schema": "conexus.local-host.v1", "nodes": []}, "path": "/", "keyword": "required"}
+        ]
+      }
+    },
+    "authorization.failure": {
+      "title": "Authorization failure",
+      "owner": "core",
+      "direction": "host-to-client",
+      "notes": "The body the local Host returns when a request is refused: a stable code and one sentence, never the expected token, the supplied token, or how far the comparison got. Status is the discriminator \u2014 401 for the workspace token, 404 for a run token so an unauthorized probe cannot distinguish a wrong token from an unknown run, 403 for a non-loopback Host header.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "message"],
+            "properties": {
+              "code": {"type": "string", "minLength": 1},
+              "message": {"type": "string", "minLength": 1, "maxLength": 400}
+            }
+          }
+        }
+      },
+      "examples": {
+        "valid": [
+          {"error": {"code": "local_host_error", "message": "Local workspace access denied."}},
+          {"error": {"code": "local_host_error", "message": "Run not found or access denied."}}
+        ],
+        "invalid": [
+          {"value": {"error": "Local workspace access denied."}, "path": "/error", "keyword": "type"},
+          {"value": {"error": {"message": "Denied."}}, "path": "/error", "keyword": "required"},
+          {
+            "value": {"error": {"code": "local_host_error", "message": "Denied.", "expectedToken": "abc"}},
+            "path": "/error",
+            "keyword": "additionalProperties"
+          }
+        ]
+      }
+    },
+    "runtime.adapter.profile": {
+      "title": "Runtime adapter profile",
+      "owner": "core",
+      "direction": "adapter-to-core",
+      "notes": "What inspectHostedRelease checks a Release against, and what makes two adapters comparable. A substitute adapter is equivalent when it offers the same node types, tool runtimes, permissions and capability ids; anything less fails at startup with a named issue instead of mid-Run.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "nodeTypes",
+          "toolRuntimes",
+          "permissions",
+          "isolation",
+          "capabilityIds",
+          "runNodeTypes"
+        ],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "nodeTypes": {"type": "array", "items": {"type": "string"}},
+          "toolRuntimes": {
+            "type": "array",
+            "items": {"enum": ["node", "python", "bash", "powershell", "shell", "registered", "mcp"]}
+          },
+          "permissions": {
+            "type": "array",
+            "items": {"enum": ["filesystem", "network", "shell", "secret", "browser", "model"]}
+          },
+          "isolation": {"type": "array", "items": {"enum": ["none", "shell", "sandbox"]}},
+          "capabilityIds": {"type": "array", "items": {"type": "string"}},
+          "runNodeTypes": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "examples": {
+        "valid": [
+          {
+            "name": "conexus.local-node-host.v1",
+            "nodeTypes": ["tool", "cli", "files"],
+            "toolRuntimes": ["node", "python", "bash", "shell"],
+            "permissions": ["filesystem", "network", "shell"],
+            "isolation": ["shell"],
+            "capabilityIds": ["web.search"],
+            "runNodeTypes": ["tool"]
+          }
+        ],
+        "invalid": [
+          {
+            "value": {
+              "name": "substitute",
+              "nodeTypes": ["tool"],
+              "toolRuntimes": ["node"],
+              "permissions": ["filesystem"],
+              "isolation": ["shell"],
+              "capabilityIds": []
+            },
+            "path": "/",
+            "keyword": "required"
+          },
+          {
+            "value": {
+              "name": "substitute",
+              "nodeTypes": ["tool"],
+              "toolRuntimes": ["wasm"],
+              "permissions": ["filesystem"],
+              "isolation": ["shell"],
+              "capabilityIds": [],
+              "runNodeTypes": ["tool"]
+            },
+            "path": "/toolRuntimes/0",
+            "keyword": "enum"
+          }
+        ]
+      }
+    },
+    "error.envelope": {
+      "title": "Structured adapter error",
+      "owner": "core",
+      "direction": "adapter-to-core",
+      "notes": "How an adapter reports a failure it cannot answer in band: a HostedRuntimeError carrying a code from the taxonomy above. Cancellation and timeout are codes here rather than exceptions of their own, so a Run that was cancelled is distinguishable from one whose provider broke.",
+      "schema": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1, "pattern": "^[a-z][a-z0-9_]*$"},
+          "message": {"type": "string", "minLength": 1, "maxLength": 400},
+          "details": {}
+        }
+      },
+      "examples": {
+        "valid": [
+          {"code": "run_cancelled", "message": "The Agent run was cancelled."},
+          {"code": "run_timed_out", "message": "The Agent run exceeded its deadline."},
+          {"code": "model_provider_error", "message": "Model endpoint returned HTTP 503."}
+        ],
+        "invalid": [
+          {
+            "value": {"code": "RunCancelled", "message": "Cancelled."},
+            "path": "/code",
+            "keyword": "pattern"
+          },
+          {"value": {"code": "run_cancelled"}, "path": "/", "keyword": "required"}
+        ]
+      }
+    }
+  }
+}
