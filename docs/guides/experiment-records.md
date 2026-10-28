@@ -55,6 +55,16 @@ separate concern; syncing the shared fix and rerunning full CI remain follow-up 
 
 ## Record an experiment
 
+The bounded integration test `test_experiment_with_real_runtime_engine` uses
+isolated synthetic runtime partitions and the real job manager, backtest service,
+strategy engine, validation and result store. It checks two validation trials,
+one selected test trial, pinned strategy hashes/validation revisions, persisted
+returns within each date window, and no new jobs on a repeated terminal start.
+The built-in signal explicitly overrides the momentum window, so these candidates
+exercise deterministic tie-breaking, not proof of parameter influence. This is
+offline execution-path coverage, not live-market validation, a data snapshot,
+or verified out-of-sample evidence.
+
 `POST /api/experiments` creates a recorded experiment, immutable source
 candidates, and one planned validation trial per candidate in one transaction.
 It does not schedule backtests, select a winner, or run the test period.

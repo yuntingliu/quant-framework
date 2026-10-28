@@ -4,16 +4,89 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 
+import pandas as pd
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from alphalab import StrategyRepository
+from alphalab import StrategyRepository, create_runtime_engine
+from alphalab.dataio.runtime import RuntimeStore
+from alphalab.store import ResultStore
 from alphalab.strategy.source import update_parameter_default
 from alphalab.validation.repository import ValidationRepository
 from apps.api.routers import experiments
+from apps.api.services import strategy_service
 from apps.api.services.backtest_job_service import BacktestJobManager
 from apps.api.services.experiment_service import ExperimentManager
+
+
+def test_experiment_with_real_runtime_engine(setup_experiment, tmp_path, monkeypatch):
+    repository, spec = setup_experiment
+    root = tmp_path / "runtime"
+    monkeypatch.setenv("ALPHALAB_RUNTIME_DIR", str(root))
+    store = RuntimeStore(root)
+    dates = pd.bdate_range("2023-11-01", "2024-06-28")
+    prices = pd.Series([10 + i * 0.02 + (i % 7) * 0.01 for i in range(len(dates))])
+    bars = pd.DataFrame({"date": dates, "symbol": "000001.SZ"})
+    for field in ("open", "high", "low", "close", "raw_open", "raw_high", "raw_low", "raw_close"):
+        bars[field] = prices.to_numpy()
+    bars["volume"] = 100_000_000.0
+    bars["amount"] = bars["close"] * bars["volume"]
+    bars["limit_up"] = bars["close"] * 1.1
+    bars["limit_down"] = bars["close"] * 0.9
+    store.write("rq.bars", bars)
+    store.write("rq.paused", bars[["date", "symbol"]].assign(paused=False))
+    store.write("rq.is_st", bars[["date", "symbol"]].assign(is_st=False))
+    store.write("rq.instruments", pd.DataFrame([{
+        "symbol": "000001.SZ", "asset_type": "CS", "listed_date": "2000-01-01",
+        "de_listed_date": "2999-12-31", "exchange": "XSHE", "board_type": "MainBoard",
+        "round_lot": 100, "snapshot_date": "2023-11-01",
+    }]))
+    monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(repository.path))
+    monkeypatch.setattr(strategy_service, "ResultStore", lambda: ResultStore(repository.path))
+    monkeypatch.setattr(strategy_service, "_engine", lambda profile: create_runtime_engine(root))
+    monkeypatch.setattr(strategy_service, "RuntimeStore", lambda: RuntimeStore(root))
+    spec["validation"] = {"start": "2024-01-01", "end": "2024-03-29"}
+    spec["test"] = {"start": "2024-04-01", "end": "2024-06-28"}
+    experiment = repository.create_experiment(spec)
+    jobs = BacktestJobManager(repository.path)
+    manager = ExperimentManager(repository.path, jobs)
+    try:
+        manager.start(experiment["id"])
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            state = repository.get_experiment(experiment["id"])
+            if state["execution"]["status"] != "running":
+                break
+            time.sleep(0.05)
+        assert state["execution"]["status"] == "succeeded", state
+        assert [trial["stage"] for trial in state["trials"]] == ["validation", "validation", "test"]
+        assert all(trial["status"] == "succeeded" for trial in state["trials"])
+        assert state["trials"][-1]["candidate_id"] == state["execution"]["selection"]["candidate_id"]
+        assert state["execution"]["selection"]["candidate_id"] == "1"
+        results = ResultStore(repository.path)
+        try:
+            for trial in state["trials"]:
+                record = results.get_backtest_record(trial["result_id"])
+                assert record is not None
+                assert record["strategy_project_id"] == spec["project_id"]
+                candidate = next(item for item in experiment["candidates"] if item["candidate_id"] == trial["candidate_id"])
+                package = repository.get_package(spec["project_id"], candidate["revision"])
+                assert record["strategy_revision"] == candidate["revision"]
+                assert record["strategy_source_sha256"] == package["source_sha256"]
+                assert record["validation_revision"] == spec["validation_revision"]
+                returns = results.load_returns(trial["result_id"])
+                assert not returns.empty
+                assert returns.index.min() >= pd.Timestamp(trial["start_date"])
+                assert returns.index.max() <= pd.Timestamp(trial["end_date"])
+        finally:
+            results.close()
+        assert manager.start(experiment["id"])["trials"] == state["trials"]
+        assert repository._conn.execute("SELECT COUNT(*) FROM backtest_jobs").fetchone()[0] == 3
+        assert state["execution"]["out_of_sample_verified"] is False
+    finally:
+        manager.shutdown()
+        jobs.shutdown()
 
 
 @pytest.mark.parametrize("state", ["none", "recorded", "active", "terminal", "failed"])
