@@ -19,6 +19,17 @@
 - [Contributing](../CONTRIBUTING.md): branches and review workflow.
 - [Multifactor research notes](guides/multifactor-research.md): conceptual factor evaluation and monthly portfolio construction; illustrative rules, not SDK defaults.
 
+## Conexus framework reference
+
+For working on the Agent framework itself rather than on AlphaLab's research
+logic. These describe the pinned core snapshot and are validated by
+`scripts/check_conexus_docs.py`.
+
+- [Conexus framework architecture](10_CONEXUS_FRAMEWORK.md): module boundary; Agent, Harness, node, capability, and tool; HTTP surface, state on disk, trust boundary, and current constraints.
+- [Conexus execution lifecycle](11_CONEXUS_EXECUTION_LIFECYCLE.md): one Run end to end, asynchronous work, cancellation, browser reconnection, and Host restart.
+- [Extending and upgrading Conexus](12_CONEXUS_EXTENSION_GUIDE.md): tools, host capabilities, models, search, skills, Agents, compatibility checks, and moving the pinned core.
+- [Conexus examples](../examples/conexus/README.md): runnable minimal and financial examples with model and tool test doubles, and the lifecycle validation suite.
+
 ## Deployment reference
 
 - [Deployment branches and dev3](09_DEPLOYMENT_BRANCHES.md): exact deployed revision, legacy branch mapping, local architecture, private configuration and management.

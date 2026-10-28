@@ -1,6 +1,6 @@
 {
   "schema": "conexus.core-export.v1",
-  "sourceRevision": "5c7eec9cd50f61b9fe776d17c609719976975614",
+  "sourceRevision": "9cd8c6934b4fac54cc513cba4f6e7960b57688c3",
   "sourceDirty": false,
   "textNormalization": "LF",
   "licenseStatus": "pending-owner-selection",
@@ -16,9 +16,9 @@
     "docs/open-core/ARCHITECTURE.md": "f9876b131485b6eae0631b9110af4dc024faaf857e28550c46c8537cba9dc030",
     "docs/open-core/README.md": "3646843a8350a9ae0948b9b48506131eb4a00a92d330c78a386fece6a9d4345e",
     "open-core.manifest.json": "15984c9391ce14424aea2037fee413c65e66fd77dc25a74a6f201f8c95b69cf7",
-    "package-lock.json": "f7f82390c7682bb1e801a35dbb17b34776c2a17d9440bf3ddb1ec69be9891aee",
+    "package-lock.json": "7fa3935806264f55d78fe30352d17381379c6c333acde364ee35517c8ab112bb",
     "package.json": "a0515353d706b341d702a361c0757a2233981ea9f67c990d09b2ce9957cc6ce1",
-    "packages/node-host-runtime/package.json": "f70d093c4a424ffe841413e196788a2934a07c893f2ead099be6a9227de98203",
+    "packages/node-host-runtime/package.json": "052b4fad012dec75a2435fc621374179de8da92f58327832c23773d346687f64",
     "packages/node-host-runtime/src/browser/playwright-browser-runtime.ts": "650d8e8e05a74ff87b7e7bcd2cc9ac0e60efc64f7860e228c424a5fdcdf6bacd",
     "packages/node-host-runtime/src/bundling/app-bundler.test.ts": "ff121dca699e154aa1131b6162a6548c6573c618e1df63805964f05c3afb9872",
     "packages/node-host-runtime/src/bundling/app-bundler.ts": "4b5957766128b7a0a9f7e85c277eb8604ccaf578f2c69fedc7d95e1ba6548f5d",
@@ -121,6 +121,7 @@
   "provenance": {
     "kind": "reviewed-export-maintenance",
     "upstreamRevision": "dcc74445382d73be7f1ff06b7bde147c95e7240d",
-    "description": "Standalone maintenance of the verified exported core; no private checkout imported."
+    "baseExportRevision": "5c7eec9cd50f61b9fe776d17c609719976975614",
+    "description": "Dependency-only maintenance of the verified exported core: remove the unused chromium-bidi dependency and its vulnerable Zod chain. No private checkout imported."
   }
 }

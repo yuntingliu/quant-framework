@@ -30,8 +30,8 @@ def free_port():
         return sock.getsockname()[1]
 
 
-def wait_for(client, path, done=lambda response: response.status_code == 200):
-    deadline = time.monotonic() + 35
+def wait_for(client, path, done=lambda response: response.status_code == 200, *, timeout=35):
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
             response = client.get(path)
@@ -126,7 +126,9 @@ def test_local_agent_calls_python_tools_persists_report_and_recovers(tmp_path, m
                                 assert "accessToken" not in result
                                 with httpx.Client(base_url=f"http://127.0.0.1:{api_port}", trust_env=False, timeout=5) as authorized:
                                     finished = wait_for(authorized, f"/api/conexus/runs/{run_id}",
-                                                        lambda r: r.json().get("run", {}).get("status") in {"completed", "failed", "blocked"})
+                                                        lambda r: r.json().get("run", {}).get("status") in {"completed", "failed", "blocked"},
+                                                        # Include slow Windows CI shell startup in the run budget.
+                                                        timeout=90 if sys.platform == "win32" else 35)
                                     assert finished.json()["run"]["status"] == "completed", finished.text
                                     assert finished.json()["run"]["nodeChanges"]["created"], requests[-1]["messages"]
                                     events = authorized.get(f"/api/conexus/runs/{run_id}/events")
