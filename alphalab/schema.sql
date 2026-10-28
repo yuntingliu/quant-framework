@@ -1,6 +1,48 @@
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
+CREATE TABLE IF NOT EXISTS research_experiments (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES strategy_projects(id),
+    protocol_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS experiment_candidates (
+    experiment_id TEXT NOT NULL REFERENCES research_experiments(id),
+    candidate_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    parameters_json TEXT NOT NULL,
+    PRIMARY KEY (experiment_id, candidate_id),
+    FOREIGN KEY (project_id, revision) REFERENCES strategy_source_packages(project_id, revision)
+);
+
+CREATE TABLE IF NOT EXISTS experiment_execution (
+    experiment_id TEXT PRIMARY KEY REFERENCES research_experiments(id),
+    status TEXT NOT NULL CHECK(status IN ('running', 'succeeded', 'failed')),
+    selection_json TEXT,
+    error TEXT,
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS experiment_trials (
+    id TEXT PRIMARY KEY,
+    experiment_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    stage TEXT NOT NULL CHECK(stage IN ('validation', 'test')),
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'planned'
+        CHECK(status IN ('planned', 'queued', 'running', 'succeeded', 'failed', 'cancelled', 'interrupted')),
+    job_id TEXT REFERENCES backtest_jobs(id),
+    result_id TEXT REFERENCES backtests(id),
+    error TEXT,
+    FOREIGN KEY (experiment_id, candidate_id)
+        REFERENCES experiment_candidates(experiment_id, candidate_id)
+);
+
 CREATE TABLE IF NOT EXISTS strategies (
     id TEXT PRIMARY KEY,
     yaml_path TEXT NOT NULL,

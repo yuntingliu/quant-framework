@@ -1136,6 +1136,84 @@ def test_repository_atomically_creates_a_new_immutable_revision(tmp_path: Path):
         repository.close()
 
 
+def test_candidate_package_preserves_live_sources_and_executes_defaults(tmp_path: Path):
+    repository = StrategyRepository(tmp_path / "candidate.db")
+    try:
+        repository.clone_project("sdk-v1-default", "candidate-project")
+        repository.create_strategy("candidate-project", "other", name="Other")
+        repository.select_strategy("main")
+        before = repository.get_project("candidate-project")
+        units = repository.list_source_units("candidate-project")
+        candidate = repository.create_candidate_package(
+            "candidate-project", before["current_revision"], {"momentum_20d": {"window": 10}}
+        )
+        assert repository.get_project("candidate-project") == before
+        assert repository.list_source_units("candidate-project") == units
+        assert repository.has_strategy_package("candidate-project", candidate["revision"])
+        assert candidate["parent_revision"] == before["current_revision"]
+        assert candidate["parameters"]["momentum_20d"]["window"] == 10
+        data = _payload()
+        request = {
+            "event": "session_close", "as_of": data["sessions"][-1],
+            "available_symbols": ["A", "B"], "factor_id": "momentum_20d",
+            "portfolio": {}, "state": {},
+        }
+        with SdkExecutionSession(candidate["source"]) as session:
+            session.configure(data)
+            actual = session.execute("factor", request).value
+        with SdkExecutionSession(before["draft_source"]) as session:
+            session.configure(data)
+            expected = session.execute("factor", {**request, "parameters": {"window": 10}}).value
+            original = session.execute("factor", request).value
+        assert actual["values"] == expected["values"]
+        assert actual["values"] != original["values"]
+        result = run_strategy_backtest(
+            repository, "candidate-project", "2025-01-01", "2025-03-31",
+            create_default_engine(), revision=candidate["revision"],
+            execution_data_policy="illustrative",
+        )
+        assert not result.returns.empty
+        assert result.package["source_sha256"] == candidate["source_sha256"]
+        changed, _ = update_parameter_default(
+            before["draft_source"], entrypoint_id="momentum_20d", parameter="window", value=40
+        )
+        repository.update_draft("candidate-project", changed)
+        assert repository.get_package("candidate-project", candidate["revision"]) == candidate
+        repository.close()
+        repository = StrategyRepository(tmp_path / "candidate.db")
+        assert repository.get_package("candidate-project", candidate["revision"]) == candidate
+        assert repository.has_strategy_package("candidate-project", candidate["revision"])
+    finally:
+        repository.close()
+
+
+def test_candidate_package_rejects_invalid_edits_and_rolls_back(tmp_path: Path, monkeypatch):
+    repository = StrategyRepository(tmp_path / "candidate.db")
+    try:
+        before = repository.clone_project("sdk-v1-default", "candidate-project")
+        packages = repository.list_packages("candidate-project")
+        with pytest.raises(StrategySourceError):
+            repository.create_candidate_package(
+                "candidate-project", 1, {"momentum_20d": {"window": 1}}
+            )
+        with pytest.raises(KeyError):
+            repository.create_candidate_package("candidate-project", 999, {})
+
+        def fail_units(*args):
+            raise RuntimeError("injected package write failure")
+
+        monkeypatch.setattr(repository, "_insert_package_units", fail_units)
+        with pytest.raises(RuntimeError, match="injected"):
+            repository.create_candidate_package(
+                "candidate-project", 1, {"momentum_20d": {"window": 10}}
+            )
+        assert repository.list_packages("candidate-project") == packages
+        assert repository.get_project("candidate-project") == before
+        assert repository.get_package("candidate-project", 2) is None
+    finally:
+        repository.close()
+
+
 def test_repository_uses_rq_profile_and_migrates_existing_projects(tmp_path: Path):
     database = tmp_path / "rq-profile.db"
     repository = StrategyRepository(database)
