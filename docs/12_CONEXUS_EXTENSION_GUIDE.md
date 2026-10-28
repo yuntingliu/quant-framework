@@ -6,7 +6,9 @@ that pinning buys.
 
 [Framework architecture](10_CONEXUS_FRAMEWORK.md) for the vocabulary;
 [Execution lifecycle](11_CONEXUS_EXECUTION_LIFECYCLE.md) for what a Run does
-with any of it.
+with any of it; [Adapter contracts](13_CONEXUS_ADAPTER_CONTRACTS.md) for the
+shape each adapter below has to satisfy, and for the gate that blocks an
+upgrade whose verification fails.
 
 ## The rule that decides where your change goes
 
@@ -71,9 +73,11 @@ Say in the tool's `description` what a failure looks like.
 
 **Keep confirmation flags top-level.** If a command executes code or mutates
 state, put the flag on the tool contract itself —
-`confirm_python_execution`, `confirm_write`, `confirm_delete` — never inside an
-`args` object. Nested flags can be smuggled in by arguments copied from
-untrusted text.
+`confirm_python_execution`, `confirm_write`, `confirm_delete`, `confirm_cancel`
+— never inside an `args` object. Nested flags can be smuggled in by arguments
+copied from untrusted text, which
+[`financial.tool.request`](13_CONEXUS_ADAPTER_CONTRACTS.md#financial-tool-nodes)
+rejects outright.
 
 **Configuration arrives through `toolEnvironment`.** Tool processes get a small
 allowlist of OS variables (`PATH`, `HOME`, `TEMP`, and platform equivalents)
@@ -205,6 +209,10 @@ Verify a graph change without a model:
 node --test 'examples/conexus/minimal-agent/test/*.test.mjs'
 ```
 
+A substituted adapter has one more thing to prove: that the profile it
+publishes is still equivalent to the one it stands in for. See
+[Equivalent capabilities and permissions](13_CONEXUS_ADAPTER_CONTRACTS.md#equivalent-capabilities-and-permissions).
+
 ## Upgrading the pinned core
 
 `vendor/conexus` is a **checksum-verified snapshot**, not a checkout. Every file
@@ -221,17 +229,22 @@ always corresponds to a known upstream revision.
 ### The sequence
 
 ```bash
+python scripts/check_conexus_upgrade.py --export-root /path/to/conexus-export
 python -m scripts.sync_conexus_core --export-root /path/to/conexus-export
-python scripts/build_conexus_runtime.py
-python scripts/check_conexus_runtime.py
-python scripts/check_conexus_docs.py
-node --test 'examples/conexus/minimal-agent/test/*.test.mjs'
-node --test 'examples/conexus/financial-integration/test/*.test.mjs'
+python scripts/check_conexus_upgrade.py --verify
 python -m pytest tests/api/test_local_agent_integration.py tests/contracts/test_conexus_distribution.py -q
 ```
 
 What each step guarantees:
 
+0. **`check_conexus_upgrade --export-root`** reviews the candidate before it
+   lands: the file-level diff against the pinned snapshot, and for every
+   changed file AlphaLab's adapters are written against, the application file
+   to review and the contracts whose shape may have moved. It exits non-zero
+   until a reviewer acknowledges such a change with
+   `--accept-interface-change`, so "this belongs in an adapter" cannot be
+   missed by not noticing. See
+   [Adapter contracts](13_CONEXUS_ADAPTER_CONTRACTS.md#upgrading-the-pinned-core).
 1. **`sync_conexus_core`** accepts only a clean export: `schema` must be
    `conexus.core-export.v1`, `sourceDirty` must be false, the package boundary
    must equal the four reviewed workspaces, and every file must be inside
@@ -252,9 +265,18 @@ What each step guarantees:
    alters when a Run commits, how a tool failure is shaped, or what a restart
    does to an interrupted Run shows up as a failing named test.
 
+Steps 2 through 5 are what `check_conexus_upgrade --verify` runs, in that
+order, together with the adapter contract and substitution suites. It stops at
+the first failure, so a failed verification blocks the upgrade rather than
+being stepped over.
+
 Then update the quoted revision in these documents — `check_conexus_docs.py`
 compares short revisions quoted in prose against `runtime.lock.json` and fails
-on drift.
+on drift — and move `verifiedCoreRevision` in
+[`adapter-contracts.v1.json`](../integrations/conexus/contracts/adapter-contracts.v1.json)
+to the new revision. Until it moves,
+`tests/contracts/test_conexus_adapter_contracts.py` fails, which is how the
+pin and its verification stay together.
 
 ### Release status
 
@@ -276,7 +298,8 @@ python scripts/check_conexus_docs.py
 It checks that every repository-relative link resolves, every symbol attributed
 to a core file exists in it, every documented command target exists, the native
 Agent tool list and the local Host's route list still match the code, quoted
-core revisions match the lock file, and
+core revisions match the lock file, every declared adapter contract is
+documented, and
 [`examples/conexus/two-agent/`](../examples/conexus/two-agent/) stays
 documentation-only.
 

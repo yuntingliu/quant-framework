@@ -28,7 +28,8 @@ logic. These describe the pinned core snapshot and are validated by
 - [Conexus framework architecture](10_CONEXUS_FRAMEWORK.md): module boundary; Agent, Harness, node, capability, and tool; HTTP surface, state on disk, trust boundary, and current constraints.
 - [Conexus execution lifecycle](11_CONEXUS_EXECUTION_LIFECYCLE.md): one Run end to end, asynchronous work, cancellation, browser reconnection, and Host restart.
 - [Extending and upgrading Conexus](12_CONEXUS_EXTENSION_GUIDE.md): tools, host capabilities, models, search, skills, Agents, compatibility checks, and moving the pinned core.
-- [Conexus examples](../examples/conexus/README.md): runnable minimal and financial examples with model and tool test doubles, and the lifecycle validation suite.
+- [Conexus adapter contracts](13_CONEXUS_ADAPTER_CONTRACTS.md): versioned contracts for model, search, financial tool, storage and authorization adapters; the error taxonomy, credential rules, adapter substitution, and the core-upgrade gate.
+- [Conexus examples](../examples/conexus/README.md): runnable minimal, financial and adapter-substitution examples with model and tool test doubles, and the lifecycle validation suite.
 
 ## Deployment reference
 

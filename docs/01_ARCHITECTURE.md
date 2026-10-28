@@ -424,6 +424,7 @@ and cannot create a second authoritative result.
 | `apps/desktop/src/components/python/` | Lazy shared Monaco model, LSP runtime, AlphaLab completion, and Problems UI |
 | `apps/desktop/src/components/shared/SdkDocumentation.tsx` | Single sidebar documentation drawer, opened to the current workbench's chapter |
 | `integrations/conexus/alphalab-research-agent/` | SDK-aware bounded Agent tools and prompt |
+| `integrations/conexus/contracts/` | Versioned adapter contracts, their validator, credential redaction, and the test doubles benchmarks reuse |
 
 The package facade in `alphalab/__init__.py` intentionally exports only data,
 source, repository, evaluation, backtest, and result-store entry points.

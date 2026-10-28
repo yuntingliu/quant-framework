@@ -6,15 +6,18 @@ provider credential and no network egress**.
 
 These are also the validation behind
 [Framework architecture](../../docs/10_CONEXUS_FRAMEWORK.md),
-[Execution lifecycle](../../docs/11_CONEXUS_EXECUTION_LIFECYCLE.md) and
-[Extension and upgrade](../../docs/12_CONEXUS_EXTENSION_GUIDE.md). Each
-lifecycle semantic those documents describe has a named test here.
+[Execution lifecycle](../../docs/11_CONEXUS_EXECUTION_LIFECYCLE.md),
+[Extension and upgrade](../../docs/12_CONEXUS_EXTENSION_GUIDE.md) and
+[Adapter contracts](../../docs/13_CONEXUS_ADAPTER_CONTRACTS.md). Each
+lifecycle semantic and each adapter contract those documents describe has a
+named test here.
 
 ```text
 examples/conexus/
   lib/runtime.mjs            resolves the built core under build/conexus
   minimal-agent/             one Harness, one Agent, one Tool node
   financial-integration/     the AlphaLab shape against a stub API
+  adapter-contracts/         the same task over substituted adapters
   two-agent/                 reserved; documentation only
 ```
 
@@ -50,6 +53,7 @@ and cleans up its temporary state directory.
 ```bash
 node --test 'examples/conexus/minimal-agent/test/*.test.mjs'
 node --test 'examples/conexus/financial-integration/test/*.test.mjs'
+node --test 'examples/conexus/adapter-contracts/test/*.test.mjs'
 python scripts/check_conexus_docs.py
 ```
 
@@ -67,6 +71,13 @@ one lives:
 
 Plus the serial-execution constraint, workspace-token handling, asynchronous
 job submission, the execution-confirmation gate, and an unreachable backend.
+
+[`adapter-contracts/`](adapter-contracts/README.md) adds what issue #11
+requires: the same minimal task executed over the shipped model adapter and
+over a replacement test adapter, with identical outcomes; every envelope the
+real financial Tool node returns validated against
+`financial.tool.response`; and the Host's authorization refusals validated
+against `authorization.failure`.
 
 ## The test doubles
 

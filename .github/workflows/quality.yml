@@ -36,6 +36,7 @@ jobs:
           python -m pytest tests -q
           python scripts/check_facade_imports.py
           python scripts/check_conexus_docs.py
+          python scripts/check_conexus_upgrade.py
           python -m ruff check alphalab apps/api tests scripts
           python scripts/check_repository_hygiene.py
           python -m compileall -q alphalab apps/api scripts
@@ -89,4 +90,6 @@ jobs:
         run: node --test "examples/conexus/minimal-agent/test/*.test.mjs"
       - name: Financial integration tests
         run: node --test "examples/conexus/financial-integration/test/*.test.mjs"
+      - name: Adapter contract substitution tests
+        run: node --test "examples/conexus/adapter-contracts/test/*.test.mjs"
       - run: git diff --exit-code
