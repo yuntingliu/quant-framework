@@ -17,7 +17,6 @@ import { useStrategySdk } from "@/contexts/StrategySdkContext"
 import { useConfirm } from "@/hooks/useConfirm"
 import { api } from "@/lib/api"
 import { Widget } from "@/widgets/Widget"
-import { OptionsWorkbench } from "./OptionsWorkbench"
 import { useOptionsI18n } from "@/lib/useOptionsI18n"
 
 interface RecipeParameter {
@@ -84,17 +83,9 @@ interface SyncJob {
 
 export function DataWorkbenchWidget() {
   const { t } = useOptionsI18n()
-  const [view, setView] = useState<"recipe" | "options">("recipe")
-  const [optionsOpened, setOptionsOpened] = useState(false)
   return <div className="flex h-full min-h-0 flex-col">
-    <div className="flex shrink-0 gap-1 border-b border-border px-3 py-2">
-      <Button size="sm" variant={view === "recipe" ? "default" : "ghost"} onClick={() => setView("recipe")}>{t("数据同步")}</Button>
-      <Button size="sm" variant={view === "options" ? "default" : "ghost"} onClick={() => { setOptionsOpened(true); setView("options") }}>{t("ETF 期权")}</Button>
-    </div>
-    <div className="min-h-0 flex-1">
-      <div className={view === "recipe" ? "h-full" : "hidden"}><DataRecipeWorkbench /></div>
-      {optionsOpened && <div className={view === "options" ? "h-full" : "hidden"}><OptionsWorkbench /></div>}
-    </div>
+    <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2"><span className="text-sm">{t("数据同步")}</span><Button size="sm" variant="outline" onClick={() => window.dispatchEvent(new CustomEvent("alphalab:switchMode", { detail: "options" }))}>{t("打开期权研究")}</Button></div>
+    <div className="min-h-0 flex-1"><DataRecipeWorkbench /></div>
   </div>
 }
 

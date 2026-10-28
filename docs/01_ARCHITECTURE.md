@@ -60,9 +60,14 @@ Validation ───── validation.py ── save/validate ── ValidationS
                                                                                          └── frozen Run ── report
 ```
 
-The six workbench modes are `project`, `data`, `factor`, `strategy`,
-`validation`, and `report`. They are views over shared `StrategySdkContext`
-state, not independent strategy pipelines.
+The seven workbench modes are `project`, `data`, `options`, `factor`, `strategy`,
+`validation`, and `report`. Project authoring and ETF option research are accessible
+without an editable SDK project. The other research modes use shared
+`StrategySdkContext` state. Options has six internal sections (chain, volatility,
+pricing/models, portfolio/risk, strategies/evidence, and data management) and
+shares the existing option services and data store. A versioned browser draft
+retains its valuation context and signed positions; computed values and applied
+calibrations must be revalidated for the current date, price basis and data revision.
 
 Quantitative reports are durable Conexus Document nodes in one AlphaLab
 publication workspace. They currently form one global report history rather
@@ -407,6 +412,8 @@ and cannot create a second authoritative result.
 | `alphalab/dataio/option_recipe.py`, `option_snapshots.py` | Visible ETF option acquisition, complete daily snapshot contracts and gap recovery in the shared runtime store |
 | `alphalab/options/` | European IV/Greeks, BS, dated discount curves, diagnostic SVI, signed basket stress and shared-path systemic-jump Monte Carlo |
 | `apps/api/routers/options.py`, `services/options_service.py` | Bounded local chain/surface/history/portfolio analysis; built-in recipe submission through the existing job manager |
+| `apps/api/services/options_data_service.py` | Read-only managed ZIP listings/download boundaries and dated raw quarantine evidence |
+| `apps/desktop/src/widgets/options/`, `lib/optionsWorkspace.ts` | Independent six-section option workspace, shared valuation context, term-safe paired chains and validated local drafts |
 | `alphalab/strategy/factor_templates.py` | Built-in SDK Python factor templates and CST-aware installation |
 | `alphalab/strategy/source.py` | Source-unit split/assembly, AST inspection, dependency checks, and LibCST edits |
 | `alphalab/strategy/repository.py` | Authoring units, assembled drafts, immutable packages, probes, migration |

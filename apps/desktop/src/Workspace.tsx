@@ -288,7 +288,7 @@ function WorkspaceInner() {
   const switchMode = useCallback((rawMode: unknown) => {
     const mode = normalizeWorkspaceMode(rawMode)
     if (!(mode in MODE_CONFIG)) return false
-    if (mode !== "project" && !projectReadyRef.current) return false
+    if (mode !== "project" && mode !== "options" && !projectReadyRef.current) return false
     if (mode === activeModeRef.current) return true
     const previousMode = activeModeRef.current
     const previousApi = apiRefsRef.current[previousMode]
@@ -311,7 +311,7 @@ function WorkspaceInner() {
   }, [language, setActiveMode])
 
   useEffect(() => {
-    if (!projectReady && activeModeRef.current !== "project") switchMode("project")
+    if (!projectReady && activeModeRef.current !== "project" && activeModeRef.current !== "options") switchMode("project")
   }, [projectReady, switchMode])
 
   const openAgentRail = useCallback(() => {
@@ -359,7 +359,7 @@ function WorkspaceInner() {
       return Promise.resolve(undefined)
     }
     const targetMode = rawMode ? normalizeWorkspaceMode(rawMode) : activeModeRef.current
-    if (targetMode !== "project" && !projectReadyRef.current) return Promise.resolve(undefined)
+    if (targetMode !== "project" && targetMode !== "options" && !projectReadyRef.current) return Promise.resolve(undefined)
     const targetApi = apiRefsRef.current[targetMode] ?? null
 
     return new Promise((resolve) => {

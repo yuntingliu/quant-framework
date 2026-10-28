@@ -15,7 +15,7 @@ _OUTPUT_NODES = {
     "workspaceResult": "alphalab-workspace-result-v1",
     "workspaceCommands": "alphalab-workspace-commands-v1",
 }
-_WIDGETS = {f"{mode}.workbench" for mode in ("project", "data", "factor", "strategy", "validation", "report")}
+_WIDGETS = {f"{mode}.workbench" for mode in ("project", "data", "options", "factor", "strategy", "validation", "report")}
 
 
 @lru_cache(maxsize=1)

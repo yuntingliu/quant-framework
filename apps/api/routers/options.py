@@ -4,6 +4,7 @@ from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from alphalab.dataio import MissingDataError
@@ -18,6 +19,7 @@ from alphalab.options import (
     stress_grid,
 )
 from apps.api.services import (
+    options_data_service,
     options_model_service,
     options_research_service,
     options_service,
@@ -421,3 +423,20 @@ def compare_strategies(ids: str = Query(default="", max_length=1000)):
 @router.get("/names")
 def contract_identities(underlying: str, day: date):
     return _research_call(options_service.contract_identities, underlying, str(day))
+
+
+@router.get("/exports")
+def data_exports():
+    return options_data_service.exports()
+
+
+@router.get("/exports/{filename}")
+def download_data_export(filename: str):
+    path = _research_call(options_data_service.archive_path, filename)
+    return FileResponse(path, filename=path.name, media_type="application/zip",
+                        headers={"X-Content-Type-Options": "nosniff"})
+
+
+@router.get("/quarantine")
+def quarantined_quotes(underlying: str | None = None, limit: int = Query(default=100, ge=1, le=500)):
+    return _research_call(options_data_service.quarantine, underlying=underlying, limit=limit)

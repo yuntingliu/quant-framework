@@ -4,6 +4,7 @@
 import type { ComponentType } from "react"
 
 import { ValidationWorkbenchWidget } from "../backtest/BacktestWorkbench"
+import { OptionsWorkbench } from "../options/OptionsWorkbench"
 import { DataWorkbenchWidget } from "../data/DataWorkbench"
 import { FactorWorkbenchWidget } from "../factors/FactorWorkbench"
 import { PaperExecutionDeskWidget } from "../execution/PaperExecutionDesk"
@@ -16,6 +17,7 @@ import { StrategyWorkbenchWidget } from "../strategy/StrategyWorkbench"
 export const widgetComponents: Record<string, ComponentType> = {
   // Parallel views over one canonical Strategy SDK v1 Python source package.
   "data.workbench": DataWorkbenchWidget,
+  "options.workbench": OptionsWorkbench,
   "project.workbench": ProjectWorkbenchWidget,
   "factor.workbench": FactorWorkbenchWidget,
   "strategy.workbench": StrategyWorkbenchWidget,

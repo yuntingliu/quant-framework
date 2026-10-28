@@ -1,5 +1,6 @@
 import {
   BadgeCheck,
+  Activity,
   Database,
   FileText,
   FlaskConical,
@@ -13,6 +14,7 @@ import type { WorkspaceMode } from "@/layouts/presets"
 
 export const MODE_CONFIG: Record<WorkspaceMode, { icon: LucideIcon; labelKey: TranslationKey; detailKey: TranslationKey }> = {
   data: { icon: Database, labelKey: "mode.data", detailKey: "mode.data.long" },
+  options: { icon: Activity, labelKey: "mode.options", detailKey: "mode.options.long" },
   factor: { icon: FlaskConical, labelKey: "mode.factor", detailKey: "mode.factor.long" },
   project: { icon: FolderKanban, labelKey: "mode.project", detailKey: "mode.project.long" },
   strategy: { icon: Code2, labelKey: "mode.strategy", detailKey: "mode.strategy.long" },
@@ -21,11 +23,12 @@ export const MODE_CONFIG: Record<WorkspaceMode, { icon: LucideIcon; labelKey: Tr
 }
 
 export const WORKSPACE_MODES: WorkspaceMode[] = [
-  "project", "data", "factor", "strategy", "validation", "report",
+  "project", "data", "options", "factor", "strategy", "validation", "report",
 ]
 
 export const MODE_SHORTCUTS: Record<WorkspaceMode, string[]> = {
   data: ["data.workbench"],
+  options: ["options.workbench"],
   factor: ["factor.workbench"],
   project: ["project.workbench"],
   strategy: ["strategy.workbench"],

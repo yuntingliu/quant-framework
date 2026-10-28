@@ -260,6 +260,7 @@ def test_harness_outputs_allow_explicit_strategy_focus():
     assert properties["mode"]["enum"] == [
         "project",
         "data",
+        "options",
         "factor",
         "strategy",
         "validation",

@@ -377,8 +377,18 @@ For example:
 python -m alphalab.options stress --spot 3 --strike 3 --maturity 0.08219178082 --rate 0.02 --volatility 0.25 --dividend-yield 0.01 --option-type P --multiplier 10000 --quantity -2 --paths 200000 --output artifacts/option-stress.json
 ```
 
-The **Data > ETF options** workbench provides five views: option chains,
-volatility, portfolio stress, data quality, and literature/return prediction.
+The independent **Options / 期权研究** mode provides six sections: option chains,
+volatility, pricing/models, portfolio/risk, strategies/evidence, and data management.
+Browsing options does not require an editable SDK project. The ETF, date, price
+basis, expiry, signed basket and scenario settings persist in a versioned local
+draft. A reload restores the draft but requires recalculating valuations and
+revalidating model calibration. Calls and puts pair only on expiry, strike and
+dated multiplier; ambiguous or missing counterparts remain separate.
+Data Management shows actual coverage, on-demand quality and quarantine evidence,
+incremental sync and saved ZIP snapshots. Download archives at
+`GET /api/options/exports/{filename}`; `GET /api/options/exports` lists manifest
+coverage and `GET /api/options/quarantine` lists excluded raw quotes. Archive
+paths are limited to managed export filenames inside the export directory.
 Its labels, controls, chart legends, retained basket labels and research
 definitions follow the application Chinese/English language selection. Its selector includes Shanghai
 50/300/500, Shenzhen 300/500, ChiNext, Shenzhen 100 and both STAR 50 ETFs.

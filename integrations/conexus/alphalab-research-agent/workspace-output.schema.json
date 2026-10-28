@@ -345,6 +345,7 @@
                 "enum": [
                   "project",
                   "data",
+                  "options",
                   "factor",
                   "strategy",
                   "validation",

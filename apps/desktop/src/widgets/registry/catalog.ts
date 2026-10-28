@@ -18,6 +18,7 @@ export type WidgetStatus = "active" | "not_configured"
 
 const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
   // One parallel workstation per function boundary; data flows left to right.
+  { id: "options.workbench", title: "期权研究", titleEn: "Options Research", category: "研究流程", categoryEn: "Research Flow", description: "ETF 期权链、波动率、定价、组合风险与实证研究", descriptionEn: "ETF chains, volatility, pricing, portfolio risk and empirical evidence" },
   { id: "data.workbench", title: "数据工作台", titleEn: "Data Workbench", category: "研究流程", categoryEn: "Research Flow", description: "管理研究范围、数据预览、同步和质量校验", descriptionEn: "Manage research scope, data previews, sync, and validation" },
   { id: "project.workbench", title: "研究项目", titleEn: "Research Project", category: "研究流程", categoryEn: "Research Flow", description: "创建、选择和管理研究项目", descriptionEn: "Create, select, and manage research projects" },
   { id: "factor.workbench", title: "因子研究", titleEn: "Factor Research", category: "研究流程", categoryEn: "Research Flow", description: "对照行情和财务 API 数据编辑因子，最后统一验证", descriptionEn: "Author factors against market and fundamental API data, then validate them" },
@@ -73,6 +74,7 @@ const widgetDefinitions: Omit<WidgetMeta, "status">[] = [
 
 export const coreWorkflowWidgetIds = [
   "data.workbench",
+  "options.workbench",
   "factor.workbench",
   "project.workbench",
   "strategy.workbench",

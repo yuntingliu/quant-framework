@@ -1,5 +1,21 @@
 /** Domain copy shared by option views, including labels retained in basket state. */
 export const optionStrings: Record<string, string> = {
+  "源报价异常（隔离）": "Invalid source quote (quarantined)", "隔离的源报价": "Quarantined source quotes",
+  "打开期权研究": "Open option research",
+  "波动率研究": "Volatility research",
+  "定价与模型": "Pricing and models",
+  "组合与风险": "Portfolio and risk",
+  "策略与实证": "Strategies and evidence",
+  "数据管理": "Data management",
+  "组合草稿": "Portfolio draft",
+  "刷新期权数据": "Refresh option data",
+  "估值设置": "Valuation settings",
+  "期权研究工作区": "Option research workspace",
+  "模拟参数与高级设置": "Simulation parameters and advanced settings",
+  "同步开始日期": "Sync start date",
+  "同步结束日期": "Sync end date",
+  "删除合约": "Remove contract",
+
   "有效收益次数（基准 / 压力）": "Payoff draws (base / stress)",
   "收益有效样本量（基准 / 压力）": "Payoff ESS (base / stress)",
   "使用匹配的校准扩散波动率与跳跃参数；结果是 Q 测度条件估值，抽样区间不包含模型误差。": "Uses matching calibrated diffusion volatility and jump parameters; conditional Q values and sampling intervals exclude model error.",
@@ -52,6 +68,9 @@ const metacharacters = "^$.*+?()[]{}|" + String.fromCharCode(92)
 const escapePattern = (value: string) => [...value].map(c => metacharacters.includes(c) ? String.fromCharCode(92)+c : c).join("")
 const fragments = new RegExp(Object.keys(optionStrings).sort((a, b) => b.length-a.length).map(escapePattern).join("|"), "g")
 const diagnosticZh: Record<string, string> = {
+  "Intraday evidence does not reconcile daily HLCV": "日内证据与日线高低价、收盘价及成交量无法对应",
+  "Invalid option export filename": "无效的期权数据包名称",
+  "Saved option data export is unavailable": "已保存的期权数据包不可用",
   "Option feature version changed; rebuild the requested history before research": "期权因子版本已更新，请先重建所选历史再检验",
   "Saved calibration is unavailable": "所选校准版本不可用",
   "Saved runs have no common return dates": "所选回测没有共同收益日期",
@@ -72,7 +91,6 @@ const diagnosticZh: Record<string, string> = {
   "fit quality or strike-arbitrage diagnostic requires review": "拟合质量或执行价套利诊断需要复核",
   "insufficient OTM strikes for SVI": "可用 OTM 执行价不足以拟合 SVI",
   "insufficient observed moneyness span": "观测价内外程度跨度不足",
-  "源报价异常（隔离）": "Invalid source quote (quarantined)", "隔离的源报价": "Quarantined source quotes",
   "Unresolved source OHLC; excluded from valuation": "源 OHLC 无法核实，已排除估值",
   "Unresolved source OHLC quotes retained in quarantine and excluded from forwards, IV, surfaces and portfolio valuation": "无法核实的源 OHLC 报价已保留并隔离，不参与远期、IV、曲面及组合估值",
   "Unresolved source opens retained; daily high, low, close and volume verified against complete intraday evidence; do not use opens as fills": "未解决的原始开盘价已保留；高低价、收盘价和成交量已用完整日内证据核验；请勿用这些开盘价模拟成交",

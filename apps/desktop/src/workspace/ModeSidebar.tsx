@@ -68,7 +68,7 @@ export function ModeSidebar({
         {WORKSPACE_MODES.map((mode) => {
           const { icon: Icon, labelKey, detailKey } = MODE_CONFIG[mode]
           const isActive = activeMode === mode
-          const disabled = mode !== "project" && !projectReady
+          const disabled = mode !== "project" && mode !== "options" && !projectReady
           return (
             <button
               key={mode}
@@ -108,7 +108,7 @@ export function ModeSidebar({
         <div className="space-y-1">
           <ModelProviderSettings collapsed={collapsed} />
           <SdkDocumentation
-            topic={activeMode === "project" ? "overview" : activeMode}
+            topic={activeMode === "project" || activeMode === "options" ? "overview" : activeMode}
             trigger={<button
               type="button"
               className={cn(

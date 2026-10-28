@@ -63,8 +63,12 @@ export interface DatasetQuality {
 }
 export interface OptionQuality { snapshots: DatasetQuality; rates: DatasetQuality; underlyings: DatasetQuality }
 export interface SyncPlan { source: string; planned: Array<{ dataset: string; operation: string }> }
+export interface OptionExport { filename:string;bytes:number;start:string;end:string;rows:number;created_at:string|null;sha256:string|null }
+export interface QuarantinedQuote { date:string;underlying:string;contract:string;contract_name_zh:string;contract_name_en:string;open:number;high:number;low:number;close:number;volume:number;reason:string }
 
 export const optionApi = {
+  exports: () => api.get<{archives:OptionExport[]}>("/options/exports"),
+  quarantine: () => api.get<{total:number;rows:QuarantinedQuote[]}>("/options/quarantine?limit=100",{timeoutMs:90000}),
   universe: () => api.get<OptionUniverse>("/options/universe"),
   names: (symbol: string, day: string) => api.get<{contracts:Array<Pick<OptionRow,"order_book_id"|"contract_name_zh"|"contract_name_en"> & {underlying:string}>}>(`/options/names?${new URLSearchParams({underlying:symbol,day})}`),
   analysis: (symbol: string, day: string, field: string, rate?: number) => api.get<OptionAnalysis>(

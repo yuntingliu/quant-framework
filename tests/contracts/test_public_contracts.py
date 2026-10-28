@@ -5,7 +5,7 @@ from pathlib import Path
 import alphalab
 
 ROOT = Path(__file__).resolve().parents[2]
-MODES = ["project", "data", "factor", "strategy", "validation", "report"]
+MODES = ["project", "data", "options", "factor", "strategy", "validation", "report"]
 
 
 def test_public_facade_is_small_and_sdk_native():
@@ -30,14 +30,14 @@ def test_public_facade_is_small_and_sdk_native():
     assert not hasattr(alphalab, "PipelineRepository")
 
 
-def test_frontend_has_six_views_over_one_sdk_source():
+def test_frontend_has_seven_views_over_one_sdk_source():
     presets = (ROOT / "apps/desktop/src/layouts/presets.ts").read_text(encoding="utf-8")
     modes = (ROOT / "apps/desktop/src/workspace/modes.ts").read_text(encoding="utf-8")
     components = (ROOT / "apps/desktop/src/widgets/registry/components.tsx").read_text(
         encoding="utf-8"
     )
     assert (
-        'export type WorkspaceMode = "project" | "data" | "factor" | "strategy" | "validation" | "report"'
+        'export type WorkspaceMode = "project" | "data" | "options" | "factor" | "strategy" | "validation" | "report"'
         in presets
     )
     for mode in MODES:

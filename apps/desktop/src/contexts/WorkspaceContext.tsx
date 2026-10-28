@@ -6,8 +6,8 @@ import { DEFAULT_MODE, normalizeWorkspaceMode, type WorkspaceMode } from "@/layo
 
 const MODE_KEY = "alphalab-active-mode"
 const PROJECT_KEY = "alphalab-selected-project"
-// Startup always lands on the Research Project workbench. Users can switch workstations
-// during the session or request another one explicitly through the URL.
+// Restore the independent Options workspace; project-based workstations keep the
+// existing Research Project landing page. Explicit URL modes take precedence.
 const DEFAULT_MODE_VERSION_KEY = "alphalab-default-mode-version"
 const DEFAULT_MODE_VERSION = "9"
 
@@ -57,6 +57,7 @@ function loadMode(): WorkspaceMode {
     : null
   if (!requestedMode) {
     try {
+      if (localStorage.getItem(MODE_KEY) === "options") return "options"
       localStorage.setItem(DEFAULT_MODE_VERSION_KEY, DEFAULT_MODE_VERSION)
       localStorage.setItem(MODE_KEY, DEFAULT_MODE)
     } catch { /* ignore */ }
