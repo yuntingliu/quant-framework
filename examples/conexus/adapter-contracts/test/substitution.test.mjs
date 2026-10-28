@@ -63,7 +63,10 @@ function taskScript(turn) {
 const lastToolMessage = request => JSON.parse(request.messages.findLast(message => message.role === 'tool').content)
 
 async function waitForRun(host, started) {
-  const deadline = Date.now() + 20000
+  // Windows CI can spend ~19 seconds starting each real PowerShell tool
+  // process. The task starts one, and it runs once per adapter stack, so keep
+  // each run's budget well above a single start.
+  const deadline = Date.now() + (process.platform === 'win32' ? 90000 : 20000)
   while (Date.now() < deadline) {
     const response = await host.app.inject({
       url: `/api/public/runs/${started.run.id}`,

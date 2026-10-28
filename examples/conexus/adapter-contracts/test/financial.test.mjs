@@ -33,7 +33,9 @@ const invoke = (command, args = {}, extra = {}) => {
 const lastTool = request => JSON.parse(request.messages.findLast(message => message.role === 'tool').content).output
 
 async function waitForRun(host, started) {
-  const deadline = Date.now() + 25000
+  // Five real tool invocations in one run, at roughly 19 seconds per Windows
+  // CI tool start. This matches the budget the financial example suite uses.
+  const deadline = Date.now() + (process.platform === 'win32' ? 180000 : 25000)
   while (Date.now() < deadline) {
     const { run } = (await host.app.inject({
       url: `/api/public/runs/${started.run.id}`,

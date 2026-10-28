@@ -32,14 +32,28 @@ def load_gate(tmp_path: Path):
     return module
 
 
+def write_core_file(path: Path, content: str) -> str:
+    """Write a snapshot file as bytes and return its digest.
+
+    Bytes, not text: ``write_text`` translates ``\n`` to ``\r\n`` on Windows,
+    so a fixture that hashed the string and wrote the text would record a digest
+    the file on disk does not have, and every synthetic file would look edited.
+    The real snapshot is immune because .gitattributes pins ``vendor/conexus``
+    to LF on every platform; this fixture has to pin itself.
+    """
+    payload = content.encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert digest == hashlib.sha256(payload).hexdigest(), f"{path} did not round-trip its bytes"
+    return digest
+
+
 def write_snapshot(tmp_path: Path, files: dict[str, str], revision: str = REVISION) -> None:
     snapshot = tmp_path / "vendor/conexus"
     digests = {}
     for name, content in files.items():
-        path = snapshot / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-        digests[name] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        digests[name] = write_core_file(snapshot / name, content)
     (snapshot / "EXPORT.json").write_text(
         json.dumps({"schema": "conexus.core-export.v1", "sourceRevision": revision,
                     "sourceDirty": False, "licenseStatus": "pending-owner-selection", "files": digests}),
@@ -72,7 +86,7 @@ def test_an_edited_vendor_file_is_reported(tmp_path: Path) -> None:
     assert module.snapshot_problems() == []
 
     edited = tmp_path / "vendor/conexus/apps/local-host/src/index.mjs"
-    edited.write_text("export function createLocalHost() { /* local tweak */ }\n", encoding="utf-8")
+    write_core_file(edited, "export function createLocalHost() { /* local tweak */ }\n")
     problems = module.snapshot_problems()
     assert any("modified in place" in problem for problem in problems), problems
 
@@ -80,7 +94,7 @@ def test_an_edited_vendor_file_is_reported(tmp_path: Path) -> None:
 def test_an_added_vendor_file_is_reported(tmp_path: Path) -> None:
     write_snapshot(tmp_path, BASELINE)
     module = load_gate(tmp_path)
-    (tmp_path / "vendor/conexus/apps/local-host/src/patch.mjs").write_text("export {}\n", encoding="utf-8")
+    write_core_file(tmp_path / "vendor/conexus/apps/local-host/src/patch.mjs", "export {}\n")
     problems = module.snapshot_problems()
     assert any("unexported file was added" in problem for problem in problems), problems
 
