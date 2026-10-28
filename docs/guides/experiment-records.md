@@ -1,5 +1,60 @@
 # Experiment records and serial execution
 
+## Project deletion and evidence retention
+
+`DELETE /api/strategy/projects/{id}?confirm_delete=true` explicitly confirms
+removal of the project, its source versions and associated experiment/trial
+records. Without confirmation the endpoint returns 409 without deleting anything.
+
+- Running experiments or queued/running linked or standalone project backtest
+  jobs block deletion with 409, identifying the experiment/job and its status.
+- Recorded experiments and terminal experiments without backtest evidence may
+  be removed with the project. Trials, execution state, candidates and experiment
+  records are deleted before the project within one database transaction.
+- Source packages referenced by another project's experiment block deletion;
+  the response lists the referencing experiment IDs.
+- Existing backtest evidence blocks deletion with 409 and lists the backtest
+  IDs because an authoritative report-reference index is not yet available.
+  This also checks completed job results not yet reconciled into trial records.
+  A terminal execution alone therefore does not guarantee deletion is permitted.
+- Historical backtest/job records are retained. Conflict or cleanup failure
+  rolls back the repository transaction; shared evidence is never silently removed.
+
+## PR #27 review discussion and implementation boundary
+
+The review of commit `803a696` reproduced `sqlite3.IntegrityError` when deleting
+a project after recording an experiment. New restrictive foreign keys had been
+added without integrating them into the existing project lifecycle. A blanket
+cascade would remove research provenance and could leave active workers without
+their source packages; a blanket ban on all experiment projects was too restrictive.
+The agreed policy is explicit confirmation, active-work guards, reference checks,
+and transactional cleanup of eligible records.
+
+Reports live in the Conexus workspace rather than an authoritative relational
+index of experiment/result references. Absence of a local reference, or a failed
+remote lookup, cannot establish that history is unused. This increment therefore
+blocks deletion of projects with backtest evidence with an actionable explanation;
+it does not claim to identify actual referencing reports. A future reference index
+must enumerate report IDs/titles before selective history deletion can be enabled.
+The separately discussed history-deletion operation remains unimplemented and
+must refuse deletion when reports reference the history, listing those reports.
+
+Checks and cleanup use `BEGIN IMMEDIATE` in the strategy database. This serializes
+experiment creation/progression with deletion. It does not create a distributed
+transaction with the separate runtime recipe-draft store or Conexus; the existing
+service removes the recipe draft after the repository transaction commits.
+Standalone job submission races across request preparation and job insertion are
+not covered by this transaction and require a separate lifecycle coordination fix.
+
+Regression coverage includes recorded, active and terminal experiments, explicit
+confirmation, queued/running standalone jobs, shared source references,
+unreconciled results, retained terminal jobs and injected rollback failures.
+These local tests do not establish live-data end-to-end validation or green GitHub
+CI. The shared frontend/local-agent dependency failures noted in review are a
+separate concern; syncing the shared fix and rerunning full CI remain follow-up work.
+
+## Record an experiment
+
 `POST /api/experiments` creates a recorded experiment, immutable source
 candidates, and one planned validation trial per candidate in one transaction.
 It does not schedule backtests, select a winner, or run the test period.

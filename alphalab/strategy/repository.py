@@ -658,16 +658,73 @@ class StrategyRepository(ProjectStrategies, ExperimentRuns):
 
     def delete_project(self, project_id: str) -> bool:
         normalized = normalize_project_id(project_id)
-        row = self._conn.execute(
-            "SELECT built_in FROM strategy_projects WHERE id = ?", (normalized,)
-        ).fetchone()
-        if row is None:
-            return False
-        if bool(row["built_in"]):
-            raise PermissionError("built-in projects are immutable")
-        with self._lock:
+        with self._lock, self._conn:
+            self._conn.execute("BEGIN IMMEDIATE")
+            row = self._conn.execute(
+                "SELECT built_in FROM strategy_projects WHERE id = ?", (normalized,)
+            ).fetchone()
+            if row is None:
+                return False
+            if bool(row["built_in"]):
+                raise PermissionError("built-in projects are immutable")
+            active = self._conn.execute(
+                """SELECT execution.experiment_id FROM experiment_execution execution
+                   JOIN research_experiments experiment ON experiment.id = execution.experiment_id
+                   WHERE experiment.project_id = ? AND execution.status = 'running'""", (normalized,)
+            ).fetchall()
+            jobs = self._conn.execute(
+                """SELECT id, status, request_json FROM backtest_jobs
+                   WHERE status IN ('queued', 'running')"""
+            ).fetchall()
+            linked = {row[0] for row in self._conn.execute(
+                """SELECT trial.job_id FROM experiment_trials trial
+                   JOIN research_experiments experiment ON experiment.id = trial.experiment_id
+                   WHERE experiment.project_id = ?""", (normalized,)
+            ).fetchall()}
+            blockers = [f"experiment {row[0]} (running)" for row in active]
+            blockers.extend(f"job {job['id']} ({job['status']})" for job in jobs
+                            if job["id"] in linked or json.loads(job["request_json"]).get("project_id") == normalized)
+            if blockers:
+                raise PermissionError("Deletion blocked by active work: " + ", ".join(blockers))
+            shared = self._conn.execute(
+                """SELECT candidate.experiment_id FROM experiment_candidates candidate
+                   JOIN research_experiments experiment ON experiment.id = candidate.experiment_id
+                   WHERE candidate.project_id = ? AND experiment.project_id != ?""",
+                (normalized, normalized),
+            ).fetchall()
+            if shared:
+                raise PermissionError("Source evidence is shared with experiments: " + ", ".join(row[0] for row in shared))
+            evidence = self._conn.execute(
+                """SELECT id FROM backtests WHERE strategy_project_id = ?
+                   OR id IN (SELECT trial.result_id FROM experiment_trials trial
+                     JOIN research_experiments experiment ON experiment.id = trial.experiment_id
+                     WHERE experiment.project_id = ?)
+                   OR id IN (SELECT job.result_id FROM backtest_jobs job
+                     WHERE json_extract(job.request_json, '$.project_id') = ?
+                     OR job.id IN (SELECT trial.job_id FROM experiment_trials trial
+                       JOIN research_experiments experiment ON experiment.id = trial.experiment_id
+                       WHERE experiment.project_id = ?))""",
+                (normalized, normalized, normalized, normalized),
+            ).fetchall()
+            if evidence:
+                raise PermissionError(
+                    "Report references cannot be verified: no authoritative report-reference index is available. "
+                    "Deletion would remove source evidence for backtests: " + ", ".join(row[0] for row in evidence)
+                )
+            self._conn.execute(
+                "DELETE FROM experiment_trials WHERE experiment_id IN (SELECT id FROM research_experiments WHERE project_id = ?)",
+                (normalized,),
+            )
+            self._conn.execute(
+                "DELETE FROM experiment_execution WHERE experiment_id IN (SELECT id FROM research_experiments WHERE project_id = ?)",
+                (normalized,),
+            )
+            self._conn.execute(
+                "DELETE FROM experiment_candidates WHERE experiment_id IN (SELECT id FROM research_experiments WHERE project_id = ?)",
+                (normalized,),
+            )
+            self._conn.execute("DELETE FROM research_experiments WHERE project_id = ?", (normalized,))
             self._conn.execute("DELETE FROM strategy_projects WHERE id = ?", (normalized,))
-            self._conn.commit()
         return True
 
     def _editable_row(self, project_id: str) -> sqlite3.Row:

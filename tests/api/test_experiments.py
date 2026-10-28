@@ -16,6 +16,103 @@ from apps.api.services.backtest_job_service import BacktestJobManager
 from apps.api.services.experiment_service import ExperimentManager
 
 
+@pytest.mark.parametrize("state", ["none", "recorded", "active", "terminal", "failed"])
+def test_project_deletion_lifecycle(setup_experiment, monkeypatch, state):
+    from apps.api.routers import strategy
+    from apps.api.services import strategy_service
+
+    repository, spec = setup_experiment
+    if state != "none":
+        identity = repository.create_experiment(spec)["id"]
+        if state == "failed":
+            repository.start_experiment(identity)
+            repository.fail_experiment(identity, "stopped before any result")
+        if state in {"active", "terminal"}:
+            repository.start_experiment(identity)
+            job = repository.advance_experiment(identity)
+            if state == "terminal":
+                while job:
+                    complete_trial(repository, job, 1.0)
+                    job = repository.advance_experiment(identity)
+    before = list(repository._conn.iterdump())
+    monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(repository.path))
+    app = FastAPI()
+    app.include_router(strategy.router)
+    with TestClient(app) as client:
+        assert client.delete(f"/api/strategy/projects/{spec['project_id']}").status_code == 409
+        assert list(repository._conn.iterdump()) == before
+        response = client.delete(f"/api/strategy/projects/{spec['project_id']}?confirm_delete=true")
+    if state in {"none", "recorded", "failed"}:
+        assert response.status_code == 204, response.text
+        assert repository.get_project(spec["project_id"]) is None
+        for table in ("research_experiments", "experiment_candidates", "experiment_trials", "experiment_execution"):
+            assert repository._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+        assert repository._conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    else:
+        assert response.status_code == 409, response.text
+        assert ("active work" if state == "active" else "Report references cannot be verified") in response.json()["detail"]
+        assert list(repository._conn.iterdump()) == before
+        with pytest.raises(PermissionError):
+            repository.delete_project(spec["project_id"])
+        assert not repository._conn.in_transaction
+        assert repository._conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "failed", "interrupted"])
+def test_project_deletion_checks_standalone_jobs(setup_experiment, status):
+    repository, spec = setup_experiment
+    repository._conn.execute(
+        "INSERT INTO backtest_jobs(id, status, request_json) VALUES ('standalone', ?, ?)",
+        (status, json.dumps({"project_id": spec["project_id"]})),
+    )
+    repository._conn.commit()
+    if status in {"queued", "running"}:
+        with pytest.raises(PermissionError, match=f"job standalone \\({status}\\)"):
+            repository.delete_project(spec["project_id"])
+    else:
+        assert repository.delete_project(spec["project_id"])
+    assert repository._conn.execute("SELECT status FROM backtest_jobs").fetchone()[0] == status
+
+
+def test_project_deletion_rolls_back_cleanup(setup_experiment):
+    repository, spec = setup_experiment
+    repository.create_experiment(spec)
+    repository._conn.execute(
+        """CREATE TRIGGER fail_delete BEFORE DELETE ON strategy_projects
+           BEGIN SELECT RAISE(ABORT, 'injected deletion failure'); END"""
+    )
+    before = list(repository._conn.iterdump())
+    with pytest.raises(sqlite3.IntegrityError, match="injected deletion failure"):
+        repository.delete_project(spec["project_id"])
+    assert list(repository._conn.iterdump()) == before
+    assert not repository._conn.in_transaction
+
+
+def test_project_deletion_blocks_shared_source(setup_experiment):
+    repository, spec = setup_experiment
+    experiment = repository.create_experiment(spec)
+    repository.clone_project("sdk-v1-default", "other-project")
+    repository._conn.execute(
+        "UPDATE research_experiments SET project_id = 'other-project' WHERE id = ?", (experiment["id"],)
+    )
+    repository._conn.commit()
+    before = list(repository._conn.iterdump())
+    with pytest.raises(PermissionError, match=experiment["id"]):
+        repository.delete_project(spec["project_id"])
+    assert list(repository._conn.iterdump()) == before
+
+
+def test_project_deletion_checks_unreconciled_result(setup_experiment):
+    repository, spec = setup_experiment
+    identity = repository.create_experiment(spec)["id"]
+    repository.start_experiment(identity)
+    job = repository.advance_experiment(identity)
+    complete_trial(repository, job, 1.0)
+    repository.fail_experiment(identity, "stopped before reconciliation")
+    with pytest.raises(PermissionError, match="Report references cannot be verified"):
+        repository.delete_project(spec["project_id"])
+
+
 @pytest.fixture
 def setup_experiment(tmp_path):
     path = tmp_path / "experiments.db"
