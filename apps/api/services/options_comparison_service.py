@@ -21,7 +21,7 @@ INDEX_GROUPS = {
 }
 
 
-def compare(ids=None):
+def compare(ids=None, *, start=None, end=None):
     cards = options_strategy_service.strategies()["strategies"]
     if ids:
         if len(ids) > 12:
@@ -37,6 +37,10 @@ def compare(ids=None):
         for c, record in zip(cards, records)
     }
     joined = pd.DataFrame(series).replace([np.inf, -np.inf], np.nan).dropna()
+    if start is not None:
+        joined = joined.loc[joined.index >= pd.Timestamp(start)]
+    if end is not None:
+        joined = joined.loc[joined.index <= pd.Timestamp(end)]
     if joined.empty:
         raise ValueError("Saved runs have no common return dates")
     symbols = sorted({s for c in cards for s in c["rule"]["symbols"]})
@@ -103,6 +107,9 @@ def compare(ids=None):
                 "name_zh": card["name_zh"],
                 "name_en": card["name_en"],
                 "total_return": total,
+                "execution_reliable": card.get("execution_reliable"),
+                "research_valid": card.get("research_valid"),
+                "execution_warnings": card.get("warnings", []),
                 "pool_relative_return": float(
                     (1 + total) / (1 + joined.pool_equal_weight).prod() - 1
                 ),

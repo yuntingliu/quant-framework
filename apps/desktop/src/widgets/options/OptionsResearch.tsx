@@ -1,12 +1,14 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useLayoutEffect, useRef } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { useOptionsI18n } from "@/lib/useOptionsI18n"
 import { number, percent } from "@/lib/options"
 import { researchApi, type OptionStrategyResult, type ResearchSummary } from "@/lib/optionsResearch"
 import { useStrategySdk } from "@/contexts/StrategySdkContext"
 import { useWorkspace } from "@/contexts/WorkspaceContext"
+import { OptionsControlledEvidence } from "./OptionsControlledEvidence"
 import { OptionsComparison } from "./OptionsComparison"
 import { OptionsResearchLab } from "./OptionsResearchLab"
 
@@ -21,7 +23,9 @@ function saveResult(id: string, value: unknown) {
 function Metric({ title, value }: { title: string; value: string }) {
   return <div className="rounded border border-border p-3"><div className="text-xs text-muted-foreground">{title}</div><div className="mt-1 font-mono text-lg">{value}</div></div>
 }
-function StrategyDetail({ result: r, L, label, language }: { result: OptionStrategyResult; L: Translate; label: (field: string) => string; language: "zh" | "en" }) {
+function StrategyDetail({ result: r, L, label, language, autoFocus }: { result: OptionStrategyResult; L: Translate; label: (field: string) => string; language: "zh" | "en"; autoFocus:boolean }) {
+  const detailRef=useRef<HTMLDivElement>(null)
+  useLayoutEffect(()=>{if(autoFocus)detailRef.current?.scrollIntoView({block:"start"})},[autoFocus,r.backtest_id])
   const sdk = useStrategySdk()
   const workspace = useWorkspace()
   const [error, setError] = useState("")
@@ -34,7 +38,7 @@ function StrategyDetail({ result: r, L, label, language }: { result: OptionStrat
   }
   const frequency = [r.rule.frequency === "weekly" ? L("每周", "Weekly") : r.rule.frequency === "monthly" ? L("每月", "Monthly") : L("自定义周期", "Custom frequency"), r.rule.schedule_day === "first" ? L("首个交易日", "first session") : r.rule.schedule_day === "last" ? L("最后交易日", "last session") : L("自定义日期", "custom day"), r.rule.decision_time === "open" ? L("开盘", "open") : r.rule.decision_time === "close" ? L("收盘", "close") : L("自定义时点", "custom time")].join(" · ")
   const execution = r.rule.execution === "next_session_open" ? L("次一交易日开盘成交", "Fill at next-session open") : r.rule.execution === "next_session_close" ? L("次一交易日收盘成交", "Fill at next-session close") : L("成交时点见冻结回测", "See frozen run for execution timing")
-  return <div className="space-y-4" data-testid="option-strategy-detail">
+  return <div ref={detailRef} className="space-y-4" data-testid="option-strategy-detail">
     <div className="rounded border border-border p-4">
       <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{language === "zh" ? r.name_zh : r.name_en}</h3><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={opening} onClick={() => void open(false)}>{L("编辑策略", "Edit strategy")}</Button><Button size="sm" disabled={opening} onClick={() => void open(true)}>{L("打开完整回测", "Open full backtest")}</Button><Button size="sm" variant="outline" onClick={() => saveResult(r.backtest_id, r)}>{L("导出结果", "Export result")}</Button></div></div>
       {error && <p role="alert" className="mt-2 text-xs text-red-600">{error}</p>}
@@ -69,36 +73,40 @@ export function OptionsResearch(props: Props) {
     window.addEventListener("alphalab:refreshData", refresh)
     return () => window.removeEventListener("alphalab:refreshData", refresh)
   }, [queryClient])
-  const [view, setView] = useState("strategies")
+  const [view, setView] = useState("controlled")
+  const [controlledDetail,setControlledDetail]=useState<import("@/lib/optionsResearch").ResearchResult|null>(null)
   const [strategyId, setStrategyId] = useState("")
   const [reportId, setReportId] = useState("")
   const catalog = useQuery({ queryKey: ["option-research-catalog", props.revision], queryFn: researchApi.catalog, enabled: props.active })
   const strategies = useQuery({ queryKey: ["option-strategies", props.revision], queryFn: researchApi.strategies, enabled: props.active })
-  const items = [...(strategies.data?.strategies ?? [])].sort((a, b) => ["blend", "smirk", "vrp", "forecast", "forecast_holdout", "custom"].indexOf(a.family) - ["blend", "smirk", "vrp", "forecast", "forecast_holdout", "custom"].indexOf(b.family))
+  const items = [...(strategies.data?.strategies ?? [])].sort((a, b) => ["controls_forecast", "controlled_forecast", "blend", "smirk", "vrp", "forecast", "forecast_holdout", "custom"].indexOf(a.family) - ["controls_forecast", "controlled_forecast", "blend", "smirk", "vrp", "forecast", "forecast_holdout", "custom"].indexOf(b.family))
   const selected = items.find(s => s.backtest_id === strategyId) ?? items[0]
-  const detail = useQuery({ queryKey: ["option-strategy-result", selected?.backtest_id], queryFn: () => researchApi.strategy(selected!.backtest_id), enabled: props.active && !!selected && view === "strategies" })
+  const selectedRunId=strategyId||selected?.backtest_id
+  const detail = useQuery({ queryKey: ["option-strategy-result", selectedRunId], queryFn: () => researchApi.strategy(selectedRunId!), enabled: props.active && !!selectedRunId && view === "strategies" })
   const runs = [...(catalog.data?.runs ?? [])].sort((a, b) => b.scope.end.localeCompare(a.scope.end) || a.scope.start.localeCompare(b.scope.start) || b.config.fields.length - a.config.fields.length)
   const defaultReport = runs.find(r => r.config.horizon === 5) ?? runs[0]
   const selectedReport = runs.find(r => r.id === reportId) ?? defaultReport
   const report = useQuery({ queryKey: ["option-evidence", selectedReport?.id], queryFn: () => researchApi.load(selectedReport!.id), enabled: props.active && view === "evidence" && !!selectedReport })
-  const label = (field: string) => field.startsWith("option_prediction_") ? L("样本外预测收益", "Out-of-sample predicted return") : catalog.data?.features.find(f => f.field === field)?.[language] ?? field
+  const label = (field: string) => field.startsWith("option_prediction_controls_") ? L("控制模型预测（RV20＋动量）", "Control forecast (RV20 + momentum)") : field.startsWith("option_prediction_") ? L("样本外预测收益", "Out-of-sample predicted return") : catalog.data?.features.find(f => f.field === field)?.[language] ?? field
   const latestByHorizon = [1, 5, 20].map(h => runs.find(r => r.config.horizon === h)).filter((r): r is ResearchSummary => !!r)
   const errors = [strategies.error, catalog.error, view === "strategies" ? detail.error : report.error].filter(Boolean)
   return <section className="space-y-4" data-testid="option-research">
-    <div><h2 className="text-base font-semibold">{L("策略与实证", "Strategies and empirical evidence")}</h2><p className="mt-1 text-xs text-muted-foreground">{L("用期权曲面与波动率指标配置 ETF。下方均为本地保存的真实历史回测；期权合约定价与组合压力测试在其他标签页使用。", "Allocate ETFs using option-surface and volatility signals. Results are saved historical backtests; option-contract pricing and basket stress tests are in their respective tabs.")}</p></div>
-    <nav className="flex flex-wrap gap-2" aria-label={L("研究分区", "Research sections")}>{[["strategies", L("策略与结果", "Strategies & results")], ["evidence", L("预测检验", "Forecast tests")], ["lab", L("自定义研究", "Custom research")]].map(([id, title]) => <Button key={id} size="sm" variant={view === id ? "default" : "outline"} aria-pressed={view === id} onClick={() => setView(id)}>{title}</Button>)}</nav>
+    <div><h2 className="text-base font-semibold">{L("策略与实证", "Strategies and empirical evidence")}</h2><p className="mt-1 text-xs text-muted-foreground">{L("用期权曲面与波动率指标配置 ETF。下方均为本地保存的真实历史回测；本页衡量期权指标对 ETF 的信息贡献与轮动表现。", "Allocate ETFs using option-surface and volatility signals. Results are saved historical backtests; This page evaluates the information in option signals and their ETF rotation performance.")}</p></div>
+    <nav className="flex flex-wrap gap-2" aria-label={L("研究分区", "Research sections")}>{[["controlled",L("统一样本实证", "Controlled evidence")],["strategies", L("ETF轮动结果", "ETF rotation results")], ["evidence", L("历史预测实验", "Saved forecast studies")], ["lab", L("自定义研究", "Custom research")]].map(([id, title]) => <Button key={id} size="sm" variant={view === id ? "default" : "outline"} aria-pressed={view === id} onClick={() => setView(id)}>{title}</Button>)}</nav>
     {errors.map((error, i) => <p key={i} role="alert" className="rounded border border-red-300 p-3 text-xs text-red-700">{t(error?.message ?? "")}</p>)}
+    <details className="rounded border border-border bg-muted/30 p-3 text-xs text-muted-foreground"><summary className="cursor-pointer">{L("研究口径：历史收盘参考价；报告范围独立于上方单日链分析", "Research basis: retained closing references; report scope is independent of single-date chain controls")}</summary><p className="mt-2">{L("每份报告使用其列出的历史区间和 ETF 池。上方标的、日期和收盘／结算选择只控制期权链与估值，不会改写已保存研究。预测检验看增量误差改善；轮动回测看实际成交后的相对基准收益。", "Each report uses its stated historical period and ETF pool. Header symbol, date and close/settlement choices control chain valuation and do not rewrite saved research. Forecast tests assess incremental error improvement; rotation tests assess net realized returns against benchmarks.")}</p></details>
+    {view === "controlled"&&<><OptionsControlledEvidence active={props.active} endDay={props.endDay} symbols={props.symbols} features={catalog.data?.features??[]} papers={catalog.data?.papers??[]} onInspect={setControlledDetail} onRotationSelect={id=>{setStrategyId(id);setView("strategies")}}/><Sheet open={!!controlledDetail} onOpenChange={open=>{if(!open)setControlledDetail(null)}}><SheetContent className="flex w-[min(94vw,64rem)] flex-col p-0 sm:max-w-5xl"><SheetHeader className="shrink-0 border-b border-border p-5 pr-12"><SheetTitle>{L("所选统一实验的完整证据", "Complete evidence for the selected controlled test")}</SheetTitle></SheetHeader><div className="min-h-0 flex-1 overflow-auto p-5">{controlledDetail&&<Evidence result={controlledDetail} L={L} label={label}/>}</div></SheetContent></Sheet></>}
     {view === "strategies" && <>
       {strategies.isPending && <p role="status" className="text-xs">{L("载入已保存策略…", "Loading saved strategies…")}</p>}
       {!strategies.isPending && !items.length && <p className="rounded border border-border p-3 text-sm">{L("尚无已完成的期权信号策略回测。可在自定义研究中创建 SDK 策略，再运行标准回测。", "No completed option-signal backtests yet. Create an SDK strategy in Custom research and run a standard backtest.")}</p>}
-      {!!items.length && <div className="overflow-auto rounded border border-border p-3"><h3 className="mb-2 text-sm font-medium">{L("具体策略比较 · 点击一行查看规则和结果", "Strategy comparison · select a row for rules and results")}</h3><table className={tableClass}><thead><tr>{[L("策略", "Strategy"), L("回测区间", "Backtest period"), L("累计净收益", "Net return"), L("年化净收益", "Annualized"), "Sharpe", L("最大回撤", "Max drawdown")].map(v => <th key={v}>{v}</th>)}</tr></thead><tbody>{items.map(s => <tr key={s.backtest_id} className={selected?.backtest_id === s.backtest_id ? "bg-muted" : ""}><td><button className="text-primary underline" aria-pressed={selected?.backtest_id === s.backtest_id} onClick={() => setStrategyId(s.backtest_id)}>{language === "zh" ? s.name_zh : s.name_en}</button></td><td>{s.period.start_date}<br />{s.period.end_date}</td><td>{percent(s.metrics.total_return)}</td><td>{percent(s.metrics.annual_return)}</td><td>{number(s.metrics.sharpe)}</td><td>{percent(s.metrics.max_drawdown)}</td></tr>)}</tbody></table><p className="mt-3 text-[11px] text-muted-foreground">{L("预测策略从样本外数据可用时才开始，区间与其他策略不同；横向比较需先对齐日期。指标方向按假设固定，结果包含失败策略。", "The forecast strategy starts only when OOS signals exist, so its period differs. Align dates before comparing performance. Signal signs are fixed by hypothesis; losing strategies remain visible.")}</p></div>}
-      {!!items.length && <OptionsComparison ids={items.map(i=>i.backtest_id)} revision={props.revision} active={props.active} />}
+      {!!items.length && <OptionsComparison ids={items.map(i=>i.backtest_id)} revision={props.revision} active={props.active} onSelect={setStrategyId}/>}
+      {!!items.length && <div className="overflow-auto rounded border border-border p-3"><h3 className="mb-2 text-sm font-medium">{L("各自原始回测区间 · 点击查看规则与成交", "Original run periods · select a row for rules and executions")}</h3><table className={tableClass}><thead><tr>{[L("策略", "Strategy"), L("回测区间", "Backtest period"), L("累计净收益", "Net return"), L("年化净收益", "Annualized"), "Sharpe", L("最大回撤", "Max drawdown")].map(v => <th key={v}>{v}</th>)}</tr></thead><tbody>{items.map(s => <tr key={s.backtest_id} className={selected?.backtest_id === s.backtest_id ? "bg-muted" : ""}><td><button className="text-primary underline" aria-pressed={selected?.backtest_id === s.backtest_id} onClick={() => setStrategyId(s.backtest_id)}>{language === "zh" ? s.name_zh : s.name_en}</button></td><td>{s.period.start_date}<br />{s.period.end_date}</td><td>{percent(s.metrics.total_return)}</td><td>{percent(s.metrics.annual_return)}</td><td>{number(s.metrics.sharpe)}</td><td>{percent(s.metrics.max_drawdown)}</td></tr>)}</tbody></table><p className="mt-3 text-[11px] text-muted-foreground">{L("预测策略从样本外数据可用时才开始，区间与其他策略不同；横向比较需先对齐日期。指标方向按假设固定，结果包含失败策略。", "The forecast strategy starts only when OOS signals exist, so its period differs. Align dates before comparing performance. Signal signs are fixed by hypothesis; losing strategies remain visible.")}</p></div>}
       {detail.isFetching && <p role="status" className="text-xs">{L("载入净值与成交记录…", "Loading NAV and executions…")}</p>}
-      {detail.data && <StrategyDetail key={detail.data.backtest_id} result={detail.data} L={L} label={label} language={language} />}
+      {detail.data && <StrategyDetail key={detail.data.backtest_id} result={detail.data} L={L} label={label} language={language} autoFocus={Boolean(strategyId)} />}
     </>}
     {view === "evidence" && <div className="space-y-4" data-testid="option-prediction-evidence">
       <div className="rounded border border-border p-3"><h3 className="text-sm font-medium">{L("期权指标能否增量预测 ETF 收益？", "Do option signals add predictive value for ETF returns?")}</h3><p className="mt-2 text-xs text-muted-foreground">{L("按日期推进训练并隔离标签，与包含 RV20 和20日动量的控制模型比较。负样本外 R² 表示预测误差大于控制模型，策略盈利不能替代此检验。", "Training advances chronologically with purged labels. Compare against RV20 and 20-day momentum controls. Negative OOS R² means greater forecast error than the control model; profitable trading does not replace this test.")}</p><div className="mt-3 overflow-auto"><table className={tableClass}><thead><tr>{[L("期限", "Horizon"), L("研究区间", "Study period"), "Rank IC", "HAC t", "OOS R²", L("已评分样本", "Scored rows")].map(v => <th key={v}>{v}</th>)}</tr></thead><tbody>{latestByHorizon.map(r => <tr key={r.id}><td><button className="text-primary underline" onClick={() => setReportId(r.id)}>{r.config.horizon}d</button></td><td>{r.scope.start} → {r.scope.end}</td><td>{number(r.rank_ic.mean, 4)}</td><td>{number(r.rank_ic.hac_t)}</td><td>{percent(r.oos_r2_vs_controls)}</td><td>{r.coverage.scored_rows}</td></tr>)}</tbody></table></div><p className="mt-2 text-[10px] text-muted-foreground">{L("每个期限展示最新且覆盖最长的已保存实验；特征、范围与参数见所选报告，跨实验不视为同一个受控比较。", "Each horizon shows its latest, longest-scope saved study. Inspect each report’s fields, scope and settings; different experiments are not a controlled comparison.")}</p></div>
-      <label className="block text-xs">{L("查看具体实验", "Inspect an experiment")}<select className="ml-2 h-8 max-w-full rounded border bg-background px-2" value={selectedReport?.id ?? ""} onChange={e => setReportId(e.target.value)}>{runs.map(r => <option key={r.id} value={r.id}>{r.config.horizon}d · {r.scope.start} → {r.scope.end} · {r.config.fields.length} {L("指标", "features")} · {r.id.slice(0, 6)}</option>)}</select></label>
+      <label className="block text-xs">{L("查看具体实验", "Inspect an experiment")}<select className="ml-2 h-8 max-w-full rounded border bg-background px-2" value={selectedReport?.id ?? ""} onChange={e => setReportId(e.target.value)}>{runs.map(r => <option key={r.id} value={r.id}>{r.config.horizon}d · {r.scope.start} → {r.scope.end} · {r.config.fields.length===1?label(r.config.fields[0]):`${r.config.fields.length} ${L("指标联合", "joint signals")}`} · {r.id.slice(0, 6)}</option>)}</select></label>
       {report.isFetching && <p role="status" className="text-xs">{L("载入预测检验…", "Loading forecast test…")}</p>}
       {!runs.length && !catalog.isPending && <p className="text-xs">{L("尚无已保存预测检验，请在自定义研究中运行。", "No saved forecast tests. Run one in Custom research.")}</p>}
       {report.data && <Evidence result={report.data} L={L} label={label} />}

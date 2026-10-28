@@ -73,6 +73,26 @@ def test_contract_names_use_dated_terms_and_do_not_require_vendor_names():
     assert legacy["vendor_name"] is None
 
 
+@pytest.mark.parametrize("price,code", [(0.001, "below_model_lower"), (3.2, "at_or_above_model_upper")])
+def test_iv_failure_exposes_assumption_dependent_bounds_without_rewriting_quote(price, code):
+    frame = snapshot()
+    frame.loc[0, ["open", "close", "settlement"]] = price
+    frame.loc[0, "high"] = price + .001
+    frame.loc[0, "low"] = price / 2
+    result = analyze_chain(frame, rate=.02, dividend_yield=.01)
+    row = result["contracts"][0]
+    assert row["status"] == "invalid_iv" and row["iv"] is None
+    assert row["market_price"] == price
+    assert row["reference_prices"] == {"close": price, "settlement": price}
+    diagnostic = row["iv_diagnostic"]
+    expected_lower = 3 * exp(-.01 * 30 / 365) - 3 * exp(-.02 * 30 / 365)
+    assert diagnostic["lower_bound"] == pytest.approx(expected_lower)
+    assert diagnostic["distance_from_lower"] == pytest.approx(price - expected_lower)
+    assert diagnostic["code"] == code
+    assert diagnostic["carry_mode"] == "input_yield"
+    assert "delta" not in row and row["quote_status"] == "traded"
+
+
 @pytest.mark.parametrize("kind", ["C", "P"])
 def test_bs_benchmark_parity_iv_and_greeks(kind):
     option = EuropeanOption(100, 100, 1, 0.05, 0.2, kind)

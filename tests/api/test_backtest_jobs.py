@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from threading import Event, Timer
 
@@ -14,6 +15,36 @@ from apps.api.services import (
     validation_service,
 )
 from apps.api.services.backtest_job_service import BacktestJobManager
+
+
+def test_missing_benchmark_is_json_null_in_details_and_persisted_job_samples(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from apps.api.routers import backtests
+
+    source = "# retained source\n" * 100
+    class Stored:
+        def get_backtest_record(self, _):
+            return {"id":"gapped", "strategy_source":source, "strategy_source_sha256":"a"*64}
+        def load_returns(self, _):
+            return pd.DataFrame({"strategy":[.01],"benchmark":[float("nan")]},index=pd.DatetimeIndex(["2025-01-02"],name="date"))
+        def load_weights(self, _):
+            return pd.DataFrame()
+        def close(self):
+            pass
+    monkeypatch.setattr(result_service,"ResultStore",Stored)
+    app = FastAPI()
+    app.include_router(backtests.router)
+    result = TestClient(app).get("/api/backtests/gapped")
+    assert result.status_code == 200
+    assert result.json()["returns"][0]["benchmark"] is None
+    assert result.json()["returns"][0]["value"] == .01
+    assert result.json()["strategy_source"] == source
+    assert result.json()["strategy_source_sha256"] == "a"*64
+    job=backtest_job_service._public_job({"id":"legacy","status":"succeeded","result":{"samples":{"returns":{"head":[{"benchmark":float("nan")}]}}}})
+    assert job["samples"]["returns"]["head"][0]["benchmark"] is None
+    json.dumps(job,allow_nan=False)
 
 
 def test_background_backtest_job_persists_success(tmp_path):

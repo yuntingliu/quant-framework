@@ -54,6 +54,17 @@ def _backtest_profile(tags: object) -> str:
     return "demo"
 
 
+def _finite_numbers(value):
+    """Represent missing numerical evidence as JSON null, preserving source text."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _finite_numbers(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_finite_numbers(item) for item in value]
+    return value
+
+
 def get_backtest(backtest_id: str) -> dict | None:
     store = ResultStore()
     try:
@@ -95,7 +106,7 @@ def get_backtest(backtest_id: str) -> dict | None:
     record["project_id"] = record.get("strategy_project_id") or record.get("strategy_id")
     record["project_strategy_id"] = record.get("project_strategy_id") or "main"
     record["strategy_name"] = record.get("strategy_name") or record.get("strategy_id")
-    return record
+    return _finite_numbers(record)
 
 
 def _head_tail(rows: list[dict], sample_size: int = 3) -> dict:
@@ -146,6 +157,8 @@ def _execution_sample(row: dict) -> dict:
 
 
 def _public_event_value(value: object) -> object:
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
     if isinstance(value, str):
         text = value.splitlines()[0]
         text = re.sub(r"[A-Za-z]:\\[^\s\"']+", "<internal-path>", text)

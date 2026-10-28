@@ -6,7 +6,14 @@ from math import exp, isfinite, log
 import pandas as pd
 
 from .contracts import contract_names
-from .pricing import EuropeanOption, black_scholes, greeks, implied_volatility, monte_carlo
+from .pricing import (
+    EuropeanOption,
+    black_scholes,
+    greeks,
+    implied_volatility,
+    monte_carlo,
+    price_bounds,
+)
 from .quality import NUMERIC, validate_snapshot
 
 
@@ -131,6 +138,7 @@ def analyze_chain(
             "strike": float(item["strike_price"]),
             "multiplier": float(item["contract_multiplier"]),
             "market_price": float(item[price_field]),
+            "reference_prices": {key: float(item[key]) for key in ("close", "settlement")},
             "spot": float(item["spot"]),
             "volume": float(item["volume"]),
             "open_interest": float(item["open_interest"]),
@@ -188,6 +196,14 @@ def analyze_chain(
                 item["option_type"],
                 q,
             )
+            lower, upper = price_bounds(option)
+            row["iv_diagnostic"] = {
+                "lower_bound": lower,
+                "upper_bound": upper,
+                "distance_from_lower": row["market_price"] - lower,
+                "carry_mode": carry_mode,
+                "code": "within_model_bounds",
+            }
             try:
                 row["iv"] = implied_volatility(item[price_field], option)
                 priced = replace(option, volatility=row["iv"])
@@ -198,6 +214,12 @@ def analyze_chain(
             except ValueError as exc:
                 row["status"] = "invalid_iv"
                 row["reason"] = str(exc)
+                row["iv_diagnostic"]["code"] = (
+                    "below_model_lower" if row["market_price"] < lower - 1e-10
+                    else "at_or_above_model_upper" if row["market_price"] >= upper
+                    else "at_zero_volatility_boundary" if row["market_price"] <= lower + 1e-10
+                    else "solver_limit"
+                )
         rows.append(row)
 
     # Use identical adjusted multipliers as well as strikes to pair contracts.

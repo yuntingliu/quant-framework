@@ -4,6 +4,7 @@ import json
 import os
 import re
 import uuid
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -30,6 +31,12 @@ def read_research(run_id, root=None):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@lru_cache(maxsize=256)
+def _summary(path, size, mtime):
+    report = json.loads(path.read_text(encoding="utf-8"))
+    return {key: report[key] for key in ("id", "scope", "config", "coverage", "rank_ic", "oos_r2_vs_controls")}
+
+
 def research_catalog(root=None):
     catalog = DataCatalog(root)
     status = catalog.status("research.option_features")
@@ -43,15 +50,10 @@ def research_catalog(root=None):
     runs = []
     directory = catalog.root / "research" / "option_runs"
     for path in sorted(directory.glob("*.json"), key=lambda p: p.stat().st_mtime_ns, reverse=True)[
-        :20
+        :100
     ]:
-        report = json.loads(path.read_text(encoding="utf-8"))
-        runs.append(
-            {
-                key: report[key]
-                for key in ("id", "scope", "config", "coverage", "rank_ic", "oos_r2_vs_controls")
-            }
-        )
+        stat = path.stat()
+        runs.append(_summary(path, stat.st_size, stat.st_mtime_ns))
     return {
         **literature_catalog(),
         "data": {
@@ -83,7 +85,7 @@ def feature_history(symbol, start, end, root=None):
     return {"points": frame.astype(object).where(pd.notna(frame), None).to_dict("records")}
 
 
-def run_research(request, root=None):
+def _research_inputs(request, root=None):
     symbols = list(dict.fromkeys(to_rq_symbol(v) for v in request["underlyings"]))
     if not set(symbols).issubset(options_service.ETF_NAMES):
         raise ValueError("Select supported ETF option underlyings")
@@ -113,6 +115,15 @@ def run_research(request, root=None):
     bars = bars.loc[bars.symbol.isin(symbols) & pd.to_datetime(bars.date).le(end)].copy()
     bars["open"] = bars.raw_open * bars.adjusted_close / bars.raw_close
     bars["close"] = bars.adjusted_close
+    return features, bars, symbols, start, end
+
+
+def run_research(request, root=None, *, prepared=None, common_fields=None):
+    features, bars, symbols, start, end = prepared if prepared is not None else _research_inputs(request, root)
+    if common_fields:
+        features = features.replace([np.inf, -np.inf], np.nan).dropna(subset=common_fields).copy()
+    store = RuntimeStore(root)
+    from alphalab.options.features import FORMULA_VERSION
     settings = {
         key: request[key]
         for key in ("fields", "horizon", "min_train", "refit_every", "ridge", "embargo", "controls")
@@ -150,9 +161,13 @@ def run_research(request, root=None):
 
 def project_spec(request, root=None):
     """Create reviewable replacement functions for the single canonical engine."""
+    if request.get("prediction_source") == "controls" and not request.get("research_id"):
+        raise ValueError("Control rotation requires a saved forecast study")
     if request.get("research_id"):
         report = read_research(request["research_id"], root)
-        weights = {report["prediction_field"]: 1.0}
+        prediction_field = ("option_prediction_controls_" + report["id"]
+                            if request.get("prediction_source") == "controls" else report["prediction_field"])
+        weights = {prediction_field: 1.0}
         symbols = report["scope"]["underlyings"]
         start, end = report["folds"][0]["test_start"], report["scope"]["end"]
     else:
@@ -234,6 +249,8 @@ def equal_weight(context, signal, state, *, max_weight: float = {1 / top_n!r}):
         "settings": {
             "benchmark_symbols": canonical[:1],
             "option_research_id": request.get("research_id"),
+            "option_prediction_source": request.get("prediction_source", "model"),
+            "option_controlled_suite_id": request.get("controlled_suite_id"),
             "lookback_days": 260,
         },
     }
@@ -243,6 +260,15 @@ def create_research_project(request):
     from apps.api.services import data_sync_service, strategy_service
 
     spec = project_spec(request)
+    if request.get("prediction_source") == "controls" and request.get("research_id"):
+        report = read_research(request["research_id"])
+        frame = pd.DataFrame(report["predictions"])[["date", "symbol", "baseline_prediction", "training_label_end"]]
+        frame = frame.rename(columns={"baseline_prediction": "value"})
+        if not pd.to_datetime(frame.training_label_end).lt(pd.to_datetime(frame.date)).all():
+            raise ValueError("Control forecast publication violated the training cutoff")
+        frame["field"] = "option_prediction_controls_" + report["id"]
+        frame["run_id"] = report["id"]
+        RuntimeStore().write("research.option_predictions", frame)
     project = strategy_service.create_project(spec)
     try:
         # Preserve canonical source save/inspection and compensate a failed recipe

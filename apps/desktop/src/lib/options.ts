@@ -12,6 +12,8 @@ export interface OptionRow {
   order_book_id: string; expiry: string; option_type: "C" | "P"; strike: number; multiplier: number
   market_price: number; spot: number; volume: number; open_interest: number; maturity: number
   iv: number | null; status: string; reason?: string; delta?: number; gamma?: number
+  reference_prices?: {close:number;settlement:number}
+  iv_diagnostic?: {lower_bound:number;upper_bound:number;distance_from_lower:number;carry_mode:string;code:string}
   vega_1pct?: number; theta_day?: number; rate: number; effective_dividend_yield?: number; forward?: number
 }
 export interface SmileFit {

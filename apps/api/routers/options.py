@@ -93,6 +93,8 @@ class ResearchProjectRequest(BaseModel):
     project_id: str = Field(pattern=r"^[a-z][a-z0-9-]{1,63}$")
     name: str = Field(min_length=1, max_length=100)
     research_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{20}$")
+    prediction_source: Literal["model", "controls"] = "model"
+    controlled_suite_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{20}$")
     weights: dict[str, float] = Field(default_factory=dict, max_length=8)
     underlyings: list[str] = Field(default_factory=list, max_length=9)
     start: date = date(2023, 1, 3)
@@ -173,6 +175,46 @@ def feature_job(request: OptionSyncRequest):
 @router.post("/research/run")
 def research_run(request: ResearchRequest):
     return _research_call(options_research_service.run_research, request.model_dump(mode="json"))
+
+
+@router.get("/research/suites")
+def evidence_suites():
+    from apps.api.services import options_evidence_service
+    return _research_call(options_evidence_service.suites)
+
+
+@router.get("/research/suites/{suite_id}")
+def evidence_suite(suite_id: str):
+    from apps.api.services import options_evidence_service
+    return _research_call(options_evidence_service.read_suite, suite_id)
+
+
+@router.post("/research/suites/run")
+def run_evidence_suite(request: ResearchRequest):
+    from apps.api.services import options_evidence_service
+    body = request.model_dump(mode="json")
+    body.pop("horizon")  # The controlled family always uses 1, 5 and 20 sessions.
+    return _research_call(options_evidence_service.run_suite, body)
+
+
+class RotationPairRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    horizon: Literal[1, 5, 20] = 5
+    confirm_python_execution: bool = False
+
+
+@router.get("/research/suites/{suite_id}/rotation")
+def evidence_rotation(suite_id: str, horizon: int = Query(default=5, ge=1, le=20)):
+    from apps.api.services import options_rotation_service
+    return _research_call(options_rotation_service.rotation_pair, suite_id, horizon)
+
+
+@router.post("/research/suites/{suite_id}/rotation")
+def run_evidence_rotation(suite_id: str, request: RotationPairRequest):
+    from apps.api.services import options_rotation_service
+    if not request.confirm_python_execution:
+        raise HTTPException(422, "Confirm canonical local Python backtest execution")
+    return _research_call(options_rotation_service.run_rotation_pair, suite_id, request.horizon)
 
 
 @router.get("/research/runs/{run_id}")

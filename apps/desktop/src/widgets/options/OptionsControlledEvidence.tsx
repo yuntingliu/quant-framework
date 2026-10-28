@@ -1,0 +1,57 @@
+import { OptionsMatchedRotation } from "./OptionsMatchedRotation"
+import { useRef, useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { researchApi, type ControlledStudy, type ResearchFeature, type ResearchResult, type Paper } from "@/lib/optionsResearch"
+import { number, percent } from "@/lib/options"
+import { useOptionsI18n } from "@/lib/useOptionsI18n"
+
+const defaults=["option_atm_iv_30","option_rr25_30","option_bf25_30","option_smirk","option_term_slope","option_q_skew_30","option_vrp_hf_30"]
+type Props={active:boolean;endDay:string;symbols:string[];features:ResearchFeature[];papers:Paper[];onInspect:(result:ResearchResult)=>void;onRotationSelect:(id:string)=>void}
+export function OptionsControlledEvidence({active,endDay,symbols,features,papers,onInspect,onRotationSelect}:Props){
+  const {language,t}=useOptionsI18n()
+  const L=(zh:string,en:string)=>language==="zh"?zh:en
+  const label=(field:string)=>features.find(f=>f.field===field)?.[language]??field
+  const queryClient=useQueryClient()
+  const rotationRef=useRef<HTMLDivElement>(null)
+  const [suiteId,setSuiteId]=useState("")
+  const [horizon,setHorizon]=useState(5)
+  const [start,setStart]=useState("2023-06-05")
+  const [customEnd,setCustomEnd]=useState("")
+  const [holdout,setHoldout]=useState("2025-01-02")
+  const [busy,setBusy]=useState(false),[error,setError]=useState("")
+  const [local,setLocal]=useState<ControlledStudy|null>(null)
+  const [inspecting,setInspecting]=useState("")
+  const list=useQuery({queryKey:["option-controlled-suites"],queryFn:researchApi.suites,enabled:active,staleTime:30000})
+  const chosen=list.data?.suites.find(s=>s.id===suiteId)??list.data?.suites[0]
+  const saved=useQuery({queryKey:["option-controlled-suite",chosen?.id],queryFn:()=>researchApi.suite(chosen!.id),enabled:active&&!!chosen,staleTime:Infinity})
+  const study=local??saved.data
+  const end=customEnd||endDay
+  const rows=study?.rows.filter(r=>r.horizon===horizon)??[]
+  const positive=study?.rows.filter(r=>r.oos_r2_vs_controls!==null&&r.oos_r2_vs_controls>0).length??0
+  const confirmed=study?.rows.filter(r=>r.verdict==="descriptive_candidate_requires_validation").length??0
+  const verdict=(code:string)=>({no_incremental_oos_gain:L("未优于控制模型", "No OOS improvement"),holdout_not_confirmed:L("保留样本未确认", "Holdout not confirmed"),weak_statistical_support:L("统计证据不足", "Weak statistical support"),descriptive_candidate_requires_validation:L("待进一步验证的候选", "Candidate for further validation")} as Record<string,string>)[code]??code
+  async function run(){
+    setBusy(true);setError("")
+    try{const result=await researchApi.runSuite({underlyings:symbols,start,end,fields:defaults,min_train:120,refit_every:20,ridge:1,embargo:1,controls:true,holdout_start:holdout});setLocal(result);setSuiteId(result.id);await queryClient.invalidateQueries({queryKey:["option-controlled-suites"]});await queryClient.invalidateQueries({queryKey:["option-research-catalog"]})}
+    catch(reason){setError(reason instanceof Error?reason.message:String(reason))}finally{setBusy(false)}
+  }
+  async function inspect(id:string){setInspecting(id);setError("");try{onInspect(await researchApi.load(id))}catch(reason){setError(reason instanceof Error?reason.message:String(reason))}finally{setInspecting("")}}
+  return <section className="space-y-4" data-testid="controlled-option-evidence">
+    <details className="rounded-lg border border-border p-3"><summary className="cursor-pointer text-sm font-medium">{L("研究设定、历史版本与重新运行", "Study settings, saved versions and reruns")}</summary><h3 className="mt-3 text-sm font-semibold">{L("波动率与偏斜：是否改善 ETF 收益预测？", "Do volatility and skew improve ETF return forecasts?")}</h3><p className="mt-2 text-xs text-muted-foreground">{L("在同一日期／ETF 完整样本上，比较七项单指标与联合模型。所有模型使用相同的 RV20、20日动量、ETF 截距、训练窗口和标签隔离；固定保留期内不重估模型。", "Compare seven individual signals and a joint model on the same complete date/ETF cohort. All models share RV20, 20-day momentum, ETF intercepts, training windows and purged labels. Fits remain frozen within the reserved period.")}</p>
+      {list.data&&list.data.suites.length>0&&<label className="mt-3 block text-xs">{L("已保存的统一研究", "Saved controlled study")}<select aria-label={L("已保存的统一研究", "Saved controlled study")} className="mt-1 block h-9 max-w-full rounded border bg-background px-2" value={study?.id??chosen?.id??""} onChange={e=>{setLocal(null);setSuiteId(e.target.value)}}>{list.data.suites.map(s=><option value={s.id} key={s.id}>{s.scope.start} → {s.scope.end} · {s.scope.underlyings.length} ETF · {s.tests} {L("项检验", "tests")}</option>)}</select></label>}
+      <details className="mt-3"><summary className="cursor-pointer text-xs text-primary">{L("运行或更新统一研究", "Run or update the controlled study")}</summary><div className="mt-3 flex flex-wrap items-end gap-3">{[[L("研究开始", "Study start"),start,setStart],[L("研究结束", "Study end"),end,setCustomEnd],[L("保留期起点", "Holdout start"),holdout,setHoldout]].map(([name,value,set])=><label className="text-xs" key={String(name)}>{String(name)}<Input aria-label={String(name)} type="date" className="mt-1 w-40" value={String(value)} onChange={e=>(set as (value:string)=>void)(e.target.value)}/></label>)}<Button size="sm" disabled={busy||!symbols.length||!end||start>=holdout||holdout>=end} onClick={()=>void run()}>{busy?L("正在运行 24 项检验…", "Running 24 tests…"):L("运行统一样本实证", "Run controlled evidence")}</Button></div><p className="mt-2 text-[11px] text-muted-foreground">{L("使用已下载数据，不访问供应商。固定参数：训练120日、每20日更新、岭参数1、隔离1日；3个期限×8个模型。结果为历史验证，尚非未来盲测。", "Uses retained data without vendor access. Fixed settings: 120-session training, 20-session refits, ridge 1 and one-session embargo; three horizons × eight models. Historical validation is not a prospective blind test.")}</p></details>
+    </details>
+    {(error||list.error||saved.error)&&<p role="alert" className="rounded border border-red-300 p-3 text-xs text-red-700">{t(error||list.error?.message||saved.error?.message||"")}</p>}
+    {(list.isPending||saved.isFetching)&&<p role="status" className="text-xs">{L("正在读取统一研究…", "Loading controlled evidence…")}</p>}
+    {!study&&!list.isPending&&!saved.isFetching&&<p className="rounded border border-dashed p-4 text-sm">{L("尚无统一样本实证。上方可运行研究；未运行的指标不会被标为已验证。", "No controlled study is saved. Run it above; untested signals are not labeled validated.")}</p>}
+    {study&&<>
+      <div className="rounded-lg border border-amber-300 bg-amber-500/5 p-4" data-testid="controlled-study-conclusion"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold">{L("研究结论", "Research conclusion")}</h3><Button size="sm" variant="outline" onClick={()=>rotationRef.current?.scrollIntoView({block:"start"})}>{L("查看轮动对照", "View matched rotations")}</Button></div><p className="mt-2 text-sm">{positive===0?L("本组所有模型均未在总体样本外预测误差上优于控制模型。当前证据不支持把这些指标直接当作稳定的 ETF 收益预测信号。", "None of these models improves overall out-of-sample forecast error over controls. Current evidence does not support treating these signals as stable ETF return predictors."):L("部分模型的总体样本外误差有所改善；仍需同时检查独立保留期和多重检验后的统计证据。", "Some models reduce overall OOS error. Assess reserved-period performance and multiplicity-adjusted statistical evidence together.")}</p>{confirmed===0&&<p className="mt-2 text-sm font-medium">{L("当前没有同时通过保留期与描述性损失检验的候选信号。", "No candidate currently passes both reserved-period and descriptive loss checks.")}</p>}<p className="mt-2 text-xs">{L("总体 OOS R² 为正", "Positive overall OOS R²")}: {positive}/{study.tests} · {L("同时通过保留期与描述性损失检验的候选", "Candidates passing holdout and descriptive loss checks")}: {confirmed}/{study.tests}</p><p className="mt-2 text-[11px] text-muted-foreground">{study.scope.start} → {study.scope.end} · {study.scope.underlyings.length} ETF · {L("共同完整记录", "Shared complete observations")} {number(study.common_rows,0)}/{number(study.input_rows,0)} · {L("保留期起点", "Holdout start")} {study.config.holdout_start}</p></div>
+      <div className="overflow-auto rounded-lg border border-border p-3"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-medium">{L("逐项指标结果 · 同样本对照", "Signal-level results · same-cohort comparison")}</h3><label className="text-xs">{L("预测期限", "Forecast horizon")}<select aria-label={L("预测期限", "Forecast horizon")} className="ml-2 h-8 rounded border bg-background px-2" value={horizon} onChange={e=>setHorizon(Number(e.target.value))}>{[1,5,20].map(h=><option key={h} value={h}>{h}{L("个交易日", " sessions")}</option>)}</select></label></div>
+      <table className="w-full whitespace-nowrap text-right text-xs [&_td]:p-2 [&_th]:p-2 [&_tbody_tr]:border-t [&_tbody_tr]:border-border"><thead><tr>{[L("指标／模型", "Signal / model"),"OOS R²",L("保留期 R²", "Holdout R²"),"Rank IC",L("损失差 HAC t", "Loss-difference HAC t"),L("校正 p 值", "Adjusted p"),L("结论", "Conclusion")].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map(row=><tr key={row.run_id}><td className="text-left"><button disabled={!!inspecting} className="text-primary underline" onClick={()=>void inspect(row.run_id)}>{row.variant==="joint"?`${study.config.fields.length}${L("指标联合模型", "-signal joint model")}`:label(row.variant)}</button><span className="mt-1 block text-[10px] text-muted-foreground">N={number(row.coverage.scored_rows,0)}</span></td><td className={row.oos_r2_vs_controls!==null&&row.oos_r2_vs_controls>0?"text-emerald-700":"text-amber-700"}>{percent(row.oos_r2_vs_controls)}</td><td>{percent(row.independent_holdout?.oos_r2_vs_controls)}</td><td>{number(row.rank_ic.mean,4)}</td><td>{number(row.loss_test.hac_t)}</td><td>{number(row.loss_test.p_bonferroni,4)}</td><td>{verdict(row.verdict)}</td></tr>)}</tbody></table><p className="mt-3 text-[11px] text-muted-foreground">{L("损失差为控制模型平方误差减期权模型平方误差，正值更好；按日期聚合后作 HAC 诊断，近似正态 p 值对整组检验作 Bonferroni 校正。显著的负损失差意味着模型更差；Rank IC 本身不能证明期权指标的增量贡献。", "Loss difference is control squared error minus option-model squared error; positive favors the option model. Date-aggregated HAC diagnostics use normal-reference p-values with family-wide Bonferroni adjustment. A significant negative difference indicates deterioration; forecast Rank IC alone does not establish incremental option-signal value.")}</p></div>
+      <div ref={rotationRef}><OptionsMatchedRotation suiteId={study.id} horizon={horizon} active={active} onSelect={onRotationSelect}/></div>
+      <details className="rounded border border-border p-3"><summary className="cursor-pointer text-xs">{L("指标定义、样本缺失与文献映射", "Definitions, missing observations and literature mapping")}</summary><div className="mt-3 space-y-3">{study.feature_coverage.map(c=>{const f=features.find(f=>f.field===c.field),paper=papers.find(p=>p.id===f?.paper);return <div key={c.field} className="border-t border-border pt-2 text-xs"><strong>{label(c.field)}</strong><p className="mt-1">{L("有效记录", "Valid observations")}: {number(c.valid,0)}/{number(c.total,0)} · {L("参考研究", "Method reference")}: {paper?.authors??f?.paper??"—"}</p>{paper&&<><a className="mt-1 block text-primary underline" href={paper.url} target="_blank" rel="noreferrer">{paper.title}</a><p className="mt-1 text-muted-foreground">{paper[language]}</p></>}<p className="mt-1 break-words font-mono text-[10px] text-muted-foreground">{f?.formula}</p></div>})}</div></details>
+    </>}
+  </section>
+}

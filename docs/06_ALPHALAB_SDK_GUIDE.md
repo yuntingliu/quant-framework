@@ -460,6 +460,44 @@ Portfolio MC is bounded to 250,000 paths; standalone numerical MC is bounded to
 500,000 paths per scenario. Operational recipe routes own acquisition; pricing
 and analysis endpoints do not start downloads.
 
+### Quote inversion diagnostics and controlled evidence
+
+An IV failure is conditional on the selected rate, carry and reference-price
+basis. The chain exposes the model lower/upper bounds, the signed distance from
+the lower bound, close/settlement references, and an explicit diagnostic code.
+A daily reference below a fitted-forward bound does not by itself establish a
+source-data error or executable arbitrage. Prices are not clipped into a valid
+interval. Inspect the contract and recheck the alternative basis; IV, Greeks and
+surface inclusion remain unavailable when inversion fails.
+
+**Strategies and evidence > Controlled evidence** compares ATM IV, RR25,
+butterfly, smirk, term slope, truncated risk-neutral skewness and high-frequency
+VRP, individually and jointly, at 1/5/20-session horizons. Every model in a
+horizon uses the same complete-case cohort, RV20/momentum controls, ETF
+intercepts and purged training schedule. The reserved-period start is explicit;
+models remain frozen within it. The headline distinguishes positive OOS R² from
+reserved-period confirmation and descriptive statistical support. Loss
+improvement is baseline squared error minus augmented squared error, aggregated
+by date before horizon-lag HAC inference. Normal-reference p-values receive a
+Bonferroni correction across the full family. These historical, dependent-ETF
+experiments remain descriptive evidence, not prospective validation.
+
+The matched rotation panel saves two canonical SDK projects: controls-only
+forecasts and option-augmented forecasts from the same frozen study. Both use
+weekly final-close decisions, equal top-three weights, next-open fills and the
+same execution/cost settings. Background jobs retain their pinned revisions;
+failed jobs can resume without replacing successful runs. Full OOS and
+reserved-period NAV segments are compared on common valid dates. The reserved
+segment continues entering holdings instead of resetting capital. Raw runs with
+different periods remain available for provenance, below the aligned comparison.
+
+Use `GET /api/options/research/suites` to list controlled studies and
+`POST /api/options/research/suites/run` to run the fixed family.
+`GET /api/options/research/suites/{id}` returns a frozen manifest;
+`GET/POST /api/options/research/suites/{id}/rotation` reads or starts matched
+rotations. Starting rotations requires `confirm_python_execution=true`; pure
+numerical forecast studies do not execute user-authored source or contact RQ.
+
 ### Literature predictors and return research
 
 Open **Literature & prediction** to inspect cited definitions, data coverage,

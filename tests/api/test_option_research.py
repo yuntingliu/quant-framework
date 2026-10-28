@@ -16,6 +16,22 @@ app.include_router(options.router)
 client = TestClient(app)
 
 
+def test_controlled_suite_routes_preserve_the_predeclared_family(monkeypatch):
+    from apps.api.services import options_evidence_service, options_rotation_service
+    captured = []
+    monkeypatch.setattr(options_evidence_service, "run_suite", lambda body: captured.append(body) or {"id":"a"*20,"tests":24})
+    response = client.post("/api/options/research/suites/run", json={
+        "underlyings":["510050.XSHG"],"fields":["option_smirk"],"start":"2023-06-05","end":"2026-10-23","holdout_start":"2025-01-02"})
+    assert response.status_code == 200 and response.json()["tests"] == 24
+    assert "horizon" not in captured[0]
+    assert client.get("/api/options/research/suites/invalid").status_code == 422
+    denied = client.post("/api/options/research/suites/"+"a"*20+"/rotation",json={"horizon":5})
+    assert denied.status_code == 422
+    monkeypatch.setattr(options_rotation_service, "rotation_pair", lambda suite_id, horizon: {"suite_id":suite_id,"horizon":horizon})
+    response = client.get("/api/options/research/suites/"+"a"*20+"/rotation?horizon=5")
+    assert response.status_code == 200 and response.json()["horizon"] == 5
+
+
 def test_research_catalog_defines_distinct_bilingual_predictors():
     response = client.get("/api/options/research/catalog")
     assert response.status_code == 200

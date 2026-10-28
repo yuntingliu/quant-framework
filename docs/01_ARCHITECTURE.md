@@ -412,6 +412,7 @@ and cannot create a second authoritative result.
 | `alphalab/dataio/option_recipe.py`, `option_snapshots.py` | Visible ETF option acquisition, complete daily snapshot contracts and gap recovery in the shared runtime store |
 | `alphalab/options/` | European IV/Greeks, BS, dated discount curves, diagnostic SVI, signed basket stress and shared-path systemic-jump Monte Carlo |
 | `apps/api/routers/options.py`, `services/options_service.py` | Bounded local chain/surface/history/portfolio analysis; built-in recipe submission through the existing job manager |
+| `apps/api/services/options_evidence_service.py`, `options_rotation_service.py` | Frozen same-cohort predictor comparisons and matched controls/option-model rotations using canonical SDK projects and backtest jobs |
 | `apps/api/services/options_data_service.py` | Read-only managed ZIP listings/download boundaries and dated raw quarantine evidence |
 | `apps/desktop/src/widgets/options/`, `lib/optionsWorkspace.ts` | Independent six-section option workspace, shared valuation context, term-safe paired chains and validated local drafts |
 | `alphalab/strategy/factor_templates.py` | Built-in SDK Python factor templates and CST-aware installation |

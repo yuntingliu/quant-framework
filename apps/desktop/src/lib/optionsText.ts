@@ -1,5 +1,6 @@
 /** Domain copy shared by option views, including labels retained in basket state. */
 export const optionStrings: Record<string, string> = {
+  "IV 输入不一致": "IV input mismatch",
   "源报价异常（隔离）": "Invalid source quote (quarantined)", "隔离的源报价": "Quarantined source quotes",
   "打开期权研究": "Open option research",
   "波动率研究": "Volatility research",

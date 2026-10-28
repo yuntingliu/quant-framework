@@ -38,11 +38,30 @@ export interface OptionStrategyResult extends OptionStrategy {
 }
 export interface StrategyComparison {
   period: {start: string; end: string; sessions: number} | null
-  rows: Array<{backtest_id: string; name_zh: string; name_en: string; total_return: number; pool_relative_return: number; index_relative_return: number; market_proxy_attribution: {alpha_annualized: number | null; betas: Record<string,number>; estimates: Record<string,{t_stat: number}>}; attribution_warnings: string[]; index_exposures: Array<{name_zh: string; name_en: string; mean_weight: number}>}>
+  rows: Array<{backtest_id: string; name_zh: string; name_en: string; total_return: number; execution_reliable?:boolean|null;execution_warnings?:string[];research_valid?:boolean|null;pool_relative_return: number; index_relative_return: number; market_proxy_attribution: {alpha_annualized: number | null; betas: Record<string,number>; estimates: Record<string,{t_stat: number}>}; attribution_warnings: string[]; index_exposures: Array<{name_zh: string; name_en: string; mean_weight: number}>}>
   benchmarks?: {pool_equal_weight: number; index_equal_weight: number}
   curve: Array<Record<string,string | number>>
 }
+export interface ControlledStudy {
+  id:string;created_at:string;scope:{start:string;end:string;underlyings:string[]}
+  config:{fields:string[];min_train:number;refit_every:number;ridge:number;embargo:number;holdout_start:string|null}
+  models:number;tests:number;common_rows:number;input_rows:number
+  feature_coverage:Array<{field:string;valid:number;total:number}>
+  rows:Array<{variant:string;fields:string[];horizon:number;run_id:string;rank_ic:ResearchResult["rank_ic"];
+    oos_r2_vs_controls:number|null;coverage:ResearchResult["coverage"];independent_holdout:ResearchResult["independent_holdout"];
+    loss_test:{mean:number|null;hac_t:number|null;p_bonferroni:number|null};verdict:string}>
+}
+export interface RotationPairResult {
+  pair:{suite_id:string;horizon:number;start:string;end:string;rule:{top_n:number;frequency:string;execution:string}}|null
+  jobs?:Array<{role:"model"|"controls";status:string;backtest_id?:string|null;error_summary?:string|null}>
+  comparison?:StrategyComparison|null;holdout_comparison?:StrategyComparison|null
+}
 export const researchApi = {
+  rotation:(id:string,horizon:number)=>api.get<RotationPairResult>(`/options/research/suites/${id}/rotation?horizon=${horizon}`,{timeoutMs:120000}),
+  runRotation:(id:string,horizon:number)=>api.post<RotationPairResult>(`/options/research/suites/${id}/rotation`,{horizon,confirm_python_execution:true},{timeoutMs:120000}),
+  suites:()=>api.get<{suites:Array<Pick<ControlledStudy,"id"|"scope"|"config"|"created_at"|"models"|"tests">>}>("/options/research/suites"),
+  suite:(id:string)=>api.get<ControlledStudy>(`/options/research/suites/${id}`),
+  runSuite:(body:unknown)=>api.post<ControlledStudy>("/options/research/suites/run",body,{timeoutMs:300000}),
   comparison: (ids: string[]) => api.get<StrategyComparison>(`/options/research/comparison?${new URLSearchParams({ids:ids.join(",")})}`,{timeoutMs:120000}),
   strategies: () => api.get<{ strategies: OptionStrategy[] }>("/options/research/strategies"),
   strategy: (id: string) => api.get<OptionStrategyResult>(`/options/research/strategies/${id}`),

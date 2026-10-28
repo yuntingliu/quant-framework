@@ -171,6 +171,8 @@ def frozen_rule(source):
 
 
 def _family(weights):
+    if len(weights) == 1 and next(iter(weights)).startswith("option_prediction_controls_"):
+        return "controls_forecast", "控制模型 ETF 轮动（RV20＋动量）", "Control-model ETF rotation (RV20 + momentum)"
     if len(weights) == 1 and next(iter(weights)).startswith("option_prediction_"):
         return "forecast", "样本外预测 ETF 轮动", "OOS forecast ETF rotation"
     if weights == {"option_smirk": -1}:
@@ -195,6 +197,8 @@ def _card(record, rule):
         else ("custom", "自定义期权信号策略", "Custom option-signal strategy")
     )
     research_id = record.get("settings", {}).get("option_research_id")
+    if record.get("settings", {}).get("option_controlled_suite_id") and family == "forecast":
+        family, zh, en = "controlled_forecast", "统一样本期权模型 ETF 轮动", "Controlled option-model ETF rotation"
     if research_id:
         try:
             experiment = options_research_service.read_research(research_id)
@@ -222,6 +226,8 @@ def _card(record, rule):
         "research_valid": summary.get("research_valid"),
         "research_invalid_reasons": summary.get("research_invalid_reasons", []),
         "research_id": research_id,
+        "prediction_source": record.get("settings", {}).get("option_prediction_source", "model"),
+        "controlled_suite_id": record.get("settings", {}).get("option_controlled_suite_id"),
         "revision": record.get("strategy_revision"),
         "source_sha256": record.get("strategy_source_sha256"),
         "benchmark_symbols": record.get("settings", {}).get("benchmark_symbols", []),
@@ -323,7 +329,7 @@ def strategy_result(backtest_id):
             zh, en = ETF_LABELS.get(to_rq_symbol(row["symbol"]), (row["symbol"], row["symbol"]))
             positions.append({**row, "name_zh": zh, "name_en": en})
     forecast = None
-    if card["research_id"]:
+    if card["research_id"] and card["prediction_source"] != "controls":
         try:
             report = options_research_service.read_research(card["research_id"])
             forecast = {
