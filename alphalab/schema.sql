@@ -306,6 +306,88 @@ CREATE TABLE IF NOT EXISTS paper_nav (
     PRIMARY KEY (account_id, date)
 ) WITHOUT ROWID;
 
+-- Risk policy versions. A row is immutable: a new version is inserted instead of
+-- updating an existing one, so an old evaluation can always name the rules it used.
+CREATE TABLE IF NOT EXISTS risk_policies (
+    policy_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    scope TEXT NOT NULL,
+    scope_id TEXT NOT NULL DEFAULT '',
+    limits_json TEXT NOT NULL,
+    pause_json TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    author TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (policy_id, version)
+) WITHOUT ROWID;
+
+-- Which policy version one account (and optionally one strategy) follows now.
+CREATE TABLE IF NOT EXISTS risk_policy_activation (
+    account_id TEXT NOT NULL REFERENCES paper_accounts(id) ON DELETE CASCADE,
+    scope TEXT NOT NULL,
+    scope_id TEXT NOT NULL DEFAULT '',
+    policy_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    activated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (account_id, scope, scope_id)
+) WITHOUT ROWID;
+
+-- The exact account state a check ran against, kept so the check can be replayed.
+CREATE TABLE IF NOT EXISTS risk_snapshots (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    taken_at TEXT NOT NULL DEFAULT (datetime('now')),
+    price_date TEXT,
+    cash REAL NOT NULL,
+    equity REAL NOT NULL,
+    gross_exposure REAL NOT NULL,
+    policy_id TEXT NOT NULL,
+    policy_version INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    positions_json TEXT NOT NULL,
+    prices_json TEXT NOT NULL,
+    sha256 TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_risk_snapshots_account
+    ON risk_snapshots(account_id, taken_at DESC);
+
+-- Audit record of one risk evaluation: which door, which snapshot, which verdict.
+CREATE TABLE IF NOT EXISTS risk_evaluations (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    door TEXT NOT NULL,
+    strategy_id TEXT,
+    signal_id TEXT,
+    preview_id TEXT,
+    snapshot_id TEXT NOT NULL,
+    policy_id TEXT NOT NULL,
+    policy_version INTEGER NOT NULL,
+    verdict TEXT NOT NULL,
+    findings_json TEXT NOT NULL,
+    orders_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_risk_evaluations_account
+    ON risk_evaluations(account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_risk_evaluations_preview
+    ON risk_evaluations(preview_id);
+
+-- A holdings-risk analysis is reproducible: the frozen inputs are stored next to
+-- the result and keyed by their hash, so the same inputs always replay the same
+-- numbers, and a missing input is recorded instead of guessed.
+CREATE TABLE IF NOT EXISTS risk_analyses (
+    input_hash TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    price_date TEXT,
+    method TEXT NOT NULL DEFAULT 'holdings_risk_v1',
+    inputs_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+) WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS research_runs (
     id TEXT PRIMARY KEY,
     strategy_id TEXT NOT NULL,

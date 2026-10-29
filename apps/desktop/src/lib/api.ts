@@ -580,6 +580,78 @@ export interface PaperRiskCheck {
   name: string
   passed: boolean
   detail: string
+  severity?: "blocking" | "warning" | "info"
+}
+
+export interface PaperRiskFinding {
+  rule: string
+  severity: "blocking" | "warning" | "info"
+  message: string
+  observed: number | null
+  limit: number | null
+  symbol: string | null
+}
+
+export interface PaperRiskPolicy {
+  policy_id: string
+  version: number
+  label: string
+  reason: string
+  scope: string
+  scope_id: string
+  author: string
+  created_at: string | null
+  resume_condition: string
+  limits: Record<string, number | null>
+  pause: Record<string, number | boolean | null>
+}
+
+export interface PaperRiskAnalysis {
+  method: string
+  input_hash: string
+  price_date: string | null
+  as_of: string | null
+  cached: boolean
+  assumptions: Record<string, unknown>
+  concentration: {
+    positions: number
+    evaluated_positions: number
+    top1_weight: number | null
+    top3_weight: number | null
+    hhi: number | null
+    effective_positions: number | null
+    largest: string | null
+    evaluated: boolean
+  }
+  portfolio: {
+    annualized_volatility: number | null
+    observations: number
+    evaluated: boolean
+    note: string
+  }
+  contributions: Array<{
+    symbol: string
+    weight: number
+    annualized_volatility: number | null
+    contribution_to_volatility: number | null
+    share_of_risk: number | null
+    evaluated: boolean
+  }>
+  scenarios: {
+    items: Array<{
+      label: string
+      start: string
+      end: string
+      portfolio_return: number
+      evaluated: boolean
+    }>
+    complete: boolean
+    partial?: string
+  }
+  shocks: Record<string, { evaluated?: boolean; shocked_annualized_volatility?: number | null }>
+  unevaluated: { symbols: string[]; reasons: Record<string, string>; weight_share: number }
+  warnings: string[]
+  disclaimer: string
 }
 
 export interface PaperRebalancePreview {
@@ -592,6 +664,20 @@ export interface PaperRebalancePreview {
   allowed: boolean
   risk_status: "ready" | "blocked"
   checks: PaperRiskCheck[]
+  findings?: PaperRiskFinding[]
+  blocking?: PaperRiskFinding[]
+  warnings?: PaperRiskFinding[]
+  info?: PaperRiskFinding[]
+  policy?: PaperRiskPolicy
+  snapshot_id?: string
+  evaluation_id?: string
+  metrics?: {
+    equity: number
+    high_water: number
+    drawdown: number
+    daily_return: number | null
+    observations: number
+  }
   account: PaperAccount
   projected_cash: number
   turnover: number

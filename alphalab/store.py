@@ -117,6 +117,15 @@ class ResultStore:
         }
         if "account_id" not in order_columns:
             self._conn.execute("ALTER TABLE orders ADD COLUMN account_id TEXT")
+        if "risk_evaluation_id" not in order_columns:
+            self._conn.execute("ALTER TABLE orders ADD COLUMN risk_evaluation_id TEXT")
+        account_columns = {
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(paper_accounts)").fetchall()
+        }
+        for name in ("paused_at", "pause_reason", "resume_reason", "resumed_at"):
+            if name not in account_columns:
+                self._conn.execute(f"ALTER TABLE paper_accounts ADD COLUMN {name} TEXT")
         signal_columns = {
             row["name"] for row in self._conn.execute("PRAGMA table_info(signals)").fetchall()
         }
@@ -727,6 +736,7 @@ class ResultStore:
         *,
         signal_id: str | None = None,
         account_id: str = "paper",
+        risk_evaluation_id: str | None = None,
     ) -> str:
         result = self.apply_paper_orders(
             [
@@ -739,6 +749,7 @@ class ResultStore:
             ],
             account_id=account_id,
             signal_id=signal_id,
+            risk_evaluation_id=risk_evaluation_id,
         )
         return result["order_ids"][0]
 
@@ -910,6 +921,7 @@ class ResultStore:
         signal_id: str | None = None,
         commission_rate: float = 0.0003,
         nav_date: str | None = None,
+        risk_evaluation_id: str | None = None,
     ) -> dict:
         self.ensure_paper_account(account_id)
         order_ids: list[str] = []
@@ -1014,9 +1026,9 @@ class ResultStore:
                         """INSERT INTO orders
                            (id, account_id, signal_id, symbol, action, quantity,
                             price, fill_price, fill_quantity, commission, status,
-                            broker, filled_at)
+                            broker, filled_at, risk_evaluation_id)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'filled',
-                                   'paper', datetime('now'))""",
+                                   'paper', datetime('now'), ?)""",
                         (
                             order_id,
                             account_id,
@@ -1028,6 +1040,7 @@ class ResultStore:
                             price,
                             quantity,
                             commission,
+                            risk_evaluation_id,
                         ),
                     )
                     self._conn.execute(
@@ -1083,6 +1096,384 @@ class ResultStore:
             "fill_ids": fill_ids,
             "account": self.paper_account(account_id),
         }
+
+    # -- risk policies -----------------------------------------------------
+
+    def save_risk_policy(self, record: dict) -> dict:
+        """Insert one immutable policy version.
+
+        Re-inserting the same version with the same content is a no-op, so a
+        retried request is safe. Inserting a *different* definition for a version
+        that already exists is refused: history is never rewritten.
+        """
+        policy_id = str(record["policy_id"])
+        version = int(record["version"])
+        limits = dict(record["limits"])
+        pause = dict(record["pause"])
+        existing = self.get_risk_policy(policy_id, version)
+        if existing is not None:
+            same_limits = json.dumps(existing["limits"], sort_keys=True) == json.dumps(
+                limits, sort_keys=True
+            )
+            same_pause = json.dumps(existing["pause"], sort_keys=True) == json.dumps(
+                pause, sort_keys=True
+            )
+            if same_limits and same_pause:
+                return existing
+            raise ValueError(
+                f"risk policy {policy_id} v{version} already exists with different content; "
+                "publish a new version instead of editing this one"
+            )
+
+        def work() -> None:
+            self._conn.execute(
+                """INSERT INTO risk_policies
+                   (policy_id, version, scope, scope_id, limits_json, pause_json,
+                    reason, author, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))""",
+                (
+                    policy_id,
+                    version,
+                    str(record.get("scope") or "account"),
+                    str(record.get("scope_id") or ""),
+                    json.dumps(limits, sort_keys=True),
+                    json.dumps(pause, sort_keys=True),
+                    str(record.get("reason") or ""),
+                    str(record.get("author") or ""),
+                    record.get("created_at"),
+                ),
+            )
+
+        self._write(work)
+        stored = self.get_risk_policy(policy_id, version)
+        assert stored is not None
+        return stored
+
+    def get_risk_policy(self, policy_id: str, version: int | None = None) -> dict | None:
+        if version is None:
+            row = self._conn.execute(
+                """SELECT * FROM risk_policies WHERE policy_id = ?
+                   ORDER BY version DESC LIMIT 1""",
+                (policy_id,),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT * FROM risk_policies WHERE policy_id = ? AND version = ?",
+                (policy_id, int(version)),
+            ).fetchone()
+        return self._risk_policy_dict(row) if row is not None else None
+
+    def list_risk_policy_versions(self, policy_id: str) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM risk_policies WHERE policy_id = ? ORDER BY version",
+            (policy_id,),
+        ).fetchall()
+        return [self._risk_policy_dict(row) for row in rows]
+
+    @staticmethod
+    def _risk_policy_dict(row: sqlite3.Row) -> dict:
+        return {
+            "policy_id": row["policy_id"],
+            "version": int(row["version"]),
+            "scope": row["scope"],
+            "scope_id": row["scope_id"],
+            "limits": json.loads(row["limits_json"]),
+            "pause": json.loads(row["pause_json"]),
+            "reason": row["reason"],
+            "author": row["author"],
+            "created_at": row["created_at"],
+        }
+
+    def activate_risk_policy(
+        self,
+        account_id: str,
+        policy_id: str,
+        version: int,
+        *,
+        scope: str = "account",
+        scope_id: str = "",
+        reason: str = "",
+    ) -> dict:
+        self.ensure_paper_account(account_id)
+
+        def work() -> None:
+            self._conn.execute(
+                """INSERT INTO risk_policy_activation
+                   (account_id, scope, scope_id, policy_id, version, reason, activated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                   ON CONFLICT(account_id, scope, scope_id) DO UPDATE SET
+                     policy_id = excluded.policy_id,
+                     version = excluded.version,
+                     reason = excluded.reason,
+                     activated_at = excluded.activated_at""",
+                (account_id, scope, scope_id, policy_id, int(version), reason),
+            )
+
+        self._write(work)
+        return {
+            "account_id": account_id,
+            "scope": scope,
+            "scope_id": scope_id,
+            "policy_id": policy_id,
+            "version": int(version),
+            "reason": reason,
+        }
+
+    def active_risk_policy(self, account_id: str, strategy_id: str | None = None) -> dict | None:
+        """The policy in force: a strategy override wins over the account policy."""
+        rows: list[sqlite3.Row] = []
+        if strategy_id:
+            rows.append(
+                self._conn.execute(
+                    """SELECT * FROM risk_policy_activation
+                       WHERE account_id = ? AND scope = 'strategy' AND scope_id = ?""",
+                    (account_id, strategy_id),
+                ).fetchone()
+            )
+        rows.append(
+            self._conn.execute(
+                """SELECT * FROM risk_policy_activation
+                   WHERE account_id = ? AND scope = 'account'""",
+                (account_id,),
+            ).fetchone()
+        )
+        for row in rows:
+            if row is None:
+                continue
+            policy = self.get_risk_policy(row["policy_id"], int(row["version"]))
+            if policy is None:
+                continue
+            return {
+                **policy,
+                "activation": {
+                    "account_id": row["account_id"],
+                    "scope": row["scope"],
+                    "scope_id": row["scope_id"],
+                    "activated_at": row["activated_at"],
+                    "reason": row["reason"],
+                },
+            }
+        return None
+
+    # -- risk snapshots, evaluations, analyses -----------------------------
+
+    def save_risk_snapshot(self, record: dict) -> str:
+        snapshot_id = str(record.get("id") or _uuid())
+
+        def work() -> None:
+            self._conn.execute(
+                """INSERT INTO risk_snapshots
+                   (id, account_id, taken_at, price_date, cash, equity, gross_exposure,
+                    policy_id, policy_version, status, positions_json, prices_json, sha256)
+                   VALUES (?, ?, COALESCE(?, datetime('now')), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    snapshot_id,
+                    str(record["account_id"]),
+                    record.get("taken_at"),
+                    record.get("price_date"),
+                    float(record["cash"]),
+                    float(record["equity"]),
+                    float(record["gross_exposure"]),
+                    str(record["policy_id"]),
+                    int(record["policy_version"]),
+                    str(record.get("status") or "active"),
+                    json.dumps(record.get("positions", []), sort_keys=True),
+                    json.dumps(record.get("prices", {}), sort_keys=True),
+                    str(record["sha256"]),
+                ),
+            )
+
+        self._write(work)
+        return snapshot_id
+
+    def get_risk_snapshot(self, snapshot_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM risk_snapshots WHERE id = ?", (snapshot_id,)
+        ).fetchone()
+        return self._risk_snapshot_dict(row) if row is not None else None
+
+    @staticmethod
+    def _risk_snapshot_dict(row: sqlite3.Row) -> dict:
+        return {
+            "id": row["id"],
+            "account_id": row["account_id"],
+            "taken_at": row["taken_at"],
+            "price_date": row["price_date"],
+            "cash": float(row["cash"]),
+            "equity": float(row["equity"]),
+            "gross_exposure": float(row["gross_exposure"]),
+            "policy_id": row["policy_id"],
+            "policy_version": int(row["policy_version"]),
+            "status": row["status"],
+            "positions": json.loads(row["positions_json"]),
+            "prices": json.loads(row["prices_json"]),
+            "sha256": row["sha256"],
+        }
+
+    def save_risk_evaluation(self, record: dict) -> str:
+        evaluation_id = str(record.get("id") or _uuid())
+
+        def work() -> None:
+            self._conn.execute(
+                """INSERT INTO risk_evaluations
+                   (id, account_id, door, strategy_id, signal_id, preview_id, snapshot_id,
+                    policy_id, policy_version, verdict, findings_json, orders_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))""",
+                (
+                    evaluation_id,
+                    str(record["account_id"]),
+                    str(record["door"]),
+                    record.get("strategy_id"),
+                    record.get("signal_id"),
+                    record.get("preview_id"),
+                    str(record["snapshot_id"]),
+                    str(record["policy_id"]),
+                    int(record["policy_version"]),
+                    str(record["verdict"]),
+                    json.dumps(record.get("findings", []), sort_keys=True),
+                    json.dumps(record.get("orders", []), sort_keys=True),
+                    record.get("created_at"),
+                ),
+            )
+
+        self._write(work)
+        return evaluation_id
+
+    def get_risk_evaluation(self, evaluation_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM risk_evaluations WHERE id = ?", (evaluation_id,)
+        ).fetchone()
+        return self._risk_evaluation_dict(row) if row is not None else None
+
+    def latest_risk_evaluation(
+        self, account_id: str, *, preview_id: str | None = None
+    ) -> dict | None:
+        if preview_id is not None:
+            row = self._conn.execute(
+                """SELECT * FROM risk_evaluations
+                   WHERE account_id = ? AND preview_id = ?
+                   ORDER BY created_at DESC, rowid DESC LIMIT 1""",
+                (account_id, preview_id),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                """SELECT * FROM risk_evaluations WHERE account_id = ?
+                   ORDER BY created_at DESC, rowid DESC LIMIT 1""",
+                (account_id,),
+            ).fetchone()
+        return self._risk_evaluation_dict(row) if row is not None else None
+
+    def list_risk_evaluations(self, account_id: str | None = None, limit: int = 50) -> list[dict]:
+        if account_id is None:
+            rows = self._conn.execute(
+                "SELECT * FROM risk_evaluations ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                """SELECT * FROM risk_evaluations WHERE account_id = ?
+                   ORDER BY created_at DESC, rowid DESC LIMIT ?""",
+                (account_id, int(limit)),
+            ).fetchall()
+        return [self._risk_evaluation_dict(row) for row in rows]
+
+    @staticmethod
+    def _risk_evaluation_dict(row: sqlite3.Row) -> dict:
+        return {
+            "id": row["id"],
+            "account_id": row["account_id"],
+            "door": row["door"],
+            "strategy_id": row["strategy_id"],
+            "signal_id": row["signal_id"],
+            "preview_id": row["preview_id"],
+            "snapshot_id": row["snapshot_id"],
+            "policy_id": row["policy_id"],
+            "policy_version": int(row["policy_version"]),
+            "verdict": row["verdict"],
+            "findings": json.loads(row["findings_json"]),
+            "orders": json.loads(row["orders_json"]),
+            "created_at": row["created_at"],
+        }
+
+    def save_risk_analysis(self, record: dict) -> dict:
+        """Store one holdings-risk result against the hash of its frozen inputs."""
+        input_hash = str(record["input_hash"])
+
+        def work() -> None:
+            self._conn.execute(
+                """INSERT INTO risk_analyses
+                   (input_hash, account_id, price_date, method, inputs_json, result_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+                   ON CONFLICT(input_hash) DO NOTHING""",
+                (
+                    input_hash,
+                    str(record["account_id"]),
+                    record.get("price_date"),
+                    str(record.get("method") or "holdings_risk_v1"),
+                    json.dumps(record.get("inputs", {}), sort_keys=True),
+                    json.dumps(record.get("result", {}), sort_keys=True),
+                    record.get("created_at"),
+                ),
+            )
+
+        self._write(work)
+        stored = self.get_risk_analysis(input_hash)
+        assert stored is not None
+        return stored
+
+    def get_risk_analysis(self, input_hash: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM risk_analyses WHERE input_hash = ?", (input_hash,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "input_hash": row["input_hash"],
+            "account_id": row["account_id"],
+            "price_date": row["price_date"],
+            "method": row["method"],
+            "inputs": json.loads(row["inputs_json"]),
+            "result": json.loads(row["result_json"]),
+            "created_at": row["created_at"],
+        }
+
+    # -- paper account pause state -----------------------------------------
+
+    def pause_paper_account(self, account_id: str, reason: str) -> dict:
+        self.ensure_paper_account(account_id)
+
+        def work() -> None:
+            self._conn.execute(
+                """UPDATE paper_accounts
+                   SET status = 'paused',
+                       paused_at = COALESCE(paused_at, datetime('now')),
+                       pause_reason = ?,
+                       updated_at = datetime('now')
+                   WHERE id = ?""",
+                (str(reason), account_id),
+            )
+
+        self._write(work)
+        return self.paper_account(account_id)
+
+    def resume_paper_account(self, account_id: str, reason: str) -> dict:
+        self.ensure_paper_account(account_id)
+
+        def work() -> None:
+            self._conn.execute(
+                """UPDATE paper_accounts
+                   SET status = 'active',
+                       paused_at = NULL,
+                       pause_reason = NULL,
+                       resume_reason = ?,
+                       resumed_at = datetime('now'),
+                       updated_at = datetime('now')
+                   WHERE id = ?""",
+                (str(reason), account_id),
+            )
+
+        self._write(work)
+        return self.paper_account(account_id)
 
     def create_research_run(self, request: dict) -> str:
         run_id = _uuid()

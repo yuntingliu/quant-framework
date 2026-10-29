@@ -82,3 +82,5 @@ Project Python runs in local child processes with timeouts, logs, and contract c
 - [Architecture](docs/01_ARCHITECTURE.md): module boundaries and public interfaces.
 - [Development guide](docs/03_DEVELOPMENT_GUIDE.md): development setup and checks for each change.
 - [Contributing](CONTRIBUTING.md): contribution and documentation conventions.
+
+- TomVerheul
