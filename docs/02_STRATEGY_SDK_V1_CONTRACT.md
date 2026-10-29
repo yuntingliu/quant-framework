@@ -614,6 +614,358 @@ core MUST repeat all hard membership and exposure checks.
 residualization helper. Missing rows are excluded rather than imputed and its
 result records fitted coefficients, sample size, exclusions, and fit quality.
 
+### 14.1 Portfolio Constraints
+
+> Design status: draft for implementation. Sections 14.1 to 14.8 define the
+> constraint objects, input data, and calculation semantics. Section 14.9
+> reserves the optimizer interface and section 14.10 the core verification and
+> result contract; both are completed by their implementation changes. The
+> delivery plan is
+> [13_PORTFOLIO_CONSTRAINTS_WORK_PLAN.md](13_PORTFOLIO_CONSTRAINTS_WORK_PLAN.md).
+
+Portfolio constraints extend the single-name, gross, cash, and turnover limits
+above with three constraint kinds:
+
+| Kind | Restricts | Example |
+| --- | --- | --- |
+| `group_weight` | Total weight of the securities in a group | Technology weight <= 30% |
+| `benchmark_deviation` | Portfolio weight minus benchmark weight, per group or per security | Technology active weight within +/-5 percentage points |
+| `risk_budget` | Share of total portfolio variance contributed by a group or security | Technology risk contribution <= 40% |
+
+The following decisions apply to every kind:
+
+- **Closed kind set.** A constraint is plain data: one of the three kinds above
+  and its parameters. Strategy code chooses which constraints apply and their
+  limits; it cannot register a constraint implemented in Python. Every
+  constraint therefore has a known mathematical form for the optimizer and can
+  be recomputed independently by the core.
+- **Two layers, one type.** Constraints come from the project settings layer
+  and the strategy layer (section 14.2). Both layers use `PortfolioConstraintSet`.
+- **Hard constraints only.** Every constraint must hold within its numerical
+  tolerance. SDK v1 has no soft constraints, penalties, or priority-ordered
+  relaxation (section 14.6).
+- **Core-sourced data.** Classification and benchmark data are loaded through
+  the core data boundary at the decision date. A strategy never supplies the
+  data that its own constraints are checked against.
+- **Version evidence.** Every check records the constraint set hash and the
+  data version it used.
+
+### 14.2 Constraint Layers
+
+| Layer | Declared in | Purpose | Checked by the core |
+| --- | --- | --- | --- |
+| `project` | `project.settings["portfolio_constraints"]`, frozen with the Run settings | Risk limits that strategy code cannot change | Always, whether or not the strategy declares any constraint |
+| `strategy` | The `constraints=` argument of `optimize_portfolio(...)` inside `@portfolio`, recorded with the returned decision | Research intent, for example an industry-neutral variant of a signal | Yes, recomputed with core data |
+
+The core checks the union of both layers. When both layers restrict the same
+quantity, both checks run, so the effective limit is the stricter one. A
+strategy-layer constraint cannot loosen a project-layer constraint. Constraint
+IDs are unique within a layer, and checks report the pair `(layer, id)`.
+
+The core MUST NOT accept a reported `passed` value from strategy output. The
+decision records which strategy-layer set was used, by content hash; the
+core loads its own data for the same decision date and recomputes every check.
+
+### 14.3 Constraint Objects
+
+`PortfolioConstraintSet`, `PortfolioConstraintData`, and `ConstraintCheck` are
+exported from `alphalab.sdk.v1` and defined in `alphalab/sdk/v1/constraints.py`.
+All three are frozen dataclasses whose canonical form is JSON. The field lists
+below are normative; helper methods are not.
+
+```python
+PortfolioConstraintSet(
+    constraints: Sequence[
+        GroupWeightConstraint
+        | BenchmarkDeviationConstraint
+        | RiskBudgetConstraint
+    ],
+    schema_version: int = 1,
+    tolerance: float = 1e-6,
+)
+
+GroupWeightConstraint(
+    id: str,
+    classification: str,              # for example "citics_2019:1"
+    groups: Sequence[str] | None,     # None: each group separately
+    lower: float | None = None,
+    upper: float | None = None,
+    missing_policy: str = "reject",   # or "unclassified_group"
+)
+
+BenchmarkDeviationConstraint(
+    id: str,
+    benchmark: str,                   # index symbol, for example "000300.XSHG"
+    classification: str | None,       # None: per-security active weight
+    groups: Sequence[str] | None,     # None: every group or security
+    max_abs_deviation: float,         # |w - b| limit
+    max_staleness_days: int,
+    missing_policy: str = "reject",
+)
+
+RiskBudgetConstraint(
+    id: str,
+    classification: str | None,       # None: per-security contribution
+    groups: Sequence[str] | None,
+    upper: float,                     # share of total variance
+    risk_model: RiskModelSpec,
+    missing_policy: str = "reject",
+)
+
+RiskModelSpec(
+    lookback: int,                    # sessions of returns ending at as_of
+    minimum_observations: int,
+    estimator: str = "sample",        # SDK v1 supports only "sample"
+)
+```
+
+Construction validates and fails on: IDs that are empty, start with `_`, or are
+duplicated in the set; bounds that are not finite or lie outside `[0, 1]`
+(deviation limits `(0, 1]`); `lower > upper`; a group constraint with neither
+bound; a duplicated or empty `groups` entry; unknown `missing_policy` or
+`estimator` values; a `classification` not of the form `<source>:<level>`;
+`tolerance` outside `(0, 1e-4]`; an unsupported `schema_version`; and, when
+deserializing, unknown fields or kinds. Booleans are not accepted as numbers.
+Construction never clips or reorders values; integer limits are stored as
+floats so that `1` and `1.0` produce the same hash.
+
+`schema_version` versions the contract. A set's rule version is
+`constraint_set_sha256`, the SHA-256 of its canonical JSON (sorted keys, no
+insignificant whitespace, floats written with Python `repr`). Two sets with
+the same constraints therefore share a hash wherever they are declared.
+
+```python
+PortfolioConstraintData(
+    as_of: date,                       # decision date
+    classifications: Mapping[str, ClassificationSnapshot],
+    benchmarks: Mapping[str, BenchmarkSnapshot],
+    data_version: str | None = None,   # computed; a supplied value must match
+)
+
+ClassificationSnapshot(
+    classification: str,
+    effective_date: date,              # latest provider date <= as_of
+    groups: Mapping[str, str],         # symbol -> group code
+    source_version: str,
+)
+
+BenchmarkSnapshot(
+    benchmark: str,
+    effective_date: date,              # latest weight date <= as_of
+    weights: Mapping[str, float],      # symbol -> weight, fractions
+    source_version: str,
+)
+```
+
+`ClassificationSnapshot` and `BenchmarkSnapshot` are constructed only by data
+adapters, so they are importable from `alphalab.sdk.v1.constraints` but are not
+part of the `alphalab.sdk.v1` facade, whose names are injected into every
+strategy module.
+
+The decision date belongs to `PortfolioConstraintData`, not to
+`PortfolioConstraintSet`. A rule set is date-independent, so one project-layer
+set applies to every rebalance and keeps one hash.
+
+```python
+ConstraintCheck(
+    layer: str,                        # "project" | "strategy"
+    constraint_id: str,
+    kind: str,
+    stage: str,                        # "optimizer" | "target" | "planned"
+    subject: str,                      # group code or symbol
+    actual: float | None,
+    reference: float | None,           # pre-trade value, used by "improved"
+    lower: float | None,
+    upper: float | None,
+    tolerance: float,
+    slack: float | None,
+    status: str,                       # "pass" | "fail" | "improved" | "not_evaluated"
+    reason_code: str | None,
+    message: str | None,
+    constraint_set_sha256: str,
+    data_version: str | None,
+)
+```
+
+There is one `ConstraintCheck` per `(layer, constraint_id, subject, stage)`.
+Slack is the distance to the nearest bound:
+`slack = min(actual - lower, upper - actual)`, with a missing bound omitted.
+A check passes when `slack >= -tolerance`. Status `improved` is assigned only by
+the planned-weight rule in section 14.6. Status `not_evaluated` requires a
+`reason_code`.
+
+Serialized checks for one decision MUST fit the 64,000-byte bound used for
+portfolio diagnostics. When per-security subjects would exceed it, the record
+keeps every failing check plus the five smallest-slack passing checks for each
+constraint, and records the count of omitted passing checks.
+
+### 14.4 Input Data and Point-in-Time Rules
+
+The adapters in `alphalab/dataio/` build `PortfolioConstraintData` from the
+runtime store for a decision date. They are plain functions of
+`(constraint set, as_of, data engine)`, so the optimizer path and the core
+verifier call the same code and receive identical data.
+
+**Industry classification.** A classification is identified as
+`"<source>:<level>"`. Its snapshot is the latest classification record with an
+effective date no later than `as_of`. The RQ instrument reference rows that
+currently carry an `industry` column are retrieved at sync time and stamped with
+that retrieval date as `snapshot_date`. They describe the present, not
+history, and MUST NOT serve as historical classification data. Strict
+backtests therefore require a dated classification dataset. The candidate RQ
+source is `rq.get_instrument_industry(..., date=...)`; account permissions and
+the exact signature must be verified before the recipe is published.
+In `illustrative` runs only, a current snapshot MAY be used if every resulting
+check carries the reason code `CURRENT_CLASSIFICATION_SNAPSHOT` and the Run
+records the warning.
+
+**Benchmark weights.** The current `index_components` dataset records
+membership without weights, so benchmark deviation needs a new dated index
+weight dataset. The candidate RQ source is `rq.index_weights(...)`, subject to
+the same verification. The snapshot is the latest weight date no later than
+`as_of`. A snapshot older than `max_staleness_days` calendar days fails. The
+adapter converts percentages to fractions. Weights MUST be finite and
+non-negative and sum to `1 +/- 1e-3`. The adapter never renormalizes a sum that
+falls outside that band. Benchmark members outside the strategy universe keep
+their benchmark weight, so they contribute negative active weight.
+
+**Returns for risk budgets.** The covariance for a risk budget is computed from
+adjusted daily returns over the `lookback` sessions ending at `as_of`, with the
+estimator and repair rules named by `RiskModelSpec`. The specification is part
+of the constraint, so the core rebuilds the same covariance without reading
+optimizer internals.
+
+**Validation errors.** Snapshot construction rejects malformed, duplicated,
+and future records. `validate_constraint_data(constraint_set, data, symbols)`
+then checks that the data can evaluate every constraint for the securities
+with non-zero weight. For grouped deviation constraints, it also checks the
+benchmark members with positive weight. The first problem raises
+`PortfolioConstraintError`, whose `code` is one of:
+
+| Code | Condition |
+| --- | --- |
+| `CONSTRAINT_SPEC_INVALID` | The set fails construction-time validation |
+| `CONSTRAINT_DATA_MISSING` | A required classification, benchmark, or return window is absent |
+| `CONSTRAINT_DATA_FUTURE` | Any record has an effective date later than `as_of` |
+| `CONSTRAINT_DATA_STALE` | A benchmark snapshot exceeds `max_staleness_days` |
+| `CONSTRAINT_DATA_DUPLICATE` | A symbol appears twice in one snapshot |
+| `CONSTRAINT_DATA_INVALID` | Malformed symbols or dates, negative or non-finite weights, benchmark weights outside the sum band, or the reserved group assigned by a provider |
+| `CONSTRAINT_DATA_VERSION_INVALID` | `data_version` does not match the snapshot contents |
+| `UNCLASSIFIED_SECURITY` | A security with non-zero weight has no group and `missing_policy="reject"` |
+
+Under `missing_policy="unclassified_group"`, securities without a group are
+placed in the reserved group `__unclassified__`. That group is evaluated like
+any other group, so a constraint can bound it explicitly. A symbol belongs to
+exactly one group within one classification snapshot.
+
+### 14.5 Calculation Semantics
+
+All quantities use the full weight vector being checked. The vector includes
+current holdings that are leaving the portfolio and excludes cash. Let $w_i$ be
+the portfolio weight, $b_i$ the benchmark weight, $G$ a group, and $\Sigma$
+the covariance matrix.
+
+| Kind | Quantity |
+| --- | --- |
+| `group_weight` | $W_G = \sum_{i \in G} w_i$ |
+| `benchmark_deviation` | $D_G = \sum_{i \in G} w_i - \sum_{i \in G} b_i$, or $w_i - b_i$ per security |
+| `risk_budget` | $RC_G = \dfrac{\sum_{i \in G} w_i (\Sigma w)_i}{w^\top \Sigma w}$ |
+
+Benchmark deviation uses raw weights. Cash is not rescaled into the risky
+portfolio, so holding cash counts as an underweight against a fully invested
+benchmark. A deviation constraint is checked as
+$-\text{max\_abs\_deviation} \le D \le \text{max\_abs\_deviation}$.
+
+Risk contributions match the existing `risk_contributions` output of
+`optimize_portfolio(...)`. They sum to one over risky holdings, and a single
+contribution can be negative when it hedges the rest of the portfolio. When
+$w^\top \Sigma w \le 10^{-20}$, risk-budget checks are `not_evaluated` with
+`RISK_UNDEFINED`. SDK v1 supports only upper risk budgets because lower bounds
+on risk contributions make the feasible set non-convex.
+
+**Worked example.** Three securities: `AAA` and `BBB` are in group `TECH`, and
+`CCC` is in `FIN`. Annual volatilities are 30%, 25%, and 15%. Correlations are
+0.6 (`AAA`, `BBB`), 0.2 (`AAA`, `CCC`), and 0.3 (`BBB`, `CCC`).
+
+| Symbol | Group | Weight $w$ | Benchmark $b$ |
+| --- | --- | --- | --- |
+| `AAA` | `TECH` | 0.40 | 0.20 |
+| `BBB` | `TECH` | 0.30 | 0.30 |
+| `CCC` | `FIN` | 0.25 | 0.50 |
+| cash | | 0.05 | |
+
+- Group weight: $W_{TECH} = 0.70$. Under `upper=0.60`, slack is $-0.10$ and
+  the check fails.
+- Benchmark deviation: $D_{TECH} = 0.70 - 0.50 = +0.20$ and
+  $D_{FIN} = 0.25 - 0.50 = -0.25$. Five percentage points of the FIN
+  underweight come from cash.
+- Risk budget: portfolio volatility is 18.90%. Contributions are 0.5795,
+  0.3323, and 0.0882, so $RC_{TECH} = 0.9118$. Under `upper=0.40`, the check
+  fails with slack $-0.5118$.
+
+The shared three-security test fixture MUST encode this example, and the
+constraint data, optimizer, and core verification tests MUST assert these
+values.
+
+### 14.6 Hard Constraints, Tolerance, and Infeasibility
+
+`tolerance` absorbs solver and floating-point error only. It is not a business
+band. A solution 0.5 percentage points over a 30% cap fails.
+
+No priority or relaxation order exists. When no weight vector satisfies every
+hard constraint together with the gross, single-name, cash, and turnover limits,
+optimization fails and reports the conflicting constraints. It never drops a
+constraint silently. For example, a current 40% technology weight, a 30%
+technology cap, and `max_turnover=0.05` cannot all hold, because the cap
+needs at least 10 percentage points of selling.
+
+Execution can leave planned weights in violation even when the target weights
+pass. Section 14.10 defines the full planned-weight rule. The agreed principle:
+a planned vector passes when it satisfies every constraint, or when every
+violated check is closer to feasibility than the pre-trade portfolio. For
+example, the target cuts technology from 40% to 30%. A limit-down technology
+stock allows only 4 percentage points of selling, so the plan reaches 36%. That
+check gets status `improved` with `reference=0.40`. The plan executes rather
+than leaving the portfolio at 40%. A planned vector that worsens any violated
+check, or creates a new violation, is blocked.
+
+Constraints are checked when the decision is made and when the execution plan
+is formed. Weight drift between rebalances is not checked and is not a
+violation.
+
+### 14.7 Compatibility
+
+`constraints` and `constraint_data` are optional keyword arguments of
+`optimize_portfolio(...)`. Calls without them behave exactly as before, and the
+existing `max_weight`, `target_gross`, and `max_turnover` arguments keep their
+meaning. A project without `portfolio_constraints` settings has no
+project-layer checks. Frozen historical Runs are never re-evaluated against
+constraints.
+
+### 14.8 Deferred Features
+
+The following features are outside SDK v1 and require a new contract revision:
+
+- user-defined groups, either a static `symbol -> group` mapping declared in
+  source or groups computed at run time;
+- soft constraints, penalties, and priority-ordered relaxation;
+- lower bounds on risk contributions;
+- intraperiod checks of weight drift.
+
+### 14.9 Optimizer Interface
+
+Reserved for the optimizer change. It will specify how each of the five methods
+enforces the constraints, the projection rule for `equal_weight` and `hrp`,
+and the solver error categories (infeasible constraints, covariance problems,
+and solver failure) together with their `PortfolioOptimizationError` fields.
+
+### 14.10 Core Verification and Results
+
+Reserved for the core verification change. It will specify the target-weight
+and planned-weight checks, the planned-weight rule summarized in section 14.6,
+how checks are recorded in Run results, and how they reach the API and
+workbench.
+
 ## 15. Event and Stateful Policy Contract
 
 SDK v1 is event driven. At minimum the runner exposes:
