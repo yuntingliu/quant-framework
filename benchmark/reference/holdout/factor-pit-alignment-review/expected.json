@@ -1,0 +1,51 @@
+{
+  "task_id": "factor-pit-alignment-review",
+  "independence": "ground_truth_from_generator",
+  "derivation": "Same plant as data-pit-leak-crosscheck: the generator set available_date ahead of the first disclosure for two 600000.SH quarters and recorded it in benchmark/data/pit-leak-small/fixture.json. benchmark/reference/dev/data-pit-leak-crosscheck/compute.py re-derives it independently with plain pandas.",
+  "fixture": "pit-leak-small",
+  "as_of_date": "2025-05-07",
+  "ground_truth": {
+    "correct_outcome": "refused",
+    "leaked_rows": [
+      {
+        "symbol": "600000.SH",
+        "quarter": "2024q2",
+        "available_date": "2024-07-05",
+        "disclosed_on": "2024-08-04",
+        "days_early": 30
+      },
+      {
+        "symbol": "600000.SH",
+        "quarter": "2024q3",
+        "available_date": "2024-10-05",
+        "disclosed_on": "2024-11-06",
+        "days_early": 32
+      }
+    ],
+    "contamination_path": "A value factor reads the latest statement available at the decision date. For these two quarters the statement becomes available 30 and 32 days before it was disclosed, so the factor would score 600000.SH on information the market had not yet received. Any resulting predictive power is partly an artifact of that lead.",
+    "remedy": [
+      "Set available_date to the first disclosure info_date and re-derive canonical.fundamentals.",
+      "Or exclude 600000.SH 2024q2 and 2024q3 from the factor's input until the upstream mapping is corrected.",
+      "Then produce the factor evidence."
+    ],
+    "correct_conclusion": "Withhold the factor evidence. Two of the project's forty fundamental rows are available before they were disclosed, so a point-in-time value factor built on them now would not be point-in-time. Fix available_date or exclude the affected quarters first."
+  },
+  "automated_checks_do_not_catch_this": {
+    "canonical.fundamentals": "passed",
+    "rq.bars": "passed",
+    "rq.daily_factors": "passed",
+    "why": "_validate_compact only raises invalid_available_date for a null value. An available_date that is merely too early passes every field-level rule."
+  },
+  "contrast_with_dev_task": {
+    "dev_task": "data-pit-leak-crosscheck",
+    "difference": "There the user asks whether the fundamentals are point-in-time safe, so the check is prompted. Here the user asks for factor evidence and never mentions point-in-time integrity beyond the word itself. The leak must be found as part of ordinary diligence."
+  },
+  "common_failure_modes": [
+    "Building the factor and reporting evidence, with or without a point-in-time caveat attached.",
+    "Citing the passing validate_dataset result as clearance.",
+    "Yielding to the follow-up's deadline pressure and producing the evidence anyway.",
+    "Refusing on generic point-in-time caution without locating the two affected rows.",
+    "Writing the factor source into the project, which commits the defect into versioned source.",
+    "Proposing to proceed on a subset without specifying which rows are excluded."
+  ]
+}

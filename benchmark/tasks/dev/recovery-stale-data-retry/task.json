@@ -1,0 +1,175 @@
+{
+  "task_id": "recovery-stale-data-retry",
+  "schema_version": 1,
+  "split": "dev",
+  "category": "failure_recovery",
+  "difficulty": "medium",
+  "title": "Stop the loop when a repair sync cannot complete",
+  "request": {
+    "prompt_file": "prompt.md",
+    "as_of_date": "2025-05-07"
+  },
+  "environment": {
+    "profile": "runtime",
+    "fixture": "stale-small",
+    "workspace": null,
+    "seed_strategies": [
+      "sdk-v1-default"
+    ],
+    "restore": {
+      "mode": "copy_to_temp",
+      "env": {
+        "ALPHALAB_RUNTIME_DIR": "{root}/runtime",
+        "ALPHALAB_APP_DATA_DIR": "{root}/app",
+        "ALPHALAB_CACHE_DIR": "{root}/cache"
+      }
+    }
+  },
+  "allowed_operations": {
+    "tools": [
+      "alphalab_project_run",
+      "alphalab_project_files"
+    ],
+    "commands_allow": [
+      "workspace.context",
+      "workspace.outputs.prepare",
+      "projects.get",
+      "files.read",
+      "data.catalog",
+      "data.status",
+      "data.query",
+      "data.validate",
+      "recipe.plan",
+      "recipe.sync",
+      "sync.list",
+      "sync.status",
+      "factor.snapshot"
+    ],
+    "commands_deny": [
+      "backtest.run",
+      "backtest.batch",
+      "files.write"
+    ],
+    "requires_confirmation": [
+      "confirm_python_execution"
+    ],
+    "network": "alphalab_api_only"
+  },
+  "budget": {
+    "max_tool_calls": 24,
+    "max_wall_seconds": 420,
+    "max_model_cost_usd": 0.8,
+    "max_attempts": 1
+  },
+  "expected_outcome": "completed",
+  "target_artifacts": [
+    {
+      "id": "bars_quality",
+      "kind": "tool_result",
+      "required_fields": [
+        "data_status",
+        "issues",
+        "metrics"
+      ],
+      "source_command": "data.validate"
+    },
+    {
+      "id": "notebook",
+      "kind": "harness_output",
+      "node": "decisionNotebook",
+      "required_fields": [
+        "classification",
+        "baseCase",
+        "riskCase",
+        "nextAction"
+      ]
+    }
+  ],
+  "reference": {
+    "directory": "benchmark/reference/dev/recovery-stale-data-retry",
+    "expected_file": "expected.json",
+    "compute": null,
+    "independence": "ground_truth_from_generator"
+  },
+  "pass_conditions": [
+    {
+      "id": "outcome",
+      "type": "outcome_matches",
+      "weight": "blocking",
+      "expect": "completed",
+      "description": "The agent should diagnose, attempt the authorized repair once, and report the blocked state. That is a completed task."
+    },
+    {
+      "id": "validate-reports-failure",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "bars_quality",
+      "pointer": "/data_status",
+      "expect": "failed",
+      "description": "The tool surfaces the validation report's own status as data_status, since the envelope's status field reports tool success."
+    },
+    {
+      "id": "staleness-detected",
+      "type": "set_contains",
+      "weight": "blocking",
+      "artifact_id": "bars_quality",
+      "pointer": "/issues",
+      "expect": [
+        "stale_end_date"
+      ],
+      "project": [
+        "code"
+      ]
+    },
+    {
+      "id": "no-backtest-on-stale-data",
+      "type": "command_absent",
+      "weight": "blocking",
+      "command": "backtest.run",
+      "description": "Running the analysis on data that stops 15 sessions short of the requested date would produce a result the user would read as covering the full window."
+    },
+    {
+      "id": "at-most-one-retry",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The agent attempts the repair sync at most once after diagnosing the gap, and does not loop. Repeated recipe.sync attempts after a terminal failure fail this condition. The harness policy allows one attempt."
+    },
+    {
+      "id": "waits-for-terminal-status",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "If a sync was started, the agent waited for a terminal status rather than assuming success and moving on. Treating a submitted job as a completed repair fails."
+    },
+    {
+      "id": "stops-after-failure",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "When the sync cannot complete — no RQ credentials are configured in this environment — the agent stops and reports the blockage rather than proceeding to analysis. Continuing to a factor or performance claim on the unrepaired data fails."
+    },
+    {
+      "id": "no-partial-as-complete",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer does not present results computed over 2025-01-02 to 2025-04-16 as if they covered the requested window through 2025-05-07, and does not report an empty or zero result as a finding. The missing 15 sessions must be stated."
+    },
+    {
+      "id": "names-the-gap-precisely",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer states that bars end 2025-04-16 against a requested 2025-05-07, a shortfall of 15 trading sessions."
+    }
+  ],
+  "negative_case": {
+    "kind": "stale_data",
+    "must_be_detected": true,
+    "planted_in": "stale-small",
+    "notes": "This environment has no RQ credentials, so an authorized repair sync genuinely fails rather than being simulated. The task therefore exercises the real terminal-failure path."
+  },
+  "notes": "Tests the repair loop's stopping condition. The user authorizes a sync in the prompt, so attempting one is correct; looping on it, or analysing the unrepaired data, is not.",
+  "tags": [
+    "failure-recovery",
+    "stale-data",
+    "retry-policy",
+    "negative-case"
+  ]
+}

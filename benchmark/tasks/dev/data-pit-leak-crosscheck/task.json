@@ -1,0 +1,170 @@
+{
+  "task_id": "data-pit-leak-crosscheck",
+  "schema_version": 1,
+  "split": "dev",
+  "category": "data_diagnostics",
+  "difficulty": "hard",
+  "title": "Detect fundamentals that became available before they were disclosed",
+  "request": {
+    "prompt_file": "prompt.md",
+    "as_of_date": "2025-05-07"
+  },
+  "environment": {
+    "profile": "runtime",
+    "fixture": "pit-leak-small",
+    "workspace": null,
+    "restore": {
+      "mode": "copy_to_temp",
+      "env": {
+        "ALPHALAB_RUNTIME_DIR": "{root}/runtime",
+        "ALPHALAB_APP_DATA_DIR": "{root}/app",
+        "ALPHALAB_CACHE_DIR": "{root}/cache"
+      }
+    }
+  },
+  "allowed_operations": {
+    "tools": [
+      "alphalab_project_run"
+    ],
+    "commands_allow": [
+      "workspace.context",
+      "workspace.outputs.prepare",
+      "data.catalog",
+      "data.status",
+      "data.query",
+      "data.validate",
+      "data.fundamentals"
+    ],
+    "commands_deny": [
+      "backtest.run",
+      "backtest.batch",
+      "recipe.sync"
+    ],
+    "network": "alphalab_api_only"
+  },
+  "budget": {
+    "max_tool_calls": 25,
+    "max_wall_seconds": 420,
+    "max_model_cost_usd": 0.8,
+    "max_attempts": 1
+  },
+  "expected_outcome": "completed",
+  "target_artifacts": [
+    {
+      "id": "findings",
+      "kind": "agent_findings",
+      "required_fields": [
+        "point_in_time_safe",
+        "leaked_keys",
+        "validator_cleared_it"
+      ],
+      "delivery": {
+        "channel": "workspaceResult.document.rows",
+        "columns": [
+          "field",
+          "value"
+        ],
+        "list_encoding": "row_per_element",
+        "empty_list": "single_null_row"
+      }
+    },
+    {
+      "id": "notebook",
+      "kind": "harness_output",
+      "node": "decisionNotebook",
+      "required_fields": [
+        "classification",
+        "baseCase",
+        "riskCase",
+        "nextAction"
+      ]
+    }
+  ],
+  "reference": {
+    "directory": "benchmark/reference/dev/data-pit-leak-crosscheck",
+    "expected_file": "expected.json",
+    "compute": "compute.py",
+    "independence": "ground_truth_from_generator"
+  },
+  "pass_conditions": [
+    {
+      "id": "outcome",
+      "type": "outcome_matches",
+      "weight": "blocking",
+      "expect": "completed"
+    },
+    {
+      "id": "leaked-rows-exact",
+      "type": "set_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/leaked_keys",
+      "expect": [
+        "600000.SH:2024q2",
+        "600000.SH:2024q3"
+      ],
+      "description": "Exactly these two symbol-quarters carry an available_date earlier than their first disclosure. Delivered as pre-joined symbol:quarter keys, because findings rows hold scalars and a list of objects is rejected by the output schema. Reporting extra keys is a false positive and fails just as a miss does."
+    },
+    {
+      "id": "not-safe",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/point_in_time_safe",
+      "expect": false,
+      "description": "The decisive conclusion. Finding the leak and still approving the fundamentals fails here."
+    },
+    {
+      "id": "validator-not-treated-as-clearance",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/validator_cleared_it",
+      "expect": true,
+      "description": "A true value here is the agent correctly reporting that data.validate returned passed on this fixture while the data is nonetheless unsafe. An agent that denies the validator passed has not actually run it, and one that treats its pass as clearance fails the point_in_time_safe condition."
+    },
+    {
+      "id": "no-unrequested-backtest",
+      "type": "command_absent",
+      "weight": "blocking",
+      "command": "backtest.run"
+    },
+    {
+      "id": "not-cleared-by-validator",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "validate_dataset('canonical.fundamentals') returns status 'passed' on this fixture, because it only rejects a null available_date. A passing answer must NOT treat that pass as evidence the fundamentals are safe. Citing the passed report as clearance fails."
+    },
+    {
+      "id": "explains-mechanism",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer explains that it compared canonical.fundamentals.available_date against the first-disclosure info_date in rq.financials.income, and that an available_date before disclosure would let a factor read a statement the market had not seen. Asserting a leak without naming the comparison fails."
+    },
+    {
+      "id": "quantifies-lead",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer gives the size of the lead for at least one row: 2024q2 is available 2024-07-05 against disclosure 2024-08-04 (30 days early), 2024q3 is available 2024-10-05 against 2024-11-06 (32 days early)."
+    },
+    {
+      "id": "withholds-approval",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer does not approve the fundamentals for point-in-time use as they stand. Recommending the value factor proceed on the current available_date values fails."
+    }
+  ],
+  "negative_case": {
+    "kind": "point_in_time_leak",
+    "must_be_detected": true,
+    "planted_in": "pit-leak-small",
+    "notes": "Every automated quality check passes on this fixture. The defect is reachable only by cross-referencing two datasets, so the task separates agents that reason about disclosure timing from agents that relay a validator verdict."
+  },
+  "notes": "Flagship point-in-time task. The 36 unaffected rows have available_date equal to info_date, so a blanket 'all fundamentals leak' answer fails the set_equals condition.",
+  "tags": [
+    "point-in-time",
+    "look-ahead",
+    "cross-dataset",
+    "negative-case"
+  ]
+}

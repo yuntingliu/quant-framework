@@ -1,0 +1,214 @@
+{
+  "task_id": "data-coverage-gap-scope",
+  "schema_version": 1,
+  "split": "dev",
+  "category": "data_diagnostics",
+  "difficulty": "easy",
+  "title": "Decide whether bar coverage supports a 20-day momentum factor",
+  "request": {
+    "prompt_file": "prompt.md",
+    "as_of_date": "2025-05-07"
+  },
+  "environment": {
+    "profile": "runtime",
+    "fixture": "bar-gap-small",
+    "workspace": null,
+    "restore": {
+      "mode": "copy_to_temp",
+      "env": {
+        "ALPHALAB_RUNTIME_DIR": "{root}/runtime",
+        "ALPHALAB_APP_DATA_DIR": "{root}/app",
+        "ALPHALAB_CACHE_DIR": "{root}/cache"
+      }
+    }
+  },
+  "allowed_operations": {
+    "tools": [
+      "alphalab_project_run"
+    ],
+    "commands_allow": [
+      "workspace.context",
+      "workspace.outputs.prepare",
+      "data.catalog",
+      "data.status",
+      "data.query",
+      "data.validate",
+      "data.market_bars"
+    ],
+    "commands_deny": [
+      "backtest.run",
+      "backtest.batch",
+      "recipe.sync",
+      "factor.research"
+    ],
+    "network": "alphalab_api_only"
+  },
+  "budget": {
+    "max_tool_calls": 18,
+    "max_wall_seconds": 300,
+    "max_model_cost_usd": 0.4,
+    "max_attempts": 1
+  },
+  "expected_outcome": "completed",
+  "target_artifacts": [
+    {
+      "id": "bars_validate",
+      "kind": "tool_result",
+      "required_fields": [
+        "data_status",
+        "issues",
+        "metrics"
+      ],
+      "source_command": "data.validate"
+    },
+    {
+      "id": "findings",
+      "kind": "agent_findings",
+      "required_fields": [
+        "research_ready",
+        "affected_dataset",
+        "affected_symbol",
+        "missing_sessions"
+      ],
+      "delivery": {
+        "channel": "workspaceResult.document.rows",
+        "columns": [
+          "field",
+          "value"
+        ],
+        "list_encoding": "row_per_element",
+        "empty_list": "single_null_row"
+      }
+    },
+    {
+      "id": "notebook",
+      "kind": "harness_output",
+      "node": "decisionNotebook",
+      "required_fields": [
+        "classification",
+        "baseCase",
+        "riskCase",
+        "nextAction"
+      ]
+    }
+  ],
+  "reference": {
+    "directory": "benchmark/reference/dev/data-coverage-gap-scope",
+    "expected_file": "expected.json",
+    "compute": null,
+    "independence": "ground_truth_from_generator"
+  },
+  "pass_conditions": [
+    {
+      "id": "outcome",
+      "type": "outcome_matches",
+      "weight": "blocking",
+      "expect": "completed",
+      "description": "The question is answerable from the permitted commands, so the agent must answer rather than refuse."
+    },
+    {
+      "id": "validate-reports-failure",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "bars_validate",
+      "pointer": "/data_status",
+      "expect": "failed",
+      "description": "data.validate forwards fail_on_gap and as_of, and the tool surfaces the report's own status as data_status because the envelope's status field reports tool success."
+    },
+    {
+      "id": "gap-detected",
+      "type": "set_contains",
+      "weight": "blocking",
+      "artifact_id": "bars_validate",
+      "pointer": "/issues",
+      "project": [
+        "code"
+      ],
+      "expect": [
+        "bar_key_gap"
+      ]
+    },
+    {
+      "id": "missing-key-count",
+      "type": "numeric",
+      "weight": "blocking",
+      "artifact_id": "bars_validate",
+      "pointer": "/metrics/missing_keys",
+      "expect": 30,
+      "tolerance": 0,
+      "description": "The generator removed exactly 30 (date, symbol) keys."
+    },
+    {
+      "id": "not-declared-ready",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/research_ready",
+      "expect": false,
+      "description": "The decisive conclusion. Retrieving the gap and still reporting the data usable fails here rather than only losing scored credit."
+    },
+    {
+      "id": "reported-symbol",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/affected_symbol",
+      "expect": "600000.SH"
+    },
+    {
+      "id": "reported-dataset",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/affected_dataset",
+      "expect": "rq.bars",
+      "description": "rq.daily_factors keeps its rows for the missing sessions, so blaming it is a misattribution."
+    },
+    {
+      "id": "reported-shortfall",
+      "type": "numeric",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/missing_sessions",
+      "expect": 30,
+      "tolerance": 0
+    },
+    {
+      "id": "no-unrequested-backtest",
+      "type": "command_absent",
+      "weight": "blocking",
+      "command": "backtest.run",
+      "description": "The user asked about data readiness only and authorized no execution."
+    },
+    {
+      "id": "localises-window",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The prose locates the gap between 2025-01-30 and 2025-03-12. Naming an unrelated window fails."
+    },
+    {
+      "id": "suspension-ruled-out",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer distinguishes an unexplained gap from a suspension: rq.paused marks no suspension on those sessions, so the absence is a data gap, not expected non-trading. Attributing it to suspension or a holiday fails."
+    },
+    {
+      "id": "explains-consequence",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer connects the gap to the request: a 30-session hole inside the window breaks a 20-day momentum lookback for that symbol, so the factor cannot be trusted for it."
+    }
+  ],
+  "negative_case": {
+    "kind": "coverage_gap",
+    "must_be_detected": true,
+    "planted_in": "bar-gap-small",
+    "notes": "rq.daily_factors deliberately retains its rows for the missing sessions, so the gap is attributable to one dataset only."
+  },
+  "notes": "Baseline data-diagnostics task. Reachable through data.validate once the tool forwards fail_on_gap and as_of, which it does as of this change.",
+  "tags": [
+    "coverage",
+    "bounded-query",
+    "readiness"
+  ]
+}

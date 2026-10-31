@@ -1,0 +1,682 @@
+{
+  "fixture": "research-small",
+  "profile": "runtime",
+  "seed": 20261021,
+  "generated_at": "2026-10-27T09:25:28.488582+00:00",
+  "generator": "scripts/build_benchmark_data.py",
+  "source": "synthetic; seeded pseudo-random walk, no vendor data",
+  "license": "same terms as this repository; contains no licensed market data",
+  "calendar": {
+    "start": "2025-01-02",
+    "end": "2027-12-01",
+    "sessions": 760
+  },
+  "universe": [
+    "000001.SZ",
+    "000002.SZ",
+    "000063.SZ",
+    "600000.SH",
+    "600036.SH",
+    "600519.SH",
+    "601318.SH",
+    "300750.SZ",
+    "600100.SH",
+    "300107.SZ",
+    "600114.SH",
+    "300121.SZ",
+    "600128.SH",
+    "300135.SZ",
+    "600142.SH",
+    "300149.SZ",
+    "600156.SH",
+    "300163.SZ",
+    "600170.SH",
+    "300177.SZ",
+    "600184.SH",
+    "300191.SZ",
+    "600198.SH",
+    "300205.SZ",
+    "600212.SH",
+    "300219.SZ",
+    "600226.SH",
+    "300233.SZ",
+    "600240.SH",
+    "300247.SZ",
+    "600254.SH",
+    "300261.SZ",
+    "600268.SH",
+    "300275.SZ",
+    "600282.SH",
+    "300289.SZ",
+    "600296.SH",
+    "300303.SZ",
+    "600310.SH",
+    "300317.SZ"
+  ],
+  "quarters": [
+    "2023q4",
+    "2024q1",
+    "2024q2",
+    "2024q3",
+    "2024q4"
+  ],
+  "caveat": "Synthetic fixture for agent evaluation only. Price paths carry no economic meaning and must not be read as strategy evidence.",
+  "planted_defects": [],
+  "rows": {
+    "rq.bars": 30400,
+    "rq.daily_factors": 60800,
+    "canonical.fundamentals": 200,
+    "rq.financials.income": 200,
+    "runtime.factor_returns": 36
+  },
+  "files": {
+    "canonical/factor_returns/year=2025/part.parquet": {
+      "bytes": 5375,
+      "sha256": "aba0deee01b86da832d555db5f69686cf405529ff6b3ef51c83ddad0e2e3b8d9"
+    },
+    "canonical/factor_returns/year=2026/part.parquet": {
+      "bytes": 5375,
+      "sha256": "e39130d05f7a2ffd51b8230459a0af46f38718788a6b9097d94a86c1dabe08a8"
+    },
+    "canonical/factor_returns/year=2027/part.parquet": {
+      "bytes": 5375,
+      "sha256": "5ef27d0941f95491ac36b97bb4b5ddae6b02832c27ecca76917cae63b2668185"
+    },
+    "canonical/fundamentals/year=2024/part.parquet": {
+      "bytes": 21711,
+      "sha256": "b386338885657ab0845eaf8b80617455a0443050770371119bcbe72a903231b0"
+    },
+    "canonical/fundamentals/year=2025/part.parquet": {
+      "bytes": 11306,
+      "sha256": "d1f152235b9c267686314dec3ba0b19e944749482f58a48ffefa3a5957a33673"
+    },
+    "rq/bars/year=2025/month=01/part.parquet": {
+      "bytes": 87504,
+      "sha256": "012346a7e7195c1dad17f37fa3dc50b216964265e049e3969ea65f59031d3f94"
+    },
+    "rq/bars/year=2025/month=02/part.parquet": {
+      "bytes": 80232,
+      "sha256": "301c4525fb2886e66d1067015d7fec555ba51ea157c4b717f0b6397b6fab4dac"
+    },
+    "rq/bars/year=2025/month=03/part.parquet": {
+      "bytes": 83838,
+      "sha256": "8c3f14c3fa5433a7f1e83e3c2c5908cece1b6d9886c15411c46c2957d75bc3f2"
+    },
+    "rq/bars/year=2025/month=04/part.parquet": {
+      "bytes": 87476,
+      "sha256": "e0b455845be76a5b0c88cd73083a181c251f47fa37ad9dd2b4ee9569e6f5d12c"
+    },
+    "rq/bars/year=2025/month=05/part.parquet": {
+      "bytes": 87481,
+      "sha256": "5f82124461b3c27d939db5dfa398237de590e94959def27075069a112ae02f99"
+    },
+    "rq/bars/year=2025/month=06/part.parquet": {
+      "bytes": 83847,
+      "sha256": "6528bf35c22858664ab72baadb8fe238f9da5b55c055231170d99fb8a9c24dc3"
+    },
+    "rq/bars/year=2025/month=07/part.parquet": {
+      "bytes": 91105,
+      "sha256": "ba546075d577b7c9610747896f3beb7dd25e33dfada9f43033268f6ba091462c"
+    },
+    "rq/bars/year=2025/month=08/part.parquet": {
+      "bytes": 83831,
+      "sha256": "effcca84e551dee4cc2036c4c6f1638565cd4876de23052daa8e7ace5e4a2a4e"
+    },
+    "rq/bars/year=2025/month=09/part.parquet": {
+      "bytes": 87447,
+      "sha256": "930645bbc176bdedd1f7826d3b1d0e8e75ca464810006a99be52b60e8595817e"
+    },
+    "rq/bars/year=2025/month=10/part.parquet": {
+      "bytes": 91082,
+      "sha256": "0c0f9086fb2c795880f68fcda2ebade67a3f4c50cc20137bf79ee877b831a219"
+    },
+    "rq/bars/year=2025/month=11/part.parquet": {
+      "bytes": 80257,
+      "sha256": "c1d2fce526a715f4199d89d56ff2c568170a1f502e3caa082c1f36ee46f92f1c"
+    },
+    "rq/bars/year=2025/month=12/part.parquet": {
+      "bytes": 91065,
+      "sha256": "265b9b8ac1faf9f98afbc23299fe117ef7036c474f7c43f280ffec3b304c218e"
+    },
+    "rq/bars/year=2026/month=01/part.parquet": {
+      "bytes": 87462,
+      "sha256": "91013d42064a76cbbf05b7ebedfde9a3cd0a2420ae6f6f334dd43e3355ca2c0f"
+    },
+    "rq/bars/year=2026/month=02/part.parquet": {
+      "bytes": 80233,
+      "sha256": "f308fdac5422892ebfc54cc0e8c3f06fe07322f0c25d26f50e00a4bbb87a3396"
+    },
+    "rq/bars/year=2026/month=03/part.parquet": {
+      "bytes": 87441,
+      "sha256": "c495bf8c30865b08e9b085f02e16e9131b6319cfc43727372961c1853e3ac68c"
+    },
+    "rq/bars/year=2026/month=04/part.parquet": {
+      "bytes": 87456,
+      "sha256": "954f051d34e34c8cf9a18e3fd9210ba0a6844d3f33dfe9167a3b26ef76246176"
+    },
+    "rq/bars/year=2026/month=05/part.parquet": {
+      "bytes": 83826,
+      "sha256": "0dc40abdfa20337bbddb460c0c3cff59c08e62dc1b9a9cfca412de187baec991"
+    },
+    "rq/bars/year=2026/month=06/part.parquet": {
+      "bytes": 87463,
+      "sha256": "79293399ab7e5dd5e8bce59226278dfdc86bd48791c02f5ed8a70e30d0211adf"
+    },
+    "rq/bars/year=2026/month=07/part.parquet": {
+      "bytes": 91082,
+      "sha256": "f728599ff33fb03012ca193056eb05bdfe57e152b5cc80016eaea90736806bc1"
+    },
+    "rq/bars/year=2026/month=08/part.parquet": {
+      "bytes": 83865,
+      "sha256": "f2cb23f9528865406cf7d3ee2355ca6a503278f658aaef760fa84d4f7b553a6c"
+    },
+    "rq/bars/year=2026/month=09/part.parquet": {
+      "bytes": 87478,
+      "sha256": "9bf3650c9e28a83a7fddffeba802107ec4e9a115dd480642b27e3d5ee62a24a6"
+    },
+    "rq/bars/year=2026/month=10/part.parquet": {
+      "bytes": 87462,
+      "sha256": "230b760d4247c9e27ae2231f17deacbf69492a75ef520b104ba248f4038db82e"
+    },
+    "rq/bars/year=2026/month=11/part.parquet": {
+      "bytes": 83844,
+      "sha256": "6514d6e403b7bdc5cb07a35cdef42ba4c0be2f3e4cc67ab4a32d343930d6d157"
+    },
+    "rq/bars/year=2026/month=12/part.parquet": {
+      "bytes": 91052,
+      "sha256": "97e2306e491480a86fdbe444585f410108f8364e4a78f4cec5e630509676daf4"
+    },
+    "rq/bars/year=2027/month=01/part.parquet": {
+      "bytes": 83838,
+      "sha256": "d326cae8b72881f2c91784f7b0b3c758dda04890810a4e18fc989b3f89adb868"
+    },
+    "rq/bars/year=2027/month=02/part.parquet": {
+      "bytes": 80226,
+      "sha256": "5d552c8f8f67ea99a641869f21cad03477e27fea91e002f863d164e5cd7e101a"
+    },
+    "rq/bars/year=2027/month=03/part.parquet": {
+      "bytes": 91040,
+      "sha256": "519db2e0e86cf5c35bda4ac87b953e38de8a3d5c470766eb753677fe66c15b80"
+    },
+    "rq/bars/year=2027/month=04/part.parquet": {
+      "bytes": 87482,
+      "sha256": "da2d306e702b03d7dccd2215d22a6c86f914e8c17fd09fd2c5614758e92ad87e"
+    },
+    "rq/bars/year=2027/month=05/part.parquet": {
+      "bytes": 83850,
+      "sha256": "756e84cbd42dd3d3aa9739966a39b05ec1cea14d3c238db4b2302d4b3e2cd0f3"
+    },
+    "rq/bars/year=2027/month=06/part.parquet": {
+      "bytes": 87454,
+      "sha256": "94c9bb86ab93b3e5651c01f7a8edc4ac47165943b42a1852920aad684c8c00a4"
+    },
+    "rq/bars/year=2027/month=07/part.parquet": {
+      "bytes": 87475,
+      "sha256": "68c8b23db9b2f968642ed860406ea9eb06cf2619a2262e71fcacea0ec95f4bfd"
+    },
+    "rq/bars/year=2027/month=08/part.parquet": {
+      "bytes": 87453,
+      "sha256": "73cc8bac502bc855328da6619e61d35992fd4aee57af0d737754d8892e064ec0"
+    },
+    "rq/bars/year=2027/month=09/part.parquet": {
+      "bytes": 87468,
+      "sha256": "3888efcb994641f7a492c2123e32efb86106a5c65fef5899c16351e9ff07e058"
+    },
+    "rq/bars/year=2027/month=10/part.parquet": {
+      "bytes": 83836,
+      "sha256": "5d4d97c99babe2b59e5e4478813051ed073b73578129742ba8ba14e36f169018"
+    },
+    "rq/bars/year=2027/month=11/part.parquet": {
+      "bytes": 87473,
+      "sha256": "f835d1c0e889eb443270aefc340cf36474fecfeec4fc8e69ae63c01c97004505"
+    },
+    "rq/bars/year=2027/month=12/part.parquet": {
+      "bytes": 11307,
+      "sha256": "f6e277b2c3d108a7b404304918b69f78d74ca04bddf862838772402640b9d510"
+    },
+    "rq/financials/statement=income/report_year=2023/part.parquet": {
+      "bytes": 5489,
+      "sha256": "331c9fc82ca9a94f1d2fa47962e9f1094f44ae48804815e8b663e9dfc83455f4"
+    },
+    "rq/financials/statement=income/report_year=2024/part.parquet": {
+      "bytes": 8207,
+      "sha256": "3ae167a505c0ed0134eeca7fcd7f9edc5acf621202a75fd8cb3b45bec9ea2e38"
+    },
+    "rq/instruments/snapshot_date=2027-12-01/part.parquet": {
+      "bytes": 4166,
+      "sha256": "f5ce7351e14dc0f4f5accfd2c4b2b7312b07b7bccd7d88eaaa88f8bd9092c96c"
+    },
+    "rq/market_state/daily_factors/year=2025/month=01/part.parquet": {
+      "bytes": 20386,
+      "sha256": "7ff0717411bc1a0bb3862cd47ad6b837084693558f23fe78feae66db69a2783c"
+    },
+    "rq/market_state/daily_factors/year=2025/month=02/part.parquet": {
+      "bytes": 18861,
+      "sha256": "e56b25751afbf49653dfd6501a41c3eeeeb15583428f66075e3d1e840fc5953e"
+    },
+    "rq/market_state/daily_factors/year=2025/month=03/part.parquet": {
+      "bytes": 19615,
+      "sha256": "23006f59fcdeb3f6b86d09afcdb559065950f256fb70dbb18f284f902552a2b8"
+    },
+    "rq/market_state/daily_factors/year=2025/month=04/part.parquet": {
+      "bytes": 20378,
+      "sha256": "abb72f47dd213d705039755fe82a92f286c68ed84a4ba5e5669eb266979d807f"
+    },
+    "rq/market_state/daily_factors/year=2025/month=05/part.parquet": {
+      "bytes": 20378,
+      "sha256": "2d279a154047c2cff7ebb92a8befda399849374c7ee689c35f411e17dc319bcb"
+    },
+    "rq/market_state/daily_factors/year=2025/month=06/part.parquet": {
+      "bytes": 19615,
+      "sha256": "8c95e8d817c0b40de96b0bad7649cd5969b54428ab4b99c9c9e9be97203e7d8c"
+    },
+    "rq/market_state/daily_factors/year=2025/month=07/part.parquet": {
+      "bytes": 21142,
+      "sha256": "3b9ebde9eeb46cb3196a25a9f856406ee2ac37c6f375a3532d2185eb12f57f5e"
+    },
+    "rq/market_state/daily_factors/year=2025/month=08/part.parquet": {
+      "bytes": 19616,
+      "sha256": "0ba6df4d104f0325bf90f2d3f501978d40c0fb56872321c9cc63a59f86866433"
+    },
+    "rq/market_state/daily_factors/year=2025/month=09/part.parquet": {
+      "bytes": 20378,
+      "sha256": "71b0eac65592e30e4b308fc71872ff31e8f3ac07aabc2332fa8cd1fd5229c4b0"
+    },
+    "rq/market_state/daily_factors/year=2025/month=10/part.parquet": {
+      "bytes": 21141,
+      "sha256": "9d86826a38f49396d8491b5f568df05ed758303f5bd25e4a75d64766b0968bc9"
+    },
+    "rq/market_state/daily_factors/year=2025/month=11/part.parquet": {
+      "bytes": 18861,
+      "sha256": "3656d9a137a0dc61f649cb8d95b01124cc7f6198a599a31c5bc92c5942a1f186"
+    },
+    "rq/market_state/daily_factors/year=2025/month=12/part.parquet": {
+      "bytes": 21142,
+      "sha256": "6af1135f6ab7f6ca5f1e21e8ce1519719e430f6e9b14f74b6f5c16b2478878da"
+    },
+    "rq/market_state/daily_factors/year=2026/month=01/part.parquet": {
+      "bytes": 20378,
+      "sha256": "f36f47740ed970e97c055e644850e93c5792bed7f51a3d000d4427bafe0c4e72"
+    },
+    "rq/market_state/daily_factors/year=2026/month=02/part.parquet": {
+      "bytes": 18861,
+      "sha256": "9bd38e6f6b1f1cc8fd514b40e317afde8b7f6fbd9e23bcf83fbb91475efa2a79"
+    },
+    "rq/market_state/daily_factors/year=2026/month=03/part.parquet": {
+      "bytes": 20379,
+      "sha256": "4f8f9b56cc56706c4d407a5bb61fe7564faa45b4c98a3319cc63be21fbf6821e"
+    },
+    "rq/market_state/daily_factors/year=2026/month=04/part.parquet": {
+      "bytes": 20378,
+      "sha256": "c91e54250db36e2d3305831d707fa3468f90e305901bea6a85284c97f4167780"
+    },
+    "rq/market_state/daily_factors/year=2026/month=05/part.parquet": {
+      "bytes": 19617,
+      "sha256": "dfe34fb01931ad8afad0aebdaaa55eb39b840f4a2260e9acb86df30dea114f86"
+    },
+    "rq/market_state/daily_factors/year=2026/month=06/part.parquet": {
+      "bytes": 20378,
+      "sha256": "cea324f667ec1208d6dd2d3418e06b037fd508e3abd55579b0274248bbf811b2"
+    },
+    "rq/market_state/daily_factors/year=2026/month=07/part.parquet": {
+      "bytes": 21142,
+      "sha256": "60a497d99522336e158c958e125312c28fb5ac5c7df4fbcff4d814812e782d97"
+    },
+    "rq/market_state/daily_factors/year=2026/month=08/part.parquet": {
+      "bytes": 19614,
+      "sha256": "8800e40dea669b50aa1c6591908da38bc2e0954fa32c98a3cbe12fe903df9551"
+    },
+    "rq/market_state/daily_factors/year=2026/month=09/part.parquet": {
+      "bytes": 20379,
+      "sha256": "81c7908b2a3e59f2c51111acd9c1a1eb985b55d7041461e7faec019103c82d2b"
+    },
+    "rq/market_state/daily_factors/year=2026/month=10/part.parquet": {
+      "bytes": 20378,
+      "sha256": "ed84cfe10a6251d7abc22362e510c2af97099a51c5383f47b704a7d170bb1ae9"
+    },
+    "rq/market_state/daily_factors/year=2026/month=11/part.parquet": {
+      "bytes": 19614,
+      "sha256": "df917385bf63ca0b6a3feeb2650ff50de9e499e282e964f7ed423b95c119c086"
+    },
+    "rq/market_state/daily_factors/year=2026/month=12/part.parquet": {
+      "bytes": 21143,
+      "sha256": "3df22aa37b0c0db63f6d908b1ff7b31789f0df91f6dcbb742ed54015e8b9ad3d"
+    },
+    "rq/market_state/daily_factors/year=2027/month=01/part.parquet": {
+      "bytes": 19617,
+      "sha256": "f83c19b579f18c11827eeab128dbce49915102c6e4cf46da5845bc4fc2b5dcb9"
+    },
+    "rq/market_state/daily_factors/year=2027/month=02/part.parquet": {
+      "bytes": 18861,
+      "sha256": "b936d42f682b395f7b4e8f516bbe1208b84ca1efb5e8bf4c47df7d490989dc23"
+    },
+    "rq/market_state/daily_factors/year=2027/month=03/part.parquet": {
+      "bytes": 21142,
+      "sha256": "a7baf620bc15a24fe2e87fe61c10101282cd3ff86306c23633cbc0d3e96f7a78"
+    },
+    "rq/market_state/daily_factors/year=2027/month=04/part.parquet": {
+      "bytes": 20379,
+      "sha256": "a2ebca2f10b8b5f44ad5529ef82bc36a3759f4b03c8b94262d57f451f34a1af9"
+    },
+    "rq/market_state/daily_factors/year=2027/month=05/part.parquet": {
+      "bytes": 19615,
+      "sha256": "cc67dbd4fac7720321e26870858ba606532be80ca6f3eda5126576a07a0d961f"
+    },
+    "rq/market_state/daily_factors/year=2027/month=06/part.parquet": {
+      "bytes": 20379,
+      "sha256": "6b9ac68b28162a080c6aeba5a813f92d2777ecd011f9ed55eeda2517b309562c"
+    },
+    "rq/market_state/daily_factors/year=2027/month=07/part.parquet": {
+      "bytes": 20378,
+      "sha256": "0c1606da8926e2f72fd7e84da22017864d213a1c66da4b1251b81c49b31ada64"
+    },
+    "rq/market_state/daily_factors/year=2027/month=08/part.parquet": {
+      "bytes": 20378,
+      "sha256": "237886df112504b0e1222be8b16cabc95d5064a98a5aa0add82acc1b4e939606"
+    },
+    "rq/market_state/daily_factors/year=2027/month=09/part.parquet": {
+      "bytes": 20378,
+      "sha256": "da0cef68c6c91f6feb397836b368ec3035dad9c67426a56406525fa134f7a2f2"
+    },
+    "rq/market_state/daily_factors/year=2027/month=10/part.parquet": {
+      "bytes": 19615,
+      "sha256": "2d78e9ee11042d4c66e594bcedc268abcbf6327bb3a8cc3e29a14db50c68cb99"
+    },
+    "rq/market_state/daily_factors/year=2027/month=11/part.parquet": {
+      "bytes": 20378,
+      "sha256": "2bbcdb8f715b4bfdcac96c8ad6787fabc8f8793bf8246824e8e6f54b2767b0cd"
+    },
+    "rq/market_state/daily_factors/year=2027/month=12/part.parquet": {
+      "bytes": 4262,
+      "sha256": "02c5854a4cb1d9af5d374745ec2486e96d62dac1105eaa6ca96fb08c775af2f4"
+    },
+    "rq/market_state/is_st/year=2025/month=01/part.parquet": {
+      "bytes": 3130,
+      "sha256": "eec4c1c81acec2edcfcd14f0f8669d089f988f690c087dafb7d1a80e9051b07e"
+    },
+    "rq/market_state/is_st/year=2025/month=02/part.parquet": {
+      "bytes": 3100,
+      "sha256": "b1cc7c282c899e5810b5be2c3780521dd1bb3c4f571344bcda37166eaa572263"
+    },
+    "rq/market_state/is_st/year=2025/month=03/part.parquet": {
+      "bytes": 3110,
+      "sha256": "54a175c8e6f9ba1825b0d608de7346313f27d17c3376cbe4732a187cb95769ab"
+    },
+    "rq/market_state/is_st/year=2025/month=04/part.parquet": {
+      "bytes": 3122,
+      "sha256": "11cddb31fc9aa930c2b3843b9931e1f25d512bef5071ab917e113ddfe9a2bc7d"
+    },
+    "rq/market_state/is_st/year=2025/month=05/part.parquet": {
+      "bytes": 3122,
+      "sha256": "2bfa2fd64bbfae57bb1dfa167932c1f345e78755d9b702519391ba87e28d1262"
+    },
+    "rq/market_state/is_st/year=2025/month=06/part.parquet": {
+      "bytes": 3110,
+      "sha256": "6599c09b637920435c3f5a662ea45025b8d5091ba262be0e586009b5fdac853a"
+    },
+    "rq/market_state/is_st/year=2025/month=07/part.parquet": {
+      "bytes": 3133,
+      "sha256": "bb8cd80cf16e123b3ae1fd4568d7af90eb94c5686099bc5fd8f3b2575b8133e7"
+    },
+    "rq/market_state/is_st/year=2025/month=08/part.parquet": {
+      "bytes": 3111,
+      "sha256": "d2b8f23d800c1f230ae7f598c5d5c1efbd4bae184b5bfbd5b4759e4b6c16db99"
+    },
+    "rq/market_state/is_st/year=2025/month=09/part.parquet": {
+      "bytes": 3122,
+      "sha256": "1eaed798a7d8786e972fc23b9ae19e14cc1709d99076020b0ac33898e28d472a"
+    },
+    "rq/market_state/is_st/year=2025/month=10/part.parquet": {
+      "bytes": 3132,
+      "sha256": "9020ecbff370ca3110b7acc4f07e0c4b3887c615c01013db002b15b22740e3d3"
+    },
+    "rq/market_state/is_st/year=2025/month=11/part.parquet": {
+      "bytes": 3100,
+      "sha256": "c5b54b4c097976ed4427bc9ff796895961794ad93f9320de86936970613b2c52"
+    },
+    "rq/market_state/is_st/year=2025/month=12/part.parquet": {
+      "bytes": 3133,
+      "sha256": "26ddeec95347660d9cac01a86c2aed0e4a9109bde45b80d0b450431298d9f00a"
+    },
+    "rq/market_state/is_st/year=2026/month=01/part.parquet": {
+      "bytes": 3122,
+      "sha256": "da782acafc94868d00fe7839fd417c1511b37dec54754273ecf0664771426393"
+    },
+    "rq/market_state/is_st/year=2026/month=02/part.parquet": {
+      "bytes": 3100,
+      "sha256": "4578f942ddc59f38a418d381f5f57c1f1f498b9d3a97cf74359418713c1888c1"
+    },
+    "rq/market_state/is_st/year=2026/month=03/part.parquet": {
+      "bytes": 3123,
+      "sha256": "be46654c0f463ef47bb7cfbfbbbe7dd2a811ae25ccd8bfdf8b18709372398eac"
+    },
+    "rq/market_state/is_st/year=2026/month=04/part.parquet": {
+      "bytes": 3122,
+      "sha256": "b3a877a287b83b043b6413d004c3acacc93ff5b8473ba589f967cfcc9d86c9c4"
+    },
+    "rq/market_state/is_st/year=2026/month=05/part.parquet": {
+      "bytes": 3112,
+      "sha256": "b3cd43f31f4eea56bf1c00c038061cdf279b05fef087413ccfb6581f683634b5"
+    },
+    "rq/market_state/is_st/year=2026/month=06/part.parquet": {
+      "bytes": 3122,
+      "sha256": "e6c2841e31ddcbf77d768983a48dcdf0bf7924c250ed49db1b82c362c466579a"
+    },
+    "rq/market_state/is_st/year=2026/month=07/part.parquet": {
+      "bytes": 3133,
+      "sha256": "9e36d57d495c0940b2f0c4a0c5d1d241ccae28e79423a789135c2c13066934a1"
+    },
+    "rq/market_state/is_st/year=2026/month=08/part.parquet": {
+      "bytes": 3109,
+      "sha256": "cb0919079b5128c1f803e0f1d860910c76a8e8ff3d65be2c18edd8acaabb4902"
+    },
+    "rq/market_state/is_st/year=2026/month=09/part.parquet": {
+      "bytes": 3123,
+      "sha256": "55e48b79adf25ce31b0dd31147ebecdaa28b8a4da2561491c1a2eeae2ecb3844"
+    },
+    "rq/market_state/is_st/year=2026/month=10/part.parquet": {
+      "bytes": 3122,
+      "sha256": "058dc9c1d7342cd5b15f8e5ba3ba8e5108fe0c96178d64fa46c6fd2b34cba1f8"
+    },
+    "rq/market_state/is_st/year=2026/month=11/part.parquet": {
+      "bytes": 3109,
+      "sha256": "a6ede74280af7a125fb590e18495a8b2c7106ded0d6be2893b6229cee9b42ce7"
+    },
+    "rq/market_state/is_st/year=2026/month=12/part.parquet": {
+      "bytes": 3134,
+      "sha256": "26b22df2dcd4103fdb0ada816b29e475fe9ecf299fe7173d9d7ba34d6adc0d62"
+    },
+    "rq/market_state/is_st/year=2027/month=01/part.parquet": {
+      "bytes": 3112,
+      "sha256": "54b39e5d59d0177fc12cda16d3b89e89fe871f9d6dbf1effec4c851a7b1458b6"
+    },
+    "rq/market_state/is_st/year=2027/month=02/part.parquet": {
+      "bytes": 3100,
+      "sha256": "46be6968bc6ef704ab9d1ffbfd452bd629c7118f7e5660ed0a7f7aac28de0d68"
+    },
+    "rq/market_state/is_st/year=2027/month=03/part.parquet": {
+      "bytes": 3133,
+      "sha256": "371c8ef2c9ee2b7b7d83ffab01c2f329e5e42b21907bde5d5e9b9199a63af0ab"
+    },
+    "rq/market_state/is_st/year=2027/month=04/part.parquet": {
+      "bytes": 3123,
+      "sha256": "6e830e467e93ba3d6f8c11d05e902a5033ef2935a5be0510aa2f37154287fba2"
+    },
+    "rq/market_state/is_st/year=2027/month=05/part.parquet": {
+      "bytes": 3110,
+      "sha256": "6000d58baae00a9b4033e47d6874c3bfb903e104de348aeb35332796f6db999f"
+    },
+    "rq/market_state/is_st/year=2027/month=06/part.parquet": {
+      "bytes": 3123,
+      "sha256": "0e8a253927264a268ad101d04c65207e7d7bee0cd4f817b74af1b152ed8168f7"
+    },
+    "rq/market_state/is_st/year=2027/month=07/part.parquet": {
+      "bytes": 3122,
+      "sha256": "3800b4b86417b3ac1134f7b37ba595d02122a04ecae67950b11d67eea110e086"
+    },
+    "rq/market_state/is_st/year=2027/month=08/part.parquet": {
+      "bytes": 3122,
+      "sha256": "bf61e9b6cf3516290fbd682967be6ce5871177eada008d91ae8a9c64e5445e3c"
+    },
+    "rq/market_state/is_st/year=2027/month=09/part.parquet": {
+      "bytes": 3122,
+      "sha256": "7eae57db888c93c03182c1c4aaff547b3c4315a4484a23d2d02952fa9b6f2056"
+    },
+    "rq/market_state/is_st/year=2027/month=10/part.parquet": {
+      "bytes": 3110,
+      "sha256": "f39764071ff81362e7445fbb95caac1c81e4d404d7afcd40538cebef65c5462e"
+    },
+    "rq/market_state/is_st/year=2027/month=11/part.parquet": {
+      "bytes": 3122,
+      "sha256": "9dfdf7fd021286d799caf4278e942a4d9e100c20831a14cc6a032198078e3774"
+    },
+    "rq/market_state/is_st/year=2027/month=12/part.parquet": {
+      "bytes": 2862,
+      "sha256": "a90b56ff72f87e64f8213d6364b7128e2990690c346e32cc673d3173b2795495"
+    },
+    "rq/market_state/paused/year=2025/month=01/part.parquet": {
+      "bytes": 3134,
+      "sha256": "790f95f914feb0d92f16295903a55443485214e9407fdfda3c32b1138b4741e7"
+    },
+    "rq/market_state/paused/year=2025/month=02/part.parquet": {
+      "bytes": 3104,
+      "sha256": "c93e00c9ab9d404411c7c01f5e71396611cd1812a38dccbf76a518fab465d07d"
+    },
+    "rq/market_state/paused/year=2025/month=03/part.parquet": {
+      "bytes": 3114,
+      "sha256": "270ae3e62662c97db4ca60326925211a3266894a64827c38cac0de9328e8bb41"
+    },
+    "rq/market_state/paused/year=2025/month=04/part.parquet": {
+      "bytes": 3126,
+      "sha256": "4a991f0fb860671a8200479ff9d31f37261e065aa5c034d1a595295eefbc2d7e"
+    },
+    "rq/market_state/paused/year=2025/month=05/part.parquet": {
+      "bytes": 3126,
+      "sha256": "ccbae51382b93153a976123d4db950c93fbf01703fdcc10bea8ce605c03167dc"
+    },
+    "rq/market_state/paused/year=2025/month=06/part.parquet": {
+      "bytes": 3114,
+      "sha256": "6c02058905335d8962e403bac45d702b35909fd9eb30306bcbbe4220d3763e1f"
+    },
+    "rq/market_state/paused/year=2025/month=07/part.parquet": {
+      "bytes": 3137,
+      "sha256": "aee9ed291cbc370e961ec4529ddf62fbf12184d8a7a2327390be443cbd9b5f26"
+    },
+    "rq/market_state/paused/year=2025/month=08/part.parquet": {
+      "bytes": 3115,
+      "sha256": "e6b700c46d1140596e1449afc99e6cf2a02077594ecb6f5e40e682de82b1e440"
+    },
+    "rq/market_state/paused/year=2025/month=09/part.parquet": {
+      "bytes": 3126,
+      "sha256": "7b310076a534ea8be079236b1ad309af9ed1da664841c4dc81175744aeee8aad"
+    },
+    "rq/market_state/paused/year=2025/month=10/part.parquet": {
+      "bytes": 3136,
+      "sha256": "d7dca5af19d3b8cd1eb553d4605117ac5dc6d53104a5da11945edf9c8fa1a37a"
+    },
+    "rq/market_state/paused/year=2025/month=11/part.parquet": {
+      "bytes": 3104,
+      "sha256": "f224f71f72827e7c26382db8b0ad5ee433e04813e562685b1d21236e1d56f776"
+    },
+    "rq/market_state/paused/year=2025/month=12/part.parquet": {
+      "bytes": 3137,
+      "sha256": "828d14be43ed8494addc09ab083ab791ee98143f28629f6b9fa0d72a75b690fa"
+    },
+    "rq/market_state/paused/year=2026/month=01/part.parquet": {
+      "bytes": 3126,
+      "sha256": "3431a9a5695c6b1fa0bcb250d88411a4e6b8b354bd0051591e38278d3c93e91f"
+    },
+    "rq/market_state/paused/year=2026/month=02/part.parquet": {
+      "bytes": 3104,
+      "sha256": "17a91e72b961502a9ef73d14aeefa380d17a51e88ae72a7742ff967bf9993c8a"
+    },
+    "rq/market_state/paused/year=2026/month=03/part.parquet": {
+      "bytes": 3127,
+      "sha256": "03eb7c11c73b573a3c11d0e168bd3bf8d83d30daf3088bd782b5fe511182ba71"
+    },
+    "rq/market_state/paused/year=2026/month=04/part.parquet": {
+      "bytes": 3126,
+      "sha256": "a81564163f8c232b684941347ad34e2b847db720e734f8e812ef54aed6f56e8c"
+    },
+    "rq/market_state/paused/year=2026/month=05/part.parquet": {
+      "bytes": 3116,
+      "sha256": "0624a6bd83a1add34923fbebba6b5d3903e25f441ec5a922c6852e11ced4770d"
+    },
+    "rq/market_state/paused/year=2026/month=06/part.parquet": {
+      "bytes": 3126,
+      "sha256": "20b18fc26ec93afbc699f1be73dbb9495165abbf2a5deb0f57f6fb60d604f2f7"
+    },
+    "rq/market_state/paused/year=2026/month=07/part.parquet": {
+      "bytes": 3137,
+      "sha256": "d05e91953520e37875ecd6da01befad0f52d625a917d0456d4b911ce83843287"
+    },
+    "rq/market_state/paused/year=2026/month=08/part.parquet": {
+      "bytes": 3113,
+      "sha256": "e727282a1367deb42135ba0c15bdc1fba4e136a50733ea25e6e2dca0e359d981"
+    },
+    "rq/market_state/paused/year=2026/month=09/part.parquet": {
+      "bytes": 3127,
+      "sha256": "fdc9aa7dcf895ed7d0db60a1cd5382a1ad8f1998249f136a65e608d0d31bae24"
+    },
+    "rq/market_state/paused/year=2026/month=10/part.parquet": {
+      "bytes": 3126,
+      "sha256": "942c33037e8e18eb1bfb9a249357e50cc7dc11e3a1c194fa5687ca64b01c0147"
+    },
+    "rq/market_state/paused/year=2026/month=11/part.parquet": {
+      "bytes": 3113,
+      "sha256": "380408074cc29cb5a20728a0a42f67bfd7dc576b64ea6e4ae8b1381338db7415"
+    },
+    "rq/market_state/paused/year=2026/month=12/part.parquet": {
+      "bytes": 3138,
+      "sha256": "65a9e25bec1ed498d1df3110c11bce2728f05a8830b53545928975b170d2d4b8"
+    },
+    "rq/market_state/paused/year=2027/month=01/part.parquet": {
+      "bytes": 3116,
+      "sha256": "2059aa05bd2c42eca62efeab7d00f3c25d4ba62f4a230ade20efc2b6116772db"
+    },
+    "rq/market_state/paused/year=2027/month=02/part.parquet": {
+      "bytes": 3104,
+      "sha256": "95619b81d74c0297b8741c510a4620c59e28dc36a2d94c1d2401398341fa5143"
+    },
+    "rq/market_state/paused/year=2027/month=03/part.parquet": {
+      "bytes": 3137,
+      "sha256": "6b59ac32030a62ceadd000c30649965b38c918d0f4c1a5bfcf595b6a9ad16408"
+    },
+    "rq/market_state/paused/year=2027/month=04/part.parquet": {
+      "bytes": 3127,
+      "sha256": "8267585a1b7c9e1b1bd6b774d1ab1b393672944d8801065605b63e8ff3cfc5a3"
+    },
+    "rq/market_state/paused/year=2027/month=05/part.parquet": {
+      "bytes": 3114,
+      "sha256": "9997353c261b6f14ebb60de8dc2cda72a617bd9b6ef5aaf863e477ec9c8a539e"
+    },
+    "rq/market_state/paused/year=2027/month=06/part.parquet": {
+      "bytes": 3127,
+      "sha256": "e10efd52c50eebb00e9cebede89a759b988ee6ecae28f0c039b6a8fe7b25b0a8"
+    },
+    "rq/market_state/paused/year=2027/month=07/part.parquet": {
+      "bytes": 3126,
+      "sha256": "190459dafc9a29afa39f3bfdfd9dcf4184a9a1b282a17a3ffba8ca500bc76a4b"
+    },
+    "rq/market_state/paused/year=2027/month=08/part.parquet": {
+      "bytes": 3126,
+      "sha256": "0411953799bdbd5c247e85bdf0e34ee033891032cdd3fba42fa68b01996ce99d"
+    },
+    "rq/market_state/paused/year=2027/month=09/part.parquet": {
+      "bytes": 3126,
+      "sha256": "8759a17185cb69f914f1340ebfcb1a09d55e4259a21e0a0399213b5cbe66c902"
+    },
+    "rq/market_state/paused/year=2027/month=10/part.parquet": {
+      "bytes": 3114,
+      "sha256": "f2051e316aadd373631b49445706347ebba443936ed30f60b163da9050b85eac"
+    },
+    "rq/market_state/paused/year=2027/month=11/part.parquet": {
+      "bytes": 3126,
+      "sha256": "b6627b4defea2b7c0f0ed6851cd1b9084056324ff1ba7f0d05fdf7b51d6749c3"
+    },
+    "rq/market_state/paused/year=2027/month=12/part.parquet": {
+      "bytes": 2866,
+      "sha256": "7c8ca40b340c85b70f1c11272c4c08fdfb1a18abcd273598a52ca873f1187d96"
+    }
+  }
+}

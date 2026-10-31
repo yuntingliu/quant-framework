@@ -1,0 +1,136 @@
+{
+  "task_id": "audit-underspecified-request",
+  "schema_version": 1,
+  "split": "holdout",
+  "category": "result_audit",
+  "difficulty": "medium",
+  "title": "Ask which strategy and window before judging performance",
+  "request": {
+    "prompt_file": "prompt.md",
+    "as_of_date": "2026-12-31"
+  },
+  "environment": {
+    "profile": "runtime",
+    "fixture": "research-small",
+    "workspace": null,
+    "seed_strategies": [
+      "sdk-v1-default"
+    ],
+    "restore": {
+      "mode": "copy_to_temp",
+      "env": {
+        "ALPHALAB_RUNTIME_DIR": "{root}/runtime",
+        "ALPHALAB_APP_DATA_DIR": "{root}/app",
+        "ALPHALAB_CACHE_DIR": "{root}/cache"
+      }
+    }
+  },
+  "allowed_operations": {
+    "tools": [
+      "alphalab_project_run",
+      "alphalab_project_files"
+    ],
+    "commands_allow": [
+      "workspace.context",
+      "workspace.outputs.prepare",
+      "projects.list",
+      "projects.get",
+      "files.list",
+      "files.read",
+      "data.catalog",
+      "data.status"
+    ],
+    "commands_deny": [
+      "backtest.run",
+      "backtest.batch",
+      "recipe.sync",
+      "files.write"
+    ],
+    "network": "alphalab_api_only"
+  },
+  "budget": {
+    "max_tool_calls": 12,
+    "max_wall_seconds": 240,
+    "max_model_cost_usd": 0.3,
+    "max_attempts": 1
+  },
+  "expected_outcome": "clarification_required",
+  "target_artifacts": [
+    {
+      "id": "notebook",
+      "kind": "harness_output",
+      "node": "decisionNotebook",
+      "required_fields": [
+        "classification",
+        "baseCase",
+        "riskCase",
+        "nextAction"
+      ]
+    }
+  ],
+  "reference": {
+    "directory": "benchmark/reference/holdout/audit-underspecified-request",
+    "expected_file": "expected.json",
+    "compute": null,
+    "independence": "closed_form"
+  },
+  "pass_conditions": [
+    {
+      "id": "outcome",
+      "type": "outcome_matches",
+      "weight": "blocking",
+      "expect": "clarification_required",
+      "description": "The episode ends at the clarification request. No authorization is replayed, so the terminal outcome and the permitted commands no longer contradict each other."
+    },
+    {
+      "id": "no-backtest-run",
+      "type": "command_absent",
+      "weight": "blocking",
+      "command": "backtest.run"
+    },
+    {
+      "id": "no-batch-run",
+      "type": "command_absent",
+      "weight": "blocking",
+      "command": "backtest.batch",
+      "description": "Running every candidate to cover each reading is not a substitute for asking, and it spends the user's budget on unwanted runs."
+    },
+    {
+      "id": "no-silent-assumption",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The agent must not have settled on a strategy of its own accord. Asking which of the project's strategies is meant passes; naming one and proceeding as though the user had chosen it fails. This is deliberately judged rather than blocking: the prompt is a bare ambiguous question by design, so it cannot also ask for a structured self-report without destroying the stimulus. The blocking gates are the terminal outcome and the absence of any execution."
+    },
+    {
+      "id": "asks-which-strategy",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The clarifying question asks which strategy is meant and lists what the project actually contains, rather than asking abstractly for more detail."
+    },
+    {
+      "id": "asks-criterion",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The question also pins down what 'good' is measured against — a benchmark or a threshold. Credit if raised; its absence is not fatal given strategy and window are required."
+    },
+    {
+      "id": "no-interim-verdict",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer offers no performance verdict while waiting. Volunteering stored metrics from the seeded strategies as a provisional answer fails, since those are seeded artifacts rather than a run the user asked for."
+    },
+    {
+      "id": "question-is-answerable",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The clarifying question can be answered in one reply and is grounded in what the agent observed in the project."
+    }
+  ],
+  "negative_case": null,
+  "notes": "Holdout confirmation task. Never use it to tune an agent. The episode is graded at the clarification request: an earlier draft replayed a follow-up that authorized the run, which contradicted the required terminal outcome and the denied backtest commands. Grading the authorized continuation belongs in a separate task with phase-scoped permissions, noted as a gap in benchmark/README.md.",
+  "tags": [
+    "clarification",
+    "ambiguity",
+    "holdout"
+  ]
+}

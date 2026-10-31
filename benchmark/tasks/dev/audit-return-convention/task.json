@@ -1,0 +1,258 @@
+{
+  "task_id": "audit-return-convention",
+  "schema_version": 1,
+  "split": "dev",
+  "category": "result_audit",
+  "difficulty": "hard",
+  "title": "Catch a daily return series annualised as if it were monthly",
+  "request": {
+    "prompt_file": "prompt.md",
+    "as_of_date": "2026-12-31"
+  },
+  "environment": {
+    "profile": "runtime",
+    "fixture": "research-small",
+    "workspace": "workspace",
+    "seed_strategies": [
+      "sdk-v1-default"
+    ],
+    "restore": {
+      "mode": "copy_to_temp",
+      "env": {
+        "ALPHALAB_RUNTIME_DIR": "{root}/runtime",
+        "ALPHALAB_APP_DATA_DIR": "{root}/app",
+        "ALPHALAB_CACHE_DIR": "{root}/cache"
+      }
+    }
+  },
+  "allowed_operations": {
+    "tools": [
+      "alphalab_project_run",
+      "alphalab_project_files"
+    ],
+    "commands_allow": [
+      "workspace.context",
+      "workspace.outputs.prepare",
+      "projects.get",
+      "files.list",
+      "files.read",
+      "data.catalog",
+      "data.status",
+      "backtest.run",
+      "backtest.status",
+      "backtest.wait",
+      "backtest.summary",
+      "backtest.analysis",
+      "backtest.validation",
+      "backtest.robustness"
+    ],
+    "commands_deny": [
+      "recipe.sync",
+      "files.write",
+      "backtest.batch"
+    ],
+    "requires_confirmation": [
+      "confirm_python_execution"
+    ],
+    "network": "alphalab_api_only"
+  },
+  "budget": {
+    "max_tool_calls": 26,
+    "max_wall_seconds": 480,
+    "max_model_cost_usd": 0.9,
+    "max_attempts": 1
+  },
+  "expected_outcome": "completed",
+  "target_artifacts": [
+    {
+      "id": "summary",
+      "kind": "backtest_run",
+      "required_fields": [
+        "metrics",
+        "execution_reliable",
+        "successful_trade_count",
+        "cash_rejection_count"
+      ],
+      "source_command": "backtest.summary"
+    },
+    {
+      "id": "cadence",
+      "kind": "tool_result",
+      "source_command": "backtest.robustness",
+      "required_fields": [
+        "result"
+      ]
+    },
+    {
+      "id": "findings",
+      "kind": "agent_findings",
+      "required_fields": [
+        "report_sound",
+        "defect",
+        "corrected_annual_vol",
+        "risk_budget_breached",
+        "sizing_recommendation_supported",
+        "figures_correct_as_printed"
+      ],
+      "delivery": {
+        "channel": "workspaceResult.document.rows",
+        "columns": [
+          "field",
+          "value"
+        ],
+        "list_encoding": "row_per_element",
+        "empty_list": "single_null_row"
+      }
+    },
+    {
+      "id": "notebook",
+      "kind": "harness_output",
+      "node": "decisionNotebook",
+      "required_fields": [
+        "classification",
+        "baseCase",
+        "riskCase",
+        "nextAction"
+      ]
+    }
+  ],
+  "reference": {
+    "directory": "benchmark/reference/dev/audit-return-convention",
+    "expected_file": "expected.json",
+    "compute": null,
+    "independence": "independent_recomputation"
+  },
+  "pass_conditions": [
+    {
+      "id": "outcome",
+      "type": "outcome_matches",
+      "weight": "blocking",
+      "expect": "completed"
+    },
+    {
+      "id": "cadence-is-daily",
+      "type": "numeric",
+      "weight": "blocking",
+      "artifact_id": "cadence",
+      "pointer": "/result/return_periods_per_year",
+      "expect": 252,
+      "tolerance": 0,
+      "description": "The production backtest.summary contract does not carry the cadence: build_backtest_summary returns no return_periods_per_year and no diagnostics wrapper. The robustness report does return it, so the agent has to reach the command that actually exposes the evidence rather than invent the field."
+    },
+    {
+      "id": "correct-annual-vol",
+      "type": "numeric",
+      "weight": "blocking",
+      "artifact_id": "summary",
+      "pointer": "/metrics/annual_vol",
+      "expect": 0.09340392304414424,
+      "tolerance": 1e-06,
+      "description": "The daily series annualises at 252, giving 9.34%. The report's 2.04% is the same series annualised at 12."
+    },
+    {
+      "id": "correct-sharpe",
+      "type": "numeric",
+      "weight": "blocking",
+      "artifact_id": "summary",
+      "pointer": "/metrics/sharpe",
+      "expect": 0.7698215371633523,
+      "tolerance": 1e-06
+    },
+    {
+      "id": "report-judged-unsound",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/report_sound",
+      "expect": false
+    },
+    {
+      "id": "defect-named",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/defect",
+      "expect": "wrong_annualisation_factor",
+      "description": "The specific defect, not a vague 'numbers look off'. The prompt lists the permitted values."
+    },
+    {
+      "id": "corrected-vol-reported",
+      "type": "numeric",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/corrected_annual_vol",
+      "expect": 0.09340392304414424,
+      "tolerance": 0.0005,
+      "description": "What the agent tells the user must be the corrected figure, not the report's 2.04%."
+    },
+    {
+      "id": "risk-budget-breached",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/risk_budget_breached",
+      "expect": false,
+      "description": "The material consequence, and deliberately not the obvious answer: corrected volatility is 9.34%, still inside the stated 15% budget. The report's claim of ample headroom is overstated by a factor of about 4.6 but the budget is not breached, so an agent that reflexively flips the sign of every claim fails here."
+    },
+    {
+      "id": "sizing-not-supported",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/sizing_recommendation_supported",
+      "expect": false,
+      "description": "A material increase was justified on a 2.04% volatility read. At 9.34% the headroom argument no longer carries, so the recommendation is unsupported as written even though the budget itself is intact."
+    },
+    {
+      "id": "unaffected-figures",
+      "type": "set_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/figures_correct_as_printed",
+      "expect": [
+        "total_return",
+        "max_drawdown",
+        "observations"
+      ],
+      "description": "Total return, max drawdown and the observation count do not use the annualisation factor and are right as printed. Declaring the whole table wrong fails."
+    },
+    {
+      "id": "no-report-rewrite",
+      "type": "command_absent",
+      "weight": "blocking",
+      "command": "files.write",
+      "description": "The user asked what to change, not for the file to be edited."
+    },
+    {
+      "id": "identifies-mechanism",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer explains that a 499-observation daily series was annualised at 12 periods per year instead of 252, and that every figure in the report is otherwise a genuine metrics output. Calling the table merely inconsistent or stale without naming the convention fails."
+    },
+    {
+      "id": "uses-internal-inconsistency",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "Credit if the answer notes the table contradicts itself on its face: a 2.04% annualised volatility cannot coexist with a -12.91% max drawdown over the same 499 observations. This is the tell that needs no re-run."
+    },
+    {
+      "id": "quantifies-the-overstatement",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer quantifies how far the headroom claim was off — roughly 4.6x — rather than only asserting the report was wrong."
+    }
+  ],
+  "negative_case": {
+    "kind": "wrong_return_convention",
+    "must_be_detected": true,
+    "planted_in": "workspace/reports/h1-2025-review.md",
+    "notes": "Every number in the planted report is a genuine output of PerformanceMetrics.summarize on the real return series; only periods_per_year is wrong. The error is invisible to a plausibility spot check and must be caught by reasoning about cadence, which backtest.summary supplies as return_periods_per_year."
+  },
+  "notes": "The highest-value audit task. Correcting the arithmetic is not enough: the agent must also judge the risk claim, and the correct judgment is mixed rather than a simple reversal.",
+  "tags": [
+    "return-convention",
+    "annualisation",
+    "audit",
+    "negative-case"
+  ]
+}

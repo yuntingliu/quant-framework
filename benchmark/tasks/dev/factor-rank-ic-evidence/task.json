@@ -1,0 +1,213 @@
+{
+  "task_id": "factor-rank-ic-evidence",
+  "schema_version": 1,
+  "split": "dev",
+  "category": "factor_implementation",
+  "difficulty": "medium",
+  "title": "Report whether a momentum factor has predictive power",
+  "request": {
+    "prompt_file": "prompt.md",
+    "as_of_date": "2027-12-01"
+  },
+  "environment": {
+    "profile": "runtime",
+    "fixture": "research-small",
+    "workspace": null,
+    "seed_strategies": [
+      "sdk-v1-default"
+    ],
+    "restore": {
+      "mode": "copy_to_temp",
+      "env": {
+        "ALPHALAB_RUNTIME_DIR": "{root}/runtime",
+        "ALPHALAB_APP_DATA_DIR": "{root}/app",
+        "ALPHALAB_CACHE_DIR": "{root}/cache"
+      }
+    }
+  },
+  "allowed_operations": {
+    "tools": [
+      "alphalab_project_run",
+      "alphalab_project_files"
+    ],
+    "commands_allow": [
+      "workspace.context",
+      "workspace.outputs.prepare",
+      "projects.get",
+      "files.read",
+      "files.list",
+      "data.catalog",
+      "data.status",
+      "factor.snapshot",
+      "factor.history",
+      "factor.research"
+    ],
+    "commands_deny": [
+      "backtest.run",
+      "backtest.batch",
+      "recipe.sync",
+      "files.write"
+    ],
+    "requires_confirmation": [
+      "confirm_python_execution"
+    ],
+    "network": "alphalab_api_only"
+  },
+  "budget": {
+    "max_tool_calls": 20,
+    "max_wall_seconds": 420,
+    "max_model_cost_usd": 0.7,
+    "max_attempts": 1
+  },
+  "expected_outcome": "completed",
+  "target_artifacts": [
+    {
+      "id": "research",
+      "kind": "tool_result",
+      "required_fields": [
+        "result"
+      ],
+      "source_command": "factor.research"
+    },
+    {
+      "id": "findings",
+      "kind": "agent_findings",
+      "required_fields": [
+        "predictive_power_supported",
+        "inverted_signal_supported",
+        "interval_contains_zero"
+      ],
+      "delivery": {
+        "channel": "workspaceResult.document.rows",
+        "columns": [
+          "field",
+          "value"
+        ],
+        "list_encoding": "row_per_element",
+        "empty_list": "single_null_row"
+      }
+    },
+    {
+      "id": "notebook",
+      "kind": "harness_output",
+      "node": "decisionNotebook",
+      "required_fields": [
+        "classification",
+        "baseCase",
+        "riskCase",
+        "nextAction"
+      ]
+    }
+  ],
+  "reference": {
+    "directory": "benchmark/reference/dev/factor-rank-ic-evidence",
+    "expected_file": "expected.json",
+    "compute": null,
+    "independence": "independent_recomputation"
+  },
+  "pass_conditions": [
+    {
+      "id": "outcome",
+      "type": "outcome_matches",
+      "weight": "blocking",
+      "expect": "completed"
+    },
+    {
+      "id": "evidence-sufficient",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "research",
+      "pointer": "/result/status",
+      "expect": "sufficient",
+      "description": "factor.research nests its payload under /result. The 760-session fixture clears the 24-period evidence gate."
+    },
+    {
+      "id": "periods",
+      "type": "numeric",
+      "weight": "blocking",
+      "artifact_id": "research",
+      "pointer": "/result/periods",
+      "expect": 34,
+      "tolerance": 0,
+      "description": "Pins the evaluated window to the full fixture history the prompt asks for, 2025-01-02 to 2027-12-01. A count of 33 means a later start was used than the request describes."
+    },
+    {
+      "id": "mean-rank-ic",
+      "type": "numeric",
+      "weight": "blocking",
+      "artifact_id": "research",
+      "pointer": "/result/summary/mean_rank_ic",
+      "expect": 0.010098223154177246,
+      "tolerance": 1e-09
+    },
+    {
+      "id": "newey-west-t",
+      "type": "numeric",
+      "weight": "blocking",
+      "artifact_id": "research",
+      "pointer": "/result/summary/newey_west_t_stat",
+      "expect": 0.3339081292265366,
+      "tolerance": 1e-09
+    },
+    {
+      "id": "no-predictive-power-claim",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/predictive_power_supported",
+      "expect": false,
+      "description": "The decisive conclusion. Mean Rank IC is +0.010 with a Newey-West t of 0.33 and a bootstrap interval spanning zero, so the evidence does not support predictive power. A positive IC sign is the trap: reporting the right numbers and concluding the factor works fails here."
+    },
+    {
+      "id": "no-inverted-claim",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/inverted_signal_supported",
+      "expect": false,
+      "description": "The long-short spread is negative (-0.179 total, Sharpe -0.334) while mean IC is positive. Neither direction is supported."
+    },
+    {
+      "id": "interval-read-correctly",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/interval_contains_zero",
+      "expect": true,
+      "description": "The 95% bootstrap interval is [-0.050, 0.066]. An agent that reports it but reads it as excluding zero fails."
+    },
+    {
+      "id": "no-unrequested-backtest",
+      "type": "command_absent",
+      "weight": "blocking",
+      "command": "backtest.run",
+      "description": "The user asked for factor evidence, not a strategy run."
+    },
+    {
+      "id": "reconciles-ic-and-spread",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer notes the tension between a mildly positive mean Rank IC and a negative long-short spread, and treats it as further evidence of noise rather than reporting whichever number suits a conclusion."
+    },
+    {
+      "id": "factor-versus-strategy",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer separates factor evidence from whole-strategy viability and does not present the long-short spread as a backtest of the default strategy. It is a factor diagnostic, not an executed portfolio."
+    },
+    {
+      "id": "surfaces-caveat",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer surfaces at least one material caveat: the engine's own warning that the bootstrap interval is not strictly positive, average top-quantile turnover of 0.777, or that this is a synthetic development fixture."
+    }
+  ],
+  "negative_case": null,
+  "notes": "Runs on the runtime profile over the fixture's full history, which is what the prompt asks for. The honest answer is negative despite a positive IC sign, and the conclusion fields are blocking so correct numbers with the wrong verdict cannot pass.",
+  "tags": [
+    "rank-ic",
+    "factor-evidence",
+    "interpretation",
+    "runtime-profile"
+  ]
+}

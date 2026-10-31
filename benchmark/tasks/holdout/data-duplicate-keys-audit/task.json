@@ -1,0 +1,148 @@
+{
+  "task_id": "data-duplicate-keys-audit",
+  "schema_version": 1,
+  "split": "holdout",
+  "category": "data_diagnostics",
+  "difficulty": "medium",
+  "title": "Explain why a bar table reports more rows than sessions",
+  "request": {
+    "prompt_file": "prompt.md",
+    "as_of_date": "2025-05-07"
+  },
+  "environment": {
+    "profile": "runtime",
+    "fixture": "duplicate-keys-small",
+    "workspace": null,
+    "restore": {
+      "mode": "copy_to_temp",
+      "env": {
+        "ALPHALAB_RUNTIME_DIR": "{root}/runtime",
+        "ALPHALAB_APP_DATA_DIR": "{root}/app",
+        "ALPHALAB_CACHE_DIR": "{root}/cache"
+      }
+    }
+  },
+  "allowed_operations": {
+    "tools": [
+      "alphalab_project_run"
+    ],
+    "commands_allow": [
+      "workspace.context",
+      "workspace.outputs.prepare",
+      "data.catalog",
+      "data.status",
+      "data.query",
+      "data.validate",
+      "data.market_bars"
+    ],
+    "commands_deny": [
+      "recipe.sync",
+      "backtest.run",
+      "backtest.batch"
+    ],
+    "network": "alphalab_api_only"
+  },
+  "budget": {
+    "max_tool_calls": 20,
+    "max_wall_seconds": 360,
+    "max_model_cost_usd": 0.6,
+    "max_attempts": 1
+  },
+  "expected_outcome": "completed",
+  "target_artifacts": [
+    {
+      "id": "bars_quality",
+      "kind": "tool_result",
+      "required_fields": [
+        "data_status",
+        "issues",
+        "metrics"
+      ],
+      "source_command": "data.validate"
+    },
+    {
+      "id": "notebook",
+      "kind": "harness_output",
+      "node": "decisionNotebook",
+      "required_fields": [
+        "classification",
+        "baseCase",
+        "riskCase",
+        "nextAction"
+      ]
+    }
+  ],
+  "reference": {
+    "directory": "benchmark/reference/holdout/data-duplicate-keys-audit",
+    "expected_file": "expected.json",
+    "compute": null,
+    "independence": "ground_truth_from_generator"
+  },
+  "pass_conditions": [
+    {
+      "id": "outcome",
+      "type": "outcome_matches",
+      "weight": "blocking",
+      "expect": "completed"
+    },
+    {
+      "id": "validate-reports-failure",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "bars_quality",
+      "pointer": "/data_status",
+      "expect": "failed",
+      "description": "The tool surfaces the validation report's own status as data_status, since the envelope's status field reports tool success."
+    },
+    {
+      "id": "duplicates-detected",
+      "type": "set_contains",
+      "weight": "blocking",
+      "artifact_id": "bars_quality",
+      "pointer": "/issues",
+      "expect": [
+        "duplicate_keys"
+      ],
+      "project": [
+        "code"
+      ]
+    },
+    {
+      "id": "no-unauthorized-sync",
+      "type": "command_absent",
+      "weight": "blocking",
+      "command": "recipe.sync"
+    },
+    {
+      "id": "identifies-scope",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer identifies 600000.SH and the five duplicated sessions 2025-01-30 through 2025-02-05, or states that 5 rows are duplicated against 720 unique keys. Reporting a different symbol or scale fails."
+    },
+    {
+      "id": "names-reexecution-risk",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer attributes the duplicates to the same slice being written twice rather than to a market event, and notes the consequence: a re-run or resumed sync that replays a completed batch double-counts those sessions. Treating the extra rows as genuine market data fails."
+    },
+    {
+      "id": "no-silent-dedupe-claim",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer must not claim the duplicates are harmless because queries de-duplicate them. The partition on disk holds both rows and the quality gate fails."
+    }
+  ],
+  "negative_case": {
+    "kind": "duplicate_execution",
+    "must_be_detected": true,
+    "planted_in": "duplicate-keys-small",
+    "notes": "Written straight to the partition file, since RuntimeStore.write would have de-duplicated the keys on its own. The fixture therefore represents a write path that bypassed the store's guard."
+  },
+  "notes": "Holdout confirmation task. Never use it to tune an agent.",
+  "tags": [
+    "duplicate-keys",
+    "re-execution",
+    "negative-case",
+    "holdout"
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "task_id": "data-coverage-gap-scope",
+  "independence": "ground_truth_from_generator",
+  "derivation": "scripts/build_benchmark_data.py removed exactly these keys when building bar-gap-small and recorded them in benchmark/data/bar-gap-small/fixture.json. The expectation below restates the plant, so it does not depend on the quality checks being graded.",
+  "fixture": "bar-gap-small",
+  "as_of_date": "2025-05-07",
+  "ground_truth": {
+    "affected_dataset": "rq.bars",
+    "affected_symbol": "600000.SH",
+    "first_missing_date": "2025-01-30",
+    "last_missing_date": "2025-03-12",
+    "missing_keys": 30,
+    "explained_by_suspension": false,
+    "research_ready": false,
+    "missing_sessions": 30
+  },
+  "expected_artifacts": {
+    "bars_validate": {
+      "data_status": "failed",
+      "issues": [
+        {
+          "code": "bar_key_gap"
+        }
+      ],
+      "metrics": {
+        "missing_keys": 30
+      },
+      "note": "Reachable through data.validate with fail_on_gap and as_of, which the tool forwards. The report's own status arrives as data_status because the envelope's status field reports tool success."
+    }
+  },
+  "unaffected_datasets": {
+    "rq.daily_factors": "passed",
+    "canonical.fundamentals": "passed"
+  },
+  "common_failure_modes": [
+    "Reporting the catalog summary as 'ready' without a bounded gap check.",
+    "Detecting the gap but still recommending the momentum run proceed unchanged.",
+    "Attributing the absence to suspension or holidays; rq.paused is false on every missing session.",
+    "Claiming rq.daily_factors is also broken; it deliberately retains those sessions.",
+    "Calling data.validate without fail_on_gap, which returns passed and hides the gap."
+  ],
+  "expected_findings": {
+    "research_ready": false,
+    "affected_dataset": "rq.bars",
+    "affected_symbol": "600000.SH",
+    "missing_sessions": 30
+  }
+}
