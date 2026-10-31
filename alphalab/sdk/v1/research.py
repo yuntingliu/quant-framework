@@ -13,6 +13,8 @@ from scipy.cluster.hierarchy import leaves_list, linkage
 from scipy.optimize import minimize
 from scipy.spatial.distance import squareform
 
+from alphalab.sdk.v1.constraint_math import risk_contributions as calculate_risk_contributions
+
 
 class PortfolioOptimizationError(ValueError):
     """Raised when a requested portfolio cannot be estimated or constrained."""
@@ -516,11 +518,14 @@ def _risk_contributions(
 ) -> dict[str, float | None]:
     if covariance is None:
         return {symbol: None for symbol in asset_names}
-    variance = float(weights @ covariance @ weights)
-    if variance <= 1e-20:
+    labelled_covariance = pd.DataFrame(covariance, index=asset_names, columns=asset_names)
+    contributions = calculate_risk_contributions(
+        {symbol: float(weight) for symbol, weight in zip(asset_names, weights)},
+        labelled_covariance,
+    )
+    if contributions is None:
         return {symbol: None for symbol in asset_names}
-    values = weights * (covariance @ weights) / variance
-    return {symbol: float(value) for symbol, value in zip(asset_names, values)}
+    return contributions
 
 
 def _validate_solution(weights: np.ndarray, target_gross: float, max_weight: float) -> None:
