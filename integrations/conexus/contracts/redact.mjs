@@ -17,6 +17,9 @@
 
 export const REDACTED = '[redacted]'
 
+/** Stands in for a subtree too deep to inspect. Never the subtree itself. */
+export const DEPTH_LIMITED = '[depth-limited]'
+
 // Matched against a property name, case-insensitively. `authorization` covers
 // the header shape; `*_key` and `*_token` cover settings files like
 // secrets/model-providers.json and search-providers.json.
@@ -42,10 +45,18 @@ function redactText(text) {
  * Structural, so it is safe on a payload whose secrets are unknown: any
  * property whose *name* looks like a credential is replaced whole, and every
  * remaining string is scrubbed for bearer tokens, URL userinfo and digests.
+ *
+ * The depth limit substitutes `DEPTH_LIMITED` for the remaining subtree rather
+ * than returning it. Returning an uninspected object would be the worst
+ * possible failure for this function: a nested `api_key` would survive into
+ * output the caller believes is redacted. Dropping data a redactor could not
+ * inspect is the safe direction, and bounding depth also makes a cyclic
+ * payload terminate without needing to track ancestry.
  */
 export function redact(value, depth = 8) {
   if (typeof value === 'string') return redactText(value)
-  if (depth <= 0 || value === null || typeof value !== 'object') return value
+  if (value === null || typeof value !== 'object') return value
+  if (depth <= 0) return DEPTH_LIMITED
   if (Array.isArray(value)) return value.map(item => redact(item, depth - 1))
   return Object.fromEntries(Object.entries(value).map(([name, item]) => [
     name,

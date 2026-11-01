@@ -79,7 +79,7 @@ ADAPTER_INTERFACES: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
     "packages/runtime-core/src/capabilities/node-capability-contracts.ts": (
         "integrations/conexus/alphalab-research-agent/",
-        ("financial.tool.request", "financial.tool.response"),
+        ("financial.tool.request", "financial.tool.failure", "financial.tool.job"),
     ),
 }
 
@@ -90,10 +90,11 @@ VERIFICATION: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("framework documentation", ("python", "scripts/check_conexus_docs.py")),
     ("adapter contracts", ("python", "-m", "pytest", "tests/contracts/test_conexus_adapter_contracts.py", "-q")),
     ("adapter conformance", ("node", "--test", "tests/conexus-adapter-contracts.test.mjs")),
+    ("shipped financial tool conformance",
+     ("node", "--test", "tests/conexus-financial-tool-contracts.test.mjs")),
     ("lifecycle examples", ("node", "--test", "examples/conexus/minimal-agent/test/lifecycle.test.mjs")),
     ("financial examples", ("node", "--test", "examples/conexus/financial-integration/test/research.test.mjs")),
     ("adapter substitution", ("node", "--test",
-                              "examples/conexus/adapter-contracts/test/financial.test.mjs",
                               "examples/conexus/adapter-contracts/test/substitution.test.mjs")),
 )
 

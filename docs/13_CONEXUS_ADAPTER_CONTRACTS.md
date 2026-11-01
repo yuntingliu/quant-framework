@@ -39,7 +39,7 @@ suites validate the same declaration instead of two that drift apart.
 | --- | --- | --- | --- |
 | Model completion | `complete` to `createLocalHost` | [`model-providers.mjs`](../integrations/conexus/model-providers.mjs) | `model.completion.request`, `model.completion.response` |
 | Host capability | `capabilities` to `createLocalRuntime` | [`web-search.mjs`](../integrations/conexus/web-search.mjs) | `capability.response`, `search.response` |
-| Financial Tool node | a `tool` node in the graph | [`alphalab-research-agent/tools/`](../integrations/conexus/alphalab-research-agent/tools/) | `financial.tool.request`, `financial.tool.response` |
+| Financial Tool node | a `tool` node in the graph | [`alphalab-research-agent/tools/`](../integrations/conexus/alphalab-research-agent/tools/) | `financial.tool.request`, `financial.tool.failure`, `financial.tool.job`, `financial.tool.result` |
 | OS runtime | `runtimeAdapter` | core `createLocalRuntime` | `runtime.adapter.profile` |
 | State storage | the Host's `projectRoot` | core `openState` | `state.snapshot` |
 | Authorization | the Host's `token` | core `createLocalHost` | `authorization.failure` |
@@ -162,32 +162,83 @@ failed Run.
 
 ## Financial Tool nodes
 
-`financial.tool.request` is the command-and-args contract. Three parts of it
-are load-bearing:
+### There is no single success envelope
+
+This is the first thing to know about these contracts, and it was the first
+thing an earlier revision of them got wrong. The two shipped Tool nodes —
+`alphalab_project_run` and `alphalab_project_files` — are uniform in *failure*
+and not in *success*:
+
+| Outcome | Shape | Commands |
+| --- | --- | --- |
+| Any refusal or backend error | `financial.tool.failure` | all 44 |
+| Asynchronous submission or poll | `financial.tool.job` | `backtest.run`, `backtest.status`, `backtest.wait`, `recipe.sync`, `sync.status`, `sync.cancel` |
+| Synchronous command | `financial.tool.result` | the data, factor, preview and analysis commands |
+| Transport passthrough | *none* | `workspace.outputs.prepare`, `backtest.summary`, `backtest.events` |
+
+Those last three return the backend payload unchanged, so nothing structural
+may be assumed of them. That is recorded in
+`financialTool.transportPassthroughCommands` rather than papered over with a
+schema permissive enough to accept anything — a contract that accepts anything
+is not a contract, and a benchmark that believed otherwise would be checking
+nothing.
+
+Nothing in any of these shapes is a `success` boolean, and most do not echo
+`command`. A contract requiring either would reject ordinary production
+outcomes.
+
+### The failure shape is the one that matters
+
+Both tools route every refusal and every backend error through a shared
+`publicFailure`, so `financial.tool.failure` is exactly five fields:
+`status: 'failed'`, a code to branch on, one line of `error_summary`,
+an `error_details` object, and a nullable `log_reference`.
+`additionalProperties` is false, which is what keeps a traceback field from
+being added later without anyone noticing.
+
+`error_summary` is capped at 500 characters because `safeText` slices there —
+after replacing absolute paths with `<internal-path>` and any 40–64 character
+hex run with `<internal-id>`, so neither a filesystem layout nor a digest can
+round-trip through the Agent. `error_details` is not passed through either: it
+is rebuilt from a 13-key allowlist, so a backend that attaches a traceback or a
+source hash to its error detail loses it at this boundary.
+
+### The request contract
 
 **Confirmation flags are top-level.** `confirm_python_execution`,
 `confirm_write`, `confirm_delete` and `confirm_cancel` are exactly the four the
 shipped bundle exposes, and the contract *forbids* any of them inside `args`.
 A nested flag could be smuggled in by an argument blob the model copied from
-untrusted text; the `not` rule on `args` rejects that outright, and
-`tests/contracts/test_conexus_adapter_contracts.py` asserts the shipped tool
-schemas accept no top-level field the contract rejects.
+untrusted text; the `not` rule on `args` rejects that outright. The shipped
+tool independently refuses it, because `requirePython` reads the top-level
+field and never looks in `args` — both halves are asserted.
 
 **`args` is otherwise unconstrained.** Each command validates its own
 arguments and returns a correction-oriented error. Constraining `args`
 centrally would move 44 commands' worth of validation into one schema and give
 the model a worse message than the command can give it.
 
-**A refusal is one bounded line.** Backend errors carry file paths, identifiers
-and request details. `financial.tool.response` caps `error` at 400 characters,
-and the real `Project-Run` tool additionally strips absolute paths and any
-40–64 character hex token so digests cannot round-trip through the Agent.
+**Required arguments are declared per command, and verified.** A schema cannot
+express "`backtest.run` needs `project_id`, `start_date` and `end_date`"
+without enumerating 44 command branches, so those live in
+`financialTool.reducedCommandSurface` as data. The test omits each declared
+argument in turn, asserts the shipped tool's refusal names it, and asserts the
+backend was never called — the difference between the tool declining and the
+backend declining.
 
-Asynchronous work has its own rule. Submission returns `job_id` and `status`
-immediately and never blocks; a wait that reaches its deadline returns
-`success: true` with `timed_out: true`. An unfinished job is an answer, not a
-failed call — an Agent told the invocation failed would retry the submission
-and run the work twice.
+### Identifiers are not interchangeable
+
+`backtest.status` and `backtest.wait` take `args.job_id`. `backtest.summary`
+takes `args.backtest_id`. Passing one where the other belongs is a refusal, and
+a job's `backtest_id` only appears once a status read reports a terminal state.
+A double that accepted either identifier would teach an Agent a call the
+application rejects, so both refusals are asserted against production and
+against the double.
+
+Asynchronous work has its own rule. Submission answers immediately with the
+job's status and id and carries no result; an unfinished poll is a
+`financial.tool.job` record with a non-terminal status, never a failure. An
+Agent told the invocation failed would resubmit and run the work twice.
 
 ## State storage
 
@@ -327,7 +378,7 @@ than a lookalike that drifts from it.
 | --- | --- | --- |
 | `contractCompletion` | `configuredCompletion` | Request checking, `model_not_allowed`, cancellation |
 | `contractSearch` | `configuredWebSearch` | Query bounds, result bounds, refusal codes, cancellation |
-| `contractFinancialTool` | a financial Tool node | The command surface, the confirmation gate, async job states |
+| `contractFinancialTool` | `alphalab_project_run` | Five of its 44 commands, their required arguments, the confirmation gate, the identifier split, and `publicFailure`'s wording |
 | `memoryStateStore` | `openState` | Snapshot validation on every save |
 
 [`examples/conexus/adapter-contracts/`](../examples/conexus/adapter-contracts/README.md)
@@ -335,16 +386,32 @@ is the worked example: the same minimal task runs over the shipped
 `createModelCompletion` against a loopback endpoint and over the in-process
 double, and the two outcomes are compared with one `deepEqual`.
 
+`contractFinancialTool` is held to a higher standard than resemblance.
+[`shipped-tool.mjs`](../integrations/conexus/contracts/shipped-tool.mjs) runs
+the shipped Tool node's **own `code`** with only `fetch` and
+`ALPHALAB_API_ORIGIN` replaced — argument validation, confirmation gates,
+payload compaction and error shaping all execute for real — and
+`tests/conexus-financial-tool-contracts.test.mjs` drives production and the
+double through identical sequences, asserting the same refusals in the same
+words. Substituting the transport rather than the implementation is the whole
+difference between testing the tool and testing a lookalike.
+
+The double's command surface is five of the shipped 44, declared in
+`financialTool.reducedCommandSurface`. A benchmark needing more must extend the
+double; it must not discover the limit at scoring time.
+
 The OS runtime adapter is deliberately *not* substituted. Tool child processes,
 their environment allowlist and their timeouts are what the Agent is measured
 through, so simulating them would measure the double.
 
 ```bash
 node --test tests/conexus-adapter-contracts.test.mjs
+node --test tests/conexus-financial-tool-contracts.test.mjs
 node --test 'examples/conexus/adapter-contracts/test/*.test.mjs'
 ```
 
-The first needs no built runtime. The second skips with a build hint until
+The first two need no built runtime — the shipped tool runs in process over a
+stubbed transport. The third skips with a build hint until
 `python scripts/build_conexus_runtime.py` has run.
 
 ## Upgrading the pinned core
@@ -403,6 +470,7 @@ python scripts/check_conexus_upgrade.py --verify
 | framework documentation | Every path, symbol, command and complete-set claim still resolves |
 | adapter contracts | Both validators agree, the taxonomy is complete, the tool bundle conforms |
 | adapter conformance | The shipped adapters still satisfy the contracts offline |
+| shipped financial tool conformance | The real Tool node code still satisfies its contracts over a stubbed transport |
 | lifecycle and financial examples | Run semantics, failure shapes and restart behaviour are unchanged |
 | adapter substitution | A replacement adapter still executes the same task identically |
 
@@ -415,6 +483,7 @@ pin and the verification travel together.
 ```bash
 python -m pytest tests/contracts/test_conexus_adapter_contracts.py -q
 node --test tests/conexus-adapter-contracts.test.mjs
+node --test tests/conexus-financial-tool-contracts.test.mjs
 python scripts/check_conexus_docs.py
 ```
 
@@ -422,8 +491,12 @@ CI enforces, in addition to the two validators agreeing: every contract is a
 valid JSON Schema and declares an owner, a direction, notes, and at least one
 valid and one invalid example; `retryableCodes` is a subset of the declared
 codes; the search family matches the adapter exactly; the core families cover
-everything the snapshot raises; and the shipped tool bundle accepts no
-top-level field the request contract rejects.
+everything the snapshot raises; the shipped tool bundle accepts no top-level
+field the request contract rejects; every command the financial boundary names
+is a real shipped command; and the example tool's `{ success, command }`
+envelope is rejected by all three financial response contracts, which is the
+regression guard against these contracts drifting back toward describing the
+example instead of the shipped tool.
 
 A new keyword in a contract schema is a deliberate step: `validate.mjs` reports
 an unsupported keyword as an error rather than ignoring it, so adding one means

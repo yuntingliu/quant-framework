@@ -74,10 +74,12 @@ job submission, the execution-confirmation gate, and an unreachable backend.
 
 [`adapter-contracts/`](adapter-contracts/README.md) adds what issue #11
 requires: the same minimal task executed over the shipped model adapter and
-over a replacement test adapter, with identical outcomes; every envelope the
-real financial Tool node returns validated against
-`financial.tool.response`; and the Host's authorization refusals validated
-against `authorization.failure`.
+over a replacement test adapter, with identical outcomes, and the Host's
+authorization refusals validated against `authorization.failure`. The shipped
+financial Tool node is held to its contracts in
+[`tests/conexus-financial-tool-contracts.test.mjs`](../../tests/conexus-financial-tool-contracts.test.mjs)
+instead, which runs the real tool code over a stubbed transport and so needs no
+built runtime.
 
 ## The test doubles
 

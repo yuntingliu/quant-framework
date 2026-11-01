@@ -67,6 +67,20 @@ export function contractCompletion(script, { model } = {}) {
 
 const searchFailure = (code, error, retryable = false) => ({ result: { success: false, code, error, retryable } })
 
+/** Waits `delayMs`, rejecting as soon as `signal` aborts and leaking neither timer nor listener. */
+function settleAfter(delayMs, signal) {
+  return new Promise((done, fail) => {
+    const finish = outcome => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      outcome()
+    }
+    const onAbort = () => finish(() => fail(signal.reason))
+    const timer = setTimeout(() => finish(done), delayMs)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 /**
  * A `web.search` capability double with the real adapter's refusal shape.
  *
@@ -87,13 +101,11 @@ export function contractSearch({ sources = [], provider = 'brave', failWith, del
     const requested = Number(params.input.count ?? 5)
     const count = Number.isFinite(requested) ? Math.max(1, Math.min(20, Math.trunc(requested))) : 5
     try {
-      if (delayMs) {
-        await new Promise((done, fail) => {
-          const timer = setTimeout(done, delayMs)
-          params.signal?.addEventListener('abort', () => { clearTimeout(timer); fail(params.signal.reason) }, { once: true })
-        })
-      }
+      // Checked before the timer is scheduled: an `abort` event is not
+      // replayed for a signal that was already aborted, so waiting first would
+      // sit out the whole delay on a Run that is already cancelled.
       params.signal?.throwIfAborted()
+      if (delayMs) await settleAfter(delayMs, params.signal)
     } catch {
       // Cancellation and timeout share the real adapter's catch-all code, so a
       // benchmark cannot tell a cancelled search from a broken one. That is
@@ -109,53 +121,105 @@ export function contractSearch({ sources = [], provider = 'brave', failWith, del
 }
 
 /**
- * A financial Tool node body double: the command-and-args contract with one
- * asynchronous job, and nothing behind it.
+ * A financial Tool node body double: the shipped command-and-args contract with
+ * one asynchronous job, and nothing behind it.
  *
- * `backtest.run` stages a job that advances one step per status read, so a
- * benchmark exercises submit/poll/wait/read without a backtest engine and
- * without a sleep. The confirmation gate is enforced here exactly as the real
- * tool enforces it, because a double that executes without the flag would let
- * a benchmark reward an Agent for skipping it.
+ * This mirrors `alphalab_project_run`, not the simplified example tool. That
+ * distinction is the whole point. The production tool has **no single success
+ * envelope**: a refusal is `publicFailure`'s five fields, a submission is
+ * `{ status, job_id, strategy_id }`, a status read is a wide job record, and
+ * `backtest.summary` returns the backend payload unchanged. A double that
+ * invented a uniform `{ success, command }` envelope would let a benchmark
+ * reward calls the application rejects, and would hide which identifier each
+ * command actually takes — `args.job_id` for a status read, `args.backtest_id`
+ * for a summary.
+ *
+ * The command surface is deliberately five of the shipped 44, declared in
+ * `financialTool.reducedCommandSurface` so a benchmark reads the limit rather
+ * than discovering it. Required arguments, confirmation gates and refusal
+ * wording all match the shipped tool, and
+ * tests/conexus-financial-tool-contracts.test.mjs drives the production code
+ * and this double through identical sequences to keep them that way.
+ *
+ * `steps` is how many status reads a job needs before it reaches a terminal
+ * state, so submit/poll/wait/read is exercised without a backtest engine and
+ * without a sleep.
  */
-export function contractFinancialTool({ steps = 2, summary = { total_return: 0.12, execution_reliable: true } } = {}) {
+export function contractFinancialTool({ steps = 2, metrics = { total_return: 0.12, sharpe: 0.77 } } = {}) {
   const jobs = new Map()
   let nextJob = 0
-  const reply = value => assertContract('financial.tool.response', value)
+
+  // The shipped tool's own wording, so a benchmark Agent reads the same text
+  // from either backend and cannot learn to correct one but not the other.
+  const failure = summary => assertContract('financial.tool.failure', {
+    status: 'failed', error_code: 'PROJECT_RUN_FAILED',
+    error_summary: String(summary).split(/\r?\n/, 1)[0].slice(0, 500),
+    error_details: {}, log_reference: null,
+  })
+  const required = (args, key, command) => {
+    const value = args[key]
+    if (value === undefined || value === null || value === '') throw new Error(`${command} requires args.${key}`)
+    return value
+  }
 
   return async input => {
     const violations = checkContract('financial.tool.request', input)
     if (violations.length) {
-      return reply({ success: false, command: String(input?.command ?? ''), error: `Invalid tool input: ${violations[0].path} ${violations[0].keyword}.` })
+      return failure(`Invalid tool input: ${violations[0].path} ${violations[0].keyword}.`)
     }
     const { command } = input
     const args = input.args ?? {}
-    if (command === 'data.status') return reply({ success: true, command, result: { coverage: 1, rows: 690 } })
-    if (command === 'backtest.run') {
-      if (input.confirm_python_execution !== true) {
-        return reply({ success: false, command, error: 'backtest.run requires confirm_python_execution=true.' })
+    try {
+      if (command === 'data.status') {
+        return assertContract('financial.tool.result', {
+          status: 'succeeded', data_status: 'ready', ready: true, total: 1,
+          datasets: [{ id: 'rq.bars', rows: 690, status: 'ready' }],
+        })
       }
-      const jobId = `job-${++nextJob}`
-      jobs.set(jobId, { remaining: steps, status: 'queued' })
-      return reply({ success: true, command, job_id: jobId, status: 'queued' })
-    }
-    if (command === 'backtest.status' || command === 'backtest.wait' || command === 'backtest.summary') {
-      const jobId = String(args.job_id ?? '')
-      const job = jobs.get(jobId)
-      if (!job) return reply({ success: false, command, error: `${command} requires a known args.job_id.` })
+      if (command === 'backtest.run') {
+        // The gate is enforced before the arguments are read, exactly as
+        // `requirePython` runs before `required` in the shipped tool.
+        if (input.confirm_python_execution !== true) {
+          throw new Error(`${command} requires confirm_python_execution=true`)
+        }
+        const projectId = String(required(args, 'project_id', command))
+        required(args, 'start_date', command)
+        required(args, 'end_date', command)
+        const jobId = `job-${++nextJob}`
+        jobs.set(jobId, { remaining: steps, status: 'queued', projectId, backtestId: null })
+        return assertContract('financial.tool.job', {
+          status: 'queued', job_id: jobId, strategy_id: String(args.strategy_id ?? 'main'),
+        })
+      }
+      if (command === 'backtest.status' || command === 'backtest.wait') {
+        const jobId = String(required(args, 'job_id', command))
+        const job = jobs.get(jobId)
+        if (!job) throw new Error(`${command} requires args.job_id`)
+        // A status read advances one step; a wait runs to a terminal state, as
+        // the shipped tool's server-side bounded wait does.
+        job.remaining -= command === 'backtest.wait' ? job.remaining : Math.min(job.remaining, 1)
+        job.status = job.remaining > 0 ? 'running' : 'succeeded'
+        if (job.status === 'succeeded') job.backtestId ??= jobId.replace('job-', 'bt-')
+        return assertContract('financial.tool.job', {
+          status: job.status, job_id: jobId, backtest_id: job.backtestId,
+          project_id: job.projectId, error_code: null, error_summary: null,
+          error_details: {}, log_reference: null,
+          metrics: job.status === 'succeeded' ? metrics : {},
+        })
+      }
       if (command === 'backtest.summary') {
-        if (job.status !== 'succeeded') return reply({ success: false, command, error: 'The job has not finished.' })
-        return reply({ success: true, command, result: { job_id: jobId, metrics: summary } })
+        const backtestId = String(required(args, 'backtest_id', command))
+        const job = [...jobs.values()].find(entry => entry.backtestId === backtestId)
+        if (!job) throw new Error('The backtest has not finished.')
+        // Transport passthrough: the shipped tool returns the backend payload
+        // unchanged here, so the double returns a payload and claims no
+        // envelope. Nothing structural may be assumed of it.
+        return { backtest_id: backtestId, status: 'succeeded', metrics }
       }
-      const advance = command === 'backtest.wait' ? job.remaining : Math.min(job.remaining, 1)
-      job.remaining -= advance
-      job.status = job.remaining > 0 ? 'running' : 'succeeded'
-      // A wait that has not finished is a successful call reporting an
-      // unfinished job, never a failed invocation.
-      const timedOut = command === 'backtest.wait' && job.remaining > 0
-      return reply({ success: true, command, job_id: jobId, status: job.status, progress: { remaining: job.remaining }, ...(timedOut ? { timed_out: true } : {}) })
+      throw new Error('Unsupported project-run command. Read the injected AlphaLab SDK skill for valid commands.')
+    } catch (reason) {
+      return failure(reason?.message ?? reason)
     }
-    return reply({ success: false, command, error: `Unsupported command: ${command}` })
   }
 }
 

@@ -18,10 +18,10 @@ import {
 } from '../integrations/conexus/contracts/adapters.mjs'
 import { unsupportedKeywords } from '../integrations/conexus/contracts/validate.mjs'
 import {
-  TEST_CREDENTIALS, contractCompletion, contractFinancialTool, contractSearch,
+  TEST_CREDENTIALS, contractCompletion, contractSearch,
   memoryStateStore, substituteProfile, textTurn, toolTurn,
 } from '../integrations/conexus/contracts/doubles.mjs'
-import { REDACTED, assertNoSecrets, redact } from '../integrations/conexus/contracts/redact.mjs'
+import { DEPTH_LIMITED, REDACTED, assertNoSecrets, redact } from '../integrations/conexus/contracts/redact.mjs'
 import { configuredWebSearch } from '../integrations/conexus/web-search.mjs'
 import { configuredCompletion, readActiveProvider } from '../integrations/conexus/model-providers.mjs'
 
@@ -303,6 +303,38 @@ test('assertNoSecrets refuses a fixture too short to be evidence', () => {
   assert.throws(() => assertNoSecrets({}, ['short']), /at least 8 characters/)
 })
 
+test('redaction substitutes a marker at the depth limit rather than the subtree', () => {
+  // Returning an uninspected object here would be this function's worst
+  // failure: a nested credential surviving into output a caller believes is
+  // redacted. Dropping what could not be inspected is the safe direction.
+  const secret = TEST_CREDENTIALS.searchApiKey
+  const nest = (leaf, depth) => {
+    let value = leaf
+    for (let level = 0; level < depth; level += 1) value = { child: value }
+    return value
+  }
+  for (const depth of [7, 8, 9, 20]) {
+    const objects = redact(nest({ api_key: secret }, depth))
+    assertNoSecrets(objects, [secret], `an object nested ${depth} deep`)
+    const arrays = redact(nest([{ api_key: secret }], depth))
+    assertNoSecrets(arrays, [secret], `an array nested ${depth} deep`)
+    // A bearer token and URL userinfo are strings, so they must be scrubbed or
+    // dropped at depth too — never passed through inside a returned subtree.
+    const strings = redact(nest({ note: `Authorization: Bearer ${secret}`, endpoint: `https://u:${secret}@host/v1` }, depth))
+    assertNoSecrets(strings, [secret], `strings nested ${depth} deep`)
+  }
+
+  // Just inside the limit the content is still redacted in place; past it the
+  // whole remaining subtree is replaced.
+  assert.equal(redact(nest({ api_key: secret }, 7)).child.child.child.child.child.child.child.api_key, REDACTED)
+  assert.equal(redact(nest({ api_key: secret }, 8)).child.child.child.child.child.child.child.child, DEPTH_LIMITED)
+
+  // A cyclic payload terminates instead of exhausting the stack.
+  const cyclic = { label: 'root' }
+  cyclic.self = cyclic
+  assert.equal(typeof JSON.stringify(redact(cyclic)), 'string')
+})
+
 test('the model double enforces the completion contract in both directions', async () => {
   const complete = contractCompletion([
     toolTurn('use', { node_id: 'series-stats', capability: 'tool.invoke', input: { values: [1, 2] } }),
@@ -355,54 +387,19 @@ test('the search double matches the real adapter refusal and cancellation shapes
   assert.equal(cancelled.result.retryable, true)
 })
 
-test('the financial tool double gates execution and reports async work in contract', async () => {
-  const tool = contractFinancialTool({ steps: 2 })
-
-  const ungated = await tool({ command: 'backtest.run', args: { strategy_id: 'main' } })
-  assertContract('financial.tool.response', ungated)
-  assert.equal(ungated.success, false)
-  assert.match(ungated.error, /confirm_python_execution=true/)
-
-  // A confirmation smuggled into `args` does not authorize anything.
-  const smuggled = await tool({ command: 'backtest.run', args: { confirm_python_execution: true } })
-  assert.equal(smuggled.success, false)
-  assert.match(smuggled.error, /Invalid tool input: \/args not/)
-
-  const started = await tool({ command: 'backtest.run', confirm_python_execution: true })
-  assertContract('financial.tool.response', started)
-  assert.equal(started.status, 'queued')
-
-  const polled = await tool({ command: 'backtest.status', args: { job_id: started.job_id } })
-  assert.equal(polled.status, 'running')
-  const waited = await tool({ command: 'backtest.wait', args: { job_id: started.job_id } })
-  assert.equal(waited.status, 'succeeded')
-  assert.equal(waited.timed_out, undefined)
-
-  const summary = await tool({ command: 'backtest.summary', args: { job_id: started.job_id } })
-  assertContract('financial.tool.response', summary)
-  assert.equal(summary.result.metrics.execution_reliable, true)
-
-  for (const bad of [{ command: 'backtest.summary' }, { command: 'nope.command' }, { command: 'Backtest.Run' }]) {
-    const refused = await tool(bad)
-    assertContract('financial.tool.response', refused)
-    assert.equal(refused.success, false)
-    assert.ok(refused.error.length <= 400)
-  }
-})
-
-test('an unfinished wait is a successful call reporting an unfinished job', async () => {
-  const tool = contractFinancialTool({ steps: 5 })
-  const started = await tool({ command: 'backtest.run', confirm_python_execution: true })
-  const waited = await tool({ command: 'backtest.wait', args: { job_id: started.job_id } })
-  assert.equal(waited.success, true)
-  assert.equal(waited.status, 'succeeded')
-
-  const slow = contractFinancialTool({ steps: 2 })
-  const job = await slow({ command: 'backtest.run', confirm_python_execution: true })
-  await slow({ command: 'backtest.status', args: { job_id: job.job_id } })
-  const summary = await slow({ command: 'backtest.summary', args: { job_id: job.job_id } })
-  assert.equal(summary.success, false)
-  assert.match(summary.error, /has not finished/)
+test('a search on an already-cancelled run refuses immediately', async () => {
+  // An `abort` event is not replayed for a signal that aborted before the
+  // listener was attached, so a double that waits first would sit out its whole
+  // delay on a Run that is already over.
+  const slow = contractSearch({ delayMs: 60000 })
+  const controller = new AbortController()
+  controller.abort()
+  const started = Date.now()
+  const refused = await slow({ input: { query: 'pre-cancelled' }, signal: controller.signal })
+  assertContract('search.response', refused)
+  assert.equal(refused.result.code, 'search_request_failed')
+  assert.equal(refused.result.retryable, true)
+  assert.ok(Date.now() - started < 1000, `pre-cancelled search waited ${Date.now() - started}ms`)
 })
 
 test('the state store refuses a snapshot the Host would not read back', async () => {

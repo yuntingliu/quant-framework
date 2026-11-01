@@ -70,6 +70,39 @@
     "search_request_failed",
     "run_timed_out"
   ],
+  "financialTool": {
+    "owner": "application",
+    "source": "integrations/conexus/alphalab-research-agent/tools/",
+    "toolNames": ["alphalab_project_run", "alphalab_project_files"],
+    "notes": "The shipped Tool nodes have no single success envelope, and pretending otherwise is how a benchmark ends up rewarding calls the application would reject. Failures are uniform; successes are not. Three commands return the backend payload unchanged and therefore guarantee nothing structurally, which is recorded here rather than papered over with a permissive schema.",
+    "failureCodes": [
+      "PROJECT_RUN_FAILED",
+      "PROJECT_FILES_FAILED",
+      "ALPHALAB_API_ERROR",
+      "ALPHALAB_API_TIMEOUT",
+      "ALPHALAB_API_UNAVAILABLE",
+      "DATA_SYNC_FAILED"
+    ],
+    "transportPassthroughCommands": ["workspace.outputs.prepare", "backtest.summary", "backtest.events"],
+    "reducedCommandSurface": {
+      "notes": "The commands `contractFinancialTool` implements, deliberately five of the shipped 44. A benchmark that needs more must extend the double rather than quietly accept a narrower surface. Each entry is verified against the shipped tool: the test omits every required argument in turn and asserts the production refusal names it, then asserts the double refuses identically.",
+      "commands": {
+        "data.status": {"requiredArgs": [], "confirm": null, "contract": "financial.tool.result"},
+        "backtest.run": {
+          "requiredArgs": ["project_id", "start_date", "end_date"],
+          "confirm": "confirm_python_execution",
+          "contract": "financial.tool.job"
+        },
+        "backtest.status": {"requiredArgs": ["job_id"], "confirm": null, "contract": "financial.tool.job"},
+        "backtest.wait": {"requiredArgs": ["job_id"], "confirm": null, "contract": "financial.tool.job"},
+        "backtest.summary": {
+          "requiredArgs": ["backtest_id"],
+          "confirm": null,
+          "contract": "transport-passthrough"
+        }
+      }
+    }
+  },
   "contracts": {
     "model.completion.request": {
       "title": "Model completion request",
@@ -474,50 +507,182 @@
         ]
       }
     },
-    "financial.tool.response": {
-      "title": "Financial Tool node output",
+    "financial.tool.failure": {
+      "title": "Financial Tool node failure",
       "owner": "application",
       "direction": "adapter-to-core",
-      "notes": "Every response echoes `command`, so a transcript stays readable when several calls interleave. A refusal is success:false with one bounded line and no traceback. Asynchronous work returns `job_id` plus `status` immediately; a wait that reaches its deadline returns success:true with timed_out:true, because an unfinished job is an answer, not a failed call.",
+      "notes": "The one shape both shipped Tool nodes guarantee. Every refusal and every backend error passes through their shared `publicFailure`, so these five fields are exactly what an Agent sees when a command does not succeed: a code it can branch on, one bounded line, an allowlisted detail object, and an optional log reference. `error_summary` is capped at 500 characters because `safeText` slices there after stripping absolute paths and 40-64 character hex tokens, so a traceback cannot reach the transcript. There is deliberately no `success` field and no echoed `command`.",
+      "appliesTo": "every command of alphalab_project_run and alphalab_project_files",
       "schema": {
         "type": "object",
-        "required": ["success", "command"],
+        "additionalProperties": false,
+        "required": ["status", "error_code", "error_summary", "error_details", "log_reference"],
         "properties": {
-          "success": {"type": "boolean"},
-          "command": {"type": "string"},
-          "error": {"type": "string", "minLength": 1, "maxLength": 400},
-          "job_id": {"type": "string", "minLength": 1},
+          "status": {"const": "failed"},
+          "error_code": {"type": "string", "minLength": 1, "maxLength": 120},
+          "error_summary": {"type": "string", "minLength": 1, "maxLength": 500},
+          "error_details": {"type": "object"},
+          "log_reference": {"type": ["string", "null"]}
+        }
+      },
+      "examples": {
+        "valid": [
+          {
+            "status": "failed",
+            "error_code": "PROJECT_RUN_FAILED",
+            "error_summary": "backtest.run requires confirm_python_execution=true",
+            "error_details": {},
+            "log_reference": null
+          },
+          {
+            "status": "failed",
+            "error_code": "ALPHALAB_API_UNAVAILABLE",
+            "error_summary": "AlphaLab API is unavailable.",
+            "error_details": {},
+            "log_reference": "run-1"
+          }
+        ],
+        "invalid": [
+          {
+            "value": {"success": false, "command": "backtest.run", "error": "refused"},
+            "path": "/",
+            "keyword": "required"
+          },
+          {
+            "value": {
+              "status": "failed",
+              "error_code": "PROJECT_RUN_FAILED",
+              "error_summary": "x",
+              "error_details": {},
+              "log_reference": null,
+              "traceback": "File ..."
+            },
+            "path": "/",
+            "keyword": "additionalProperties"
+          },
+          {
+            "value": {
+              "status": "succeeded",
+              "error_code": "PROJECT_RUN_FAILED",
+              "error_summary": "x",
+              "error_details": {},
+              "log_reference": null
+            },
+            "path": "/status",
+            "keyword": "const"
+          },
+          {
+            "value": {
+              "status": "failed",
+              "error_code": "PROJECT_RUN_FAILED",
+              "error_summary": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "error_details": {},
+              "log_reference": null
+            },
+            "path": "/error_summary",
+            "keyword": "maxLength"
+          }
+        ]
+      }
+    },
+    "financial.tool.job": {
+      "title": "Financial Tool node job",
+      "owner": "application",
+      "direction": "adapter-to-core",
+      "notes": "What the asynchronous commands return. Submission answers immediately with the job's status and id and never blocks; a status or wait read answers with the job's current state. `status` carries the backend's own value rather than a fixed enum, so a new backend state does not become a contract violation, and `job_id` is nullable because a sync job that failed before it was accepted has none. An unfinished wait is this shape with a non-terminal status, not a failure: an Agent told the invocation failed would resubmit and run the work twice.",
+      "appliesTo": "backtest.run, backtest.status, backtest.wait, recipe.sync, sync.status, sync.cancel",
+      "schema": {
+        "type": "object",
+        "required": ["status", "job_id"],
+        "properties": {
           "status": {"type": "string", "minLength": 1},
-          "progress": {},
-          "timed_out": {"type": "boolean"},
+          "job_id": {"type": ["string", "null"]},
+          "backtest_id": {"type": ["string", "null"]},
+          "strategy_id": {"type": ["string", "null"]},
+          "project_id": {"type": ["string", "null"]},
+          "result_id": {"type": ["string", "null"]},
+          "error_code": {"type": ["string", "null"], "maxLength": 120},
+          "error_summary": {"type": ["string", "null"], "maxLength": 500},
+          "error_details": {"type": "object"},
+          "log_reference": {"type": ["string", "null"]},
+          "metrics": {"type": "object"}
+        }
+      },
+      "examples": {
+        "valid": [
+          {"status": "queued", "job_id": "job-1", "strategy_id": "main"},
+          {
+            "status": "succeeded",
+            "job_id": "job-1",
+            "backtest_id": "bt-1",
+            "error_code": null,
+            "error_summary": null,
+            "error_details": {},
+            "log_reference": null,
+            "metrics": {"sharpe": 0.77}
+          },
+          {"status": "running", "job_id": "job-1", "backtest_id": null}
+        ],
+        "invalid": [
+          {"value": {"status": "queued"}, "path": "/", "keyword": "required"},
+          {"value": {"status": "queued", "job_id": 7}, "path": "/job_id", "keyword": "type"},
+          {"value": {"status": "", "job_id": "job-1"}, "path": "/status", "keyword": "minLength"},
+          {
+            "value": {
+              "status": "failed",
+              "job_id": "job-1",
+              "error_summary": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            "path": "/error_summary",
+            "keyword": "maxLength"
+          }
+        ]
+      }
+    },
+    "financial.tool.result": {
+      "title": "Financial Tool node result",
+      "owner": "application",
+      "direction": "adapter-to-core",
+      "notes": "The shape the Tool node builds itself for a synchronous command: a literal succeeded status plus whatever that command compacted. Most of these echo `command`, but a few do not, so it is optional here rather than required. Payloads are bounded before they reach the Agent - row sets are head/tail sampled, series are reduced to summaries, and the `OMIT` set strips source, provenance, tracebacks and absolute paths - so a large backend response cannot flood a transcript.",
+      "appliesTo": "data.catalog, data.status, data.query, data.validate, data.market_bars, data.fundamentals, data.factor_returns, recipe.plan, sync.list, factor.research, factor.snapshot, factor.history, strategy.preview, backtest.compare, backtest.validation, backtest.analysis, backtest.attribution, backtest.robustness, backtest.signals, market_risk.evaluate",
+      "schema": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": {"const": "succeeded"},
+          "command": {"type": "string", "minLength": 1},
+          "project_id": {"type": ["string", "null"]},
+          "revision": {"type": ["number", "null"]},
           "result": {"type": "object"}
         }
       },
       "examples": {
         "valid": [
-          {"success": true, "command": "data.status", "result": {"coverage": 0.98}},
-          {"success": true, "command": "backtest.run", "job_id": "job-1", "status": "queued"},
           {
-            "success": true,
-            "command": "backtest.wait",
-            "job_id": "job-1",
-            "status": "running",
-            "timed_out": true
+            "status": "succeeded",
+            "data_status": "ready",
+            "total": 1,
+            "datasets": [{"id": "rq.bars", "rows": 690}]
           },
           {
-            "success": false,
-            "command": "backtest.run",
-            "error": "backtest.run requires confirm_python_execution=true."
+            "status": "succeeded",
+            "command": "data.query",
+            "rows": [],
+            "row_count": 0,
+            "rows_truncated": false
+          },
+          {
+            "status": "succeeded",
+            "command": "factor.research",
+            "project_id": "p1",
+            "revision": 3,
+            "result": {}
           }
         ],
         "invalid": [
-          {"value": {"success": false}, "path": "/", "keyword": "required"},
-          {
-            "value": {"success": false, "command": "backtest.run", "error": ""},
-            "path": "/error",
-            "keyword": "minLength"
-          },
-          {"value": {"success": "no", "command": "data.status"}, "path": "/success", "keyword": "type"}
+          {"value": {"command": "data.query"}, "path": "/", "keyword": "required"},
+          {"value": {"status": "failed", "command": "data.query"}, "path": "/status", "keyword": "const"},
+          {"value": {"status": "succeeded", "command": ""}, "path": "/command", "keyword": "minLength"}
         ]
       }
     },

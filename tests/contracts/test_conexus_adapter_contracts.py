@@ -180,3 +180,72 @@ def test_shipped_tool_bundle_satisfies_the_request_contract(path: Path) -> None:
     # Confirmation flags are top-level only. A nested one must be rejected.
     for flag in (name for name in declared if name.startswith("confirm_")):
         assert violations(request_schema, {"command": "data.status", "args": {flag: True}}), flag
+
+
+def shipped_commands() -> set[str]:
+    commands: set[str] = set()
+    for path in sorted(TOOLS.glob("*.tool.json")):
+        commands |= set(json.loads(path.read_text(encoding="utf-8"))["inputSchema"]["properties"]["command"]["enum"])
+    return commands
+
+
+def test_the_declared_financial_boundary_matches_the_shipped_bundle() -> None:
+    """The response contracts describe the shipped tool, not a simplified stand-in.
+
+    An earlier revision of this work derived them from the example tool in
+    examples/conexus/financial-integration, whose `{success, command}` envelope
+    the shipped tool never produces. The checks below are what makes the
+    difference visible: every command the document names must be a real command,
+    and the reduced surface a benchmark gets must be declared rather than
+    discovered.
+    """
+    financial = DOCUMENT["financialTool"]
+    commands = shipped_commands()
+
+    surface = financial["reducedCommandSurface"]["commands"]
+    assert surface, "the double's command surface is undeclared"
+    for command, declared in surface.items():
+        assert command in commands, f"{command} is not a shipped command"
+        assert isinstance(declared["requiredArgs"], list)
+        expected = declared["contract"]
+        assert expected == "transport-passthrough" or expected in DOCUMENT["contracts"], expected
+        if declared["confirm"] is not None:
+            assert declared["confirm"].startswith("confirm_")
+
+    for command in financial["transportPassthroughCommands"]:
+        assert command in commands, f"{command} is not a shipped command"
+
+    # The failure codes the tools can originate themselves. These are
+    # SCREAMING_CASE and deliberately live outside `errorCodes`, whose members
+    # are the lowercase codes the core and the search adapter use.
+    for path in sorted(TOOLS.glob("*.tool.json")):
+        code = json.loads(path.read_text(encoding="utf-8"))["code"]
+        for literal in re.findall(r"error_code:String\(error\.code\|\|'([A-Z_]+)'\)", code):
+            assert literal in financial["failureCodes"], literal
+        for literal in re.findall(r"error_code:'([A-Z_]+)'", code):
+            assert literal in financial["failureCodes"], literal
+    assert not set(financial["failureCodes"]) & DECLARED_CODES, (
+        "financial failure codes must stay out of the lowercase core taxonomy"
+    )
+
+
+def test_the_financial_response_contracts_reject_the_example_envelope() -> None:
+    """A regression guard for the defect this replaced.
+
+    The example tool's envelope must not validate against the production
+    contracts. If it does, the contracts have drifted back toward describing
+    the example rather than the shipped tool.
+    """
+    example = {"success": True, "command": "data.status", "result": {"coverage": 1}}
+    for contract_id in ("financial.tool.failure", "financial.tool.job", "financial.tool.result"):
+        assert violations(contract(contract_id)["schema"], example), contract_id
+
+    # And the shapes the shipped tool really returns must validate.
+    assert violations(contract("financial.tool.failure")["schema"], {
+        "status": "failed", "error_code": "PROJECT_RUN_FAILED",
+        "error_summary": "backtest.run requires args.project_id",
+        "error_details": {}, "log_reference": None,
+    }) == []
+    assert violations(contract("financial.tool.job")["schema"], {
+        "status": "queued", "job_id": "job-1", "strategy_id": "main",
+    }) == []

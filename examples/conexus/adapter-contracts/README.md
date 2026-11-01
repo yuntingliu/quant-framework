@@ -37,12 +37,20 @@ profile is all `inspectHostedRelease` checks a Release against.
 | --- | --- |
 | [`substitute.mjs`](substitute.mjs) | The replacement adapter set, plus the equivalence assertion |
 | [`test/substitution.test.mjs`](test/substitution.test.mjs) | The same minimal task over both adapter stacks; the authorization contract |
-| [`test/financial.test.mjs`](test/financial.test.mjs) | Every envelope the real financial Tool node returns, validated |
 
 The doubles themselves are not example code. They live in
 [`integrations/conexus/contracts/doubles.mjs`](../../../integrations/conexus/contracts/doubles.mjs)
 so a benchmark imports the same backend the tests here use, rather than a
 lookalike that drifts.
+
+The financial Tool node is checked somewhere else on purpose. An earlier
+version of this directory validated the *example* tool in
+[`financial-integration/`](../financial-integration/README.md), whose
+`{ success, command }` envelope the shipped tool never produces — so it proved
+nothing about production. That check now lives in
+[`tests/conexus-financial-tool-contracts.test.mjs`](../../../tests/conexus-financial-tool-contracts.test.mjs),
+which runs the shipped tool's own code with only its HTTP transport replaced
+and needs no built runtime.
 
 ## Run it
 
@@ -79,10 +87,10 @@ an Agent that sees `retryable: true` from one backend and `false` from the
 other behaves differently for reasons that have nothing to do with the task.
 
 **The confirmation gate is enforced in the double.** `backtest.run` without
-`confirm_python_execution` is refused by `contractFinancialTool` exactly as the
-real tool refuses it, and a flag smuggled into `args` is rejected by the
-request contract. A double that executed anyway would let a benchmark reward an
-Agent for skipping the gate.
+`confirm_python_execution` is refused by `contractFinancialTool` in the shipped
+tool's own words, and a flag smuggled into `args` is rejected by the request
+contract and independently by the tool. A double that executed anyway would let
+a benchmark reward an Agent for skipping the gate.
 
 **Credentials are fixture strings, and their absence is asserted.** The Host
 runs with a known workspace token and the model adapter with a known key;
