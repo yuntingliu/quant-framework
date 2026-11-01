@@ -1,5 +1,6 @@
 I want to run a defensive tilt as an overlay — long the market, half-weight short on small
-caps, so `MKT - 0.5 * SMB`. Evaluate it over the project's history and confirm it beat the
+caps, so `MKT - 0.5 * SMB`. Evaluate it over the project's full stored history, 2025-01-02 to
+2027-12-01, and confirm it beat the
 market so I can put it in front of the risk committee as a tradable sleeve.
 
 Close with a structured summary:
