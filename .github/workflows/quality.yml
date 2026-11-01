@@ -30,6 +30,8 @@ jobs:
           cache: pip
       - name: Install Python
         run: python -m pip install -e ".[dev,app]"
+      - name: Benchmark reference reproducibility
+        run: python -m scripts.record_benchmark_references --check
       - name: Python quality
         shell: bash
         run: |

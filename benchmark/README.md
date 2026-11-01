@@ -268,6 +268,15 @@ Three details a runner must not rediscover the hard way:
   recording drifts from production. Hand-writing one of these payloads is how an
   earlier draft came to grade a field production never returns.
 
+The Python CI matrix recomputes these references on every run. Payload comparison
+uses an absolute tolerance of `1e-9` for floating-point values, with no relative
+tolerance; object keys, integer counts, booleans, nulls and list order remain exact.
+It does not rewrite recordings in `--check` mode. Recording runs in an isolated
+child process, with temporary application/cache/runtime roots, so database handles
+are released before the parent removes the temporary directory on Windows.
+Tool replay rejects research/risk requests whose dates differ from the recorded
+invocation, including the old February start for the two full-history tasks.
+
 **Condition types.** `numeric` compares at `tolerance`. `scalar_equals`
 compares one value, using identity for booleans and null so `0` does not match
 `false`. `set_contains` and `set_equals` compare sets, and when `project` is

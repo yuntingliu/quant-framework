@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -38,16 +39,16 @@ INVOCATIONS = {
     "data.validate": {"command": "data.validate",
                        "args": {"dataset": "rq.bars", "fail_on_gap": True, "as_of": "2025-05-07"}},
     "data.query": {"command": "data.query",
-                    "args": {"dataset": "rq.daily_factors", "columns": ["date", "symbol", "field"], "limit": 50}},
+                    "args": {"dataset": "rq.daily_factors", "columns": ["date", "symbol", "field", "value"], "limit": 5}},
     "factor.research": {"command": "factor.research", "confirm_python_execution": True,
                          "args": {"project_id": "p1", "factor_id": "momentum_20d",
-                                   "start_date": "2025-02-03", "end_date": "2027-12-01",
+                                   "start_date": "2025-01-02", "end_date": "2027-12-01",
                                    "quantiles": 5, "horizons": [1, 3, 6]}},
     "backtest.summary": {"command": "backtest.summary", "args": {"backtest_id": "bt-1"}},
     "backtest.robustness": {"command": "backtest.robustness", "args": {"backtest_id": "bt-1"}},
     "market_risk.evaluate": {"command": "market_risk.evaluate",
                               "args": {"name": "defensive_tilt", "expression": "MKT - 0.5 * SMB",
-                                        "start_date": "2025-02-03", "end_date": "2027-12-01"}},
+                                        "start_date": "2025-01-02", "end_date": "2027-12-01"}},
     # data.validate serves three fixtures with different planted defects. The
     # mocked report is selected by the start argument, which acts purely as a
     # variant marker here.
@@ -82,10 +83,19 @@ const ORIGIN = 'http://127.0.0.1:18003'
 const tool = JSON.parse(readFileSync(process.argv[1], 'utf8'))
 const responses = JSON.parse(readFileSync(process.argv[2], 'utf8'))
 const invocations = JSON.parse(readFileSync(process.argv[3], 'utf8'))
+const windows = JSON.parse(readFileSync(process.argv[4], 'utf8'))
 let lastResearchBody = null
 let lastValidateBody = null
+let windowMismatch = false
 
-function route(path) {
+function requireWindow(body, expected) {
+  if (!body || body.start_date !== expected.start_date || body.end_date !== expected.end_date) {
+    windowMismatch = true
+    throw new Error('recording window mismatch: request does not match recorded invocation')
+  }
+}
+
+function route(path, body) {
   const clean = path.split('?')[0]
   if (clean.endsWith('/identity')) return { instance_id: 'dev3' }
   if (clean.includes('data.validate')) {
@@ -95,11 +105,18 @@ function route(path) {
     return { tool: 'data.validate', mutating: false, result: report }
   }
   if (clean.includes('data.query')) return { tool: 'data.query', mutating: false, result: responses.query }
-  if (clean.endsWith('/research')) return lastResearchBody && lastResearchBody.end_date === '2025-05-07'
-    ? responses.research_insufficient : responses.research
+  if (clean.endsWith('/research')) {
+    const variant = lastResearchBody && lastResearchBody.end_date === windows.research_insufficient.end_date
+      ? 'research_insufficient' : 'research'
+    requireWindow(body, windows[variant])
+    return responses[variant]
+  }
   if (clean.endsWith('/summary')) return responses.summary
   if (clean.endsWith('/robustness')) return responses.robustness
-  if (clean.includes('custom-risk-factor')) return responses.market_risk
+  if (clean.includes('custom-risk-factor')) {
+    requireWindow(body, windows.market_risk)
+    return responses.market_risk
+  }
   if (/\/api\/strategy\/projects\/[^/]+$/.test(clean)) return { id: 'p1', dirty: false, current_revision: 3 }
   return null
 }
@@ -110,6 +127,7 @@ const out = {}
 for (const [label, input] of Object.entries(invocations)) {
   lastResearchBody = null
   lastValidateBody = null
+  windowMismatch = false
   const bound = bindToolToInstance(tool, ORIGIN, 'dev3')
   const requests = []
   const context = vm.createContext({
@@ -121,33 +139,63 @@ for (const [label, input] of Object.entries(invocations)) {
         requests.push({ path, body: init && init.body ? JSON.parse(init.body) : null })
       if (clean_research_probe(path) && init && init.body) lastResearchBody = JSON.parse(init.body)
       if (path.includes('data.validate') && init && init.body) lastValidateBody = JSON.parse(init.body).input
-      const body = route(path)
+      const body = route(path, init && init.body ? JSON.parse(init.body) : null)
       if (body === null) return { ok: false, status: 404, json: async () => ({ detail: 'no route' }), text: async () => 'no route' }
       return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) }
     },
   })
   vm.runInContext(bound.code, context)
   const result = await vm.runInContext(`run(${JSON.stringify(input)})`, context)
+  // Production sanitizes fetch errors; keep this fixture-contract failure loud.
+  if (windowMismatch) throw new Error('recording window mismatch')
   out[label] = { requests, envelope: result }
 }
 console.log(JSON.stringify(out))
 """
 
 
-def _drive_tool(tmp_path: Path) -> dict:
+def _drive_tool(tmp_path: Path, *, inputs: dict | None = None) -> dict:
     if shutil.which("node") is None:
         pytest.skip("node is required to execute the Conexus tool")
     responses = tmp_path / "responses.json"
     responses.write_text(json.dumps(API_RESPONSES), encoding="utf-8")
     invocations = tmp_path / "invocations.json"
-    invocations.write_text(json.dumps(INVOCATIONS), encoding="utf-8")
+    invocations.write_text(json.dumps(INVOCATIONS if inputs is None else inputs), encoding="utf-8")
+    windows = tmp_path / "recording-windows.json"
+    windows.write_text(json.dumps({
+        variant: json.loads((BENCHMARK / "reference/dev" / task / "expected.json").read_text(
+            encoding="utf-8",
+        ))["invocation"]
+        for variant, task in {
+            "research": "factor-rank-ic-evidence",
+            "research_insufficient": "factor-short-window-honesty",
+            "market_risk": "risk-derived-series-claim",
+        }.items()
+    }), encoding="utf-8")
     completed = subprocess.run(
         ["node", "--input-type=module", "-e", _DRIVER,
-         str(TOOL), str(responses), str(invocations)],
+         str(TOOL), str(responses), str(invocations), str(windows)],
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
     assert completed.returncode == 0, completed.stderr
     return json.loads(completed.stdout.strip().splitlines()[-1])
+
+
+@pytest.mark.parametrize("command", ["factor.research", "market_risk.evaluate"])
+def test_full_history_requests_span_the_fixture_calendar(command):
+    calendar = json.loads((BENCHMARK / "data/research-small/fixture.json").read_text(
+        encoding="utf-8",
+    ))["calendar"]
+    args = INVOCATIONS[command]["args"]
+    assert (args["start_date"], args["end_date"]) == (calendar["start"], calendar["end"])
+
+
+@pytest.mark.parametrize("command", ["factor.research", "market_risk.evaluate"])
+def test_wrong_window_cannot_replay_full_history_payload(tmp_path, command):
+    inputs = deepcopy(INVOCATIONS)
+    inputs[command]["args"]["start_date"] = "2025-02-03"
+    with pytest.raises(AssertionError, match="recording window mismatch"):
+        _drive_tool(tmp_path, inputs={command: inputs[command]})
 
 
 def _tasks() -> list[dict]:

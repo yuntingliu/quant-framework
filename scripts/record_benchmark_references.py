@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -217,16 +218,45 @@ def _query(tmp: Path, fixture: str) -> dict:
     )
 
 
+def _record_into(tmp: Path) -> dict:
+    return {
+        "runtime_backtest": _backtest(tmp),
+        "runtime_research": _research(tmp, "research", "research-small", RESEARCH_WINDOW),
+        "clean_research": _research(tmp, "clean", "clean-small", SHORT_WINDOW),
+        "market_risk": _market_risk(tmp),
+        "production_payloads": _production_payloads(tmp),
+    }
+
+
+_RECORD_SCRIPT = """
+import json, sys
+from pathlib import Path
+from scripts.record_benchmark_references import _record_into
+print(json.dumps(_record_into(Path(sys.argv[1])), ensure_ascii=False))
+"""
+
+
 def record() -> dict:
+    # The parent owns cleanup. Some production stores leave SQLite handles to
+    # garbage collection; process exit releases them deterministically before
+    # Windows attempts to remove the temporary directory, even on worker failure.
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
-        return {
-            "runtime_backtest": _backtest(tmp),
-            "runtime_research": _research(tmp, "research", "research-small", RESEARCH_WINDOW),
-            "clean_research": _research(tmp, "clean", "clean-small", SHORT_WINDOW),
-            "market_risk": _market_risk(tmp),
-            "production_payloads": _production_payloads(tmp),
+        environment = {
+            **os.environ,
+            "PYTHONIOENCODING": "utf-8",
+            "ALPHALAB_APP_DATA_DIR": str(tmp / "app"),
+            "ALPHALAB_CACHE_DIR": str(tmp / "cache"),
+            "ALPHALAB_RUNTIME_DIR": str(tmp / "runtime"),
         }
+        completed = subprocess.run(
+            [sys.executable, "-c", _RECORD_SCRIPT, raw],
+            cwd=REPO_ROOT, env=environment, capture_output=True, text=True,
+            encoding="utf-8", check=False, timeout=600,
+        )
+        if completed.returncode != 0:
+            raise SystemExit("Could not record benchmark references:\n" + completed.stderr.strip())
+        return json.loads(completed.stdout.strip().splitlines()[-1])
 
 
 def _expected(split: str, task_id: str) -> dict:
@@ -235,10 +265,27 @@ def _expected(split: str, task_id: str) -> dict:
 
 
 def _compare(label: str, actual: Any, expected: Any, drift: list[str]) -> None:
-    if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
-        if abs(float(actual) - float(expected)) <= TOLERANCE:
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        for key in sorted(expected.keys() | actual.keys()):
+            if key not in actual:
+                drift.append(f"{label}/{key}: missing field")
+            elif key not in expected:
+                drift.append(f"{label}/{key}: unexpected field")
+            else:
+                _compare(f"{label}/{key}", actual[key], expected[key], drift)
+        return
+    if isinstance(expected, list) and isinstance(actual, list):
+        if len(actual) != len(expected):
+            drift.append(f"{label}: expected {len(expected)} items, got {len(actual)}")
+        for index, (value, reference) in enumerate(zip(actual, expected)):
+            _compare(f"{label}/{index}", value, reference, drift)
+        return
+    if type(expected) is float and type(actual) in (int, float):
+        if math.isfinite(actual) and math.isfinite(expected) and math.isclose(
+            actual, expected, rel_tol=0.0, abs_tol=TOLERANCE,
+        ):
             return
-    elif actual == expected:
+    elif type(actual) is type(expected) and actual == expected:
         return
     drift.append(f"{label}: recorded {expected!r}, recomputed {actual!r}")
 
@@ -317,14 +364,11 @@ def main() -> None:
     serialized = json.dumps(recorded["production_payloads"], ensure_ascii=False,
                             indent=2, sort_keys=True) + "\n"
     if args.check:
-        current = PAYLOAD_FIXTURE.read_text(encoding="utf-8") if PAYLOAD_FIXTURE.exists() else ""
-        if current != serialized:
-            raise SystemExit(
-                "tests/benchmark/production_payloads.json no longer matches the production "
-                "summary and robustness contract; rerun "
-                "python -m scripts.record_benchmark_references"
-            )
+        if not PAYLOAD_FIXTURE.exists():
+            raise SystemExit("Missing production payload recording: " + str(PAYLOAD_FIXTURE))
+        current = json.loads(PAYLOAD_FIXTURE.read_text(encoding="utf-8"))
         drift = check(recorded)
+        _compare("production_payloads", recorded["production_payloads"], current, drift)
         if drift:
             raise SystemExit("Benchmark reference values drifted:\n  " + "\n  ".join(drift))
         print(json.dumps({"status": "current", "checked": sorted(recorded)}, indent=2))
