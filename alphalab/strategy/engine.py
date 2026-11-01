@@ -1064,12 +1064,15 @@ def _execution_data_gaps(
     return gaps
 
 
-def _limits(project: Mapping[str, Any]) -> dict[str, float]:
+def _limits(project: Mapping[str, Any]) -> dict[str, Any]:
     settings = project.get("settings") or {}
-    return {
+    limits = {
         "max_weight": float(settings.get("max_weight", 1.0)),
         "max_gross_exposure": float(settings.get("max_gross_exposure", 1.0)),
     }
+    if settings.get("portfolio_constraints") is not None:
+        limits["portfolio_constraints"] = settings["portfolio_constraints"]
+    return limits
 
 
 def _event_request(

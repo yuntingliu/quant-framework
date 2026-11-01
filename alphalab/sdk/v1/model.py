@@ -6,12 +6,15 @@ import copy
 import json
 import math
 import random
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 import pandas as pd
+
+from alphalab.sdk.v1.constraints import PortfolioConstraintSet
 
 JsonObject = dict[str, Any]
 MAX_STATE_BYTES = 64_000
@@ -176,6 +179,8 @@ class PortfolioDecision:
     state: JsonObject | None = None
     reason: str | None = None
     diagnostics: JsonObject | None = None
+    constraints: PortfolioConstraintSet | Mapping[str, Any] | None = None
+    constraint_data_version: str | None = None
 
     def __post_init__(self) -> None:
         weights: dict[str, float] = {}
@@ -195,6 +200,32 @@ class PortfolioDecision:
                 "diagnostics",
                 _json_copy(self.diagnostics, label="portfolio diagnostics"),
             )
+        if self.constraints is not None:
+            constraints = self.constraints
+            if isinstance(constraints, Mapping):
+                constraints = PortfolioConstraintSet.from_dict(constraints)
+            if not isinstance(constraints, PortfolioConstraintSet):
+                raise ValueError("portfolio constraints must be a PortfolioConstraintSet")
+            object.__setattr__(self, "constraints", constraints)
+        if self.constraint_data_version is not None:
+            version = self.constraint_data_version
+            if not isinstance(version, str) or re.fullmatch(r"[0-9a-f]{64}", version) is None:
+                raise ValueError("constraint_data_version must be a SHA-256 hex digest")
+        if self.constraints is not None or self.constraint_data_version is not None:
+            _json_copy(
+                {
+                    "constraints": (
+                        self.constraints.to_dict() if self.constraints is not None else None
+                    ),
+                    "constraint_data_version": self.constraint_data_version,
+                    "diagnostics": self.diagnostics,
+                },
+                label="portfolio constraint evidence",
+            )
+
+    @property
+    def constraint_set_sha256(self) -> str | None:
+        return self.constraints.constraint_set_sha256 if self.constraints is not None else None
 
 
 @dataclass(frozen=True)

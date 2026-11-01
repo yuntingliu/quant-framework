@@ -584,8 +584,19 @@ PortfolioDecision(
     state: JsonObject | None = None,
     reason: str | None = None,
     diagnostics: JsonObject | None = None,
+    constraints: PortfolioConstraintSet | None = None,
+    constraint_data_version: str | None = None,
 )
 ```
+
+`constraints` carries the strategy-layer rule set into core verification; it
+does not carry classification, benchmark, or return data supplied by strategy
+code. The decision exposes the set's computed `constraint_set_sha256`, and the
+runtime checks that hash when restoring a serialized decision. An optional
+`constraint_data_version` is SHA-256 evidence from the optimizer, not proof that
+the core's independently loaded data agrees. The serialized rule set and
+diagnostics share the 64,000-byte portfolio evidence limit. Decisions without
+these fields keep the prior behavior.
 
 The strategy may choose weights, cash, and declared defensive assets. The core
 MUST revalidate:
@@ -961,10 +972,20 @@ and solver failure) together with their `PortfolioOptimizationError` fields.
 
 ### 14.10 Core Verification and Results
 
-Reserved for the core verification change. It will specify the target-weight
-and planned-weight checks, the planned-weight rule summarized in section 14.6,
-how checks are recorded in Run results, and how they reach the API and
-workbench.
+For each new target decision, the core runs `verify_portfolio_constraints(...)`
+against the project-layer set and the decision's strategy-layer set. It uses
+classification and benchmark snapshots supplied by the core for that decision
+date, plus a separately keyed covariance for each required `RiskModelSpec`. The
+strategy's claimed diagnostics never establish that a check passed. Each
+evaluation produces `ConstraintCheck` records with `stage="target"` and the
+applicable layer, rule hash, and core data version. Every declared constraint
+must produce a check, and every check must pass. Missing inputs, a mismatched
+decision date or data version, undefined risk, and any failed check reject the
+target before the decision is accepted.
+
+The planned-weight rule summarized in section 14.6 and the propagation of
+checks through Run results, API, and workbench are specified by the subsequent
+execution integration changes.
 
 ## 15. Event and Stateful Policy Contract
 
