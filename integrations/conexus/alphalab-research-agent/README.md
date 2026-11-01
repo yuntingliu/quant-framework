@@ -44,3 +44,37 @@ See `docs/04_CONEXUS_AGENT.md` for the full contract.
 `workspace-output.schema.json` describes AlphaLab's application payloads. It is
 not attached to a Harness exposure: current Conexus Agent exposures accept a
 request and store deliverables through native node operations.
+
+The prompt includes the complete `workspaceResult` schema. Requested machine
+fields must be delivered in its `columns` and `rows`, even when the report also
+contains a Markdown table. Keep numeric tool precision in the data and round
+only presentation text. Preparation rejects incomplete or inconsistent tables.
+
+The included local host counts every proposed native tool call, including batch
+members, against a 40-call run budget and reports the remaining allowance to the
+model. Reserve at least five calls for final delivery. Tests may supply a smaller
+explicit budget; an over-limit batch is rejected in full before dispatch.
+
+The local host independently authorizes project changes, cancellation and local
+Python execution. A model's confirmation flags do not grant permission. Before
+dispatch, the existing Run interaction UI shows the exact proposed operation;
+only an authenticated **Approve** response resumes that frozen operation. Denial,
+cancellation and shutdown do not dispatch it, and approval cannot be replayed for
+another operation or run. Read-only queries continue without approval. The host
+accepts only the original published tools and blocks direct shell execution.
+Natural-language permission in the chat is not itself a host authorization token,
+so the local UI currently requires this concrete confirmation even when the chat
+already requested execution. Approvals use Run polling and are not restored after
+a host restart; interrupted runs retain the existing recovery behavior.
+
+These runtime protections are wired into `integrations/conexus/local-host.mjs`.
+Remote or custom Conexus hosts must provide equivalent host-side authorization
+and accounting; importing the prompt or registering the canvas alone does not
+install either protection. The benchmark can supply trusted authorization
+decisions from its task policy, outside the model, without simulating UI latency.
+
+Explicit bounded data-query rows are preserved up to the 50-row limit, with
+truthful upstream and local truncation flags. Nested diagnostic arrays keep
+their compact summaries and internal fields remain filtered. This allows
+cross-dataset audits to inspect middle records without repeatedly fetching
+smaller samples of an already bounded response.

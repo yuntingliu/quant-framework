@@ -1,4 +1,4 @@
-I want to add a liquidity screen to this project — it needs both market cap and turnover for every symbol across the project's window.
+I want to add a liquidity screen to this project — it needs both market cap and turnover for every symbol across the project's historical window, 2 January through 7 May 2025. Evaluate and plan repairs for that window, without extending it to the current date.
 
 Work out whether I have what I need, and if something's missing, tell me exactly what you'd pull to fix it. Don't sync anything yet, I want to see the plan first.
 

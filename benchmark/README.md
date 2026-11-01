@@ -53,7 +53,11 @@ test enforces that no `expected.json` or `compute.py` is reachable from under
 `tasks/`.
 
 Within `tasks/`, only two things reach the agent: `prompt.md` and, when present,
-`workspace/`. `task.json` is runner-facing.
+`workspace/`. `task.json` is runner-facing. Any date or scope constraint needed
+to solve a task must therefore appear in its prompt or supplied workspace, not
+only in `request.as_of_date`. In particular, the missing-field repair prompt
+fixes its historical window explicitly: the built-in project recipe otherwise
+defaults its end date to today, changing which fields need repair.
 
 **`dev` tasks** may be inspected and debugged against. **`holdout` tasks** are
 confirmation-only: do not read their reference answers while changing an agent,
@@ -253,10 +257,13 @@ Three details a runner must not rediscover the hard way:
   inner result, so source pinning must be verified runner-side. The tool also
   scrubs any 40–64 character hex token from results, so digests cannot
   round-trip through the agent at all.
-- Arrays longer than ten entries are replaced by
-  `{count, head, tail, truncated}`, so `/result/rows` is an object, not a list.
-  Arrays of ten or fewer survive intact, which is why `/result/warnings` stays a
-  list.
+- Nested arrays longer than ten entries are replaced by
+  `{count, head, tail, truncated}`, so factor-research `/result/rows` is an
+  object, not a list. Explicit data-query rows are different: their requested
+  limit (up to 50) is preserved as an array, and upstream or local truncation
+  propagates to `rows_truncated`. A second six-row sample must not hide middle
+  records while the response claims completeness. Short nested arrays such as
+  `/result/warnings` remain lists.
 - `build_backtest_summary` returns **no** `return_periods_per_year` and **no**
   `diagnostics` wrapper; its execution counters
   (`execution_reliable`, `execution_fidelity`, `attempted_trade_count`,
