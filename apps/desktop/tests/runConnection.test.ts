@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { ConexusClientError, readWithRecovery, resumeRunEvents, submitRunOnce } from "../src/lib/conexus/runConnection.ts"
+import { ConexusClientError, isUndecidedSubmission, readWithRecovery, resumeRunEvents, reusableSubmission, standingSubmission, submitRunOnce } from "../src/lib/conexus/runConnection.ts"
 import type { AgentSessionSnapshot } from "../src/lib/conexus/types.ts"
 
 const encode = new TextEncoder()
@@ -16,6 +16,47 @@ function stream(text: string, broken = false) {
   } })
 }
 const wait = async () => undefined
+
+describe("Undecided submissions", () => {
+  const pending = { conversationId: "chat-1", title: "T", createdAt: "now", messageId: "user-1", message: "Research this" }
+  it("treats only outcomes the server could not decide as the same send", () => {
+    assert.equal(isUndecidedSubmission(new TypeError("Failed to fetch")), true)
+    assert.equal(isUndecidedSubmission(new ConexusClientError("Bad gateway", 502)), true)
+    assert.equal(isUndecidedSubmission(new ConexusClientError("Gateway timeout", 504)), true)
+    assert.equal(isUndecidedSubmission(new ConexusClientError("Unavailable", 503)), true, "a gateway answered, not the server")
+    assert.equal(isUndecidedSubmission(new ConexusClientError("Queue full", 429)), false, "the server declined it")
+    assert.equal(isUndecidedSubmission(new ConexusClientError("No model", 503, "not_configured")), false)
+    assert.equal(isUndecidedSubmission(new ConexusClientError("Stopping", 503, "local_host_error")), false)
+    assert.equal(isUndecidedSubmission(new ConexusClientError("Busy", 409, "submission_in_progress")), true)
+    assert.equal(isUndecidedSubmission(new ConexusClientError("Unknown", 409, "submission_unconfirmed")), true)
+    assert.equal(isUndecidedSubmission(new ConexusClientError("Invalid", 422)), false)
+    assert.equal(isUndecidedSubmission(new ConexusClientError("Conflict", 409)), false)
+  })
+  it("reuses the identity only for the same text in the same conversation", () => {
+    assert.equal(reusableSubmission(pending, "Research this", "chat-1"), pending)
+    assert.equal(reusableSubmission(pending, "Research this", null), pending, "a first message has no conversation yet")
+    assert.equal(reusableSubmission(pending, "Something else", "chat-1"), null, "different text is a deliberate new request")
+    assert.equal(reusableSubmission(pending, "Research this", "chat-2"), null)
+    assert.equal(reusableSubmission(null, "Research this", "chat-1"), null)
+  })
+})
+
+describe("Keeping an undecided submission across reads", () => {
+  const local = { conversationId: "chat-1", title: "T", createdAt: "now", messageId: "user-1", message: "Research this" }
+  const open = { ...local, messageId: "user-0", fromServer: true }
+  it("keeps a send the server may simply not have received yet", () => {
+    assert.equal(standingSubmission(local, null, []), local)
+    assert.equal(standingSubmission(local, open, []), local)
+    assert.equal(standingSubmission(local, null, [{ id: "chat-1", messages: [{ id: "other" }] }]), local)
+  })
+  it("ends it once the message is on record", () => {
+    assert.equal(standingSubmission(local, null, [{ id: "chat-1", messages: [{ id: "user-1" }] }]), null)
+  })
+  it("lets the server end a send that only the server reported", () => {
+    assert.equal(standingSubmission(open, null, []), null)
+    assert.equal(standingSubmission(null, open, []), open)
+  })
+})
 
 describe("Agent connection recovery", () => {
   it("resumes after a mid-stream failure, skips replays and stops on completion", async () => {

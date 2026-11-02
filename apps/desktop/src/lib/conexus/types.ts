@@ -76,9 +76,38 @@ export interface AgentResearchCheckpoint {
   workspaceResult?: Record<string, unknown>
 }
 
+export interface AgentOpenSubmission {
+  conversationId: string
+  messageId: string
+  state: "submitting" | "unconfirmed"
+  message: string | null
+  title: string | null
+  createdAt: string | null
+  updatedAt: string
+}
+
 export interface AgentSessionSnapshot {
   conversations: AgentConversation[]
   runs: Array<{ conversationId: string; run: PublishedHarnessRun }>
+  submissions?: AgentOpenSubmission[]
+}
+
+export type AgentTaskPhase = "queued" | "running" | "awaiting_input" | "delivering" | PublishedHarnessRunStatus
+
+export interface AgentRunStop {
+  category: string
+  code: string | null
+  retry: "new_run" | "check_first" | "change_request" | "fix_setup"
+  remediation: string
+  resumable: false
+}
+
+export interface AgentRunLifecycle {
+  phase: AgentTaskPhase
+  stop: AgentRunStop | null
+  delivery: "delivered" | "pending"
+  jobs: Array<{ kind: string; id: string; owned: boolean; status: string; backtestId?: string }>
+  activeJobs: number
 }
 
 export type PublishedHarnessRunStatus =
@@ -111,6 +140,7 @@ export interface PublishedHarnessRun {
   nodeChanges?: { created: string[]; updated: string[]; deleted: string[] }
   error?: { code: string; message: string }
   pendingInteraction?: PublishedHarnessInteraction
+  lifecycle?: AgentRunLifecycle
 }
 
 export interface PublishedHarnessWorkspaceOutput {

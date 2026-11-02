@@ -394,6 +394,20 @@ export function ResearchAgentPanel() {
     empty: "发送研究问题，Agent 会调用 AlphaLab 研究工具。",
     placeholder: agent.run?.pendingInteraction ? "回答 Agent 的问题…" : "输入研究问题…",
     running: "Agent 正在运行…",
+    phases: { queued: "排队等待中…", delivering: "正在保存结果…" } as Record<string, string>,
+    undecided: "上一条消息尚未确认是否已开始执行。再次发送相同内容不会重复执行。",
+    jobsStillRunning: (count: number) => `仍有 ${count} 个后台任务在运行，其结果会被保留。`,
+    stops: {
+      cancelled: "任务已在完成前取消，其工作区改动已丢弃。",
+      host_interrupted: "Agent Host 在任务执行中停止。没有重放任何操作，工作区改动已丢弃。请重新发送以从头开始。",
+      lost: "Agent Host 已无法识别此任务，无法确认其进度，也不会继续执行。重新发送前请先检查工作区和后台任务。",
+      timeout: "任务超出时间限制。请缩小请求范围或重新发送。",
+      provider: "模型服务失败或返回了无法使用的结果。请检查模型服务后重新发送。",
+      configuration: "Agent 配置不支持此操作。请检查模型服务和 Agent 版本。",
+      input: "请求无法按原样接受。请修改后重新发送。",
+      agent_blocked: "Agent 无法完成此请求并说明了原因。请解决后再次提问。",
+      internal: "任务意外失败。重新发送前请先检查其执行记录。",
+    } as Record<string, string>,
     unavailable: "Conexus Research Agent 尚未启动或尚未配置。",
     notConfigured: "状态：not_configured",
     retry: "重试",
@@ -409,6 +423,10 @@ export function ResearchAgentPanel() {
     empty: "Send a research request to the AlphaLab Research Agent.",
     placeholder: agent.run?.pendingInteraction ? "Answer the Agent…" : "Enter a research request…",
     running: "Agent is running…",
+    phases: { queued: "Waiting in the queue…", delivering: "Saving results…" } as Record<string, string>,
+    undecided: "Your last message could not be confirmed as started. Sending the same text again will not start it twice.",
+    jobsStillRunning: (count: number) => `${count} background job${count === 1 ? " is" : "s are"} still running; ${count === 1 ? "its result" : "their results"} will be kept.`,
+    stops: {} as Record<string, string>,
     unavailable: "The Conexus Research Agent is not running or is not configured.",
     notConfigured: "Status: not_configured",
     retry: "Retry",
@@ -456,6 +474,9 @@ export function ResearchAgentPanel() {
           {agent.error}
         </button>
       ) : null}
+      {agent.undecidedSubmission && !agent.responseActive && (!agent.conversation || agent.conversation.id === agent.undecidedSubmission.conversationId) ? (
+        <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">{copy.undecided}</div>
+      ) : null}
       {agent.loading && !agent.conversation ? (
         <div className="flex min-h-0 flex-1 items-center justify-center gap-2 text-xs text-muted-foreground"><LoaderCircle className="h-4 w-4 animate-spin" />{copy.running}</div>
       ) : (
@@ -492,11 +513,17 @@ export function ResearchAgentPanel() {
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        <span className="flex items-center gap-2"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />{copy.running}</span>
+                        <span className="flex items-center gap-2"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />{copy.phases[agent.run?.lifecycle?.phase ?? ""] ?? copy.running}</span>
                         {agent.toolActivities.length > 0 ? <div className="border-t border-border pt-2"><ToolActivityList activities={agent.toolActivities} language={language} title={copy.tools} /></div> : null}
                       </div>
                     )}
                   </div>
+                </div>
+              ) : null}
+              {!agent.responseActive && agent.run?.lifecycle && (agent.run.lifecycle.stop || agent.run.lifecycle.activeJobs > 0) ? (
+                <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  {agent.run.lifecycle.stop ? <div>{copy.stops[agent.run.lifecycle.stop.category] ?? agent.run.lifecycle.stop.remediation}</div> : null}
+                  {agent.run.lifecycle.activeJobs > 0 ? <div>{copy.jobsStillRunning(agent.run.lifecycle.activeJobs)}</div> : null}
                 </div>
               ) : null}
               {!agent.responseActive && agent.toolActivities.length > 0 ? (

@@ -3,11 +3,54 @@ import type { AgentConversation, AgentSessionSnapshot, PublishedHarnessRun, Publ
 
 export class ConexusClientError extends Error {
   readonly status: number
-  constructor(message: string, status: number) {
+  readonly code?: string
+  constructor(message: string, status: number, code?: string) {
     super(message)
     this.status = status
+    this.code = code
     this.name = "ConexusClientError"
   }
+}
+
+export interface SubmissionIdentity {
+  conversationId: string
+  title: string
+  createdAt: string
+  messageId: string
+  message: string
+  // The server reported this send as open, so the server also decides when it is over.
+  fromServer?: boolean
+}
+
+// Nothing has established whether this send started a Run. An error carrying a code came
+// from the API or the Host, which refused it, unless the code says the outcome is unknown.
+export function isUndecidedSubmission(reason: unknown): boolean {
+  if (reason instanceof TypeError) return true
+  if (!(reason instanceof ConexusClientError)) return false
+  if (reason.code) return ["submission_in_progress", "submission_unconfirmed"].includes(reason.code)
+  return [502, 503, 504].includes(reason.status)
+}
+
+// A send that failed in this page may still be on its way to a server with no record of
+// it yet, so a read that does not mention it cannot end it. Only seeing the message can.
+export function standingSubmission(
+  local: SubmissionIdentity | null,
+  open: SubmissionIdentity | null,
+  conversations: Array<{ id: string; messages: Array<{ id: string }> }>,
+): SubmissionIdentity | null {
+  if (!local || local.fromServer) return open
+  const recorded = conversations.some((item) => item.id === local.conversationId
+    && item.messages.some((message) => message.id === local.messageId))
+  return recorded ? open : local
+}
+
+export function reusableSubmission(
+  pending: SubmissionIdentity | null,
+  message: string,
+  conversationId: string | null,
+): SubmissionIdentity | null {
+  if (!pending || pending.message !== message) return null
+  return !conversationId || pending.conversationId === conversationId ? pending : null
 }
 
 export function isConnectionError(reason: unknown): boolean {

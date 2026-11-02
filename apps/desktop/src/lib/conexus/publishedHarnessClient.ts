@@ -28,7 +28,8 @@ async function responseError(response: Response): Promise<ConexusClientError> {
       : typeof payload?.message === "string"
         ? payload.message
         : response.statusText || `Conexus request failed (${response.status})`
-  return new ConexusClientError(message, response.status)
+  const code = payload?.code ?? (nested as Record<string, unknown> | null | undefined)?.code
+  return new ConexusClientError(message, response.status, typeof code === "string" ? code : undefined)
 }
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {

@@ -12,8 +12,16 @@ import {
   selectRunExposure,
   streamRunEvents,
 } from "@/lib/conexus/publishedHarnessClient"
-import { isConnectionError } from "@/lib/conexus/runConnection"
 import {
+  isConnectionError,
+  isUndecidedSubmission,
+  reusableSubmission,
+  standingSubmission,
+  type SubmissionIdentity,
+} from "@/lib/conexus/runConnection"
+import {
+  type AgentErrorSource,
+  errorClearedBy,
   isTerminalRun,
   mergeRunSnapshot,
 } from "@/lib/conexus/runState"
@@ -331,7 +339,9 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState("")
-  const connectionErrorRef = useRef(false)
+  const [undecidedSubmission, setUndecidedSubmission] = useState<SubmissionIdentity | null>(null)
+  const errorSourceRef = useRef<AgentErrorSource | null>(null)
+  const pendingSubmissionRef = useRef<SubmissionIdentity | null>(null)
   const runRef = useRef<PublishedHarnessRun | null>(null)
   const submittingRef = useRef(false)
   const historyReadyRef = useRef(false)
@@ -341,17 +351,22 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
   useEffect(() => { onCompletedRef.current = onCompleted }, [onCompleted])
 
   const conversation = history.conversations.find((item) => item.id === history.selectedId) ?? null
-  const acceptError = useCallback((reason: unknown) => {
-    connectionErrorRef.current = isConnectionError(reason)
-    setError(connectionErrorRef.current
-      ? "连接暂时中断，正在重新读取任务结果。请勿重复发送。 / Connection interrupted; retrying."
+  const acceptError = useCallback((reason: unknown, source: AgentErrorSource = "action") => {
+    const connection = isConnectionError(reason)
+    errorSourceRef.current = connection ? "connection" : source
+    setError(connection
+      ? "连接暂时中断，正在重新读取任务结果。 / Connection interrupted; retrying."
       : message(reason))
   }, [])
-  const connectionRestored = useCallback(() => {
-    if (connectionErrorRef.current) {
-      connectionErrorRef.current = false
+  const readSucceeded = useCallback((success: "history" | "run") => {
+    if (errorClearedBy(errorSourceRef.current, success)) {
+      errorSourceRef.current = null
       setError("")
     }
+  }, [])
+  const rememberSubmission = useCallback((identity: SubmissionIdentity | null) => {
+    pendingSubmissionRef.current = identity
+    setUndecidedSubmission(identity)
   }, [])
   const adoptRun = useCallback((next: PublishedHarnessRun, conversationId: string) => {
     const current = runRef.current
@@ -370,12 +385,26 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
     const shared = session.conversations.map(storedConversation)
       .filter((item): item is AgentConversation => item !== null)
     historyReadyRef.current = true
-    connectionRestored()
+    readSucceeded("history")
+    if (!submittingRef.current) {
+      // The server knows about an undecided send even after a reload or from another tab.
+      const open = session.submissions?.find((item) => item.message)
+      rememberSubmission(standingSubmission(pendingSubmissionRef.current, open ? {
+        conversationId: open.conversationId, messageId: open.messageId, message: open.message!,
+        title: open.title ?? conversationTitle(open.message!), createdAt: open.createdAt ?? open.updatedAt,
+        fromServer: true,
+      } : null, shared))
+    }
     const active = session.runs.find((item) => !isTerminalRun(item.run))
     const recovered = restoreRun && !submittingRef.current
       ? active ?? (selectNewest ? session.runs.find((item) => item.conversationId === shared[0]?.id) : undefined)
       : undefined
     if (recovered) adoptRun(recovered.run, recovered.conversationId)
+    else {
+      // Keep a finished task's account current: its background jobs can end after it did.
+      const shown = session.runs.find((item) => item.run.id === runRef.current?.id)
+      if (shown) adoptRun(shown.run, shown.conversationId)
+    }
     setHistory((current) => {
       const conversations = mergeConversationLists(current.conversations, shared)
       const selectedId = recovered?.conversationId
@@ -383,7 +412,7 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
           ? current.selectedId : selectNewest ? conversations[0]?.id ?? null : null)
       return { conversations, selectedId }
     })
-  }, [adoptRun, connectionRestored])
+  }, [adoptRun, readSucceeded, rememberSubmission])
 
   const reloadStatus = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
@@ -417,7 +446,7 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
     void reloadStatus(controller.signal)
     const timer = globalThis.setInterval(() => {
       void refreshSharedHistory(controller.signal).catch((reason) => {
-        if (!controller.signal.aborted) acceptError(reason)
+        if (!controller.signal.aborted) acceptError(reason, "history")
       })
     }, 10_000)
     return () => {
@@ -463,7 +492,7 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
       try {
         const latest = await readRun(runId, controller.signal)
         if (controller.signal.aborted || runRef.current?.id !== runId) return
-        connectionRestored()
+        readSucceeded("run")
         adoptRun(latest, conversationId)
         if (isTerminalRun(latest)) {
           await finalizeRun(latest, conversationId, controller.signal)
@@ -471,7 +500,7 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
           return
         }
       } catch (reason) {
-        if (!controller.signal.aborted) acceptError(reason)
+        if (!controller.signal.aborted) acceptError(reason, "poll")
       } finally {
         reconciling = false
         if (!controller.signal.aborted) timer = globalThis.setTimeout(() => { void reconcile() }, 2_000)
@@ -503,12 +532,12 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
         // newer questions in response to an older event.
         if (isTerminalRun(event) || event.type.startsWith("run.interaction_")) void reconcile()
       },
-    }).catch((reason) => { if (!controller.signal.aborted) acceptError(reason) })
+    }).catch((reason) => { if (!controller.signal.aborted) acceptError(reason, "stream") })
     return () => {
       controller.abort()
       if (timer !== undefined) globalThis.clearTimeout(timer)
     }
-  }, [acceptError, adoptRun, connectionRestored, finalizeRun, run?.id, runConversationId])
+  }, [acceptError, adoptRun, finalizeRun, readSucceeded, run?.id, runConversationId])
 
   const selectConversation = useCallback((conversationId: string) => {
     if (submittingRef.current || (runRef.current && !isTerminalRun(runRef.current))) return
@@ -555,15 +584,21 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
     setSubmitting(true)
     epochRef.current += 1
     setToolActivities([])
+    // Sending the same text again after an undecided attempt is the same submission, not a new one.
+    const identity = reusableSubmission(pendingSubmissionRef.current, userMessage, conversation?.id ?? null) ?? {
+      conversationId: conversation?.id ?? id(), title: conversation?.title ?? conversationTitle(userMessage),
+      createdAt: conversation?.createdAt ?? new Date().toISOString(), messageId: id(), message: userMessage,
+    }
     try {
       const result = await createRun({
         exposureId: selectRunExposure(manifest).id,
         input: buildRunInput(userMessage, { ...context, conversationHistory: conversationContext(conversation) }),
         conversation: {
-          id: conversation?.id ?? id(), title: conversation?.title ?? conversationTitle(userMessage),
-          createdAt: conversation?.createdAt ?? new Date().toISOString(), messageId: id(), message: userMessage,
+          id: identity.conversationId, title: identity.title, createdAt: identity.createdAt,
+          messageId: identity.messageId, message: userMessage,
         },
       })
+      rememberSubmission(null)
       epochRef.current += 1
       setHistory((previous) => ({
         conversations: mergeConversationLists(previous.conversations, [result.conversation]),
@@ -572,13 +607,14 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
       adoptRun(result.run, result.conversation.id)
       return true
     } catch (reason) {
+      rememberSubmission(isUndecidedSubmission(reason) ? identity : null)
       acceptError(reason)
       return false
     } finally {
       submittingRef.current = false
       setSubmitting(false)
     }
-  }, [acceptError, adoptRun, conversation, manifest, runConversationId, status?.available])
+  }, [acceptError, adoptRun, conversation, manifest, rememberSubmission, runConversationId, status?.available])
 
   const cancel = useCallback(async () => {
     const current = runRef.current
@@ -595,6 +631,6 @@ export function usePublishedAgent({ onCompleted }: Options = {}) {
 
   return useMemo(() => ({
     status, manifest, conversations: history.conversations, conversation, run, toolActivities,
-    loading, error, responseActive, reloadStatus, selectConversation, newConversation, send, cancel,
-  }), [cancel, conversation, error, history.conversations, loading, manifest, newConversation, reloadStatus, responseActive, run, selectConversation, send, status, toolActivities])
+    loading, error, responseActive, undecidedSubmission, reloadStatus, selectConversation, newConversation, send, cancel,
+  }), [cancel, conversation, error, history.conversations, loading, manifest, newConversation, reloadStatus, responseActive, run, selectConversation, send, status, toolActivities, undecidedSubmission])
 }
