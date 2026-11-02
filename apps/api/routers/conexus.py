@@ -197,6 +197,8 @@ async def _forward(
     *,
     authorization: Literal["request", "workspace"] = "request",
     body_override: bytes | None = None,
+    extra_headers: dict[str, str] | None = None,
+    raise_request_errors: bool = False,
 ) -> Response:
     if os.getenv("ALPHALAB_AGENT_MODE") == "off":
         return _unavailable_response()
@@ -216,14 +218,16 @@ async def _forward(
             upstream = await client.request(
                 method,
                 f"{_web_origin()}{path}",
-                headers=_upstream_headers(
-                    request,
-                    authorization=authorization,
-                ),
+                headers={
+                    **_upstream_headers(request, authorization=authorization),
+                    **(extra_headers or {}),
+                },
                 params=list(request.query_params.multi_items()),
                 content=body,
             )
     except httpx.RequestError:
+        if raise_request_errors:
+            raise
         return _unavailable_response()
     return _response(upstream)
 
@@ -280,9 +284,14 @@ async def conexus_status() -> dict:
 @router.get("/conversations")
 def list_agent_conversations() -> dict[str, list[dict[str, Any]]]:
     store = _conversation_store()
+    scope = agent_run_service.run_scope()
     return {
         "conversations": store.list_conversations(),
-        "runs": store.conversation_runs(agent_run_service.run_scope()),
+        "runs": [
+            {**item, "run": agent_run_service.decorate_run(item["run"])}
+            for item in store.conversation_runs(scope)
+        ],
+        "submissions": store.open_submissions(scope),
     }
 
 
@@ -311,6 +320,23 @@ async def publication_manifest(request: Request) -> Response:
     )
 
 
+def _submission_response(status_code: int, code: str, detail: str) -> JSONResponse:
+    return JSONResponse(status_code=status_code, content={"detail": detail, "code": code})
+
+
+_IN_PROGRESS = "This message is already being submitted. It was not sent again."
+_UNCONFIRMED = (
+    "The Agent Host may have accepted this message, but that could not be confirmed. "
+    "It was not sent again, to avoid a second billed run."
+)
+
+
+def _accepted_submission(run: dict[str, Any], turn: dict[str, Any]) -> JSONResponse:
+    store = _conversation_store()
+    saved = next((item for item in store.list_conversations() if item["id"] == turn["id"]), turn)
+    return JSONResponse({"run": agent_run_service.decorate_run(run), "conversation": saved, "replayed": True})
+
+
 @router.post("/runs")
 async def create_run(request: Request) -> Response:
     try:
@@ -319,31 +345,66 @@ async def create_run(request: Request) -> Response:
         conversation = RunConversationRequest.model_validate(metadata) if metadata is not None else None
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=422, detail="Invalid Agent conversation submission") from exc
-    response = await _forward(
-        request,
-        "POST",
-        f"/api/public/harnesses/{_path_segment(_publication_slug())}/runs",
-        authorization="workspace",
-        body_override=json.dumps(body).encode("utf-8"),
-    )
-    if conversation is not None and 200 <= response.status_code < 300:
-        result = json.loads(response.body)
-        run = result["run"]
-        now = datetime.now(timezone.utc).isoformat()
-        saved = _conversation_store().attach_run(
-            agent_run_service.run_scope(), run, result["accessToken"], {
-                "id": conversation.id, "title": conversation.title,
-                "createdAt": conversation.createdAt.isoformat(), "updatedAt": now,
-                "messages": [{
-                    "id": conversation.messageId, "role": "user", "content": conversation.message,
-                    "createdAt": now, "runId": run["id"],
-                }],
-            },
+    path = f"/api/public/harnesses/{_path_segment(_publication_slug())}/runs"
+    payload = json.dumps(body).encode("utf-8")
+    if conversation is None:
+        return await _forward(request, "POST", path, authorization="workspace", body_override=payload)
+
+    store = _conversation_store()
+    scope = agent_run_service.run_scope()
+    key = f"{conversation.id}:{conversation.messageId}"
+    now = datetime.now(timezone.utc).isoformat()
+    turn = {
+        "id": conversation.id, "title": conversation.title,
+        "createdAt": conversation.createdAt.isoformat(), "updatedAt": now,
+        "messages": [{
+            "id": conversation.messageId, "role": "user", "content": conversation.message,
+            "createdAt": now, "runId": "pending",
+        }],
+    }
+    claim = store.claim_submission(scope, key, turn, message_id=conversation.messageId)
+    if not claim["claimed"]:
+        state = claim["state"]
+        if state == "unconfirmed":
+            state = await agent_run_service.resolve_submission(key)
+        if state == "accepted":
+            # Whichever attempt won, every duplicate sees the one Run it created.
+            accepted = store.get_submission(scope, key) or {}
+            run = agent_run_service.stored_run(accepted.get("run_id") or claim.get("run_id") or "")
+            if run is not None:
+                turn["messages"][0]["runId"] = run["id"]
+                return _accepted_submission(run, turn)
+            state = "unconfirmed"
+        if state == "submitting":
+            return _submission_response(409, "submission_in_progress", _IN_PROGRESS)
+        if state != "not_started":
+            return _submission_response(409, "submission_unconfirmed", _UNCONFIRMED)
+        store.claim_submission(scope, key, turn, message_id=conversation.messageId)
+
+    try:
+        response = await _forward(
+            request, "POST", path, authorization="workspace", body_override=payload,
+            extra_headers={"Idempotency-Key": agent_run_service.host_submission_key(key)}, raise_request_errors=True,
         )
-        await agent_run_service.record_snapshot(run)
-        # Managed browser sessions authenticate through the server's saved Run credential.
-        return JSONResponse({"run": run, "conversation": saved}, status_code=response.status_code)
-    return response
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
+        # The request never reached the Host, so a later attempt cannot duplicate anything.
+        store.release_submission(scope, key)
+        return _unavailable_response()
+    except httpx.RequestError:
+        store.mark_submission(scope, key, "unconfirmed")
+        return _submission_response(503, "submission_unconfirmed", _UNCONFIRMED)
+    if not 200 <= response.status_code < 300:
+        store.release_submission(scope, key)
+        return response
+    result = json.loads(response.body)
+    run = result["run"]
+    turn["messages"][0]["runId"] = run["id"]
+    saved = store.attach_run(scope, run, result["accessToken"], turn, submission_key=key)
+    await agent_run_service.record_snapshot(run)
+    # Managed browser sessions authenticate through the server's saved Run credential.
+    return JSONResponse(
+        {"run": agent_run_service.decorate_run(run), "conversation": saved}, status_code=response.status_code,
+    )
 
 
 @router.get("/workspace")
@@ -362,16 +423,45 @@ async def publication_workspace(request: Request) -> Response:
     return response
 
 
+def _run_payload(run: dict[str, Any], **extra: Any) -> JSONResponse:
+    return JSONResponse({"run": agent_run_service.decorate_run(run), **extra})
+
+
+@router.get("/runs/{run_id}/trace")
+def run_trace(run_id: str) -> dict[str, Any]:
+    trace = agent_run_service.run_trace(run_id)
+    if trace is None:
+        raise HTTPException(status_code=404, detail="No trace is recorded for this Run.")
+    return trace
+
+
 @router.get("/runs/{run_id}")
 async def get_run(run_id: str, request: Request) -> Response:
     response = await _forward(request, "GET", f"/api/public/runs/{_path_segment(run_id)}")
+    if response.status_code in agent_run_service.RUN_UNKNOWN_STATUSES:
+        # The server record stays authoritative while recovery decides whether the Run is gone.
+        stored = agent_run_service.stored_run(run_id)
+        if stored is not None:
+            return _run_payload(stored)
     return await _record_run_response(response)
 
 
 @router.post("/runs/{run_id}/cancel")
 async def cancel_run(run_id: str, request: Request) -> Response:
     response = await _forward(request, "POST", f"/api/public/runs/{_path_segment(run_id)}/cancel")
-    return await _record_run_response(response)
+    stored = agent_run_service.stored_run(run_id)
+    if response.status_code in agent_run_service.RUN_UNKNOWN_STATUSES and stored is not None:
+        # Nothing is left to cancel at the Host, and saying "cancelled" would be a guess.
+        run = agent_run_service.mark_run_lost(run_id) or stored
+        return _run_payload(run, jobs=agent_run_service.cancel_run_jobs(run_id))
+    if response.status_code != 200 or stored is None:
+        return response
+    payload = json.loads(response.body)
+    run = payload.get("run")
+    if not isinstance(run, dict):
+        return response
+    await agent_run_service.record_snapshot(run)
+    return _run_payload(run, jobs=agent_run_service.cancel_run_jobs(run_id))
 
 
 @router.post("/runs/{run_id}/interactions/{interaction_id}/answer")
@@ -389,6 +479,7 @@ async def _record_run_response(response: Response) -> Response:
         payload = json.loads(response.body)
         if isinstance(payload.get("run"), dict):
             await agent_run_service.record_snapshot(payload["run"])
+            return JSONResponse({**payload, "run": agent_run_service.decorate_run(payload["run"])})
     return response
 
 

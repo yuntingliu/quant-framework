@@ -34,10 +34,12 @@ from apps.api.routers import (
     system,
     validation,
 )
+from apps.api.services.agent_run_service import run_recovery_lifespan
 
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "build" / "web"
 
 app = FastAPI(
+    lifespan=run_recovery_lifespan,
     title="AlphaLab Barebone API",
     description="Provider-first quant framework workstation API",
     version="0.7.0",

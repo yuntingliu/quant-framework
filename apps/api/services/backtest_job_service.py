@@ -183,7 +183,20 @@ class BacktestJobManager:
                 job = existing_job
         assert job is not None
         self._schedule(job_id, request)
-        return _public_job(job)
+        # A shared job is not the second requester's to cancel.
+        return {**_public_job(job), "deduplicated": existing_job is not None}
+
+    def cancel_queued(self, job_id: str) -> bool:
+        with self._store() as store:
+            cancelled = store.cancel_queued_backtest_job(
+                job_id, "Cancelled with its Agent task before it started"
+            )
+        if cancelled:
+            with self._lock:
+                future = self._futures.get(job_id)
+            if future is not None:
+                future.cancel()
+        return cancelled
 
     def _schedule(self, job_id: str, request: dict) -> None:
         with self._lock:
@@ -256,11 +269,8 @@ class BacktestJobManager:
         if current is None or current["status"] in {"succeeded", "failed", "interrupted"}:
             return
         with self._store() as store:
-            store.update_backtest_job(
-                job_id,
-                status="running",
-                message="Running complete strategy backtest",
-            )
+            if not store.start_backtest_job(job_id, "Running complete strategy backtest"):
+                return
         try:
             arguments = (
                 request["project_id"],
@@ -375,6 +385,10 @@ def submit_backtest_batch(request: dict) -> dict:
     return {"batch_id": batch_id, "jobs": jobs}
 
 
+def cancel_queued_backtest_job(job_id: str) -> bool:
+    return manager().cancel_queued(job_id)
+
+
 def get_backtest_job(job_id: str) -> dict | None:
     return manager().get(job_id)
 
@@ -389,6 +403,7 @@ def list_backtest_jobs(limit: int = 50) -> list[dict]:
 
 __all__ = [
     "BacktestJobManager",
+    "cancel_queued_backtest_job",
     "get_backtest_job",
     "list_backtest_jobs",
     "manager",
