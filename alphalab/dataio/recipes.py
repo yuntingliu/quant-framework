@@ -8,6 +8,7 @@ import hashlib
 import io
 import multiprocessing
 import re
+import threading
 import time
 import traceback
 import types
@@ -28,6 +29,7 @@ from alphalab.dataio.rq_templates import (
 RQDATA_PYTHON_DOCS_URL = "https://www.ricequant.com/doc/rqdata/python/index-rqdatac"
 MAX_RECIPE_SOURCE_BYTES = 300_000
 MAX_RECIPE_LOG_CHARS = 20_000
+_PROBE_EXECUTION_LOCK = threading.Lock()
 _LEGACY_VISIBLE_NORMALIZED_HASHES = {
     "rq.a_share_daily": {
         "6cc97280b1486761da9abd396c12372f0c682e798ab5a112fd0853b34dfe549f",
@@ -970,8 +972,26 @@ def execute_data_recipe(
 def probe_data_recipe(source: str, *, mode: str = "plan", root: str | Path | None = None) -> dict:
     """Execute in-process for tests and controlled callers that cannot spawn."""
 
+    import alphalab.data_sdk.v1 as data_sdk_v1
+    import alphalab.data_sdk.v1.recipe as recipe_module
+    from alphalab.data_sdk.v1.recipe import RQDataAPI
+
     inspect_data_recipe_source(source)
-    return _execute_loaded_recipe(source, mode=mode, root=str(root) if root is not None else None)
+    with _PROBE_EXECUTION_LOCK:
+        previous_sdk_proxy = data_sdk_v1.rq
+        previous_recipe_proxy = recipe_module.rq
+        isolated_proxy = RQDataAPI()
+        data_sdk_v1.rq = isolated_proxy
+        recipe_module.rq = isolated_proxy
+        try:
+            return _execute_loaded_recipe(
+                source,
+                mode=mode,
+                root=str(root) if root is not None else None,
+            )
+        finally:
+            recipe_module.rq = previous_recipe_proxy
+            data_sdk_v1.rq = previous_sdk_proxy
 
 
 def _execute_loaded_recipe(source: str, *, mode: str, root: str | None) -> dict[str, Any]:

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import os
+import shutil
 import threading
+import uuid
+from contextlib import contextmanager
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -13,6 +17,7 @@ from alphalab.dataio import (
     MissingDataError,
     RQDataClient,
     RQDataConfig,
+    rq_profiles,
 )
 from alphalab.dataio import runtime as runtime_module
 from alphalab.dataio.catalog import DataCatalog
@@ -26,6 +31,16 @@ from alphalab.dataio.rq_sync import RQAcquirer
 from alphalab.dataio.runtime import OperationsStore, RuntimeStore
 from alphalab.dataio.sync import RQSyncService, SyncJobManager, SyncRequest, build_sync_plan
 from alphalab.tools import create_data_tool_registry
+
+
+@contextmanager
+def runtime_dir() -> Path:
+    path = Path(".tmp") / f"runtime-sync-profile-test-{uuid.uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def _financial_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -334,6 +349,150 @@ def test_sync_service_builds_runtime_engine_and_records_job(tmp_path) -> None:
         use_cache=False,
     )
     assert not fundamentals.empty
+
+
+def test_sync_service_resolves_saved_active_profile_once_per_job(monkeypatch) -> None:
+    with runtime_dir() as path:
+        monkeypatch.setenv("ALPHALAB_RUNTIME_DIR", str(path))
+        monkeypatch.setenv("RQ_USER", "env-user")
+        monkeypatch.setenv("RQ_PASSWORD", "env-secret")
+        monkeypatch.setenv("RQ_HOST", "env.example:16011")
+        rq_profiles.save_profile(
+            {
+                "id": "research",
+                "name": "Research",
+                "user": "saved-user",
+                "password": "saved-secret",
+                "host": "saved.example:16011",
+            },
+            activate=True,
+        )
+        seen: list[RQDataConfig] = []
+        observed: list[str] = []
+
+        class RecordingAcquirer(_FakeAcquirer):
+            def __init__(self, config: RQDataConfig) -> None:
+                super().__init__()
+                self.config = config
+
+            def daily_bars(self, symbols, start, end, **kwargs) -> pd.DataFrame:
+                observed.append(self.config.user)
+                rq_profiles.save_profile(
+                    {
+                        "id": "other",
+                        "name": "Other",
+                        "user": "other-user",
+                        "password": "other-secret",
+                        "host": "other.example:16011",
+                    },
+                    activate=True,
+                )
+                observed.append(self.config.user)
+                return super().daily_bars(symbols, start, end, **kwargs)
+
+        def fake_from_env(cls, **kwargs):
+            config = RQDataClient.from_env().config
+            seen.append(config)
+            return RecordingAcquirer(config)
+
+        monkeypatch.setattr(RQAcquirer, "from_env", classmethod(fake_from_env))
+        request = SyncRequest(
+            datasets=["bars"],
+            symbols=["000001.SZ"],
+            start="2025-01-02",
+            end="2025-01-03",
+            force=True,
+        )
+        job_id = OperationsStore(path).create_job(request.model_dump(mode="json"))
+
+        result = RQSyncService(path).run(job_id)
+
+        assert result["status"] == "succeeded"
+        assert seen == [
+            RQDataConfig(
+                user="saved-user",
+                password="saved-secret",
+                host="saved.example:16011",
+            )
+        ]
+        assert observed == ["saved-user", "saved-user"]
+
+
+def test_sync_service_falls_back_to_environment_without_saved_active_profile(monkeypatch) -> None:
+    with runtime_dir() as path:
+        monkeypatch.setenv("ALPHALAB_RUNTIME_DIR", str(path))
+        monkeypatch.setenv("RQ_USER", "env-user")
+        monkeypatch.setenv("RQ_PASSWORD", "env-secret")
+        monkeypatch.setenv("RQ_HOST", "env.example:16011")
+        seen: list[RQDataConfig] = []
+
+        def fake_from_env(cls, **kwargs):
+            config = RQDataClient.from_env().config
+            seen.append(config)
+            return _FakeAcquirer()
+
+        monkeypatch.setattr(RQAcquirer, "from_env", classmethod(fake_from_env))
+        request = SyncRequest(
+            datasets=["bars"],
+            symbols=["000001.SZ"],
+            start="2025-01-02",
+            end="2025-01-03",
+            force=True,
+        )
+        job_id = OperationsStore(path).create_job(request.model_dump(mode="json"))
+
+        result = RQSyncService(path).run(job_id)
+
+        assert result["status"] == "succeeded"
+        assert seen == [
+            RQDataConfig(
+                user="env-user",
+                password="env-secret",
+                host="env.example:16011",
+            )
+        ]
+
+
+def test_sync_service_does_not_fallback_from_invalid_active_saved_profile(monkeypatch) -> None:
+    with runtime_dir() as path:
+        monkeypatch.setenv("ALPHALAB_RUNTIME_DIR", str(path))
+        monkeypatch.setenv("RQ_USER", "env-user")
+        monkeypatch.setenv("RQ_PASSWORD", "env-secret")
+        monkeypatch.setenv("RQ_HOST", "env.example:16011")
+        rq_profiles.save_profile(
+            {
+                "id": "research",
+                "name": "Research",
+                "user": "saved-user",
+                "password": "saved-secret",
+                "host": "saved.example:16011",
+            },
+            activate=True,
+        )
+        rq_profiles.save_profile(
+            {
+                "id": "research",
+                "name": "Research",
+                "user": "saved-user",
+                "password": "",
+                "host": "saved.example:16011",
+            },
+            activate=True,
+            clear_password=True,
+        )
+        request = SyncRequest(
+            datasets=["bars"],
+            symbols=["000001.SZ"],
+            start="2025-01-02",
+            end="2025-01-03",
+            force=True,
+        )
+        job_id = OperationsStore(path).create_job(request.model_dump(mode="json"))
+
+        result = RQSyncService(path).run(job_id)
+
+        assert result["status"] == "failed"
+        assert "active saved RQData profile is incomplete" in result["error"]
 
 
 def test_default_sync_scope_resolves_all_a_shares_from_rq_instruments(tmp_path) -> None:

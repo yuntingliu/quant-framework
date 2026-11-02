@@ -293,6 +293,43 @@ def test_saved_rq_profile_overrides_environment_without_exposing_password(monkey
         )
 
 
+def test_query_engine_uses_saved_active_profile(monkeypatch) -> None:
+    with runtime_dir() as path:
+        monkeypatch.setenv("ALPHALAB_RUNTIME_DIR", str(path))
+        monkeypatch.setenv("RQ_USER", "env-user")
+        monkeypatch.setenv("RQ_PASSWORD", "env-secret")
+        monkeypatch.setenv("RQ_HOST", "env.example:16011")
+        rq_profiles.save_profile(
+            {
+                "id": "research",
+                "name": "Research",
+                "user": "saved-user",
+                "password": "saved-secret",
+                "host": "saved.example:16011",
+            },
+            activate=True,
+        )
+        seen: list[RQDataConfig] = []
+
+        def fake_connect(self):
+            seen.append(self.config)
+            self._module = FakeRQData()
+            self._connected = True
+            return self._module
+
+        monkeypatch.setattr(RQDataClient, "connect", fake_connect)
+        engine = create_rq_engine_from_env(cache=DataCache(path / "cache"))
+
+        assert engine.get_symbols() == ["000001.SZ", "600000.SH"]
+        assert seen == [
+            RQDataConfig(
+                user="saved-user",
+                password="saved-secret",
+                host="saved.example:16011",
+            )
+        ]
+
+
 def test_incomplete_active_saved_profile_does_not_fall_back_to_environment(monkeypatch) -> None:
     with runtime_dir() as path:
         monkeypatch.setenv("ALPHALAB_RUNTIME_DIR", str(path))

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import shutil
+import uuid
+from contextlib import contextmanager
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from alphalab import ResultStore
+from alphalab.dataio import RQDataConfig, rq_profiles
 from alphalab.dataio.recipes import (
     _previous_raw_close_builtin_recipe,
     render_builtin_recipe,
@@ -21,6 +26,16 @@ from apps.api.services import (
     result_service,
     strategy_service,
 )
+
+
+@contextmanager
+def runtime_dir() -> Path:
+    path = Path(".tmp") / f"backend-smoke-rq-profile-{uuid.uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def test_data_and_strategy_sdk_read_contracts(tmp_path, monkeypatch):
@@ -489,6 +504,94 @@ def test_data_sync_connection_probe_uses_selected_template(monkeypatch) -> None:
     )
     assert default_response.status_code == 200
     assert default_response.json()["template_id"] == "rq.a_share_research"
+
+
+def test_data_sync_connection_probe_uses_active_saved_profile(monkeypatch) -> None:
+    with runtime_dir() as path:
+        monkeypatch.setenv("ALPHALAB_RUNTIME_DIR", str(path))
+        monkeypatch.setenv("RQ_USER", "env-user")
+        monkeypatch.setenv("RQ_PASSWORD", "env-secret")
+        monkeypatch.setenv("RQ_HOST", "env.example:16011")
+        rq_profiles.save_profile(
+            {
+                "id": "research",
+                "name": "Research",
+                "user": "saved-user",
+                "password": "saved-secret",
+                "host": "saved.example:16011",
+            },
+            activate=True,
+        )
+        seen: list[RQDataConfig] = []
+
+        class FakeRQ:
+            def get_latest_trading_date(self, **kwargs):
+                assert kwargs == {"market": "cn"}
+                return "2026-08-24"
+
+        def fake_connect(self):
+            seen.append(self.config)
+            return FakeRQ()
+
+        monkeypatch.setattr(data_sync_service.RQDataClient, "connect", fake_connect)
+        monkeypatch.setattr(data_sync_service, "version", lambda _name: "3.6.3")
+
+        response = TestClient(app).post(
+            "/api/data-sync/connection-test",
+            json={},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["template_id"] == "rq.a_share_research"
+        assert seen == [
+            RQDataConfig(
+                user="saved-user",
+                password="saved-secret",
+                host="saved.example:16011",
+            )
+        ]
+
+
+def test_data_sync_connection_probe_rejects_invalid_active_saved_profile(monkeypatch) -> None:
+    with runtime_dir() as path:
+        monkeypatch.setenv("ALPHALAB_RUNTIME_DIR", str(path))
+        monkeypatch.setenv("RQ_USER", "env-user")
+        monkeypatch.setenv("RQ_PASSWORD", "env-secret")
+        monkeypatch.setenv("RQ_HOST", "env.example:16011")
+        rq_profiles.save_profile(
+            {
+                "id": "research",
+                "name": "Research",
+                "user": "saved-user",
+                "password": "saved-secret",
+                "host": "saved.example:16011",
+            },
+            activate=True,
+        )
+        rq_profiles.save_profile(
+            {
+                "id": "research",
+                "name": "Research",
+                "user": "saved-user",
+                "password": "",
+                "host": "saved.example:16011",
+            },
+            activate=True,
+            clear_password=True,
+        )
+
+        response = TestClient(app).post(
+            "/api/data-sync/connection-test",
+            json={},
+        )
+
+        assert response.status_code == 503
+        assert response.json() == {
+            "detail": (
+                "The active saved RQData profile is incomplete. "
+                "Update or clear the saved profile explicitly."
+            )
+        }
 
 
 def test_data_recipe_workspace_uses_python_as_the_template_and_parameter_source(

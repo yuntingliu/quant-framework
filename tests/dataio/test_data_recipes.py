@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import sqlite3
+import threading
 
 import pandas as pd
 import pytest
@@ -537,6 +538,95 @@ def waiting_recipe(context):
         execute_data_recipe(source, mode="plan", cancelled=lambda: True)
 
     assert caught.value.phase == "cancel"
+
+
+def test_probe_data_recipe_re_resolves_rq_profile_between_operations(monkeypatch) -> None:
+    marker = "first"
+    calls: list[str] = []
+
+    class FakeClient:
+        def connect(self):
+            calls.append(marker)
+            return type("FakeModule", (), {"marker": marker})()
+
+    monkeypatch.setattr(rq_provider.RQDataClient, "from_env", lambda: FakeClient())
+    source = """from alphalab.data_sdk.v1 import data_recipe, rq
+
+
+@data_recipe(id="profile_probe")
+def profile_probe(context):
+    context.output("marker", rq.marker)
+"""
+
+    first = probe_data_recipe(source, mode="plan")
+    assert first["outputs"][0]["value"] == "'first'"
+
+    marker = "second"
+    second = probe_data_recipe(source, mode="plan")
+    assert second["outputs"][0]["value"] == "'second'"
+    assert calls == ["first", "second"]
+
+
+def test_probe_data_recipe_keeps_credentials_stable_during_concurrent_probe(monkeypatch) -> None:
+    marker = "first"
+    started = threading.Event()
+    release_first = threading.Event()
+    second_finished = threading.Event()
+    first_result: dict | None = None
+    second_result: dict | None = None
+
+    class FakeModule:
+        def __init__(self, value: str) -> None:
+            self.marker = value
+
+        def first(self) -> str:
+            started.set()
+            assert release_first.wait(timeout=5.0)
+            return self.marker
+
+        def second(self) -> str:
+            return self.marker
+
+    class FakeClient:
+        def connect(self):
+            return FakeModule(marker)
+
+    monkeypatch.setattr(rq_provider.RQDataClient, "from_env", lambda: FakeClient())
+    source = """from alphalab.data_sdk.v1 import data_recipe, rq
+
+
+@data_recipe(id="concurrent_probe")
+def concurrent_probe(context):
+    context.output("first", rq.first())
+    context.output("second", rq.second())
+"""
+
+    def run_first() -> None:
+        nonlocal first_result
+        first_result = probe_data_recipe(source, mode="plan")
+
+    def run_second() -> None:
+        nonlocal second_result
+        second_result = probe_data_recipe(source, mode="plan")
+        second_finished.set()
+
+    first_thread = threading.Thread(target=run_first)
+    second_thread = threading.Thread(target=run_second)
+    first_thread.start()
+    assert started.wait(timeout=5.0)
+
+    marker = "second"
+    second_thread.start()
+    assert not second_finished.wait(timeout=0.2)
+
+    release_first.set()
+    first_thread.join(timeout=5.0)
+    second_thread.join(timeout=5.0)
+
+    assert first_result is not None
+    assert second_result is not None
+    assert [item["value"] for item in first_result["outputs"]] == ["'first'", "'first'"]
+    assert [item["value"] for item in second_result["outputs"]] == ["'second'", "'second'"]
 
 
 def test_recipe_sync_batches_resume_existing_symbols_and_backfill_new_ones(tmp_path) -> None:
