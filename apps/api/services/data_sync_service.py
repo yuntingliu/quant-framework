@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import uuid
 from datetime import date
@@ -25,6 +24,12 @@ from alphalab.dataio.recipes import (
 from alphalab.dataio.recipes import (
     update_recipe_parameters as project_recipe_parameters,
 )
+from alphalab.dataio.rq_profiles import (
+    missing_environment_keys,
+)
+from alphalab.dataio.rq_profiles import (
+    public_settings as public_rq_settings,
+)
 from alphalab.dataio.rq_templates import (
     DEFAULT_RQ_SYNC_TEMPLATE_ID,
     get_rq_sync_template,
@@ -36,7 +41,6 @@ from alphalab.tools import create_data_tool_registry
 from alphalab.utils.env import load_env_files
 from apps.api.services import strategy_service
 
-_RQ_KEYS = ("RQ_USER", "RQ_PASSWORD", "RQ_HOST")
 _DEFAULT_RECIPE_PROJECT_ID = "sdk-v1-default"
 _PREVIOUS_DEFAULT_RECIPE_ID = "rq.a_share_daily"
 
@@ -112,9 +116,10 @@ def get_job_manager() -> SyncJobManager:
 
 def get_health(*, runtime_summary: dict | None = None) -> dict:
     load_env_files()
-    missing = [key for key in _RQ_KEYS if not os.environ.get(key, "").strip()]
+    saved_settings = public_rq_settings()
+    missing = [] if saved_settings["configured"] else missing_environment_keys()
     installed = find_spec("rqdatac") is not None
-    credentials_configured = not missing
+    credentials_configured = bool(saved_settings["configured"])
     ready = installed and credentials_configured
     jobs = get_job_manager().operations.list_jobs(limit=1)
     latest = jobs[0] if jobs else None
@@ -138,6 +143,8 @@ def get_health(*, runtime_summary: dict | None = None) -> dict:
             "missing": missing,
             "connected": False,
             "connection_test_required": ready,
+            "source": saved_settings["source"],
+            "active_id": saved_settings["active_id"],
             "last_error": (
                 _safe_error_summary(latest.get("error"))
                 if latest and latest["status"] == "failed"

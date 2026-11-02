@@ -1,4 +1,4 @@
-"""Optional RQData providers configured only through project environment values."""
+"""Optional RQData providers resolved from saved active profiles or env values."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from alphalab.dataio.rq_frames import (
     normalize_rq_suspension,
     require_same_keys,
 )
+from alphalab.dataio.rq_profiles import active_config
 from alphalab.utils.env import load_env_files
 
 _BAR_FIELDS = ("open", "high", "low", "close", "volume", "amount")
@@ -54,6 +55,15 @@ class RQDataConfig:
             host=values["RQ_HOST"],
         )
 
+    @classmethod
+    def from_active_settings(cls) -> "RQDataConfig":
+        values = active_config()
+        return cls(
+            user=values["RQ_USER"],
+            password=values["RQ_PASSWORD"],
+            host=values["RQ_HOST"],
+        )
+
 
 class RQDataClient:
     """Lazy RQData client that never connects during package import."""
@@ -66,7 +76,7 @@ class RQDataClient:
 
     @classmethod
     def from_env(cls) -> "RQDataClient":
-        return cls(RQDataConfig.from_env())
+        return cls(RQDataConfig.from_active_settings())
 
     def connect(self) -> Any:
         if self._connected:

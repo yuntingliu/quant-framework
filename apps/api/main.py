@@ -23,6 +23,7 @@ from apps.api.routers import (
     compat,
     conexus,
     data,
+    data_source_profiles,
     data_sync,
     market,
     model_providers,
@@ -127,6 +128,7 @@ async def prevent_stale_frontend_shell(request: Request, call_next):
 app.include_router(data.router)
 app.include_router(agent_context.router)
 app.include_router(agent_tools.router)
+app.include_router(data_source_profiles.router)
 app.include_router(data_sync.router)
 app.include_router(market.router)
 app.include_router(strategy.router)

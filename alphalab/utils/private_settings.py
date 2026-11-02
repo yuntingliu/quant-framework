@@ -1,0 +1,88 @@
+"""Private JSON settings helpers with atomic writes and strict validation."""
+
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+import threading
+from pathlib import Path
+from typing import Callable, TypeVar
+
+from alphalab.utils.paths import RUNTIME_DIR
+
+T = TypeVar("T")
+
+_GLOBAL_LOCK = threading.RLock()
+
+
+def runtime_root() -> Path:
+    """Resolve the current runtime root from the live environment."""
+
+    return Path(os.getenv("ALPHALAB_RUNTIME_DIR", str(RUNTIME_DIR))).expanduser()
+
+
+def app_secret_path(filename: str) -> Path:
+    """Return the standard application-owned secret-settings path."""
+
+    return runtime_root() / "app" / "secrets" / filename
+
+
+def read_json_settings(
+    path: Path,
+    *,
+    default: Callable[[], object],
+    validate: Callable[[object], T],
+) -> T:
+    """Read one validated JSON settings file, or its validated default value."""
+
+    if not path.exists():
+        return validate(default())
+    value = json.loads(path.read_text(encoding="utf-8"))
+    return validate(value)
+
+
+def write_json_settings(
+    path: Path,
+    value: object,
+    *,
+    validate: Callable[[object], T],
+) -> T:
+    """Validate and atomically write one JSON settings file."""
+
+    validated = validate(value)
+    with _GLOBAL_LOCK:
+        _prepare_private_directory(path.parent)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.stem}-",
+            suffix=".tmp",
+            dir=path.parent,
+            text=True,
+        )
+        temporary = Path(temporary_name)
+        try:
+            if os.name != "nt":
+                os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                json.dump(validated, stream, indent=2, sort_keys=True)
+                stream.write("\n")
+            os.replace(temporary, path)
+            _harden_private_file(path)
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
+    return validated
+
+
+def _prepare_private_directory(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    if os.name != "nt":
+        path.chmod(0o700)
+
+
+def _harden_private_file(path: Path) -> None:
+    if os.name != "nt":
+        path.chmod(0o600)
+
+
+__all__ = ["app_secret_path", "read_json_settings", "runtime_root", "write_json_settings"]

@@ -1,10 +1,32 @@
 from __future__ import annotations
 
+import shutil
+import uuid
+from contextlib import contextmanager
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
 from alphalab import create_rq_engine_from_env
-from alphalab.dataio import DataCache, DataLoadError, RQDataClient, RQDataConfig, RQDataProvider
+from alphalab.dataio import (
+    DataCache,
+    DataLoadError,
+    RQDataClient,
+    RQDataConfig,
+    RQDataProvider,
+    rq_profiles,
+)
+
+
+@contextmanager
+def runtime_dir() -> Path:
+    path = Path(".tmp") / f"rq-profile-test-{uuid.uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 class FakeRQData:
@@ -241,3 +263,64 @@ def test_rq_engine_factory_registers_market_and_fundamental(monkeypatch, tmp_pat
         "factor": [],
         "research": ["rq"],
     }
+
+
+def test_saved_rq_profile_overrides_environment_without_exposing_password(monkeypatch) -> None:
+    with runtime_dir() as path:
+        monkeypatch.setenv("ALPHALAB_RUNTIME_DIR", str(path))
+        monkeypatch.setenv("RQ_USER", "env-user")
+        monkeypatch.setenv("RQ_PASSWORD", "env-secret")
+        monkeypatch.setenv("RQ_HOST", "env.example:16011")
+
+        settings = rq_profiles.save_profile(
+            {
+                "id": "research",
+                "name": "Research",
+                "user": "saved-user",
+                "password": "saved-secret",
+                "host": "saved.example:16011",
+            },
+            activate=True,
+        )
+
+        assert settings["active_id"] == "research"
+        assert settings["profiles"][0]["has_password"] is True
+        assert "saved-secret" not in repr(RQDataConfig.from_active_settings())
+        assert RQDataClient.from_env().config == RQDataConfig(
+            user="saved-user",
+            password="saved-secret",
+            host="saved.example:16011",
+        )
+
+
+def test_incomplete_active_saved_profile_does_not_fall_back_to_environment(monkeypatch) -> None:
+    with runtime_dir() as path:
+        monkeypatch.setenv("ALPHALAB_RUNTIME_DIR", str(path))
+        monkeypatch.setenv("RQ_USER", "env-user")
+        monkeypatch.setenv("RQ_PASSWORD", "env-secret")
+        monkeypatch.setenv("RQ_HOST", "env.example:16011")
+
+        rq_profiles.save_profile(
+            {
+                "id": "research",
+                "name": "Research",
+                "user": "saved-user",
+                "password": "saved-secret",
+                "host": "saved.example:16011",
+            },
+            activate=True,
+        )
+        rq_profiles.save_profile(
+            {
+                "id": "research",
+                "name": "Research",
+                "user": "saved-user",
+                "password": "",
+                "host": "saved.example:16011",
+            },
+            activate=True,
+            clear_password=True,
+        )
+
+        with pytest.raises(DataLoadError, match="active saved RQData profile is incomplete"):
+            RQDataClient.from_env()
