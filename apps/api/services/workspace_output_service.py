@@ -46,6 +46,21 @@ def prepare_workspace_outputs(request_id: str, outputs: dict[str, Any]) -> dict[
     if result["requestId"] != request_id or batch["requestId"] != request_id:
         return _invalid(["workspaceResult and workspaceCommands must use the current request_id"])
     semantic_errors = []
+    if result["kind"] == "document":
+        has_columns, has_rows = "columns" in result, "rows" in result
+        if has_columns != has_rows:
+            semantic_errors.append("A result table requires both columns and rows")
+        elif has_columns:
+            keys = [column["key"] for column in result["columns"]]
+            if len(keys) != len(set(keys)):
+                semantic_errors.append("Result table column keys must be unique")
+            if any(set(row) != set(keys) for row in result["rows"]):
+                semantic_errors.append("Every result row must contain exactly the declared column keys")
+            if keys == ["field", "value"] and any(
+                not isinstance(row.get("field"), str) or not row["field"].strip()
+                for row in result["rows"]
+            ):
+                semantic_errors.append("A field/value table requires nonempty string field names")
     commands = batch["commands"]
     focus_indexes = [index for index, command in enumerate(commands) if command["type"] == "set_focus"]
     for index, command in enumerate(commands):
