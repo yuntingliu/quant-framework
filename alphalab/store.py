@@ -435,6 +435,15 @@ class ResultStore:
         self._write(work)
         return job_id
 
+    def claim_backtest_job(self, job_id: str) -> bool:
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                """UPDATE backtest_jobs SET status = 'running', started_at = datetime('now'),
+                   message = 'Running complete strategy backtest'
+                   WHERE id = ? AND status IN ('queued', 'running')""", (job_id,),
+            )
+            return cursor.rowcount == 1
+
     def update_backtest_job(
         self,
         job_id: str,

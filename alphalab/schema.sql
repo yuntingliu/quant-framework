@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS experiment_candidates (
 
 CREATE TABLE IF NOT EXISTS experiment_execution (
     experiment_id TEXT PRIMARY KEY REFERENCES research_experiments(id),
-    status TEXT NOT NULL CHECK(status IN ('running', 'succeeded', 'failed')),
+    status TEXT NOT NULL CHECK(status IN ('running', 'cancelling', 'cancelled', 'succeeded', 'failed')),
     selection_json TEXT,
     error TEXT,
     started_at TEXT NOT NULL DEFAULT (datetime('now')),

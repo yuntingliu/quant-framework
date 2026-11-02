@@ -117,8 +117,36 @@ influence is not automatically certified.
 Its presence is marked `unverified`; absence is marked `missing`. Neither state
 claims reproducibility after market-data updates. Date validation alone does not
 establish PIT correctness or prevent arbitrary Python from accessing future data.
-Queries retain failed, cancelled, and interrupted rows. There is no cancellation
-endpoint, model-fitting stage, rolling-window orchestration, or frontend yet.
+Queries retain failed, cancelled, and interrupted rows. There is no model-fitting
+stage, rolling-window orchestration, or frontend yet.
+
+## Safely stop an experiment
+
+`POST /api/experiments/{id}/cancel` returns 202 with the current experiment state
+(404 for an unknown ID). It is idempotent. An already succeeded, failed or
+cancelled experiment stays unchanged; cancelling a recorded experiment does not
+execute Python or require execution consent.
+
+Cancellation durably stops further trial creation. Planned trials become
+`cancelled`; unclaimed queued jobs become `interrupted` with error code
+`EXPERIMENT_CANCELLED`, and their trials become `cancelled`. This uses the existing
+job terminal state without claiming that interrupted work actually ran. Recovery
+and job reads cannot restart those jobs. Worker claim and queued cancellation are
+atomic database writes: whichever commits first determines whether the trial runs.
+
+An already running trial is allowed to finish, including validation and result
+persistence. The experiment remains `cancelling`, blocks project deletion, and
+retains that trial's success/failure and result before becoming `cancelled`.
+No next candidate or test trial is scheduled. This is cooperative stopping, not
+immediate process termination or a wall-clock budget. A stuck running trial can
+therefore delay cancellation; existing per-operation timeouts still apply.
+
+After a service restart, call the run or cancel endpoint again to resume draining
+a `cancelling` experiment. Existing recovery can rerun an interrupted-in-process
+job still recorded as running; cancellation does not introduce exactly-once
+execution for such crashes. Completed trials are retained and are not rerun.
+Repeated cancellation/start cannot restart a terminal cancelled experiment.
+Existing execution tables are migrated transactionally to accept the new states.
 
 ## Run a recorded experiment
 

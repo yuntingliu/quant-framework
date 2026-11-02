@@ -6,12 +6,45 @@ from uuid import uuid4
 
 
 class ExperimentRuns:
+    def cancel_experiment(self, experiment_id: str) -> dict:
+        with self._lock, self._conn:
+            self._conn.execute("BEGIN IMMEDIATE")
+            experiment = self.get_experiment(experiment_id)
+            if experiment is None:
+                raise KeyError(experiment_id)
+            execution = experiment["execution"]
+            if execution and execution["status"] not in {"running", "cancelling"}:
+                return experiment
+            self._conn.execute(
+                "INSERT OR IGNORE INTO experiment_execution(experiment_id, status) VALUES (?, 'running')",
+                (experiment_id,),
+            )
+            self._conn.execute(
+                "UPDATE experiment_execution SET status = 'cancelling', error = 'Cancellation requested' WHERE experiment_id = ?",
+                (experiment_id,),
+            )
+            self._conn.execute(
+                """UPDATE backtest_jobs SET status = 'interrupted', error_code = 'EXPERIMENT_CANCELLED',
+                   error_summary = 'Experiment cancelled before job started', finished_at = datetime('now')
+                   WHERE status = 'queued' AND id IN
+                   (SELECT job_id FROM experiment_trials WHERE experiment_id = ?)""", (experiment_id,),
+            )
+            self._conn.execute(
+                """UPDATE experiment_trials SET status = 'cancelled', error = 'Experiment cancelled before trial started'
+                   WHERE experiment_id = ? AND (status = 'planned' OR job_id IN
+                   (SELECT id FROM backtest_jobs WHERE error_code = 'EXPERIMENT_CANCELLED'))""", (experiment_id,),
+            )
+        self.advance_experiment(experiment_id)
+        return self.get_experiment(experiment_id)
+
     def start_experiment(self, experiment_id: str) -> dict:
         with self._lock, self._conn:
             self._conn.execute("BEGIN IMMEDIATE")
             experiment = self.get_experiment(experiment_id)
             if experiment is None:
                 raise KeyError(experiment_id)
+            if experiment["execution"] is not None:
+                return experiment
             if experiment["protocol"].get("training") is not None:
                 raise ValueError("training/fitting is not implemented; use fixed parameter candidates")
             self._conn.execute(
@@ -28,7 +61,7 @@ class ExperimentRuns:
             if experiment is None:
                 raise KeyError(experiment_id)
             execution = experiment["execution"]
-            if execution is None or execution["status"] != "running":
+            if execution is None or execution["status"] not in {"running", "cancelling"}:
                 return None
             protocol = experiment["protocol"]
             for trial in experiment["trials"]:
@@ -45,6 +78,12 @@ class ExperimentRuns:
                 if job["status"] in {"queued", "running"}:
                     return job["id"]
             experiment = self.get_experiment(experiment_id)
+            if execution["status"] == "cancelling":
+                self._conn.execute(
+                    "UPDATE experiment_execution SET status = 'cancelled', finished_at = datetime('now') WHERE experiment_id = ? AND status = 'cancelling'",
+                    (experiment_id,),
+                )
+                return None
             tests = [trial for trial in experiment["trials"] if trial["stage"] == "test"]
             if tests and tests[0]["status"] != "planned":
                 status = "succeeded" if tests[0]["status"] == "succeeded" else "failed"

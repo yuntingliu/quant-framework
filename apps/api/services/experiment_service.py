@@ -26,7 +26,18 @@ class ExperimentManager:
             experiment = repository.start_experiment(experiment_id)
         finally:
             repository.close()
-        if experiment["execution"]["status"] != "running":
+        return self._schedule(experiment_id, experiment)
+
+    def cancel(self, experiment_id: str) -> dict:
+        repository = StrategyRepository(self._db_path)
+        try:
+            experiment = repository.cancel_experiment(experiment_id)
+        finally:
+            repository.close()
+        return self._schedule(experiment_id, experiment)
+
+    def _schedule(self, experiment_id: str, experiment: dict) -> dict:
+        if experiment["execution"]["status"] not in {"running", "cancelling"}:
             return experiment
         with self._lock:
             if experiment_id in self._futures:

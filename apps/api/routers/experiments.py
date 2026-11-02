@@ -12,6 +12,14 @@ from apps.api.services import experiment_service
 router = APIRouter(prefix="/api/experiments", tags=["experiments"])
 
 
+@router.post("/{experiment_id}/cancel", status_code=202)
+def cancel_experiment(experiment_id: str) -> dict:
+    try:
+        return experiment_service.manager().cancel(experiment_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="experiment not found") from None
+
+
 class ExperimentRequest(ExperimentSpec):
     confirm_python_execution: bool = False
 
