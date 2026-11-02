@@ -122,31 +122,27 @@ stage, rolling-window orchestration, or frontend yet.
 
 ## Safely stop an experiment
 
-`POST /api/experiments/{id}/cancel` returns 202 with the current experiment state
-(404 for an unknown ID). It is idempotent. An already succeeded, failed or
-cancelled experiment stays unchanged; cancelling a recorded experiment does not
-execute Python or require execution consent.
+`POST /api/experiments/{id}/cancel` returns 202 (404 if missing). It is
+idempotent, requires no Python execution consent, and preserves terminal states.
 
-Cancellation durably stops further trial creation. Planned trials become
-`cancelled`; unclaimed queued jobs become `interrupted` with error code
-`EXPERIMENT_CANCELLED`, and their trials become `cancelled`. This uses the existing
-job terminal state without claiming that interrupted work actually ran. Recovery
-and job reads cannot restart those jobs. Worker claim and queued cancellation are
-atomic database writes: whichever commits first determines whether the trial runs.
+- Unstarted trials become `cancelled`; queued jobs become `interrupted` with
+  `EXPERIMENT_CANCELLED` and cannot restart. Atomic claim/cancel writes decide
+  whether a queued job runs.
+- Running trials finish and retain their results. The experiment stays
+  `cancelling`, blocks deletion, then becomes `cancelled`. No further trial starts.
+- Optional positive integer `max_runtime_seconds` sets a soft budget from first
+  start; null/omitted means unlimited. Queue time and downtime count; restarting
+  does not reset it. Database UTC wall-clock timing has second precision and is
+  affected by clock adjustments.
+- Expiry uses the same stop path with `Runtime budget exhausted` and queued-job
+  code `EXPERIMENT_TIME_BUDGET_EXHAUSTED`. Expired queued jobs cannot be claimed.
+  The first stop reason wins. Committed experiment completion is preserved;
+  otherwise expiry precedes reconciliation, without discarding stored results.
 
-An already running trial is allowed to finish, including validation and result
-persistence. The experiment remains `cancelling`, blocks project deletion, and
-retains that trial's success/failure and result before becoming `cancelled`.
-No next candidate or test trial is scheduled. This is cooperative stopping, not
-immediate process termination or a wall-clock budget. A stuck running trial can
-therefore delay cancellation; existing per-operation timeouts still apply.
-
-After a service restart, call the run or cancel endpoint again to resume draining
-a `cancelling` experiment. Existing recovery can rerun an interrupted-in-process
-job still recorded as running; cancellation does not introduce exactly-once
-execution for such crashes. Completed trials are retained and are not rerun.
-Repeated cancellation/start cannot restart a terminal cancelled experiment.
-Existing execution tables are migrated transactionally to accept the new states.
+This does not forcibly stop running work or guarantee a hard deadline. After a
+restart, call run/cancel to resume stopping. Recovery may rerun jobs still marked
+running after a crash, but never completed or cancelled jobs. Existing execution
+tables migrate transactionally.
 
 ## Run a recorded experiment
 

@@ -19,23 +19,25 @@ class ExperimentRuns:
                 "INSERT OR IGNORE INTO experiment_execution(experiment_id, status) VALUES (?, 'running')",
                 (experiment_id,),
             )
-            self._conn.execute(
-                "UPDATE experiment_execution SET status = 'cancelling', error = 'Cancellation requested' WHERE experiment_id = ?",
-                (experiment_id,),
-            )
-            self._conn.execute(
-                """UPDATE backtest_jobs SET status = 'interrupted', error_code = 'EXPERIMENT_CANCELLED',
-                   error_summary = 'Experiment cancelled before job started', finished_at = datetime('now')
-                   WHERE status = 'queued' AND id IN
-                   (SELECT job_id FROM experiment_trials WHERE experiment_id = ?)""", (experiment_id,),
-            )
-            self._conn.execute(
-                """UPDATE experiment_trials SET status = 'cancelled', error = 'Experiment cancelled before trial started'
-                   WHERE experiment_id = ? AND (status = 'planned' OR job_id IN
-                   (SELECT id FROM backtest_jobs WHERE error_code = 'EXPERIMENT_CANCELLED'))""", (experiment_id,),
-            )
+            self._request_experiment_stop(experiment_id, "EXPERIMENT_CANCELLED", "Cancellation requested")
         self.advance_experiment(experiment_id)
         return self.get_experiment(experiment_id)
+
+    def _request_experiment_stop(self, experiment_id: str, code: str, reason: str) -> None:
+        self._conn.execute(
+            "UPDATE experiment_execution SET status = 'cancelling', error = ? WHERE experiment_id = ? AND status = 'running'",
+            (reason, experiment_id),
+        )
+        self._conn.execute(
+            """UPDATE backtest_jobs SET status = 'interrupted', error_code = ?,
+               error_summary = ?, finished_at = datetime('now') WHERE status = 'queued' AND id IN
+               (SELECT job_id FROM experiment_trials WHERE experiment_id = ?)""", (code, reason, experiment_id),
+        )
+        self._conn.execute(
+            """UPDATE experiment_trials SET status = 'cancelled', error = ?
+               WHERE experiment_id = ? AND (status = 'planned' OR job_id IN
+               (SELECT id FROM backtest_jobs WHERE error_code = ?))""", (reason, experiment_id, code),
+        )
 
     def start_experiment(self, experiment_id: str) -> dict:
         with self._lock, self._conn:
@@ -64,6 +66,16 @@ class ExperimentRuns:
             if execution is None or execution["status"] not in {"running", "cancelling"}:
                 return None
             protocol = experiment["protocol"]
+            budget = protocol.get("max_runtime_seconds")
+            if execution["status"] == "running" and budget is not None:
+                elapsed = self._conn.execute(
+                    "SELECT CAST(strftime('%s', 'now') AS INTEGER) - CAST(strftime('%s', ?) AS INTEGER)",
+                    (execution["started_at"],),
+                ).fetchone()[0]
+                if elapsed >= budget:
+                    self._request_experiment_stop(experiment_id, "EXPERIMENT_TIME_BUDGET_EXHAUSTED", "Runtime budget exhausted")
+                    experiment = self.get_experiment(experiment_id)
+                    execution = experiment["execution"]
             for trial in experiment["trials"]:
                 if trial["status"] not in {"queued", "running"}:
                     continue

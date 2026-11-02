@@ -21,6 +21,79 @@ from apps.api.services.backtest_job_service import BacktestJobManager
 from apps.api.services.experiment_service import ExperimentManager
 
 
+@pytest.mark.parametrize("value", [0, -1, 1.5, True, "10"])
+def test_runtime_budget_rejects_invalid_values(setup_experiment, value):
+    repository, spec = setup_experiment
+    with pytest.raises(ValueError):
+        repository.create_experiment({**spec, "max_runtime_seconds": value})
+    assert repository.list_experiments(spec["project_id"]) == []
+
+
+@pytest.mark.parametrize("stage", ["planned", "queued", "running", "completed"])
+def test_runtime_budget_survives_restart_and_preserves_results(setup_experiment, stage):
+    repository, spec = setup_experiment
+    identity = repository.create_experiment({**spec, "max_runtime_seconds": 60})["id"]
+    assert repository.get_experiment(identity)["execution"] is None
+    repository.start_experiment(identity)
+    job = repository.advance_experiment(identity) if stage != "planned" else None
+    store = ResultStore(repository.path)
+    try:
+        if stage in {"running", "completed"}:
+            assert store.claim_backtest_job(job)
+        if stage == "completed":
+            complete_trial(repository, job, 1.0)
+        with repository._conn:
+            repository._conn.execute(
+                "UPDATE experiment_execution SET started_at = datetime('now', '-61 seconds') WHERE experiment_id = ?", (identity,),
+            )
+        started_at = repository.get_experiment(identity)["execution"]["started_at"]
+        reopened = StrategyRepository(repository.path)
+        try:
+            assert reopened.start_experiment(identity)["execution"]["started_at"] == started_at
+            if stage == "queued":
+                assert not store.claim_backtest_job(job)
+            next_job = reopened.advance_experiment(identity)
+            state = reopened.get_experiment(identity)
+            assert state["execution"]["error"] == "Runtime budget exhausted"
+            if stage == "running":
+                assert next_job == job
+                assert state["execution"]["status"] == "cancelling"
+                with pytest.raises(PermissionError, match="cancelling"):
+                    reopened.delete_project(spec["project_id"])
+                complete_trial(repository, job, 1.0)
+                reopened.advance_experiment(identity)
+            state = reopened.get_experiment(identity)
+            assert state["execution"]["status"] == "cancelled"
+            assert reopened.cancel_experiment(identity) == state
+            assert reopened.start_experiment(identity) == state
+            if stage in {"running", "completed"}:
+                assert state["trials"][0]["result_id"] == job
+                assert state["trials"][0]["status"] == "succeeded"
+            if stage == "queued":
+                assert store.get_backtest_job(job)["error_code"] == "EXPERIMENT_TIME_BUDGET_EXHAUSTED"
+            assert repository._conn.execute("SELECT COUNT(*) FROM backtest_jobs").fetchone()[0] == (0 if job is None else 1)
+        finally:
+            reopened.close()
+    finally:
+        store.close()
+
+
+def test_runtime_budget_does_not_rewrite_completed_experiment(setup_experiment):
+    repository, spec = setup_experiment
+    identity = repository.create_experiment({**spec, "max_runtime_seconds": 60})["id"]
+    repository.start_experiment(identity)
+    job = repository.advance_experiment(identity)
+    while job:
+        complete_trial(repository, job, 1.0)
+        job = repository.advance_experiment(identity)
+    with repository._conn:
+        repository._conn.execute("UPDATE experiment_execution SET started_at = datetime('now', '-61 seconds') WHERE experiment_id = ?", (identity,))
+    before = repository.get_experiment(identity)
+    assert before["execution"]["status"] == "succeeded"
+    assert repository.advance_experiment(identity) is None
+    assert repository.get_experiment(identity) == before
+
+
 def test_running_cancellation_drains_worker_and_retains_result(setup_experiment):
     repository, spec = setup_experiment
     identity = repository.create_experiment(spec)["id"]
