@@ -15,6 +15,7 @@ What it enforces:
 * The reserved two-agent directory stays documentation-only, which is this
   issue's scope boundary.
 * The pinned core revision quoted in prose matches runtime.lock.json.
+* Every adapter contract declared in the contract document is documented.
 """
 
 from __future__ import annotations
@@ -31,12 +32,16 @@ DOCS = [
     "docs/10_CONEXUS_FRAMEWORK.md",
     "docs/11_CONEXUS_EXECUTION_LIFECYCLE.md",
     "docs/12_CONEXUS_EXTENSION_GUIDE.md",
+    "docs/13_CONEXUS_ADAPTER_CONTRACTS.md",
     "examples/conexus/README.md",
     "examples/conexus/minimal-agent/README.md",
     "examples/conexus/financial-integration/README.md",
+    "examples/conexus/adapter-contracts/README.md",
     "examples/conexus/two-agent/README.md",
     "examples/conexus/two-agent/INTERFACE.md",
 ]
+
+CONTRACT_DOCUMENT = "integrations/conexus/contracts/adapter-contracts.v1.json"
 
 # Symbols the documents attribute to a specific core file. A rename upstream
 # must surface here rather than in a reader's confusion.
@@ -242,6 +247,25 @@ def check_alphalab_command_count(failures: list[str]) -> None:
                 )
 
 
+def check_contract_ids(failures: list[str]) -> None:
+    """Every declared adapter contract must be documented, by its exact id.
+
+    Only this direction is checked. Prose legitimately contains other dotted
+    identifiers — `runtime.policy`, `state.nodes` — so requiring every one of
+    them to be a contract would produce noise. What matters is that a contract
+    cannot ship undocumented, and that renaming one breaks the prose describing
+    it rather than leaving it to describe nothing.
+    """
+    document = json.loads((ROOT / CONTRACT_DOCUMENT).read_text(encoding="utf-8"))
+    documented = "\n".join((ROOT / name).read_text(encoding="utf-8") for name in DOCS)
+    for contract_id in sorted(document["contracts"]):
+        if f"`{contract_id}`" not in documented:
+            failures.append(
+                f"adapter contract {contract_id} is declared but not documented in "
+                "docs/13_CONEXUS_ADAPTER_CONTRACTS.md"
+            )
+
+
 def check_pinned_revision(failures: list[str]) -> None:
     lock = json.loads((ROOT / "integrations/conexus/runtime.lock.json").read_text(encoding="utf-8"))
     short = lock["revision"][:7]
@@ -267,6 +291,7 @@ def main() -> int:
     check_commands(failures)
     check_reserved_two_agent(failures)
     check_alphalab_command_count(failures)
+    check_contract_ids(failures)
     check_pinned_revision(failures)
 
     if failures:
