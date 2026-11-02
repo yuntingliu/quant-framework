@@ -1,3 +1,5 @@
+import { researchCompletion } from './research-completion.mjs'
+import { researchAuthorization, installResearchAuthorization } from './research-authorization.mjs'
 import { researchCanvas } from './research-canvas.mjs'
 import { configuredCompletion, readActiveProvider } from './model-providers.mjs'
 import { configuredWebSearch } from './web-search.mjs'
@@ -21,10 +23,12 @@ const runtime = createLocalRuntime({ projectRoot,
 })
 const workspace = await researchCanvas(resolve(sourceRoot, 'integrations/conexus/alphalab-research-agent'), { model, slug })
 const release = compileHarnessWorkspace({ workspace, harnessNodeId: 'alphalab-research-harness-v1' })
+const authorization = researchAuthorization(runtime.adapter, workspace.nodes.filter(node => node.type === 'tool').map(node => node.data))
 const token = process.env.CONEXUS_LOCAL_TOKEN
-const host = await createLocalHost({ projectRoot, release, slug, token, model, runtimeAdapter: runtime.adapter,
-  complete: configuredCompletion(providerPath, createModelCompletion),
+const host = await createLocalHost({ projectRoot, release, slug, token, model, runtimeAdapter: authorization.adapter,
+  complete: researchCompletion(configuredCompletion(providerPath, createModelCompletion)),
 })
+installResearchAuthorization(host, authorization)
 host.app.post('/api/alphalab/search/test', async (request, reply) => {
   const expected = Buffer.from(`Bearer ${token}`)
   const received = Buffer.from(request.headers.authorization || '')

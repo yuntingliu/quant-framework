@@ -61,6 +61,40 @@ def test_prepare_returns_the_complete_atomic_batch_with_derived_content():
     assert result["operations"][1]["set"]["content"] == "研究报告：Current report"
 
 
+@pytest.mark.parametrize("defect", ["no_rows", "no_columns", "duplicate_key", "extra_cell", "missing_cell", "invalid_field"])
+def test_result_tables_reject_incomplete_or_ambiguous_cells(defect):
+    outputs = _outputs()
+    table = outputs["workspaceResult"]
+    table["columns"] = [{"key": "field", "label": "field"}, {"key": "value", "label": "value"}]
+    table["rows"] = [{"field": "supported", "value": False}]
+    if defect == "no_rows":
+        del table["rows"]
+    elif defect == "no_columns":
+        del table["columns"]
+    elif defect == "duplicate_key":
+        table["columns"].append(table["columns"][0])
+    elif defect == "extra_cell":
+        table["rows"][0]["other"] = 1
+    elif defect == "missing_cell":
+        del table["rows"][0]["value"]
+    else:
+        table["rows"][0]["field"] = None
+    assert prepare_workspace_outputs("request-1", outputs)["status"] == "failed"
+
+
+def test_result_table_preserves_precision_types_and_repeated_list_fields():
+    outputs = _outputs()
+    outputs["workspaceResult"].update(
+        columns=[{"key": "field", "label": "field"}, {"key": "value", "label": "value"}],
+        rows=[{"field": "metric", "value": 0.7698215371633523},
+              {"field": "supported", "value": False}, {"field": "missing", "value": None},
+              {"field": "items", "value": "a"}, {"field": "items", "value": "b"}],
+    )
+    prepared = prepare_workspace_outputs("request-1", outputs)
+    assert prepared["status"] == "succeeded"
+    assert prepared["operations"][1]["set"]["data"]["rows"] == outputs["workspaceResult"]["rows"]
+
+
 @pytest.mark.parametrize("failure", ["command_key", "missing_widget", "stale_request", "wrong_report", "wrong_order", "unknown_widget", "missing_title"])
 def test_prepare_rejects_wrong_fields_and_cross_output_links(failure):
     outputs = _outputs()

@@ -20,6 +20,7 @@ const sdkSkillRelativePath = "skills/alphalab-sdk-v1/SKILL.md"
 const agentRelativePath = "agents/AlphaLab-Research-Agent.agent.json"
 const sdkSkillPlaceholder = "{{ALPHALAB_SDK_SKILL}}"
 const workspaceCommandSchemaPlaceholder = "{{ALPHALAB_WORKSPACE_COMMAND_SCHEMA}}"
+const workspaceResultSchemaPlaceholder = "{{ALPHALAB_WORKSPACE_RESULT_SCHEMA}}"
 
 const toolNodes = [
   ["alphalab-tool-project-files-v1", "AlphaLab Project Files", "Project-Files.tool.json"],
@@ -65,6 +66,10 @@ const [agentSource, sdkSkill, outputSchemaSource] = await Promise.all([
 ])
 const agent = JSON.parse(agentSource)
 const workspaceCommandSchema = JSON.parse(outputSchemaSource).properties?.workspaceCommands
+const workspaceResultSchema = JSON.parse(outputSchemaSource).properties?.workspaceResult
+if (!workspaceResultSchema || !agent.systemPrompt?.includes(workspaceResultSchemaPlaceholder)) {
+  throw new Error("AlphaLab workspace result schema or prompt placeholder is missing")
+}
 if (!workspaceCommandSchema || !agent.systemPrompt?.includes(workspaceCommandSchemaPlaceholder)) {
   throw new Error("AlphaLab workspace command schema or prompt placeholder is missing")
 }
@@ -74,6 +79,7 @@ if (!agent.systemPrompt?.includes(sdkSkillPlaceholder)) {
 agent.systemPrompt = agent.systemPrompt
   .replace(sdkSkillPlaceholder, sdkSkill.trim())
   .replace(workspaceCommandSchemaPlaceholder, JSON.stringify(workspaceCommandSchema))
+  .replace(workspaceResultSchemaPlaceholder, JSON.stringify(workspaceResultSchema))
 await writeFile(stagedAgentPath, `${JSON.stringify(agent, null, 2)}\n`, "utf8")
 
 const ownedNodeIds = new Set([
