@@ -44,21 +44,53 @@ def _reference(task: dict) -> dict:
     )
 
 
-def _renderings(iso: str) -> set[str]:
-    """Forms a prompt may legitimately use for one date."""
+MONTHS = {name: i for i, name in enumerate((
+    "January", "February", "March", "April", "May", "June", "July", "August",
+    "September", "October", "November", "December",
+), 1)}
+MONTH_PATTERN = "(?:" + "|".join(MONTHS) + ")"
 
-    date = dt.date.fromisoformat(iso)
-    month = date.strftime("%B")
-    day = date.day
-    return {
-        iso,
-        f"{day} {month} {date.year}",
-        f"{month} {day}, {date.year}",
-        f"{month} {day} {date.year}",
-        # "2 January through 7 May 2025" states the year once, at the end.
-        f"{day} {month}",
-        f"{month} {day}",
-    }
+
+def _date_mentions(text: str) -> list[tuple[int, str]]:
+    """Resolve complete dates, including an explicitly shared range year."""
+    found = []
+
+    def add(position: int, year: str, month: str, day: str):
+        try:
+            date = dt.date(int(year), MONTHS[month.title()], int(day))
+        except (ValueError, KeyError):
+            return
+        found.append((position, date.isoformat()))
+
+    for match in re.finditer(r"(?<![\d-])\d{4}-\d{2}-\d{2}(?![\d-])", text):
+        try:
+            date = dt.date.fromisoformat(match.group())
+        except ValueError:
+            continue
+        found.append((match.start(), date.isoformat()))
+    patterns = (
+        rf"\b(?P<day>\d{{1,2}}) (?P<month>{MONTH_PATTERN}) (?P<year>\d{{4}})\b",
+        rf"\b(?P<month>{MONTH_PATTERN}) (?P<day>\d{{1,2}}),? (?P<year>\d{{4}})\b",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            add(match.start(), match['year'], match['month'], match['day'])
+    shared = (
+        rf"\b(?P<d1>\d{{1,2}}) (?P<m1>{MONTH_PATTERN})\s+(?:through|to|–|-)\s+"
+        rf"(?P<d2>\d{{1,2}}) (?P<m2>{MONTH_PATTERN}) (?P<year>\d{{4}})\b",
+        rf"\b(?P<m1>{MONTH_PATTERN}) (?P<d1>\d{{1,2}})\s+(?:through|to|–|-)\s+"
+        rf"(?P<m2>{MONTH_PATTERN}) (?P<d2>\d{{1,2}}),? (?P<year>\d{{4}})\b",
+    )
+    for pattern in shared:
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            add(match.start(), match['year'], match['m1'], match['d1'])
+    return sorted(set(found))
+
+
+def _states_window(text: str, start: str, end: str) -> bool:
+    mentions = _date_mentions(text)
+    return any(a <= b for a, first in mentions for b, last in mentions
+               if first == start and last == end)
 
 
 def _agent_visible_text(path: Path, task: dict) -> str:
@@ -97,12 +129,16 @@ def test_every_recorded_window_is_stated_to_the_agent():
             continue
         visible = _agent_visible_text(path, task)
         for iso in sorted(dates):
-            assert any(form in visible for form in _renderings(iso)), (
+            assert iso in {date for _, date in _date_mentions(visible)}, (
                 f"{task['task_id']}: its reference evaluates {iso}, but no agent-visible input "
                 f"states that date. A correct agent would evaluate a different window and fail "
                 f"this task's blocking conditions."
             )
             checked += 1
+        start = invocation.get("start_date", invocation.get("start"))
+        end = invocation.get("end_date", invocation.get("end"))
+        if start in dates and end in dates:
+            assert _states_window(visible, start, end), task['task_id']
     assert checked >= 6, f"Only {checked} recorded window dates were verified"
 
 
@@ -146,3 +182,19 @@ def test_no_prompt_defers_its_scope_to_the_run_date():
                     f"{task['task_id']} defers its scope to the run date via {phrase!r}; "
                     f"state the window instead. Context: ...{lead[-50:]}{phrase}..."
                 )
+
+
+def test_complete_date_semantics_reject_wrong_or_missing_year():
+    for text in ("2 January 2024 through 7 May 2024",
+                 "2 January through 7 May", "January 2 to May 7",
+                 "2024-01-02 to 2024-05-07"):
+        assert not _states_window(text, "2025-01-02", "2025-05-07")
+    for text in ("2 January through 7 May 2025", "January 2 to May 7, 2025",
+                 "2 January 2025 through 7 May 2025", "2025-01-02 to 2025-05-07"):
+        assert _states_window(text, "2025-01-02", "2025-05-07")
+
+
+def test_window_order_and_invalid_dates():
+    assert not _states_window("7 May 2025 to 2 January 2025", "2025-01-02", "2025-05-07")
+    assert not _states_window("2025-05-07 to 2025-01-02", "2025-01-02", "2025-05-07")
+    assert not _date_mentions("31 February 2025; 2025-02-31")
