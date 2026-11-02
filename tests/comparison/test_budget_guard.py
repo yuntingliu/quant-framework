@@ -1,5 +1,4 @@
-﻿import pytest
-from apps.api.services.comparison import ComparisonRunner, Config
+﻿from apps.api.services.comparison import ComparisonRunner, Config
 
 
 def test_budget_guard_blocks_real_runs_without_opt_in():

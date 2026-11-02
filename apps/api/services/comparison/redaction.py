@@ -1,6 +1,5 @@
 import re
-from typing import Any, Dict
-
+from typing import Any
 
 SENSITIVE_KEYS = {"token", "access_token", "api_key", "password", "secret", "authorization", "auth", "credential", "credentials", "connection", "connection_file", "connectionfile"}
 

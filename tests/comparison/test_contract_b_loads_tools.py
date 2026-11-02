@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
-from apps.api.services.comparison import create_adapter, Config
+
+from apps.api.services.comparison import Config, create_adapter
 
 
 def test_b_loads_tool_jsons_and_endpoints_match():

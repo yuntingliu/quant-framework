@@ -1,4 +1,4 @@
-from apps.api.services.comparison import ComparisonRunner, TaskLoader, Config
+from apps.api.services.comparison import ComparisonRunner, Config, TaskLoader
 
 
 def test_subset_repetition_selection():
