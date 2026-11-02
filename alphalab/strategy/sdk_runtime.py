@@ -40,6 +40,7 @@ from alphalab.sdk.v1.model import (
     schedule_is_due,
     state_after,
 )
+from alphalab.strategy.portfolio_constraints import verify_portfolio_constraints
 from alphalab.strategy.source import SourceInspection, inspect_strategy_source
 
 MAX_LOG_CHARS = 20_000
@@ -617,7 +618,7 @@ def _evaluate_event(
         except Exception as exc:
             raise _entrypoint_error(exc, portfolio_item, event, contexts[PortfolioContext]) from exc
         decision = _coerce_decision(raw_decision)
-        _validate_decision(decision, active_symbols, payload.get("limits") or {})
+        _validate_decision(decision, active_symbols, payload)
         working = State(state_after(working, decision.state))
         invoked.append(portfolio_item.registration.id)
         decision_changed = True
@@ -643,7 +644,7 @@ def _evaluate_event(
         invoked.append(handler.registration.id)
         if raw_override is not None:
             decision = _coerce_decision(raw_override)
-            _validate_decision(decision, active_symbols, payload.get("limits") or {})
+            _validate_decision(decision, active_symbols, payload)
             working = State(state_after(working, decision.state))
             decision_changed = True
 
@@ -668,7 +669,7 @@ def _evaluate_event(
         invoked.append(decision_handler.registration.id)
         if raw_override is not None:
             decision = _coerce_decision(raw_override)
-            _validate_decision(decision, active_symbols, payload.get("limits") or {})
+            _validate_decision(decision, active_symbols, payload)
             working = State(state_after(working, decision.state))
 
     policy: ExecutionPolicy | None = None
@@ -929,8 +930,9 @@ def _validate_signal(result: SignalResult, active_symbols: tuple[str, ...]) -> N
 def _validate_decision(
     decision: PortfolioDecision,
     active_symbols: tuple[str, ...],
-    limits: Mapping[str, Any],
+    payload: Mapping[str, Any],
 ) -> None:
+    limits = payload.get("limits") or {}
     unknown = sorted(set(decision.target_weights) - set(active_symbols))
     if unknown:
         raise SdkRuntimeError(
@@ -948,6 +950,16 @@ def _validate_decision(
         raise SdkRuntimeError(
             f"target gross exposure {gross:g} exceeds {gross_limit:g}", phase="output"
         )
+    try:
+        verify_portfolio_constraints(
+            decision,
+            project_constraints=limits.get("portfolio_constraints"),
+            constraint_data=payload.get("constraint_data"),
+            covariance_by_model=payload.get("constraint_covariances"),
+            as_of=payload.get("as_of"),
+        )
+    except (ValueError, TypeError) as exc:
+        raise SdkRuntimeError(str(exc), phase="output") from exc
 
 
 def _coerce_universe(value: Any) -> UniverseResult:
@@ -986,12 +998,20 @@ def _decision_from_payload(value: Any) -> PortfolioDecision | None:
     if value is None or isinstance(value, PortfolioDecision):
         return value
     if isinstance(value, Mapping):
-        return PortfolioDecision(
+        decision = PortfolioDecision(
             target_weights=value.get("target_weights") or {},
             state=value.get("state"),
             reason=value.get("reason"),
             diagnostics=value.get("diagnostics"),
+            constraints=value.get("constraints"),
+            constraint_data_version=value.get("constraint_data_version"),
         )
+        if (
+            "constraint_set_sha256" in value
+            and value["constraint_set_sha256"] != decision.constraint_set_sha256
+        ):
+            raise SdkRuntimeError("last_decision constraint set hash does not match", phase="input")
+        return decision
     raise SdkRuntimeError("last_decision is invalid", phase="input")
 
 
@@ -1057,6 +1077,9 @@ def _decision_payload(value: PortfolioDecision | None) -> dict[str, Any] | None:
         "target_weights": dict(value.target_weights),
         "reason": value.reason,
         "diagnostics": value.diagnostics,
+        "constraints": value.constraints.to_dict() if value.constraints is not None else None,
+        "constraint_set_sha256": value.constraint_set_sha256,
+        "constraint_data_version": value.constraint_data_version,
     }
 
 
