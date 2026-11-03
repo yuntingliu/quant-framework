@@ -669,7 +669,7 @@ def research(project_id: str, factor_id: str, request: FactorResearchRequest, st
 
 @router.delete("/projects/{project_id}", status_code=204)
 def remove_project(project_id: str, confirm_delete: bool = False) -> Response:
-    _confirmed(confirm_delete, "deleting a strategy project requires confirmation")
+    _confirmed(confirm_delete, "deleting the project, its source versions and associated experiment/trial records requires confirmation; historical backtest/job records are retained")
     try:
         if not strategy_service.delete_project(project_id):
             raise HTTPException(status_code=404, detail="strategy project not found")

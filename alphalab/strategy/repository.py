@@ -12,11 +12,14 @@ import sys
 import threading
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+from uuid import uuid4
 
 import pandas as pd
 
 from alphalab.store import ResultStore
 from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
+from alphalab.strategy.experiment_runs import ExperimentRuns
+from alphalab.strategy.experiments import ExperimentSpec
 from alphalab.strategy.factor_templates import get_factor_template
 from alphalab.strategy.project_strategies import ProjectStrategies
 from alphalab.strategy.sdk_runtime import load_strategy_module, probe_sdk_operation
@@ -28,6 +31,7 @@ from alphalab.strategy.source import (
     inspect_strategy_source,
     remove_factor_inputs_arguments,
     split_strategy_source,
+    update_parameter_default,
 )
 from alphalab.utils.paths import RUNTIME_APP_DIR
 
@@ -51,7 +55,7 @@ def normalize_project_id(value: str) -> str:
     return normalized
 
 
-class StrategyRepository(ProjectStrategies):
+class StrategyRepository(ProjectStrategies, ExperimentRuns):
     """Own mutable source units, their runtime bundle, and immutable packages."""
 
     def __init__(self, db_path: str | Path | None = None) -> None:
@@ -508,18 +512,219 @@ class StrategyRepository(ProjectStrategies):
         ).fetchone()
         return self._package_payload(row, include_source=include_source) if row else None
 
+    def create_candidate_package(
+        self,
+        project_id: str,
+        base_revision: int,
+        parameters: Mapping[str, Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        #Freeze edited defaults without changing live strategy or factor sources.
+
+        normalized = normalize_project_id(project_id)
+        with self._lock:
+            if not self.has_strategy_package(normalized, base_revision):
+                raise KeyError(f"{normalized}/{self._strategy_id}@{base_revision}")
+            base = self.get_package(normalized, base_revision)
+            source = base["source"]
+            inspection = inspect_strategy_source(source)
+            for entrypoint_id, values in parameters.items():
+                for parameter, value in values.items():
+                    source, inspection = update_parameter_default(
+                        source, entrypoint_id=entrypoint_id, parameter=parameter, value=value
+                    )
+            self._probe_source(source, inspection)
+            try:
+                self._conn.execute("SAVEPOINT candidate_package")
+                if not self.has_strategy_package(normalized, base_revision):
+                    raise KeyError(f"{normalized}/{self._strategy_id}@{base_revision}")
+                existing = self._conn.execute(
+                    "SELECT revision FROM strategy_source_packages WHERE project_id = ? AND source_sha256 = ?",
+                    (normalized, inspection.source_sha256),
+                ).fetchone()
+                if existing is None:
+                    revision = self._conn.execute(
+                        "SELECT COALESCE(MAX(revision), 0) + 1 FROM strategy_source_packages WHERE project_id = ?",
+                        (normalized,),
+                    ).fetchone()[0]
+                    self._insert_package(normalized, revision, base_revision, source, inspection)
+                else:
+                    revision = existing["revision"]
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO project_strategy_packages VALUES (?, ?, ?)",
+                    (normalized, self._strategy_id, revision),
+                )
+                self._conn.execute("RELEASE SAVEPOINT candidate_package")
+            except Exception:
+                self._conn.execute("ROLLBACK TO SAVEPOINT candidate_package")
+                self._conn.execute("RELEASE SAVEPOINT candidate_package")
+                raise
+            return self.get_package(normalized, revision)
+
+    def create_experiment(self, specification: Mapping[str, Any]) -> dict[str, Any]:
+        """Atomically record a protocol, source candidates and validation trials.
+
+        Candidate probes execute trusted Python. No backtest is submitted, and
+        a manifest identifier is only a reference, not a verified data snapshot.
+        """
+        spec = ExperimentSpec.model_validate(specification)
+        if spec.strategy_id != self._strategy_id:
+            raise ValueError("select the experiment strategy before creating it")
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                project = self.get_project(spec.project_id, include_source=False)
+                if project is None or not self.has_strategy_package(spec.project_id, spec.base_revision):
+                    raise KeyError("experiment base strategy not found")
+                validation = self._conn.execute(
+                    "SELECT * FROM validation_source_packages WHERE project_id = ? AND revision = ?",
+                    (spec.project_id, spec.validation_revision),
+                ).fetchone()
+                if validation is None:
+                    raise KeyError("validation package not found")
+                base = self.get_package(spec.project_id, spec.base_revision)
+                protocol = spec.model_dump(mode="json", exclude={"candidates"})
+                protocol.update(
+                    settings=project["settings"],
+                    base_source_sha256=base["source_sha256"],
+                    validation_source_sha256=validation["source_sha256"],
+                    validation_source=validation["source"],
+                    environment=_environment_fingerprint(),
+                    data_snapshot_status="unverified" if spec.data_manifest_id else "missing",
+                    execution_status="not_scheduled",
+                )
+                experiment_id = uuid4().hex
+                self._conn.execute(
+                    "INSERT INTO research_experiments(id, project_id, protocol_json) VALUES (?, ?, ?)",
+                    (experiment_id, spec.project_id, _json(protocol)),
+                )
+                for index, parameters in enumerate(spec.candidates):
+                    candidate_id = str(index + 1)
+                    package = self.create_candidate_package(spec.project_id, spec.base_revision, parameters)
+                    self._conn.execute(
+                        "INSERT INTO experiment_candidates VALUES (?, ?, ?, ?, ?)",
+                        (experiment_id, candidate_id, spec.project_id, package["revision"], _json(parameters)),
+                    )
+                    self._conn.execute(
+                        """INSERT INTO experiment_trials
+                           (id, experiment_id, candidate_id, stage, start_date, end_date)
+                           VALUES (?, ?, ?, 'validation', ?, ?)""",
+                        (uuid4().hex, experiment_id, candidate_id,
+                         spec.validation.start.isoformat(), spec.validation.end.isoformat()),
+                    )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+            return self.get_experiment(experiment_id)
+
+    def get_experiment(self, experiment_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM research_experiments WHERE id = ?", (experiment_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            result = dict(row)
+            result["protocol"] = json.loads(result.pop("protocol_json"))
+            execution = self._conn.execute(
+                "SELECT * FROM experiment_execution WHERE experiment_id = ?", (experiment_id,)
+            ).fetchone()
+            result["execution"] = dict(execution) if execution else None
+            if execution:
+                result["execution"]["selection"] = json.loads(result["execution"].pop("selection_json") or "null")
+                result["execution"]["data_mode"] = "current_runtime"
+                result["execution"]["out_of_sample_verified"] = False
+            result["candidates"] = []
+            for candidate in self._conn.execute(
+                "SELECT * FROM experiment_candidates WHERE experiment_id = ? ORDER BY CAST(candidate_id AS INTEGER)",
+                (experiment_id,),
+            ).fetchall():
+                item = dict(candidate)
+                item["parameters"] = json.loads(item.pop("parameters_json"))
+                result["candidates"].append(item)
+            result["trials"] = [dict(trial) for trial in self._conn.execute(
+                "SELECT * FROM experiment_trials WHERE experiment_id = ? ORDER BY rowid",
+                (experiment_id,),
+            ).fetchall()]
+            return result
+
+    def list_experiments(self, project_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id FROM research_experiments WHERE project_id = ? ORDER BY rowid DESC LIMIT ?",
+                (normalize_project_id(project_id), max(1, min(limit, 100))),
+            ).fetchall()
+            return [self.get_experiment(row["id"]) for row in rows]
+
     def delete_project(self, project_id: str) -> bool:
         normalized = normalize_project_id(project_id)
-        row = self._conn.execute(
-            "SELECT built_in FROM strategy_projects WHERE id = ?", (normalized,)
-        ).fetchone()
-        if row is None:
-            return False
-        if bool(row["built_in"]):
-            raise PermissionError("built-in projects are immutable")
-        with self._lock:
+        with self._lock, self._conn:
+            self._conn.execute("BEGIN IMMEDIATE")
+            row = self._conn.execute(
+                "SELECT built_in FROM strategy_projects WHERE id = ?", (normalized,)
+            ).fetchone()
+            if row is None:
+                return False
+            if bool(row["built_in"]):
+                raise PermissionError("built-in projects are immutable")
+            active = self._conn.execute(
+                """SELECT execution.experiment_id FROM experiment_execution execution
+                   JOIN research_experiments experiment ON experiment.id = execution.experiment_id
+                   WHERE experiment.project_id = ? AND execution.status = 'running'""", (normalized,)
+            ).fetchall()
+            jobs = self._conn.execute(
+                """SELECT id, status, request_json FROM backtest_jobs
+                   WHERE status IN ('queued', 'running')"""
+            ).fetchall()
+            linked = {row[0] for row in self._conn.execute(
+                """SELECT trial.job_id FROM experiment_trials trial
+                   JOIN research_experiments experiment ON experiment.id = trial.experiment_id
+                   WHERE experiment.project_id = ?""", (normalized,)
+            ).fetchall()}
+            blockers = [f"experiment {row[0]} (running)" for row in active]
+            blockers.extend(f"job {job['id']} ({job['status']})" for job in jobs
+                            if job["id"] in linked or json.loads(job["request_json"]).get("project_id") == normalized)
+            if blockers:
+                raise PermissionError("Deletion blocked by active work: " + ", ".join(blockers))
+            shared = self._conn.execute(
+                """SELECT candidate.experiment_id FROM experiment_candidates candidate
+                   JOIN research_experiments experiment ON experiment.id = candidate.experiment_id
+                   WHERE candidate.project_id = ? AND experiment.project_id != ?""",
+                (normalized, normalized),
+            ).fetchall()
+            if shared:
+                raise PermissionError("Source evidence is shared with experiments: " + ", ".join(row[0] for row in shared))
+            evidence = self._conn.execute(
+                """SELECT id FROM backtests WHERE strategy_project_id = ?
+                   OR id IN (SELECT trial.result_id FROM experiment_trials trial
+                     JOIN research_experiments experiment ON experiment.id = trial.experiment_id
+                     WHERE experiment.project_id = ?)
+                   OR id IN (SELECT job.result_id FROM backtest_jobs job
+                     WHERE json_extract(job.request_json, '$.project_id') = ?
+                     OR job.id IN (SELECT trial.job_id FROM experiment_trials trial
+                       JOIN research_experiments experiment ON experiment.id = trial.experiment_id
+                       WHERE experiment.project_id = ?))""",
+                (normalized, normalized, normalized, normalized),
+            ).fetchall()
+            if evidence:
+                raise PermissionError(
+                    "Report references cannot be verified: no authoritative report-reference index is available. "
+                    "Deletion would remove source evidence for backtests: " + ", ".join(row[0] for row in evidence)
+                )
+            self._conn.execute(
+                "DELETE FROM experiment_trials WHERE experiment_id IN (SELECT id FROM research_experiments WHERE project_id = ?)",
+                (normalized,),
+            )
+            self._conn.execute(
+                "DELETE FROM experiment_execution WHERE experiment_id IN (SELECT id FROM research_experiments WHERE project_id = ?)",
+                (normalized,),
+            )
+            self._conn.execute(
+                "DELETE FROM experiment_candidates WHERE experiment_id IN (SELECT id FROM research_experiments WHERE project_id = ?)",
+                (normalized,),
+            )
+            self._conn.execute("DELETE FROM research_experiments WHERE project_id = ?", (normalized,))
             self._conn.execute("DELETE FROM strategy_projects WHERE id = ?", (normalized,))
-            self._conn.commit()
         return True
 
     def _editable_row(self, project_id: str) -> sqlite3.Row:

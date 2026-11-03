@@ -24,6 +24,7 @@ from apps.api.routers import (
     conexus,
     data,
     data_sync,
+    experiments,
     market,
     model_providers,
     paper,
@@ -132,6 +133,7 @@ app.include_router(market.router)
 app.include_router(strategy.router)
 app.include_router(validation.router)
 app.include_router(backtests.router)
+app.include_router(experiments.router)
 app.include_router(paper.router)
 app.include_router(python_editor.router)
 app.include_router(sdk_docs.router)
