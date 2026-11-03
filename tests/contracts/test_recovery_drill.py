@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from alphalab import recovery
 from alphalab.recovery import (
     MANIFEST_NAME,
     RecoveryError,
@@ -134,3 +135,93 @@ def test_backup_destination_and_label_are_validated(runtime, tmp_path):
     with pytest.raises(RecoveryError, match="does not exist"):
         create_backup(tmp_path / "missing", tmp_path / "backups")
     assert not (runtime / "backups").exists()
+
+
+def _siblings(tmp_path: Path) -> list[str]:
+    return sorted(p.name for p in tmp_path.iterdir())
+
+
+def _fail_reads_under(monkeypatch, runtime: Path) -> None:
+    """Make checksum reads fail only for files in the installed runtime directory."""
+    original = recovery._sha256
+    root = runtime.resolve()
+
+    def flaky(path: Path) -> str:
+        if root in path.resolve().parents:
+            raise OSError("injected read failure")
+        return original(path)
+
+    monkeypatch.setattr(recovery, "_sha256", flaky)
+
+
+def test_read_error_after_install_restores_the_previous_state(runtime, tmp_path, monkeypatch):
+    _write(runtime, "state.txt", "backup-state")
+    backup = create_backup(runtime, tmp_path / "backups")
+    _write(runtime, "state.txt", "current-state")
+    _fail_reads_under(monkeypatch, runtime)
+
+    with pytest.raises(OSError, match="injected read failure"):
+        restore_backup(backup, runtime)
+
+    assert (runtime / "state.txt").read_text(encoding="utf-8") == "current-state"
+    assert _siblings(tmp_path) == ["backups", "runtime"]
+
+
+def test_read_error_after_install_removes_a_first_time_install(runtime, tmp_path, monkeypatch):
+    backup = create_backup(runtime, tmp_path / "backups")
+    target = tmp_path / "fresh" / "runtime"
+    target.parent.mkdir()
+    _fail_reads_under(monkeypatch, target)
+
+    with pytest.raises(OSError, match="injected read failure"):
+        restore_backup(backup, target)
+
+    assert _siblings(target.parent) == []
+
+
+def test_integrity_mismatch_after_install_restores_the_previous_state(
+    runtime, tmp_path, monkeypatch
+):
+    _write(runtime, "state.txt", "backup-state")
+    backup = create_backup(runtime, tmp_path / "backups")
+    _write(runtime, "state.txt", "current-state")
+    original = recovery._check_tree
+
+    def mismatch_on_install(root, recorded):
+        if Path(root) == runtime:
+            return ["checksum mismatch: injected"]
+        return original(root, recorded)
+
+    monkeypatch.setattr(recovery, "_check_tree", mismatch_on_install)
+
+    with pytest.raises(RecoveryError, match="restored data failed verification"):
+        restore_backup(backup, runtime)
+
+    assert (runtime / "state.txt").read_text(encoding="utf-8") == "current-state"
+    assert _siblings(tmp_path) == ["backups", "runtime"]
+
+
+def test_failed_rollback_is_reported_with_the_original_error(runtime, tmp_path, monkeypatch):
+    _write(runtime, "state.txt", "backup-state")
+    backup = create_backup(runtime, tmp_path / "backups")
+    _write(runtime, "state.txt", "current-state")
+    _fail_reads_under(monkeypatch, runtime)
+    original_rmtree = recovery.shutil.rmtree
+
+    def broken_rmtree(path, *args, **kwargs):
+        if Path(path) == runtime:
+            raise OSError("injected rollback failure")
+        return original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(recovery.shutil, "rmtree", broken_rmtree)
+
+    with pytest.raises(RecoveryError, match="rollback also failed") as raised:
+        restore_backup(backup, runtime)
+
+    assert isinstance(raised.value.__cause__, OSError)
+    assert "injected read failure" in str(raised.value)
+    assert "injected rollback failure" in str(raised.value)
+    kept = [p for p in tmp_path.iterdir() if ".before-restore-" in p.name]
+    assert len(kept) == 1
+    assert str(kept[0]) in str(raised.value)
+    assert (kept[0] / "state.txt").read_text(encoding="utf-8") == "current-state"

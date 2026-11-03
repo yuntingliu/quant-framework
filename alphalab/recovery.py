@@ -175,12 +175,26 @@ def verify_backup(backup_dir: Path | str) -> list[str]:
     return _check_tree(backup / "runtime", manifest["files"])
 
 
+def _undo_install(runtime: Path, staging: Path, preserved: Path | None, installed: bool) -> None:
+    """Remove a failed installation and put the previous runtime directory back."""
+    if installed:
+        shutil.rmtree(runtime)
+    if preserved is not None and not runtime.exists():
+        preserved.rename(runtime)
+    shutil.rmtree(staging, ignore_errors=True)
+
+
 def restore_backup(backup_dir: Path | str, runtime_dir: Path | str) -> Path | None:
     """Restore a verified backup into ``runtime_dir``.
 
     The backup is verified first. The state being replaced is kept beside the
     runtime directory and its path is returned (``None`` if nothing existed).
-    If the restored data fails verification, the previous state is put back.
+    Installation and the post-install verification share one rollback path:
+    if the restored data has integrity problems, or any exception is raised
+    after the swap, the previous directory is put back (or the failed install
+    is removed when there was none) and the original error is re-raised. If
+    the rollback itself fails, a ``RecoveryError`` says so and names where the
+    previous state is kept.
     """
     backup = Path(backup_dir)
     runtime = Path(runtime_dir)
@@ -190,22 +204,25 @@ def restore_backup(backup_dir: Path | str, runtime_dir: Path | str) -> Path | No
     recorded = _load_manifest(backup)["files"]
     stamp = _stamp()
     staging = runtime.with_name(f"{runtime.name}.restoring-{stamp}")
-    shutil.copytree(backup / "runtime", staging)
     preserved: Path | None = None
+    installed = False
     try:
+        shutil.copytree(backup / "runtime", staging)
         if runtime.exists():
             preserved = runtime.with_name(f"{runtime.name}.before-restore-{stamp}")
             runtime.rename(preserved)
         staging.rename(runtime)
-    except BaseException:
-        if preserved is not None and not runtime.exists():
-            preserved.rename(runtime)
-        shutil.rmtree(staging, ignore_errors=True)
+        installed = True
+        problems = _check_tree(runtime, recorded)
+        if problems:
+            raise RecoveryError("restored data failed verification: " + "; ".join(problems))
+    except BaseException as failure:
+        try:
+            _undo_install(runtime, staging, preserved, installed)
+        except OSError as error:
+            kept = f"; the previous state is kept at {preserved}" if preserved else ""
+            raise RecoveryError(
+                f"restore failed ({failure!r}) and rollback also failed ({error}){kept}"
+            ) from failure
         raise
-    problems = _check_tree(runtime, recorded)
-    if problems:
-        shutil.rmtree(runtime, ignore_errors=True)
-        if preserved is not None:
-            preserved.rename(runtime)
-        raise RecoveryError("restored data failed verification: " + "; ".join(problems))
     return preserved
