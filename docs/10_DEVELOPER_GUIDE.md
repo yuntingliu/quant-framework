@@ -1,4 +1,4 @@
-markdown
+
 # Conexus Developer Guide
 
 Welcome to **Conexus**, the framework behind **AlphaLab** (current version **0.7.0**), a Python research workstation for data recipes, factors, stock-selection strategies, and validation. This guide takes you from a fresh clone to a running local workstation, explains the core concepts, and states the system's current limitations.
