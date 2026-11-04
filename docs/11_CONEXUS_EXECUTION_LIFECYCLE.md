@@ -372,10 +372,12 @@ evicted events before they were read, `trace.truncated` past
 `MAX_TRACE_ENTRIES_PER_RUN`, `trace.incomplete` if the Host disappeared first. A
 trace can be incomplete; it does not claim otherwise.
 
-Two limits. **Token usage is unavailable:** the pinned Host discards the provider's
+Three limits. **Token usage is unavailable:** the pinned Host discards the provider's
 usage, so `usage.available` is `false` and only model turns are counted. **Job
 correlation needs the local launcher**, which gives tools their Run ID. A remote Host
-does not, so its jobs are not linked to a Run.
+does not, so its jobs are not linked to a Run. **Operation approvals are not traced:**
+the local Host's approval gate raises no Host event, so a Run shows `awaiting_input`
+while it waits, but the trace holds no entry for the question or the answer.
 
 ### Cancelling work that outlives the Run
 

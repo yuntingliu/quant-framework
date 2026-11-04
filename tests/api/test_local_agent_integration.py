@@ -239,6 +239,15 @@ def test_real_host_honours_idempotency_correlates_jobs_and_survives_restart(tmp_
                                 assert again.status_code == 202 and again.json()["run"]["id"] == run_id
                                 refused = httpx.post(url, headers={**direct, "Authorization": "Bearer wrong"}, json={}, trust_env=False, timeout=10)
                                 assert refused.status_code == 401 and "accessToken" not in refused.text
+                                # A backtest waits for the user: the lifecycle says so, and the answer goes through the API.
+                                waiting = wait_for(client, f"/api/conexus/runs/{run_id}",
+                                                   lambda r: r.json()["run"].get("pendingInteraction") is not None,
+                                                   timeout=90 if sys.platform == "win32" else 35).json()
+                                assert waiting["run"]["lifecycle"]["phase"] == "awaiting_input"
+                                assert waiting["run"]["lifecycle"]["jobs"] == [], "nothing runs before approval"
+                                interaction = waiting["run"]["pendingInteraction"]["id"]
+                                approved = client.post(f"/api/conexus/runs/{run_id}/interactions/{interaction}/answer", json={"answer": "Approve"})
+                                assert approved.status_code < 300, approved.text
                             # Through the API, after completion and again after a restart of both processes.
                             duplicate = client.post("/api/conexus/runs", json=submission)
                             assert duplicate.status_code == 200, duplicate.text
@@ -253,6 +262,7 @@ def test_real_host_honours_idempotency_correlates_jobs_and_survives_restart(tmp_
                             assert [job["kind"] for job in trace["jobs"]] == ["backtest"], "the real tool must carry its Run id"
                             assert {item["kind"] for item in trace["entries"]} >= {"submission.accepted", "run.started", "model.turn", "tool.result", "job.linked", "run.completed"}
                             assert "run-secret" not in json.dumps(trace) and "accessToken" not in json.dumps(trace)
+                            assert "start_date" not in json.dumps(trace), "an approval's arguments stay out of the trace"
                             session = client.get("/api/conexus/conversations").json()
                             turns = next(item for item in session["conversations"] if item["id"] == "lifecycle")["messages"]
                             assert len([item for item in turns if item["role"] == "user"]) == 1
