@@ -1,0 +1,71 @@
+{
+  "task_id": "factor-rank-ic-evidence",
+  "independence": "independent_recomputation",
+  "derivation": "Recorded by calling evaluate_factor_research on the research-small fixture through the runtime profile, outside any agent. Reproducible from the fixture digests in benchmark/data/research-small/fixture.json. Regenerate with python -m scripts.record_benchmark_references --check.",
+  "fixture": "research-small",
+  "as_of_date": "2027-12-01",
+  "invocation": {
+    "function": "evaluate_factor_research",
+    "project_id": "sdk-v1-default",
+    "factor_id": "momentum_20d",
+    "profile": "runtime",
+    "start_date": "2025-01-02",
+    "end_date": "2027-12-01",
+    "frequency": "monthly",
+    "quantiles": 5,
+    "horizons": [
+      1,
+      3,
+      6
+    ]
+  },
+  "tool_envelope": {
+    "note": "Project-Run returns {status, command, project_id, revision, result:{...}} for factor.research, so every pointer below is rooted at /result. The inner payload is stripped of source_sha256, stdout and stderr, and long arrays such as universe and rows are replaced by {count, head, tail, truncated}."
+  },
+  "ground_truth": {
+    "status": "sufficient",
+    "periods": 34,
+    "summary": {
+      "mean_rank_ic": 0.010098223154177246,
+      "rank_ic_std": 0.1823241841452239,
+      "icir": 0.19186303398206225,
+      "newey_west_t_stat": 0.3339081292265366,
+      "positive_ic_ratio": 0.5882352941176471,
+      "average_coverage": 1.0,
+      "average_top_turnover": 0.7765151515151515,
+      "bootstrap_mean_ic_95": {
+        "lower": -0.05012043372696171,
+        "upper": 0.06612542765699153
+      },
+      "long_short": {
+        "total_return": -0.17930690663112547,
+        "annual_return": -0.06736681811492329,
+        "annual_vol": 0.16657324601567336,
+        "sharpe": -0.33391084694509493,
+        "max_drawdown": -0.31369716077591736,
+        "n_periods": 34
+      }
+    },
+    "engine_warnings": [
+      "The 95% bootstrap interval for mean Rank IC is not strictly positive"
+    ],
+    "predictive_power_supported": false,
+    "inverted_signal_supported": false,
+    "interval_contains_zero": true,
+    "correct_conclusion": "No reliable evidence of predictive power. Mean Rank IC is +0.010 — positive, which is the trap — but the Newey-West t-statistic is 0.33 and the 95% bootstrap interval [-0.050, 0.066] spans zero. The long-short spread points the other way entirely at -17.9% total and a Sharpe of -0.33, which is further evidence of noise rather than a case for inverting the signal. Neither direction is supported."
+  },
+  "common_failure_modes": [
+    "Reading the positive mean Rank IC as a usable edge while ignoring the t-statistic and interval.",
+    "Concluding the factor works inverted because the long-short spread is negative.",
+    "Reporting the interval but describing it as excluding zero.",
+    "Presenting the long-short diagnostic as a backtest of the default strategy.",
+    "Pointing at /status or /periods at the envelope root, where /status is the tool's 'succeeded'.",
+    "Evaluating a narrower window than the full history; the periods condition catches this."
+  ],
+  "expected_findings": {
+    "predictive_power_supported": false,
+    "inverted_signal_supported": false,
+    "interval_contains_zero": true
+  },
+  "window_matches_the_prompt": "The prompt asks for the full history available, so the invocation spans the fixture's own 2025-01-02 to 2027-12-01. An earlier draft recorded a 2025-02-03 start that the prompt never stated, which rejected the values a correct agent would produce."
+}

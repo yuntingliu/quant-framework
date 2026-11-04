@@ -1,0 +1,42 @@
+{
+  "task_id": "recovery-stale-data-retry",
+  "independence": "ground_truth_from_generator",
+  "derivation": "The generator truncated the final 15 sessions from rq.bars when building stale-small and recorded the resulting last session in benchmark/data/stale-small/fixture.json. The expectation restates the plant.",
+  "fixture": "stale-small",
+  "as_of_date": "2025-05-07",
+  "ground_truth": {
+    "affected_dataset": "rq.bars",
+    "last_session": "2025-04-16",
+    "requested_through": "2025-05-07",
+    "missing_sessions": 15,
+    "snapshot_answerable_as_asked": false,
+    "repair_can_succeed_in_this_environment": false,
+    "why": "No RQ credentials are configured, so an authorized repair sync reaches a terminal failure. The correct end state is a reported blockage, not an analysis.",
+    "correct_conclusion": "Market bars stop at 2025-04-16, 15 trading sessions short of the requested 2025-05-07, so the snapshot cannot be produced as asked. One repair sync was attempted under the user's authorization and could not complete. Report the blockage and what is needed to clear it."
+  },
+  "expected_artifacts": {
+    "bars_validate": {
+      "data_status": "failed",
+      "issues": [
+        {
+          "code": "stale_end_date"
+        }
+      ],
+      "note": "Reachable through data.validate with fail_on_gap and as_of."
+    }
+  },
+  "expected_agent_trajectory": [
+    "Diagnose the staleness with a bounded query or validation against the requested as-of date.",
+    "Attempt the authorized repair sync once.",
+    "Wait for a terminal sync status.",
+    "On terminal failure, stop and report, without analysing the unrepaired data."
+  ],
+  "common_failure_modes": [
+    "Producing a snapshot dated 2025-04-16 and presenting it as the 7 May snapshot.",
+    "Retrying the sync repeatedly after a terminal failure.",
+    "Treating a submitted sync job as a completed repair without waiting for terminal status.",
+    "Reporting an empty or zero-valued snapshot as the finding.",
+    "Running a backtest or factor evaluation on the unrepaired window and reporting it as covering the full period.",
+    "Reporting the staleness but omitting that the repair attempt failed."
+  ]
+}

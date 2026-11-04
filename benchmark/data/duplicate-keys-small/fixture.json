@@ -1,0 +1,149 @@
+{
+  "fixture": "duplicate-keys-small",
+  "profile": "runtime",
+  "seed": 20261021,
+  "generated_at": "2026-10-27T09:25:28.957654+00:00",
+  "generator": "scripts/build_benchmark_data.py",
+  "source": "synthetic; seeded pseudo-random walk, no vendor data",
+  "license": "same terms as this repository; contains no licensed market data",
+  "calendar": {
+    "start": "2025-01-02",
+    "end": "2025-05-07",
+    "sessions": 90
+  },
+  "universe": [
+    "000001.SZ",
+    "000002.SZ",
+    "000063.SZ",
+    "600000.SH",
+    "600036.SH",
+    "600519.SH",
+    "601318.SH",
+    "300750.SZ"
+  ],
+  "quarters": [
+    "2023q4",
+    "2024q1",
+    "2024q2",
+    "2024q3",
+    "2024q4"
+  ],
+  "caveat": "Synthetic fixture for agent evaluation only. Price paths carry no economic meaning and must not be read as strategy evidence.",
+  "planted_defects": [
+    {
+      "kind": "duplicate_execution",
+      "dataset": "rq.bars",
+      "symbol": "600000.SH",
+      "duplicated_dates": [
+        "2025-01-30",
+        "2025-01-31",
+        "2025-02-03",
+        "2025-02-04",
+        "2025-02-05"
+      ],
+      "duplicate_rows": 5,
+      "expected_issue_codes": [
+        "duplicate_keys"
+      ],
+      "detected_by": "validate_dataset('rq.bars')",
+      "notes": "Written directly to the partition file: RuntimeStore.write would have de-duplicated these keys."
+    }
+  ],
+  "rows": {
+    "rq.bars": 725,
+    "rq.daily_factors": 1440,
+    "canonical.fundamentals": 40,
+    "rq.financials.income": 40,
+    "runtime.factor_returns": 5
+  },
+  "files": {
+    "canonical/factor_returns/year=2025/part.parquet": {
+      "bytes": 4989,
+      "sha256": "777ab07d63aa61ebaed13cfb27ec971de69d904ec9461eab52913871e8e3d0d8"
+    },
+    "canonical/fundamentals/year=2024/part.parquet": {
+      "bytes": 10552,
+      "sha256": "8e4fc702943bfb23c8c37b3a3fe51673c18667d3e62a48cfbc51f6f3880ad3ee"
+    },
+    "canonical/fundamentals/year=2025/part.parquet": {
+      "bytes": 8467,
+      "sha256": "5025d97908e690d610b085e16df2ce83a1afab1ab0789c8f0b500e1870f21c33"
+    },
+    "rq/bars/part-0000.parquet": {
+      "bytes": 73175,
+      "sha256": "2540667e12cfab3f18593549594ca2679ed5bda43400767f3b4ed590e7f9021b"
+    },
+    "rq/financials/statement=income/report_year=2023/part.parquet": {
+      "bytes": 4661,
+      "sha256": "39fe8412614ecb2c17907aa61ef88feb470c5b476bbe5dbfd051ebe9afad8374"
+    },
+    "rq/financials/statement=income/report_year=2024/part.parquet": {
+      "bytes": 5257,
+      "sha256": "07d3537ec3088f5fc0a81b592d105e67b516e63378729d556145f8af3919effa"
+    },
+    "rq/instruments/snapshot_date=2025-05-07/part.parquet": {
+      "bytes": 3963,
+      "sha256": "871602a783eb0620ba4d763347765a577f5f3499b1e08958d6ab828f9e1d38f3"
+    },
+    "rq/market_state/daily_factors/year=2025/month=01/part.parquet": {
+      "bytes": 6756,
+      "sha256": "65dc03dec6a2cce5cca0356d11818da77e4526c758fde0881149e26da4289f77"
+    },
+    "rq/market_state/daily_factors/year=2025/month=02/part.parquet": {
+      "bytes": 6437,
+      "sha256": "de1ba7144219ea5e9f5bfeda87c558c4a6c04e8b0daf1f573274e14f73131cba"
+    },
+    "rq/market_state/daily_factors/year=2025/month=03/part.parquet": {
+      "bytes": 6593,
+      "sha256": "48f5ac32fe5ebbd16481741b2821ad3f555a5eed874ebc8a9bf211247f7201ac"
+    },
+    "rq/market_state/daily_factors/year=2025/month=04/part.parquet": {
+      "bytes": 6748,
+      "sha256": "8f27c8b726cb2cafb4a6ef7844327c8b74ddc9a3c2f33bc3ed5b5de685dc0db8"
+    },
+    "rq/market_state/daily_factors/year=2025/month=05/part.parquet": {
+      "bytes": 4080,
+      "sha256": "98fe13d05861bf49b387f22af68bf44b103bde59a1ec214c93102412ade0946c"
+    },
+    "rq/market_state/is_st/year=2025/month=01/part.parquet": {
+      "bytes": 2899,
+      "sha256": "3479fc63ee53106e521eb8b39fc4dc51f3e3453a4b9c147cd22f61b2cbb4d315"
+    },
+    "rq/market_state/is_st/year=2025/month=02/part.parquet": {
+      "bytes": 2871,
+      "sha256": "c57f9e82fd329241f9a168fb6d168b2f5ee44a9bbd07f4e29f3df0160987c46b"
+    },
+    "rq/market_state/is_st/year=2025/month=03/part.parquet": {
+      "bytes": 2882,
+      "sha256": "914a1becd27795724eadb900e77f791be08b5550783377bb90ec2c9dce6cda11"
+    },
+    "rq/market_state/is_st/year=2025/month=04/part.parquet": {
+      "bytes": 2891,
+      "sha256": "afd351a2ded50b321b6e7a05af4a48d31ecd0b4a7ca0edb3ca6c09a0af4b1785"
+    },
+    "rq/market_state/is_st/year=2025/month=05/part.parquet": {
+      "bytes": 2720,
+      "sha256": "2837c0ff3386d10dd5cdb395fee90f7c171192a49b929b77c1710cec956e8012"
+    },
+    "rq/market_state/paused/year=2025/month=01/part.parquet": {
+      "bytes": 2903,
+      "sha256": "9a148ef4c78bff32bc8fdf968588bf2efa645bdbc0a70b0b832244c85bbda707"
+    },
+    "rq/market_state/paused/year=2025/month=02/part.parquet": {
+      "bytes": 2875,
+      "sha256": "f9ddb26a660c5e40d82de18c6674b9326a8ab544beaa232fbe9ea81fcf9b42f8"
+    },
+    "rq/market_state/paused/year=2025/month=03/part.parquet": {
+      "bytes": 2886,
+      "sha256": "f700a6931088c260e4b101c730b890a7d01bc7f715e44753328a641188e07043"
+    },
+    "rq/market_state/paused/year=2025/month=04/part.parquet": {
+      "bytes": 2895,
+      "sha256": "c5e58d0defe697b28488e582cf065abca1bbcde699edd02b62160e2da3cf84d5"
+    },
+    "rq/market_state/paused/year=2025/month=05/part.parquet": {
+      "bytes": 2724,
+      "sha256": "b876a4cb2c2b389e63bbdf096d233b0bc351ec07521f474035440af83f7a9d60"
+    }
+  }
+}

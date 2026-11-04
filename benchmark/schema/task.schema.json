@@ -1,0 +1,604 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/yuntingliu/quant-framework/benchmark/schema/task.schema.json",
+  "title": "AlphaLab financial agent benchmark task",
+  "description": "Machine-readable definition of one benchmark task. The runner reads this file; only request.prompt_file and environment.workspace reach the agent under test.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "schema_version",
+    "split",
+    "category",
+    "difficulty",
+    "title",
+    "request",
+    "environment",
+    "allowed_operations",
+    "budget",
+    "expected_outcome",
+    "target_artifacts",
+    "reference",
+    "pass_conditions"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Stable identifier, unique across both splits. Never reused for different content."
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "split": {
+      "enum": [
+        "dev",
+        "holdout"
+      ],
+      "description": "dev tasks may be inspected and debugged against; holdout tasks are confirmation-only and must never be used to tune an agent."
+    },
+    "category": {
+      "enum": [
+        "data_diagnostics",
+        "factor_implementation",
+        "strategy_backtest",
+        "risk_execution",
+        "result_audit",
+        "failure_recovery"
+      ]
+    },
+    "difficulty": {
+      "enum": [
+        "easy",
+        "medium",
+        "hard"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prompt_file",
+        "as_of_date"
+      ],
+      "properties": {
+        "prompt_file": {
+          "type": "string",
+          "description": "Path relative to the task directory holding the user request verbatim. This is the only prose the agent receives."
+        },
+        "as_of_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Decision date. Information dated after this must not influence the answer."
+        },
+        "follow_ups": {
+          "type": "array",
+          "description": "Scripted later turns, replayed only when the agent asks for clarification.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "when",
+              "text"
+            ],
+            "properties": {
+              "when": {
+                "enum": [
+                  "clarification_requested",
+                  "authorization_requested"
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "fixture",
+        "restore"
+      ],
+      "properties": {
+        "profile": {
+          "enum": [
+            "runtime",
+            "demo"
+          ],
+          "description": "runtime uses a RuntimeStore of rq.* datasets; demo uses the tracked data/ bundle consumed by create_default_engine."
+        },
+        "fixture": {
+          "type": "string",
+          "description": "Fixture id under benchmark/data/, or 'bundled' for the tracked data/ bundle."
+        },
+        "workspace": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Path relative to the task directory holding starting project files, or null to start from sdk-v1-default."
+        },
+        "seed_strategies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Strategy ids seeded into the task database before the run."
+        },
+        "restore": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "copy_to_temp",
+              "description": "Fixture files are copied into a fresh temporary root per attempt and never mutated in place."
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Environment variables set for the attempt. {root} expands to the temporary root."
+            }
+          }
+        }
+      }
+    },
+    "allowed_operations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tools"
+      ],
+      "properties": {
+        "tools": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "alphalab_project_run",
+              "alphalab_project_files"
+            ]
+          }
+        },
+        "commands_allow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Permitted command values. Absent means every command of the listed tools is permitted."
+        },
+        "commands_deny": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Commands that must not be invoked. Invoking one is a failure even if the final answer is correct."
+        },
+        "requires_confirmation": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "confirm_python_execution",
+              "confirm_write",
+              "confirm_delete",
+              "confirm_cancel"
+            ]
+          },
+          "description": "Confirmation flags that must be preceded by an explicit user authorization turn."
+        },
+        "network": {
+          "enum": [
+            "none",
+            "alphalab_api_only"
+          ],
+          "default": "alphalab_api_only"
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_tool_calls",
+        "max_wall_seconds"
+      ],
+      "properties": {
+        "max_tool_calls": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_wall_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_model_cost_usd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Mirrors the harness runtime policy. Exceeding it is a duplicate-execution failure, not a retry."
+        }
+      }
+    },
+    "expected_outcome": {
+      "enum": [
+        "completed",
+        "refused",
+        "clarification_required"
+      ],
+      "description": "completed: the task is answerable as written. refused: the correct behavior is to decline, because the request is unauthorized or unsupported. clarification_required: the request is underspecified and the agent must ask before acting. Producing a confident answer where refusal or clarification was correct is a failure, not a partial pass."
+    },
+    "target_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "harness_output",
+              "project_file",
+              "backtest_run",
+              "quality_report",
+              "tool_result",
+              "agent_findings"
+            ]
+          },
+          "node": {
+            "enum": [
+              "decisionNotebook",
+              "workspaceResult",
+              "workspaceCommands"
+            ],
+            "description": "Required when kind is harness_output."
+          },
+          "path": {
+            "type": "string",
+            "description": "Required when kind is project_file."
+          },
+          "required_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source_command": {
+            "type": "string",
+            "description": "The Project-Run command whose envelope this artifact is collected from. Required for tool_result and backtest_run, which are shaped by the tool rather than by the agent."
+          },
+          "delivery": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "channel",
+              "columns",
+              "list_encoding",
+              "empty_list"
+            ],
+            "description": "How the agent delivers this artifact through the Harness output schema. Required for agent_findings, which has no dedicated output field of its own.",
+            "properties": {
+              "channel": {
+                "const": "workspaceResult.document.rows",
+                "description": "The document-variant workspaceResult carries the findings in its rows array. workspace-output.schema.json sets additionalProperties:false on every variant, so no nested findings object and no extra top-level field is deliverable."
+              },
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "The two column keys the findings table declares, in order."
+              },
+              "list_encoding": {
+                "const": "row_per_element",
+                "description": "A list-valued field contributes one row per element. Row values are restricted to scalars, so an array value is rejected by the output schema."
+              },
+              "empty_list": {
+                "const": "single_null_row",
+                "description": "An empty list is delivered as one row whose value is null. Whether a null row means an empty list or a null scalar is resolved by the grading condition: set_contains and set_equals read a list, numeric and scalar_equals read a scalar."
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "tool_result",
+                    "backtest_run"
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "required": [
+                "source_command"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "agent_findings"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "required": [
+                "delivery"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "directory",
+        "expected_file",
+        "independence"
+      ],
+      "properties": {
+        "directory": {
+          "type": "string",
+          "description": "Reference directory, held outside benchmark/tasks so it is never mounted into the agent workspace."
+        },
+        "expected_file": {
+          "type": "string"
+        },
+        "compute": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Script recomputing the expected values from the fixture alone."
+        },
+        "independence": {
+          "enum": [
+            "ground_truth_from_generator",
+            "closed_form",
+            "independent_recomputation"
+          ],
+          "description": "How the reference value avoids circularity. ground_truth_from_generator: the fixture generator planted the condition and recorded it, so the expectation never comes from the code under test."
+        }
+      }
+    },
+    "pass_conditions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "weight"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "numeric",
+              "scalar_equals",
+              "set_contains",
+              "set_equals",
+              "command_absent",
+              "command_present",
+              "artifact_present",
+              "outcome_matches",
+              "authorization_ordered",
+              "judged"
+            ]
+          },
+          "weight": {
+            "enum": [
+              "blocking",
+              "scored"
+            ],
+            "description": "blocking conditions must all hold for the task to pass; scored conditions contribute to partial credit."
+          },
+          "description": {
+            "type": "string"
+          },
+          "pointer": {
+            "type": "string",
+            "description": "JSON Pointer into the artifact identified by artifact_id. For tool_result artifacts the pointer is resolved against the tool envelope, whose payload sits under /result — see the runner contract in benchmark/README.md."
+          },
+          "artifact_id": {
+            "type": "string"
+          },
+          "expect": {
+            "description": "Expected value. A list for set_* conditions, a number for numeric."
+          },
+          "project": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "For set_* conditions over a list of objects: the field names to read from each row, joined with ':' to form one comparable string. Lets a reported table be compared against expect without depending on column order."
+          },
+          "tolerance": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Absolute tolerance for numeric conditions. 0 means exact."
+          },
+          "relative_tolerance": {
+            "type": "number",
+            "minimum": 0
+          },
+          "command": {
+            "type": "string"
+          },
+          "rubric": {
+            "type": "string",
+            "description": "Required when type is judged. Judged conditions are never blocking, so a task's pass or fail never depends on a model's opinion."
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "judged"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            },
+            "then": {
+              "required": [
+                "rubric"
+              ],
+              "properties": {
+                "weight": {
+                  "const": "scored"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "numeric"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            },
+            "then": {
+              "required": [
+                "pointer",
+                "expect"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "command_absent",
+                    "command_present"
+                  ]
+                }
+              },
+              "required": [
+                "type"
+              ]
+            },
+            "then": {
+              "required": [
+                "command"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "scalar_equals"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            },
+            "then": {
+              "required": [
+                "pointer",
+                "expect"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "negative_case": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "must_be_detected"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "point_in_time_leak",
+            "wrong_return_convention",
+            "missing_field",
+            "coverage_gap",
+            "duplicate_execution",
+            "unauthorized_execution",
+            "zero_execution_as_performance",
+            "stale_data"
+          ]
+        },
+        "must_be_detected": {
+          "type": "boolean"
+        },
+        "planted_in": {
+          "type": "string",
+          "description": "Fixture id or artifact where the defect was planted."
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "notes": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

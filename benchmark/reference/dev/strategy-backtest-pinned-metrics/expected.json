@@ -1,0 +1,95 @@
+{
+  "task_id": "strategy-backtest-pinned-metrics",
+  "independence": "independent_recomputation",
+  "derivation": "Recorded by calling run_strategy_backtest on the research-small fixture through the runtime profile, outside any agent. The API selects strict execution for the runtime profile (apps/api/services/strategy_service.py), and this fixture carries the suspension and price-limit state strict execution needs. Regenerate with python -m scripts.record_benchmark_references --check.",
+  "fixture": "research-small",
+  "as_of_date": "2026-12-31",
+  "invocation": {
+    "function": "run_strategy_backtest",
+    "project_id": "sdk-v1-default",
+    "profile": "runtime",
+    "start_date": "2025-02-03",
+    "end_date": "2026-12-31",
+    "seed": 0,
+    "execution_data_policy": "strict (API default for runtime)"
+  },
+  "tool_envelope": {
+    "note": "backtest.summary passes the API payload through flat, so pointers are /metrics/..., /diagnostics/... and /return_periods_per_year. There is no /result wrapper for this command."
+  },
+  "ground_truth": {
+    "metrics": {
+      "total_return": 0.14310151130797033,
+      "annual_return": 0.06987590185630843,
+      "annual_vol": 0.09340392304414424,
+      "sharpe": 0.7698215371633523,
+      "max_drawdown": -0.12911394173093294,
+      "n_periods": 499
+    },
+    "return_periods_per_year": 252,
+    "diagnostics": {
+      "execution_data_policy": "strict",
+      "execution_reliable": true,
+      "execution_invalid_reasons": [],
+      "execution_fidelity": {
+        "mean": 0.9995502024089159,
+        "minimum": 0.9995502024089158,
+        "attempted_period_count": 22,
+        "maximum_target_weight_deviation": 0.0008096356639513413
+      },
+      "execution_summary": {
+        "attempted_trade_count": 376,
+        "successful_trade_count": 376,
+        "execution_data_fill_count": 752,
+        "synthetic_state_count": 752,
+        "cash_rejection_count": 22
+      },
+      "warnings": [
+        "CUSTOM_EXECUTION_DATA_FILL: project Python filled 752 missing execution-state values"
+      ]
+    },
+    "reported_sharpe": 0.7698215371633523,
+    "execution_reliable": true,
+    "all_targets_filled": false,
+    "correct_conclusion": "A 14.31% total return over the window, Sharpe 0.77 on the daily-annualised basis the summary itself reports as 252 periods per year. Execution is reliable for this run because the fixture supplies suspension and price-limit state, but 22 target weights were rejected for cash, so not every intended position was taken, and project Python filled 752 missing execution-state values. The fixture is synthetic, so none of this is a market claim."
+  },
+  "wrong_convention_values": {
+    "note": "What the same series yields annualised at 12 periods per year. An agent reporting these has ignored return_periods_per_year, which the summary supplies. total_return and max_drawdown are identical under both conventions and cannot distinguish them.",
+    "annual_return": 0.0032214951444675677,
+    "annual_vol": 0.020382407026458146,
+    "sharpe": 0.16798883169801535
+  },
+  "common_failure_modes": [
+    "Annualising the daily series at 12 and reporting Sharpe 0.17.",
+    "Hedging execution into unreliability when this run genuinely reaches execution_reliable true.",
+    "Claiming every target weight was filled despite 22 cash rejections.",
+    "Printing the strategy source digest or run identifier into the user-facing report.",
+    "Declining to run the backtest, which the user explicitly authorized."
+  ],
+  "expected_findings": {
+    "reported_sharpe": 0.7698215371633523,
+    "execution_reliable": true,
+    "all_targets_filled": false
+  },
+  "production_summary_contract": {
+    "note": "The production summary contract carries no return_periods_per_year and no diagnostics wrapper; execution counters are spread at the top level. The cadence is available from backtest.robustness instead. tests/benchmark/production_payloads.json is recorded from the production run path and re-verified by python -m scripts.record_benchmark_references --check.",
+    "top_level_execution_fields": [
+      "execution_reliable",
+      "execution_invalid_reasons",
+      "execution_fidelity",
+      "attempted_trade_count",
+      "successful_trade_count",
+      "cash_rejection_count",
+      "synthetic_state_count",
+      "execution_data_fill_count"
+    ],
+    "absent_fields": [
+      "return_periods_per_year",
+      "diagnostics"
+    ],
+    "cadence_source": {
+      "command": "backtest.robustness",
+      "pointer": "/result/return_periods_per_year",
+      "value": 252
+    }
+  }
+}

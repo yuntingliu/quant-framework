@@ -1,0 +1,2942 @@
+{
+  "market_risk": {
+    "cumulative": [
+      0.009325350861109083,
+      -0.01980521657125278,
+      0.0404155648067519,
+      0.06426575367727927,
+      0.052510173246553826,
+      0.062341929461639856,
+      0.0877850759661436,
+      0.09991940927933007,
+      0.06215732995748979,
+      -8.638615678735473e-05,
+      -0.11947517476314684,
+      -0.13174395798490646,
+      -0.1668433085436266,
+      -0.15671735531170283,
+      -0.15771329147324686,
+      -0.2483366248357488,
+      -0.22626107638270132,
+      -0.16427546009434246,
+      -0.1573250161448594,
+      -0.1272273634555935,
+      -0.18775512053232013,
+      -0.1497416791904017,
+      -0.1380056849348953,
+      -0.06715249839649207,
+      -0.06190541932032234,
+      0.00805343075454834,
+      0.010388067354051733,
+      -0.019647739359925254,
+      -0.102402964934598,
+      -0.12222920092393474,
+      -0.12893070446528165,
+      -0.12230421087817878,
+      -0.16250037073077295,
+      -0.19067667182118642,
+      -0.1574276161233792,
+      -0.17778108069702414
+    ],
+    "dates": [
+      "2025-01-31",
+      "2025-02-28",
+      "2025-03-31",
+      "2025-04-30",
+      "2025-05-30",
+      "2025-06-30",
+      "2025-07-31",
+      "2025-08-29",
+      "2025-09-30",
+      "2025-10-31",
+      "2025-11-28",
+      "2025-12-31",
+      "2026-01-30",
+      "2026-02-27",
+      "2026-03-31",
+      "2026-04-30",
+      "2026-05-29",
+      "2026-06-30",
+      "2026-07-31",
+      "2026-08-31",
+      "2026-09-30",
+      "2026-10-30",
+      "2026-11-30",
+      "2026-12-31",
+      "2027-01-29",
+      "2027-02-26",
+      "2027-03-31",
+      "2027-04-30",
+      "2027-05-31",
+      "2027-06-30",
+      "2027-07-30",
+      "2027-08-31",
+      "2027-09-30",
+      "2027-10-29",
+      "2027-11-30",
+      "2027-12-01"
+    ],
+    "dependencies": [
+      "MKT",
+      "SMB"
+    ],
+    "expression": "MKT - 0.5 * SMB",
+    "name": "defensive_tilt",
+    "observations": 36,
+    "profile": "runtime",
+    "returns": [
+      0.009325350861109149,
+      -0.028861424522339633,
+      0.06143756567174406,
+      0.02292371402090406,
+      -0.011045718975835991,
+      0.009341245780797805,
+      0.023950053931691737,
+      0.011155083463899375,
+      -0.03433167830594252,
+      -0.058601220703121557,
+      -0.11939910303599467,
+      -0.013933489289708,
+      -0.04042511524280307,
+      0.012153720105426162,
+      -0.0011810229557281653,
+      -0.10759202590411475,
+      0.029368929207470702,
+      0.08011179791572388,
+      0.00831666849254858,
+      0.03571679860670897,
+      -0.06935111682279127,
+      0.04680046904922485,
+      0.013802857282633333,
+      0.08219681417858515,
+      0.005624798337510054,
+      0.07457547620004716,
+      0.0023159849748796563,
+      -0.0297270006292069,
+      -0.08441376523234778,
+      -0.02208812553385067,
+      -0.007634684986560182,
+      0.007607309339304744,
+      -0.045797371197157564,
+      -0.03364335947825926,
+      0.041082537151902104,
+      -0.024156339518273836
+    ],
+    "summary": {
+      "annual_return": -0.06316633520678072,
+      "annual_volatility": 0.1657939021008216,
+      "max_drawdown": -0.3166195915601281,
+      "observations": 36,
+      "positive_ratio": 0.5277777777777778,
+      "sharpe": -0.3103760870289155
+    },
+    "warnings": [
+      "This is a descriptive derived return series, not a tradable portfolio or timing signal."
+    ]
+  },
+  "query": {
+    "dataset": "rq.daily_factors",
+    "matched_rows": 720,
+    "returned_rows": 5,
+    "rows": [
+      {
+        "date": "2025-01-02",
+        "field": "market_cap",
+        "symbol": "000001.SZ",
+        "value": 17459376078.73314
+      },
+      {
+        "date": "2025-01-02",
+        "field": "market_cap",
+        "symbol": "000002.SZ",
+        "value": 27586830535.714855
+      },
+      {
+        "date": "2025-01-02",
+        "field": "market_cap",
+        "symbol": "000063.SZ",
+        "value": 36247189562.12225
+      },
+      {
+        "date": "2025-01-02",
+        "field": "market_cap",
+        "symbol": "300750.SZ",
+        "value": 79665818705.42783
+      },
+      {
+        "date": "2025-01-02",
+        "field": "market_cap",
+        "symbol": "600000.SH",
+        "value": 44804069011.94841
+      }
+    ],
+    "truncated": true
+  },
+  "research": {
+    "decay": {
+      "1": {
+        "mean_rank_ic": 0.010098223154177246,
+        "newey_west_t_stat": 0.3339081292265366,
+        "observations": 34
+      },
+      "3": {
+        "mean_rank_ic": -0.010307223264540333,
+        "newey_west_t_stat": -0.31711959597319683,
+        "observations": 32
+      },
+      "6": {
+        "mean_rank_ic": 0.041321084298376144,
+        "newey_west_t_stat": 1.8213683441866404,
+        "observations": 29
+      }
+    },
+    "factor_id": "momentum_20d",
+    "frequency": "monthly",
+    "horizons": [
+      1,
+      3,
+      6
+    ],
+    "invoked": [
+      "momentum_20d",
+      "research_universe"
+    ],
+    "periods": 34,
+    "point_in_time_audit": {
+      "context_as_of_enforced": true,
+      "factor_observation_at_or_before_signal": true,
+      "forward_price_field": "open",
+      "forward_window_strictly_after_signal": true,
+      "input_cutoff_violations": [],
+      "instrument_and_fundamental_as_of_enforced": true,
+      "latest_input_cutoffs": {
+        "factor_input_max_date": "2027-12-01",
+        "fundamental_available_max_date": null,
+        "security_snapshot_max_date": "2023-08-01"
+      },
+      "observed_signal_cutoffs": 36
+    },
+    "profile": "runtime",
+    "project_id": "sdk-v1-default",
+    "quantiles": 5,
+    "revision": 3,
+    "rows": [
+      {
+        "coverage": 1.0,
+        "entry_date": "2025-02-03",
+        "exit_date": "2025-03-03",
+        "formation_count": 40,
+        "long_short": -0.040882564795227824,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.027631508575740205,
+          "2": 0.06981846081246326,
+          "3": 0.02370181583626854,
+          "4": 0.02310821725095047,
+          "5": -0.01325105621948762
+        },
+        "rank_ic": -0.19118198874296438,
+        "signal_date": "2025-01-31",
+        "top_turnover": null
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2025-03-03",
+        "exit_date": "2025-04-01",
+        "formation_count": 40,
+        "long_short": -0.1007361106269449,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.07716433631861172,
+          "2": -0.044465107716969945,
+          "3": -0.0255580396927199,
+          "4": 0.03164851243723231,
+          "5": -0.023571774308333182
+        },
+        "rank_ic": -0.12645403377110695,
+        "signal_date": "2025-02-28",
+        "top_turnover": 0.875
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2025-04-01",
+        "exit_date": "2025-05-01",
+        "formation_count": 40,
+        "long_short": 0.022069810441673263,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.01906362785509451,
+          "2": 0.005338586858355129,
+          "3": 0.00010573758234795616,
+          "4": -0.0058674752828368065,
+          "5": 0.04113343829676777
+        },
+        "rank_ic": 0.04596622889305817,
+        "signal_date": "2025-03-31",
+        "top_turnover": 0.75
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2025-05-01",
+        "exit_date": "2025-06-02",
+        "formation_count": 40,
+        "long_short": -0.0752257013498952,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.042772628768156365,
+          "2": 0.010177284361087072,
+          "3": -0.0062707393474912415,
+          "4": 0.023719174113832897,
+          "5": -0.03245307258173884
+        },
+        "rank_ic": -0.2033771106941839,
+        "signal_date": "2025-04-30",
+        "top_turnover": 0.75
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2025-06-02",
+        "exit_date": "2025-07-01",
+        "formation_count": 40,
+        "long_short": 0.0613854091587519,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": -0.036021728000160555,
+          "2": 0.009622471955221201,
+          "3": 0.023378350219572422,
+          "4": 0.03399311943913011,
+          "5": 0.025363681158591347
+        },
+        "rank_ic": 0.1879924953095685,
+        "signal_date": "2025-05-30",
+        "top_turnover": 0.875
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2025-07-01",
+        "exit_date": "2025-08-01",
+        "formation_count": 40,
+        "long_short": -0.0014395499744132706,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.018323244146078554,
+          "2": -0.014737653324428043,
+          "3": 0.05688284694835233,
+          "4": -0.008247175800898773,
+          "5": 0.016883694171665284
+        },
+        "rank_ic": 0.05590994371482177,
+        "signal_date": "2025-06-30",
+        "top_turnover": 0.75
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2025-08-01",
+        "exit_date": "2025-09-01",
+        "formation_count": 40,
+        "long_short": -0.0059393018353686294,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.02618777167345318,
+          "2": 0.020849767999757726,
+          "3": -0.036987561646779354,
+          "4": 0.015168156116311476,
+          "5": 0.02024846983808455
+        },
+        "rank_ic": -0.03133208255159475,
+        "signal_date": "2025-07-31",
+        "top_turnover": 0.5
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2025-09-01",
+        "exit_date": "2025-10-01",
+        "formation_count": 40,
+        "long_short": -0.1052861098546416,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.04536716051477413,
+          "2": 0.03870890879239629,
+          "3": -0.0030610600761330625,
+          "4": 0.0017371528143249049,
+          "5": -0.05991894933986747
+        },
+        "rank_ic": -0.37936210131332093,
+        "signal_date": "2025-08-29",
+        "top_turnover": 0.75
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2025-10-01",
+        "exit_date": "2025-11-03",
+        "formation_count": 40,
+        "long_short": -0.003039288337971277,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": -0.008593177184250247,
+          "2": 0.021404794409657604,
+          "3": 0.031201667425364815,
+          "4": 0.000617077275380476,
+          "5": -0.011632465522221525
+        },
+        "rank_ic": 0.0013133208255159477,
+        "signal_date": "2025-09-30",
+        "top_turnover": 0.875
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2025-11-03",
+        "exit_date": "2025-12-01",
+        "formation_count": 40,
+        "long_short": -0.10595566270517001,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.05569521363699394,
+          "2": 0.00041166622963817456,
+          "3": 0.03324564082115075,
+          "4": -0.003887976697111162,
+          "5": -0.050260449068176075
+        },
+        "rank_ic": -0.31594746716697936,
+        "signal_date": "2025-10-31",
+        "top_turnover": 0.875
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2025-12-01",
+        "exit_date": "2026-01-01",
+        "formation_count": 40,
+        "long_short": 0.03652766223424249,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.0023125105874562263,
+          "2": -0.005908993229282719,
+          "3": -0.005513492553067878,
+          "4": 0.007266392885055525,
+          "5": 0.038840172821698715
+        },
+        "rank_ic": 0.16998123827392123,
+        "signal_date": "2025-11-28",
+        "top_turnover": 0.875
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2026-01-01",
+        "exit_date": "2026-02-02",
+        "formation_count": 40,
+        "long_short": -0.033898380922747384,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.016947176411864676,
+          "2": -0.02589436831872262,
+          "3": 0.028477489073354692,
+          "4": 0.01642291167793382,
+          "5": -0.01695120451088271
+        },
+        "rank_ic": 0.006754221388367731,
+        "signal_date": "2025-12-31",
+        "top_turnover": 0.625
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2026-02-02",
+        "exit_date": "2026-03-02",
+        "formation_count": 40,
+        "long_short": 0.02715660709276077,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.03603583979828007,
+          "2": 0.003900842330442203,
+          "3": 0.026827372165131577,
+          "4": 0.029596473711510488,
+          "5": 0.06319244689104084
+        },
+        "rank_ic": 0.1711069418386492,
+        "signal_date": "2026-01-30",
+        "top_turnover": 0.875
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2026-03-02",
+        "exit_date": "2026-04-01",
+        "formation_count": 40,
+        "long_short": 0.026391725275986863,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": -0.004778263029408841,
+          "2": -0.0051448855567435,
+          "3": 0.025821011560127324,
+          "4": 0.038231903332898234,
+          "5": 0.021613462246578022
+        },
+        "rank_ic": 0.22739212007504694,
+        "signal_date": "2026-02-27",
+        "top_turnover": 0.875
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2026-04-01",
+        "exit_date": "2026-05-01",
+        "formation_count": 40,
+        "long_short": 0.016786481051363572,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": -0.009254103047201118,
+          "2": 0.001575487082387167,
+          "3": 0.08508151783442254,
+          "4": -0.030878696194337613,
+          "5": 0.007532378004162454
+        },
+        "rank_ic": -0.040150093808630404,
+        "signal_date": "2026-03-31",
+        "top_turnover": 0.75
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2026-05-01",
+        "exit_date": "2026-06-01",
+        "formation_count": 40,
+        "long_short": 0.04840824748608874,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.009563299955665183,
+          "2": -0.03876031585955428,
+          "3": 0.005174227943006773,
+          "4": -0.04269425375241112,
+          "5": 0.05797154744175392
+        },
+        "rank_ic": 0.1727954971857411,
+        "signal_date": "2026-04-30",
+        "top_turnover": 0.875
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2026-06-01",
+        "exit_date": "2026-07-01",
+        "formation_count": 40,
+        "long_short": -0.09668798908200889,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.0681869000842397,
+          "2": 0.05136429748835014,
+          "3": 0.005739262497822209,
+          "4": 0.00820219998361553,
+          "5": -0.028501088997769194
+        },
+        "rank_ic": -0.4138836772983115,
+        "signal_date": "2026-05-29",
+        "top_turnover": 0.5
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2026-07-01",
+        "exit_date": "2026-08-03",
+        "formation_count": 40,
+        "long_short": -0.04472182897483816,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.02045470857429746,
+          "2": 0.03747946103963844,
+          "3": 0.03627710274980177,
+          "4": 0.01794325071249861,
+          "5": -0.0242671204005407
+        },
+        "rank_ic": -0.09737335834896811,
+        "signal_date": "2026-06-30",
+        "top_turnover": 1.0
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2026-08-03",
+        "exit_date": "2026-09-01",
+        "formation_count": 40,
+        "long_short": -0.010423603768954334,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.02025718430655246,
+          "2": -0.022769544631270247,
+          "3": -0.08726651116874061,
+          "4": 0.05280922177983387,
+          "5": 0.009833580537598127
+        },
+        "rank_ic": 0.11219512195121951,
+        "signal_date": "2026-07-31",
+        "top_turnover": 0.875
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2026-09-01",
+        "exit_date": "2026-10-01",
+        "formation_count": 40,
+        "long_short": 0.004319206085884597,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.01929524856431898,
+          "2": -0.002850650005562505,
+          "3": 0.052092595848568804,
+          "4": -0.032622243948647295,
+          "5": 0.02361445465020358
+        },
+        "rank_ic": -0.07016885553470921,
+        "signal_date": "2026-08-31",
+        "top_turnover": 0.75
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2026-10-01",
+        "exit_date": "2026-11-02",
+        "formation_count": 40,
+        "long_short": 0.049562596318683164,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": -0.005699743057183196,
+          "2": 0.043725749539146416,
+          "3": 0.007563822683919627,
+          "4": 0.04491652561905905,
+          "5": 0.04386285326149997
+        },
+        "rank_ic": 0.14390243902439023,
+        "signal_date": "2026-09-30",
+        "top_turnover": 0.75
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2026-11-02",
+        "exit_date": "2026-12-01",
+        "formation_count": 40,
+        "long_short": 0.021095257372328605,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.042418840632770224,
+          "2": -0.030537645632075616,
+          "3": -0.04925184710184105,
+          "4": -0.035381896152974254,
+          "5": 0.06351409800509883
+        },
+        "rank_ic": 0.06904315196998126,
+        "signal_date": "2026-10-30",
+        "top_turnover": 0.625
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2026-12-01",
+        "exit_date": "2027-01-01",
+        "formation_count": 40,
+        "long_short": -0.02739314264512538,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.022475756953562784,
+          "2": 0.03017037021413517,
+          "3": 0.03248975008309818,
+          "4": 0.012301413928032134,
+          "5": -0.004917385691562595
+        },
+        "rank_ic": -0.11482176360225141,
+        "signal_date": "2026-11-30",
+        "top_turnover": 0.625
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2027-01-01",
+        "exit_date": "2027-02-01",
+        "formation_count": 40,
+        "long_short": 0.034826320017979584,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": -0.04456537212284113,
+          "2": -0.03194776032898668,
+          "3": -0.007913844877339787,
+          "4": 0.0222410275211425,
+          "5": -0.009739052104861548
+        },
+        "rank_ic": 0.23508442776735464,
+        "signal_date": "2026-12-31",
+        "top_turnover": 1.0
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2027-02-01",
+        "exit_date": "2027-03-01",
+        "formation_count": 40,
+        "long_short": 0.020052081441852596,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.012148616121749362,
+          "2": -0.005694361715420634,
+          "3": 0.046528385765033806,
+          "4": -0.016891860118184054,
+          "5": 0.03220069756360196
+        },
+        "rank_ic": 0.05590994371482177,
+        "signal_date": "2027-01-29",
+        "top_turnover": 0.75
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2027-03-01",
+        "exit_date": "2027-04-01",
+        "formation_count": 40,
+        "long_short": 0.009301651742770659,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.012754466652954724,
+          "2": 0.008766323732908879,
+          "3": -0.01899275831956028,
+          "4": 0.03549337586584782,
+          "5": 0.022056118395725383
+        },
+        "rank_ic": 0.05759849906191371,
+        "signal_date": "2027-02-26",
+        "top_turnover": 0.625
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2027-04-01",
+        "exit_date": "2027-05-03",
+        "formation_count": 40,
+        "long_short": 0.008891078869853422,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.007812279874234468,
+          "2": -0.00812661287159265,
+          "3": 0.02722685318387083,
+          "4": 0.027112170554739537,
+          "5": 0.01670335874408789
+        },
+        "rank_ic": 0.10337711069418387,
+        "signal_date": "2027-03-31",
+        "top_turnover": 0.75
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2027-05-03",
+        "exit_date": "2027-06-01",
+        "formation_count": 40,
+        "long_short": 0.0459789531347249,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": -0.025603846579655754,
+          "2": -0.01610130333949268,
+          "3": 0.044067313956438675,
+          "4": 0.07344662413015221,
+          "5": 0.020375106555069147
+        },
+        "rank_ic": 0.3455909943714822,
+        "signal_date": "2027-04-30",
+        "top_turnover": 0.75
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2027-06-01",
+        "exit_date": "2027-07-01",
+        "formation_count": 40,
+        "long_short": 0.0061378440546391855,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.05940136842902559,
+          "2": 0.030456753156431426,
+          "3": -0.020211813251496236,
+          "4": 0.014607046964519074,
+          "5": 0.06553921248366477
+        },
+        "rank_ic": -0.041275797373358354,
+        "signal_date": "2027-05-31",
+        "top_turnover": 0.75
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2027-07-01",
+        "exit_date": "2027-08-02",
+        "formation_count": 40,
+        "long_short": 0.055513177299730765,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": -0.03734273166403998,
+          "2": 0.005358183461241547,
+          "3": -0.011183732473324229,
+          "4": 0.033792800371511555,
+          "5": 0.018170445635690785
+        },
+        "rank_ic": 0.24502814258911826,
+        "signal_date": "2027-06-30",
+        "top_turnover": 0.625
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2027-08-02",
+        "exit_date": "2027-09-01",
+        "formation_count": 40,
+        "long_short": -0.04564048702585566,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": 0.058168464547190324,
+          "2": 0.0313792601847573,
+          "3": -0.07478960462215864,
+          "4": 0.015423868653172995,
+          "5": 0.012527977521334666
+        },
+        "rank_ic": -0.1936210131332083,
+        "signal_date": "2027-07-30",
+        "top_turnover": 0.75
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2027-09-01",
+        "exit_date": "2027-10-01",
+        "formation_count": 40,
+        "long_short": -0.015654750846917115,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": -0.0077748635579061864,
+          "2": 0.011614832876234174,
+          "3": 0.019832105804498498,
+          "4": 0.0015856570676894693,
+          "5": -0.0234296144048233
+        },
+        "rank_ic": -0.0878048780487805,
+        "signal_date": "2027-08-31",
+        "top_turnover": 0.875
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2027-10-01",
+        "exit_date": "2027-11-01",
+        "formation_count": 40,
+        "long_short": 0.024400633827934448,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": -0.03999335302291293,
+          "2": 0.0037325763662697797,
+          "3": -0.021777710555851967,
+          "4": 0.0582369525875944,
+          "5": -0.015592719194978483
+        },
+        "rank_ic": 0.20694183864915575,
+        "signal_date": "2027-09-30",
+        "top_turnover": 0.75
+      },
+      {
+        "coverage": 1.0,
+        "entry_date": "2027-11-01",
+        "exit_date": "2027-12-01",
+        "formation_count": 40,
+        "long_short": 0.036527991148283145,
+        "missing_forward_count": 0,
+        "observations": 40,
+        "quantile_returns": {
+          "1": -0.0009363418584604349,
+          "2": 0.03896903730042488,
+          "3": 0.08302939055119538,
+          "4": -0.010489329602608538,
+          "5": 0.03559164928982271
+        },
+        "rank_ic": 0.036210131332082555,
+        "signal_date": "2027-10-29",
+        "top_turnover": 1.0
+      }
+    ],
+    "source_sha256": "42fc23b321e8ba450be3b4070d246df3829b31b5dc2e07a790c1447c4672a2e1",
+    "stability": {
+      "development": {
+        "long_short": {
+          "annual_return": -0.1765830575369597,
+          "annual_vol": 0.18210432001459884,
+          "max_drawdown": -0.31369716077591736,
+          "n_periods": 23,
+          "sharpe": -0.9681776830233847,
+          "total_return": -0.31091740450232375
+        },
+        "mean_rank_ic": -0.026943470103597367,
+        "periods": 23,
+        "positive_ic_ratio": 0.5217391304347826
+      },
+      "split_date": "2026-12-31",
+      "validation": {
+        "long_short": {
+          "annual_return": 0.21006962967756526,
+          "annual_vol": 0.09989221727002619,
+          "max_drawdown": -0.06058074741985098,
+          "n_periods": 11,
+          "sharpe": 1.9694080672154883,
+          "total_return": 0.19099379193599408
+        },
+        "mean_rank_ic": 0.08754903632952414,
+        "periods": 11,
+        "positive_ic_ratio": 0.7272727272727273
+      },
+      "validation_fraction": 0.3
+    },
+    "status": "sufficient",
+    "summary": {
+      "average_coverage": 1.0,
+      "average_top_turnover": 0.7765151515151515,
+      "bootstrap_mean_ic_95": {
+        "lower": -0.05012043372696171,
+        "upper": 0.06612542765699153
+      },
+      "icir": 0.19186303398206225,
+      "long_short": {
+        "annual_return": -0.06736681811492329,
+        "annual_vol": 0.16657324601567336,
+        "max_drawdown": -0.31369716077591736,
+        "n_periods": 34,
+        "sharpe": -0.33391084694509493,
+        "total_return": -0.17930690663112547
+      },
+      "mean_rank_ic": 0.010098223154177246,
+      "newey_west_t_stat": 0.3339081292265366,
+      "positive_ic_ratio": 0.5882352941176471,
+      "quantile_returns": {
+        "1": 0.014702194995854248,
+        "2": 0.006526056284142408,
+        "3": 0.009587221907260095,
+        "4": 0.013313538801292938,
+        "5": 0.010067143857896987
+      },
+      "rank_ic_std": 0.1823241841452239
+    },
+    "warnings": [
+      "The 95% bootstrap interval for mean Rank IC is not strictly positive"
+    ]
+  },
+  "research_insufficient": {
+    "decay": {
+      "1": {
+        "mean_rank_ic": null,
+        "newey_west_t_stat": null,
+        "observations": 0
+      },
+      "3": {
+        "mean_rank_ic": null,
+        "newey_west_t_stat": null,
+        "observations": 0
+      },
+      "6": {
+        "mean_rank_ic": null,
+        "newey_west_t_stat": null,
+        "observations": 0
+      }
+    },
+    "factor_id": "momentum_20d",
+    "frequency": "monthly",
+    "horizons": [
+      1,
+      3,
+      6
+    ],
+    "invoked": [
+      "momentum_20d",
+      "research_universe"
+    ],
+    "periods": 0,
+    "point_in_time_audit": {
+      "context_as_of_enforced": true,
+      "factor_observation_at_or_before_signal": true,
+      "forward_price_field": "open",
+      "forward_window_strictly_after_signal": true,
+      "input_cutoff_violations": [],
+      "instrument_and_fundamental_as_of_enforced": true,
+      "latest_input_cutoffs": {
+        "factor_input_max_date": "2025-05-07",
+        "fundamental_available_max_date": null,
+        "security_snapshot_max_date": "2023-09-02"
+      },
+      "observed_signal_cutoffs": 4
+    },
+    "profile": "runtime",
+    "project_id": "sdk-v1-default",
+    "quantiles": 5,
+    "revision": 3,
+    "rows": [],
+    "source_sha256": "42fc23b321e8ba450be3b4070d246df3829b31b5dc2e07a790c1447c4672a2e1",
+    "stability": {
+      "development": {
+        "long_short": {
+          "annual_return": 0.0,
+          "annual_vol": 0.0,
+          "max_drawdown": 0.0,
+          "n_periods": 0,
+          "sharpe": 0.0,
+          "total_return": 0.0
+        },
+        "mean_rank_ic": null,
+        "periods": 0,
+        "positive_ic_ratio": null
+      },
+      "split_date": null,
+      "validation": {
+        "long_short": {
+          "annual_return": 0.0,
+          "annual_vol": 0.0,
+          "max_drawdown": 0.0,
+          "n_periods": 0,
+          "sharpe": 0.0,
+          "total_return": 0.0
+        },
+        "mean_rank_ic": null,
+        "periods": 0,
+        "positive_ic_ratio": null
+      },
+      "validation_fraction": 0.3
+    },
+    "status": "insufficient",
+    "summary": {
+      "average_coverage": null,
+      "average_top_turnover": null,
+      "bootstrap_mean_ic_95": {
+        "lower": null,
+        "upper": null
+      },
+      "icir": null,
+      "long_short": {
+        "annual_return": 0.0,
+        "annual_vol": 0.0,
+        "max_drawdown": 0.0,
+        "n_periods": 0,
+        "sharpe": 0.0,
+        "total_return": 0.0
+      },
+      "mean_rank_ic": null,
+      "newey_west_t_stat": null,
+      "positive_ic_ratio": null,
+      "quantile_returns": {
+        "1": null,
+        "2": null,
+        "3": null,
+        "4": null,
+        "5": null
+      },
+      "rank_ic_std": null
+    },
+    "warnings": [
+      "Fewer than 24 valid factor periods; holdout evidence is insufficient",
+      "The 95% bootstrap interval for mean Rank IC is not strictly positive"
+    ]
+  },
+  "robustness": {
+    "annual": [
+      {
+        "benchmark": 0.11001230023377162,
+        "complete": true,
+        "excess": -0.13161134014581832,
+        "periods": 237,
+        "strategy": -0.021599039912046702,
+        "year": 2025
+      },
+      {
+        "benchmark": 0.163865139181383,
+        "complete": true,
+        "excess": 0.0011883829037953042,
+        "periods": 260,
+        "strategy": 0.16505352208517832,
+        "year": 2026
+      }
+    ],
+    "benchmark_coverage": 0.9959919839679359,
+    "candidate_rules": {
+      "annual_excess": false,
+      "bootstrap_excess": false,
+      "max_drawdown": true,
+      "multiple_testing": false,
+      "positive_year_ratio": false,
+      "rolling_win_ratio": false,
+      "sharpe": true,
+      "stress_cost_excess": false,
+      "validation_excess": false
+    },
+    "checks": [
+      {
+        "detail": "499 periods",
+        "name": "non_empty_returns",
+        "passed": true
+      },
+      {
+        "detail": "499 / 504 periods",
+        "name": "minimum_history",
+        "passed": false
+      },
+      {
+        "detail": "returns must be finite",
+        "name": "finite_returns",
+        "passed": true
+      },
+      {
+        "detail": "99.6% coverage",
+        "name": "benchmark_coverage",
+        "passed": true
+      },
+      {
+        "detail": "479 snapshots",
+        "name": "weights_present",
+        "passed": true
+      },
+      {
+        "detail": "range 1.0000-1.0000; remainder is cash",
+        "name": "gross_exposure",
+        "passed": true
+      },
+      {
+        "detail": "observed 0.1234, limit 0.1000",
+        "name": "max_weight",
+        "passed": false
+      }
+    ],
+    "cost_sensitivity": {
+      "10": {
+        "annual_return": 0.05849091378689364,
+        "annual_vol": 0.09355542992443178,
+        "max_drawdown": -0.13332980911828718,
+        "n_periods": 499,
+        "sharpe": 0.6543469703590896,
+        "total_return": 0.11914006731773541
+      },
+      "20": {
+        "annual_return": 0.03808060923081347,
+        "annual_vol": 0.09402080882999639,
+        "max_drawdown": -0.1409508084843628,
+        "n_periods": 499,
+        "sharpe": 0.44444904320454576,
+        "total_return": 0.07681255930712472
+      },
+      "50": {
+        "annual_return": -0.020964521692869664,
+        "annual_vol": 0.096844724961496,
+        "max_drawdown": -0.1634747055404443,
+        "n_periods": 499,
+        "sharpe": -0.17040992473679836,
+        "total_return": -0.04108650420380899
+      }
+    },
+    "disclaimer": "Research gate only; this is not an approval for live trading.",
+    "end_date": "2026-12-31",
+    "metrics": {
+      "benchmark": {
+        "annual_return": 0.1386717307129861,
+        "annual_vol": 0.0462330758362592,
+        "max_drawdown": -0.01659359872303179,
+        "n_periods": 497,
+        "sharpe": 2.8326504109175388,
+        "total_return": 0.29190462030462894
+      },
+      "excess": {
+        "annual_return": -0.06368559275185204,
+        "annual_vol": 0.10590520412982246,
+        "max_drawdown": -0.169451536384558,
+        "n_periods": 497,
+        "sharpe": -0.5684064424476136,
+        "total_return": -0.12171138427006178
+      },
+      "strategy": {
+        "annual_return": 0.06987590185630843,
+        "annual_vol": 0.09340392304414424,
+        "max_drawdown": -0.12911394173093294,
+        "n_periods": 499,
+        "sharpe": 0.7698215371633523,
+        "total_return": 0.14310151130797033
+      }
+    },
+    "periods": 499,
+    "portfolio": {
+      "average_concentration": 0.10031196801869313,
+      "average_holdings": 10.0,
+      "maximum_weight": 0.12343235098201365
+    },
+    "profile": "runtime",
+    "return_periods_per_year": 252,
+    "rolling": {
+      "252": [
+        {
+          "benchmark": 0.10774073429497988,
+          "date": "2026-01-21",
+          "excess": -0.14517192082224484,
+          "strategy": -0.03743118652726496
+        },
+        {
+          "benchmark": 0.10340125771222364,
+          "date": "2026-01-22",
+          "excess": -0.1371521871831496,
+          "strategy": -0.03375092947092595
+        },
+        {
+          "benchmark": 0.10091427395034991,
+          "date": "2026-01-23",
+          "excess": -0.13149210689880153,
+          "strategy": -0.030577832948451622
+        },
+        {
+          "benchmark": 0.10521107683193054,
+          "date": "2026-01-26",
+          "excess": -0.14024392755851212,
+          "strategy": -0.03503285072658158
+        },
+        {
+          "benchmark": 0.11206451876049228,
+          "date": "2026-01-27",
+          "excess": -0.14569378611126194,
+          "strategy": -0.033629267350769654
+        },
+        {
+          "benchmark": 0.10871543419037644,
+          "date": "2026-01-28",
+          "excess": -0.14742783261217474,
+          "strategy": -0.0387123984217983
+        },
+        {
+          "benchmark": 0.11021374047000987,
+          "date": "2026-01-29",
+          "excess": -0.14077727155858621,
+          "strategy": -0.030563531088576346
+        },
+        {
+          "benchmark": 0.10536385655528657,
+          "date": "2026-01-30",
+          "excess": -0.12976228028784942,
+          "strategy": -0.024398423732562846
+        },
+        {
+          "benchmark": 0.10623138175929614,
+          "date": "2026-02-02",
+          "excess": -0.13849150828685852,
+          "strategy": -0.03226012652756238
+        },
+        {
+          "benchmark": 0.1092578897322356,
+          "date": "2026-02-03",
+          "excess": -0.14332585607506776,
+          "strategy": -0.03406796634283216
+        },
+        {
+          "benchmark": 0.11345450963681492,
+          "date": "2026-02-04",
+          "excess": -0.137835238096368,
+          "strategy": -0.02438072845955308
+        },
+        {
+          "benchmark": 0.10914339821269392,
+          "date": "2026-02-05",
+          "excess": -0.13558494960295808,
+          "strategy": -0.026441551390264162
+        },
+        {
+          "benchmark": 0.10944129851564521,
+          "date": "2026-02-06",
+          "excess": -0.13845653423547066,
+          "strategy": -0.02901523571982545
+        },
+        {
+          "benchmark": 0.11580568953508164,
+          "date": "2026-02-09",
+          "excess": -0.15271398656403035,
+          "strategy": -0.03690829702894871
+        },
+        {
+          "benchmark": 0.11838481064321682,
+          "date": "2026-02-10",
+          "excess": -0.1508400475374332,
+          "strategy": -0.032455236894216366
+        },
+        {
+          "benchmark": 0.11257740041073361,
+          "date": "2026-02-11",
+          "excess": -0.1328612734048472,
+          "strategy": -0.020283872994113605
+        },
+        {
+          "benchmark": 0.11347806215377743,
+          "date": "2026-02-12",
+          "excess": -0.1382695064014754,
+          "strategy": -0.02479144424769797
+        },
+        {
+          "benchmark": 0.10976315097294798,
+          "date": "2026-02-13",
+          "excess": -0.1296995552201632,
+          "strategy": -0.01993640424721521
+        },
+        {
+          "benchmark": 0.10527553350731256,
+          "date": "2026-02-16",
+          "excess": -0.1241256961322107,
+          "strategy": -0.018850162624898137
+        },
+        {
+          "benchmark": 0.10202676673581768,
+          "date": "2026-02-17",
+          "excess": -0.12016253781631847,
+          "strategy": -0.018135771080500795
+        },
+        {
+          "benchmark": 0.10972318003977177,
+          "date": "2026-02-18",
+          "excess": -0.126208032980194,
+          "strategy": -0.016484852940422234
+        },
+        {
+          "benchmark": 0.11451171649013991,
+          "date": "2026-02-19",
+          "excess": -0.12568110654544074,
+          "strategy": -0.01116939005530082
+        },
+        {
+          "benchmark": 0.12622032035278674,
+          "date": "2026-02-20",
+          "excess": -0.11523212289975349,
+          "strategy": 0.010988197453033255
+        },
+        {
+          "benchmark": 0.1340081151111101,
+          "date": "2026-02-23",
+          "excess": -0.10979684197712247,
+          "strategy": 0.024211273133987632
+        },
+        {
+          "benchmark": 0.13903395877673663,
+          "date": "2026-02-24",
+          "excess": -0.10737374549387946,
+          "strategy": 0.031660213282857175
+        },
+        {
+          "benchmark": 0.1366787472070088,
+          "date": "2026-02-25",
+          "excess": -0.10383214813390973,
+          "strategy": 0.03284659907309906
+        },
+        {
+          "benchmark": 0.13324065883217107,
+          "date": "2026-02-26",
+          "excess": -0.09489680810633905,
+          "strategy": 0.03834385072583202
+        },
+        {
+          "benchmark": 0.13274053891491322,
+          "date": "2026-02-27",
+          "excess": -0.09003302632760102,
+          "strategy": 0.0427075125873122
+        },
+        {
+          "benchmark": 0.1339060523429756,
+          "date": "2026-03-02",
+          "excess": -0.07150189972789645,
+          "strategy": 0.062404152615079145
+        },
+        {
+          "benchmark": 0.13539927448804456,
+          "date": "2026-03-03",
+          "excess": -0.07347613581788459,
+          "strategy": 0.06192313867015997
+        },
+        {
+          "benchmark": 0.13960897404223638,
+          "date": "2026-03-04",
+          "excess": -0.07512624214179353,
+          "strategy": 0.06448273190044285
+        },
+        {
+          "benchmark": 0.13998656174415713,
+          "date": "2026-03-05",
+          "excess": -0.07457073691123517,
+          "strategy": 0.06541582483292196
+        },
+        {
+          "benchmark": 0.1347622673781319,
+          "date": "2026-03-06",
+          "excess": -0.07273007670311493,
+          "strategy": 0.062032190675016974
+        },
+        {
+          "benchmark": 0.13854666644399316,
+          "date": "2026-03-09",
+          "excess": -0.090394740295894,
+          "strategy": 0.048151926148099156
+        },
+        {
+          "benchmark": 0.1516196199510884,
+          "date": "2026-03-10",
+          "excess": -0.11031043323672152,
+          "strategy": 0.0413091867143669
+        },
+        {
+          "benchmark": 0.14999671829001304,
+          "date": "2026-03-11",
+          "excess": -0.08513262619794704,
+          "strategy": 0.064864092092066
+        },
+        {
+          "benchmark": 0.1435757758473859,
+          "date": "2026-03-12",
+          "excess": -0.07623091680359373,
+          "strategy": 0.06734485904379217
+        },
+        {
+          "benchmark": 0.1493853533109608,
+          "date": "2026-03-13",
+          "excess": -0.0714807645488087,
+          "strategy": 0.07790458876215212
+        },
+        {
+          "benchmark": 0.14682896443939786,
+          "date": "2026-03-16",
+          "excess": -0.0642622034961029,
+          "strategy": 0.08256676094329496
+        },
+        {
+          "benchmark": 0.14310879220220607,
+          "date": "2026-03-17",
+          "excess": -0.07349571082152329,
+          "strategy": 0.06961308138068278
+        },
+        {
+          "benchmark": 0.13780809448769848,
+          "date": "2026-03-18",
+          "excess": -0.07843805053728792,
+          "strategy": 0.05937004395041057
+        },
+        {
+          "benchmark": 0.13997897485395905,
+          "date": "2026-03-19",
+          "excess": -0.06561698818346273,
+          "strategy": 0.07436198667049632
+        },
+        {
+          "benchmark": 0.13730944597525707,
+          "date": "2026-03-20",
+          "excess": -0.0657387352293195,
+          "strategy": 0.07157071074593757
+        },
+        {
+          "benchmark": 0.13723563967426533,
+          "date": "2026-03-23",
+          "excess": -0.06742778643283232,
+          "strategy": 0.06980785324143302
+        },
+        {
+          "benchmark": 0.1378412331322636,
+          "date": "2026-03-24",
+          "excess": -0.05574688868303723,
+          "strategy": 0.08209434444922636
+        },
+        {
+          "benchmark": 0.14447957670853362,
+          "date": "2026-03-25",
+          "excess": -0.058370934754932824,
+          "strategy": 0.0861086419536008
+        },
+        {
+          "benchmark": 0.14581244863569554,
+          "date": "2026-03-26",
+          "excess": -0.05059605263456168,
+          "strategy": 0.09521639600113385
+        },
+        {
+          "benchmark": 0.14342438269202962,
+          "date": "2026-03-27",
+          "excess": -0.04586845779351534,
+          "strategy": 0.09755592489851428
+        },
+        {
+          "benchmark": 0.15109340059492227,
+          "date": "2026-03-30",
+          "excess": -0.060205044755802684,
+          "strategy": 0.09088835583911958
+        },
+        {
+          "benchmark": 0.15169521606650616,
+          "date": "2026-03-31",
+          "excess": -0.052550776391459,
+          "strategy": 0.09914443967504716
+        },
+        {
+          "benchmark": 0.139331852583934,
+          "date": "2026-04-01",
+          "excess": -0.030687268793101685,
+          "strategy": 0.1086445837908323
+        },
+        {
+          "benchmark": 0.14039556431150602,
+          "date": "2026-04-02",
+          "excess": -0.0421604224722274,
+          "strategy": 0.09823514183927862
+        },
+        {
+          "benchmark": 0.14741255481911497,
+          "date": "2026-04-03",
+          "excess": -0.05166042773910662,
+          "strategy": 0.09575212708000835
+        },
+        {
+          "benchmark": 0.15047075024690448,
+          "date": "2026-04-06",
+          "excess": -0.045187266147217686,
+          "strategy": 0.1052834840996868
+        },
+        {
+          "benchmark": 0.14878976629493645,
+          "date": "2026-04-07",
+          "excess": -0.05360770903989143,
+          "strategy": 0.09518205725504503
+        },
+        {
+          "benchmark": 0.1518688095309988,
+          "date": "2026-04-08",
+          "excess": -0.06186647272304713,
+          "strategy": 0.09000233680795167
+        },
+        {
+          "benchmark": 0.162087910393087,
+          "date": "2026-04-09",
+          "excess": -0.06779687659796463,
+          "strategy": 0.09429103379512238
+        },
+        {
+          "benchmark": 0.14536705374370884,
+          "date": "2026-04-10",
+          "excess": -0.03823331936721153,
+          "strategy": 0.10713373437649731
+        },
+        {
+          "benchmark": 0.15155613372483057,
+          "date": "2026-04-13",
+          "excess": -0.06648923598918777,
+          "strategy": 0.0850668977356428
+        },
+        {
+          "benchmark": 0.14686688841503415,
+          "date": "2026-04-14",
+          "excess": -0.06679294016596082,
+          "strategy": 0.08007394824907332
+        },
+        {
+          "benchmark": 0.13972631777343913,
+          "date": "2026-04-15",
+          "excess": -0.06892509613238729,
+          "strategy": 0.07080122164105185
+        },
+        {
+          "benchmark": 0.13303512911160098,
+          "date": "2026-04-16",
+          "excess": -0.07055242202406808,
+          "strategy": 0.062482707087532896
+        },
+        {
+          "benchmark": 0.1324328753315145,
+          "date": "2026-04-17",
+          "excess": -0.07372572979525516,
+          "strategy": 0.05870714553625933
+        },
+        {
+          "benchmark": 0.1404052276751162,
+          "date": "2026-04-20",
+          "excess": -0.07435840033800134,
+          "strategy": 0.06604682733711487
+        },
+        {
+          "benchmark": 0.14307087073325264,
+          "date": "2026-04-21",
+          "excess": -0.060985341079414335,
+          "strategy": 0.08208552965383831
+        },
+        {
+          "benchmark": 0.14840099090524062,
+          "date": "2026-04-22",
+          "excess": -0.06468774032881397,
+          "strategy": 0.08371325057642665
+        },
+        {
+          "benchmark": 0.14502603282008786,
+          "date": "2026-04-23",
+          "excess": -0.049530977150205935,
+          "strategy": 0.09549505566988192
+        },
+        {
+          "benchmark": 0.14533497862775868,
+          "date": "2026-04-24",
+          "excess": -0.05794790331239352,
+          "strategy": 0.08738707531536516
+        },
+        {
+          "benchmark": 0.13869171970418326,
+          "date": "2026-04-27",
+          "excess": -0.05709555603613636,
+          "strategy": 0.0815961636680469
+        },
+        {
+          "benchmark": 0.13950237170815538,
+          "date": "2026-04-28",
+          "excess": -0.060288665856229606,
+          "strategy": 0.07921370585192578
+        },
+        {
+          "benchmark": 0.13286925838640662,
+          "date": "2026-04-29",
+          "excess": -0.043683194488235655,
+          "strategy": 0.08918606389817096
+        },
+        {
+          "benchmark": 0.13729382861235484,
+          "date": "2026-04-30",
+          "excess": -0.05554446368208499,
+          "strategy": 0.08174936493026985
+        },
+        {
+          "benchmark": 0.1316283186488154,
+          "date": "2026-05-01",
+          "excess": -0.044536897950407495,
+          "strategy": 0.08709142069840792
+        },
+        {
+          "benchmark": 0.13233709995356002,
+          "date": "2026-05-04",
+          "excess": -0.04728310488109422,
+          "strategy": 0.0850539950724658
+        },
+        {
+          "benchmark": 0.13674845513713918,
+          "date": "2026-05-05",
+          "excess": -0.04594335477195499,
+          "strategy": 0.09080510036518419
+        },
+        {
+          "benchmark": 0.1328815562335417,
+          "date": "2026-05-06",
+          "excess": -0.028999439001299754,
+          "strategy": 0.10388211723224194
+        },
+        {
+          "benchmark": 0.13722513491519117,
+          "date": "2026-05-07",
+          "excess": -0.045771512560847105,
+          "strategy": 0.09145362235434407
+        },
+        {
+          "benchmark": 0.13785701268350126,
+          "date": "2026-05-08",
+          "excess": -0.030334461127720758,
+          "strategy": 0.1075225515557805
+        },
+        {
+          "benchmark": 0.1306808530279362,
+          "date": "2026-05-11",
+          "excess": -0.025381310547406777,
+          "strategy": 0.10529954248052942
+        },
+        {
+          "benchmark": 0.13189688934724408,
+          "date": "2026-05-12",
+          "excess": -0.02426405175166657,
+          "strategy": 0.10763283759557751
+        },
+        {
+          "benchmark": 0.12861906442621085,
+          "date": "2026-05-13",
+          "excess": -0.014512801219839222,
+          "strategy": 0.11410626320637163
+        },
+        {
+          "benchmark": 0.1317589197480653,
+          "date": "2026-05-14",
+          "excess": -0.014101655291257398,
+          "strategy": 0.11765726445680791
+        },
+        {
+          "benchmark": 0.12781438920918564,
+          "date": "2026-05-15",
+          "excess": -0.003268472910127773,
+          "strategy": 0.12454591629905787
+        },
+        {
+          "benchmark": 0.12331040107297753,
+          "date": "2026-05-18",
+          "excess": 0.002937922165586304,
+          "strategy": 0.12624832323856383
+        },
+        {
+          "benchmark": 0.1253737522996401,
+          "date": "2026-05-19",
+          "excess": -0.011703232762483529,
+          "strategy": 0.11367051953715657
+        },
+        {
+          "benchmark": 0.12062221588417543,
+          "date": "2026-05-20",
+          "excess": -0.025940462200093828,
+          "strategy": 0.0946817536840816
+        },
+        {
+          "benchmark": 0.11736881621731565,
+          "date": "2026-05-21",
+          "excess": -0.023002642086983993,
+          "strategy": 0.09436617413033166
+        },
+        {
+          "benchmark": 0.11884461672556612,
+          "date": "2026-05-22",
+          "excess": -0.039042374918968115,
+          "strategy": 0.079802241806598
+        },
+        {
+          "benchmark": 0.11321991490784011,
+          "date": "2026-05-25",
+          "excess": -0.02724836715364498,
+          "strategy": 0.08597154775419513
+        },
+        {
+          "benchmark": 0.11647931677787171,
+          "date": "2026-05-26",
+          "excess": -0.039793836161793994,
+          "strategy": 0.07668548061607772
+        },
+        {
+          "benchmark": 0.11637158916580059,
+          "date": "2026-05-27",
+          "excess": -0.03409022391004024,
+          "strategy": 0.08228136525576035
+        },
+        {
+          "benchmark": 0.12207585926991005,
+          "date": "2026-05-28",
+          "excess": -0.028731625621246648,
+          "strategy": 0.0933442336486634
+        },
+        {
+          "benchmark": 0.12329202959540364,
+          "date": "2026-05-29",
+          "excess": -0.011268105447007182,
+          "strategy": 0.11202392414839646
+        },
+        {
+          "benchmark": 0.12077152927043366,
+          "date": "2026-06-01",
+          "excess": -0.014812946023257334,
+          "strategy": 0.10595858324717633
+        },
+        {
+          "benchmark": 0.10881318273911433,
+          "date": "2026-06-02",
+          "excess": -0.01746689165186499,
+          "strategy": 0.09134629108724934
+        },
+        {
+          "benchmark": 0.11053943880004624,
+          "date": "2026-06-03",
+          "excess": -0.04763947387961931,
+          "strategy": 0.06289996492042693
+        },
+        {
+          "benchmark": 0.1106507582267795,
+          "date": "2026-06-04",
+          "excess": -0.042446536153333714,
+          "strategy": 0.06820422207344579
+        },
+        {
+          "benchmark": 0.11173698604166282,
+          "date": "2026-06-05",
+          "excess": -0.04627382079122078,
+          "strategy": 0.06546316525044205
+        },
+        {
+          "benchmark": 0.11114775703815338,
+          "date": "2026-06-08",
+          "excess": -0.03240798940951928,
+          "strategy": 0.0787397676286341
+        },
+        {
+          "benchmark": 0.1147271912815031,
+          "date": "2026-06-09",
+          "excess": -0.04850165403117157,
+          "strategy": 0.06622553725033153
+        },
+        {
+          "benchmark": 0.11855577896050384,
+          "date": "2026-06-10",
+          "excess": -0.05355342942794672,
+          "strategy": 0.06500234953255712
+        },
+        {
+          "benchmark": 0.12220022387138241,
+          "date": "2026-06-11",
+          "excess": -0.06220728616372395,
+          "strategy": 0.059992937707658456
+        },
+        {
+          "benchmark": 0.12729394920618264,
+          "date": "2026-06-12",
+          "excess": -0.06171861168270554,
+          "strategy": 0.0655753375234771
+        },
+        {
+          "benchmark": 0.1255538176027977,
+          "date": "2026-06-15",
+          "excess": -0.06813598982579583,
+          "strategy": 0.057417827777001884
+        },
+        {
+          "benchmark": 0.11922436727278285,
+          "date": "2026-06-16",
+          "excess": -0.05517493847028465,
+          "strategy": 0.0640494288024982
+        },
+        {
+          "benchmark": 0.12498529852225082,
+          "date": "2026-06-17",
+          "excess": -0.07353433785571006,
+          "strategy": 0.05145096066654076
+        },
+        {
+          "benchmark": 0.1247938902193253,
+          "date": "2026-06-18",
+          "excess": -0.06336526182008417,
+          "strategy": 0.061428628399241125
+        },
+        {
+          "benchmark": 0.12398092458406573,
+          "date": "2026-06-19",
+          "excess": -0.06193497701485984,
+          "strategy": 0.062045947569205895
+        },
+        {
+          "benchmark": 0.1265595270787141,
+          "date": "2026-06-22",
+          "excess": -0.0785329251720357,
+          "strategy": 0.0480266019066784
+        },
+        {
+          "benchmark": 0.12250158397009336,
+          "date": "2026-06-23",
+          "excess": -0.08661621575410994,
+          "strategy": 0.035885368215983426
+        },
+        {
+          "benchmark": 0.12869819892353873,
+          "date": "2026-06-24",
+          "excess": -0.09310891136599508,
+          "strategy": 0.03558928755754365
+        },
+        {
+          "benchmark": 0.1242431771623389,
+          "date": "2026-06-25",
+          "excess": -0.08977296890007636,
+          "strategy": 0.03447020826226255
+        },
+        {
+          "benchmark": 0.12192955061710475,
+          "date": "2026-06-26",
+          "excess": -0.09013224678890075,
+          "strategy": 0.031797303828204004
+        },
+        {
+          "benchmark": 0.1247494169925838,
+          "date": "2026-06-29",
+          "excess": -0.11093524772279117,
+          "strategy": 0.01381416926979262
+        },
+        {
+          "benchmark": 0.13014222210720772,
+          "date": "2026-06-30",
+          "excess": -0.11341024054981141,
+          "strategy": 0.016731981557396303
+        },
+        {
+          "benchmark": 0.12754198119282045,
+          "date": "2026-07-01",
+          "excess": -0.09719000947295986,
+          "strategy": 0.030351971719860593
+        },
+        {
+          "benchmark": 0.13096748191382201,
+          "date": "2026-07-02",
+          "excess": -0.10323708850944358,
+          "strategy": 0.02773039340437844
+        },
+        {
+          "benchmark": 0.13544483039471822,
+          "date": "2026-07-03",
+          "excess": -0.10845894771226017,
+          "strategy": 0.02698588268245805
+        },
+        {
+          "benchmark": 0.13871092204169977,
+          "date": "2026-07-06",
+          "excess": -0.10986216765865708,
+          "strategy": 0.028848754383042685
+        },
+        {
+          "benchmark": 0.14701052989294627,
+          "date": "2026-07-07",
+          "excess": -0.11834876259673588,
+          "strategy": 0.028661767296210394
+        },
+        {
+          "benchmark": 0.15070021352737517,
+          "date": "2026-07-08",
+          "excess": -0.12295376674332892,
+          "strategy": 0.027746446784046253
+        },
+        {
+          "benchmark": 0.1409755976255207,
+          "date": "2026-07-09",
+          "excess": -0.12716984375535811,
+          "strategy": 0.013805753870162585
+        },
+        {
+          "benchmark": 0.13392645454673713,
+          "date": "2026-07-10",
+          "excess": -0.1385220027441415,
+          "strategy": -0.0045955481974043755
+        },
+        {
+          "benchmark": 0.12577145755052044,
+          "date": "2026-07-13",
+          "excess": -0.14182193603687754,
+          "strategy": -0.0160504784863571
+        },
+        {
+          "benchmark": 0.12086552856901389,
+          "date": "2026-07-14",
+          "excess": -0.1465375580137317,
+          "strategy": -0.025672029444717803
+        },
+        {
+          "benchmark": 0.11700746414220875,
+          "date": "2026-07-15",
+          "excess": -0.15157190068945647,
+          "strategy": -0.03456443654724772
+        },
+        {
+          "benchmark": 0.11956294624254649,
+          "date": "2026-07-16",
+          "excess": -0.15093679184057107,
+          "strategy": -0.031373845598024586
+        },
+        {
+          "benchmark": 0.13391120401190304,
+          "date": "2026-07-17",
+          "excess": -0.1646200083872138,
+          "strategy": -0.03070880437531076
+        },
+        {
+          "benchmark": 0.13891583469036828,
+          "date": "2026-07-20",
+          "excess": -0.1482981385011668,
+          "strategy": -0.00938230381079852
+        },
+        {
+          "benchmark": 0.13720050764989122,
+          "date": "2026-07-21",
+          "excess": -0.13184165082159982,
+          "strategy": 0.005358856828291403
+        },
+        {
+          "benchmark": 0.1430856148710149,
+          "date": "2026-07-22",
+          "excess": -0.14419038045666865,
+          "strategy": -0.0011047655856537553
+        },
+        {
+          "benchmark": 0.1382181495955468,
+          "date": "2026-07-23",
+          "excess": -0.14506361756615194,
+          "strategy": -0.006845467970605146
+        },
+        {
+          "benchmark": 0.13445508221886948,
+          "date": "2026-07-24",
+          "excess": -0.1440065763751739,
+          "strategy": -0.009551494156304408
+        },
+        {
+          "benchmark": 0.1322774238404132,
+          "date": "2026-07-27",
+          "excess": -0.13640998620575195,
+          "strategy": -0.0041325623653387655
+        },
+        {
+          "benchmark": 0.1360583899131691,
+          "date": "2026-07-28",
+          "excess": -0.14020579517848153,
+          "strategy": -0.004147405265312432
+        },
+        {
+          "benchmark": 0.13798236978600142,
+          "date": "2026-07-29",
+          "excess": -0.13507056490440084,
+          "strategy": 0.002911804881600588
+        },
+        {
+          "benchmark": 0.13141151171797705,
+          "date": "2026-07-30",
+          "excess": -0.13156182659334648,
+          "strategy": -0.00015031487536942834
+        },
+        {
+          "benchmark": 0.14138965696777994,
+          "date": "2026-07-31",
+          "excess": -0.15498768868362212,
+          "strategy": -0.013598031715842174
+        },
+        {
+          "benchmark": 0.1389315172344976,
+          "date": "2026-08-03",
+          "excess": -0.15218601181696323,
+          "strategy": -0.013254494582465637
+        },
+        {
+          "benchmark": 0.13836855800833137,
+          "date": "2026-08-04",
+          "excess": -0.14998682642552708,
+          "strategy": -0.01161826841719571
+        },
+        {
+          "benchmark": 0.13036185125485633,
+          "date": "2026-08-05",
+          "excess": -0.13630820876451633,
+          "strategy": -0.005946357509659994
+        },
+        {
+          "benchmark": 0.13376019848577902,
+          "date": "2026-08-06",
+          "excess": -0.16079543897901405,
+          "strategy": -0.027035240493235024
+        },
+        {
+          "benchmark": 0.13235488479893265,
+          "date": "2026-08-07",
+          "excess": -0.1534242463318073,
+          "strategy": -0.021069361532874642
+        },
+        {
+          "benchmark": 0.1384265820775108,
+          "date": "2026-08-10",
+          "excess": -0.16117543331212292,
+          "strategy": -0.022748851234612122
+        },
+        {
+          "benchmark": 0.14481713865522328,
+          "date": "2026-08-11",
+          "excess": -0.16234711869564866,
+          "strategy": -0.017529980040425386
+        },
+        {
+          "benchmark": 0.14630320301693134,
+          "date": "2026-08-12",
+          "excess": -0.15093236040408287,
+          "strategy": -0.004629157387151528
+        },
+        {
+          "benchmark": 0.13994223609538192,
+          "date": "2026-08-13",
+          "excess": -0.15447606321552065,
+          "strategy": -0.014533827120138731
+        },
+        {
+          "benchmark": 0.13611727659500805,
+          "date": "2026-08-14",
+          "excess": -0.15135758140395927,
+          "strategy": -0.015240304808951222
+        },
+        {
+          "benchmark": 0.13176062248009157,
+          "date": "2026-08-17",
+          "excess": -0.1587383425187482,
+          "strategy": -0.026977720038656616
+        },
+        {
+          "benchmark": 0.1320808782367513,
+          "date": "2026-08-18",
+          "excess": -0.1654508777795093,
+          "strategy": -0.03336999954275799
+        },
+        {
+          "benchmark": 0.1392024770393483,
+          "date": "2026-08-19",
+          "excess": -0.15962667698934974,
+          "strategy": -0.020424199950001443
+        },
+        {
+          "benchmark": 0.14013138839088102,
+          "date": "2026-08-20",
+          "excess": -0.14688777134777953,
+          "strategy": -0.00675638295689851
+        },
+        {
+          "benchmark": 0.1304020312392351,
+          "date": "2026-08-21",
+          "excess": -0.13952623274637233,
+          "strategy": -0.00912420150713722
+        },
+        {
+          "benchmark": 0.132690107042714,
+          "date": "2026-08-24",
+          "excess": -0.1532520534086217,
+          "strategy": -0.02056194636590769
+        },
+        {
+          "benchmark": 0.1257239760568487,
+          "date": "2026-08-25",
+          "excess": -0.13449130217871608,
+          "strategy": -0.00876732612186737
+        },
+        {
+          "benchmark": 0.12277011014933592,
+          "date": "2026-08-26",
+          "excess": -0.12939541286935508,
+          "strategy": -0.006625302720019155
+        },
+        {
+          "benchmark": 0.11722863976745801,
+          "date": "2026-08-27",
+          "excess": -0.12967152600311904,
+          "strategy": -0.012442886235661033
+        },
+        {
+          "benchmark": 0.1137284212780556,
+          "date": "2026-08-28",
+          "excess": -0.13045511861779124,
+          "strategy": -0.01672669733973564
+        },
+        {
+          "benchmark": 0.11550539119820824,
+          "date": "2026-08-31",
+          "excess": -0.14280745112571747,
+          "strategy": -0.027302059927509226
+        },
+        {
+          "benchmark": 0.11837048047037779,
+          "date": "2026-09-01",
+          "excess": -0.14165337321075278,
+          "strategy": -0.023282892740374983
+        },
+        {
+          "benchmark": 0.12085610996159635,
+          "date": "2026-09-02",
+          "excess": -0.13875900059760193,
+          "strategy": -0.017902890636005586
+        },
+        {
+          "benchmark": 0.1266432031496172,
+          "date": "2026-09-03",
+          "excess": -0.1528304314577721,
+          "strategy": -0.026187228308154897
+        },
+        {
+          "benchmark": 0.12034459553134291,
+          "date": "2026-09-04",
+          "excess": -0.12819534553583078,
+          "strategy": -0.007850750004487872
+        },
+        {
+          "benchmark": 0.11817369569609792,
+          "date": "2026-09-07",
+          "excess": -0.12541771916901656,
+          "strategy": -0.007244023472918637
+        },
+        {
+          "benchmark": 0.12294803347506078,
+          "date": "2026-09-08",
+          "excess": -0.14017366485140825,
+          "strategy": -0.017225631376347472
+        },
+        {
+          "benchmark": 0.1191460378107474,
+          "date": "2026-09-09",
+          "excess": -0.13338685208370193,
+          "strategy": -0.014240814272954538
+        },
+        {
+          "benchmark": 0.11820827758554087,
+          "date": "2026-09-10",
+          "excess": -0.12401555383564833,
+          "strategy": -0.005807276250107463
+        },
+        {
+          "benchmark": 0.11902234888649099,
+          "date": "2026-09-11",
+          "excess": -0.12941270256518267,
+          "strategy": -0.010390353678691677
+        },
+        {
+          "benchmark": 0.11984358538276418,
+          "date": "2026-09-14",
+          "excess": -0.13261374534846848,
+          "strategy": -0.012770159965704297
+        },
+        {
+          "benchmark": 0.1181588244188736,
+          "date": "2026-09-15",
+          "excess": -0.12640888210308254,
+          "strategy": -0.008250057684208945
+        },
+        {
+          "benchmark": 0.11890719366292779,
+          "date": "2026-09-16",
+          "excess": -0.12517742028043521,
+          "strategy": -0.006270226617507424
+        },
+        {
+          "benchmark": 0.12744982951515738,
+          "date": "2026-09-17",
+          "excess": -0.11790522144081339,
+          "strategy": 0.009544608074343985
+        },
+        {
+          "benchmark": 0.12664886412794618,
+          "date": "2026-09-18",
+          "excess": -0.09921546257473945,
+          "strategy": 0.027433401553206727
+        },
+        {
+          "benchmark": 0.13144128745462935,
+          "date": "2026-09-21",
+          "excess": -0.11283807475114749,
+          "strategy": 0.018603212703481864
+        },
+        {
+          "benchmark": 0.13045830658525692,
+          "date": "2026-09-22",
+          "excess": -0.09561638280000806,
+          "strategy": 0.03484192378524886
+        },
+        {
+          "benchmark": 0.13530585885323676,
+          "date": "2026-09-23",
+          "excess": -0.09639384279551266,
+          "strategy": 0.0389120160577241
+        },
+        {
+          "benchmark": 0.13189719399962452,
+          "date": "2026-09-24",
+          "excess": -0.08982482024913607,
+          "strategy": 0.042072373750488445
+        },
+        {
+          "benchmark": 0.13273244724292543,
+          "date": "2026-09-25",
+          "excess": -0.08857675256280584,
+          "strategy": 0.044155694680119595
+        },
+        {
+          "benchmark": 0.13168242385319662,
+          "date": "2026-09-28",
+          "excess": -0.08687486617814844,
+          "strategy": 0.04480755767504818
+        },
+        {
+          "benchmark": 0.12789066420638395,
+          "date": "2026-09-29",
+          "excess": -0.0842591792471521,
+          "strategy": 0.04363148495923186
+        },
+        {
+          "benchmark": 0.1424045149841746,
+          "date": "2026-09-30",
+          "excess": -0.09534623352197169,
+          "strategy": 0.04705828146220292
+        },
+        {
+          "benchmark": 0.15240176063288913,
+          "date": "2026-10-01",
+          "excess": -0.09850534970869784,
+          "strategy": 0.053896410924191285
+        },
+        {
+          "benchmark": 0.16005172787748534,
+          "date": "2026-10-02",
+          "excess": -0.1053486459718651,
+          "strategy": 0.05470308190562023
+        },
+        {
+          "benchmark": 0.1588813773922262,
+          "date": "2026-10-05",
+          "excess": -0.07592798238223053,
+          "strategy": 0.08295339500999566
+        },
+        {
+          "benchmark": 0.15615853911666555,
+          "date": "2026-10-06",
+          "excess": -0.07357616840941517,
+          "strategy": 0.08258237070725039
+        },
+        {
+          "benchmark": 0.16063863540231615,
+          "date": "2026-10-07",
+          "excess": -0.08100337750406195,
+          "strategy": 0.07963525789825421
+        },
+        {
+          "benchmark": 0.16441133984062173,
+          "date": "2026-10-08",
+          "excess": -0.08410068955061667,
+          "strategy": 0.08031065029000506
+        },
+        {
+          "benchmark": 0.16241261934421636,
+          "date": "2026-10-09",
+          "excess": -0.07565418166299209,
+          "strategy": 0.08675843768122427
+        },
+        {
+          "benchmark": 0.15611428577622966,
+          "date": "2026-10-12",
+          "excess": -0.0730392556941144,
+          "strategy": 0.08307503008211525
+        },
+        {
+          "benchmark": 0.15140395861339062,
+          "date": "2026-10-13",
+          "excess": -0.08448663926372757,
+          "strategy": 0.06691731934966305
+        },
+        {
+          "benchmark": 0.15009497744936762,
+          "date": "2026-10-14",
+          "excess": -0.07724178588180086,
+          "strategy": 0.07285319156756676
+        },
+        {
+          "benchmark": 0.15453135267317308,
+          "date": "2026-10-15",
+          "excess": -0.07996063484538185,
+          "strategy": 0.07457071782779123
+        },
+        {
+          "benchmark": 0.14650060947082322,
+          "date": "2026-10-16",
+          "excess": -0.058459582313067804,
+          "strategy": 0.08804102715775541
+        },
+        {
+          "benchmark": 0.15098085871831857,
+          "date": "2026-10-19",
+          "excess": -0.07088417175547823,
+          "strategy": 0.08009668696284034
+        },
+        {
+          "benchmark": 0.1488483521358619,
+          "date": "2026-10-20",
+          "excess": -0.06755660721372947,
+          "strategy": 0.08129174492213243
+        },
+        {
+          "benchmark": 0.15171511286908146,
+          "date": "2026-10-21",
+          "excess": -0.07936072545772221,
+          "strategy": 0.07235438741135924
+        },
+        {
+          "benchmark": 0.1486491225915738,
+          "date": "2026-10-22",
+          "excess": -0.07175852283266959,
+          "strategy": 0.07689059975890422
+        },
+        {
+          "benchmark": 0.15004533147771948,
+          "date": "2026-10-23",
+          "excess": -0.07097390312131546,
+          "strategy": 0.07907142835640402
+        },
+        {
+          "benchmark": 0.14679457651090289,
+          "date": "2026-10-26",
+          "excess": -0.05060106104505979,
+          "strategy": 0.0961935154658431
+        },
+        {
+          "benchmark": 0.14628088909192405,
+          "date": "2026-10-27",
+          "excess": -0.04792137353239734,
+          "strategy": 0.09835951555952671
+        },
+        {
+          "benchmark": 0.1469885481778821,
+          "date": "2026-10-28",
+          "excess": -0.042921249480794454,
+          "strategy": 0.10406729869708764
+        },
+        {
+          "benchmark": 0.15157086767985395,
+          "date": "2026-10-29",
+          "excess": -0.04387916943517145,
+          "strategy": 0.1076916982446825
+        },
+        {
+          "benchmark": 0.14916481112779345,
+          "date": "2026-10-30",
+          "excess": -0.036965369251273694,
+          "strategy": 0.11219944187651976
+        },
+        {
+          "benchmark": 0.1500362295166171,
+          "date": "2026-11-02",
+          "excess": -0.05378635179659197,
+          "strategy": 0.09624987772002513
+        },
+        {
+          "benchmark": 0.15688661242374913,
+          "date": "2026-11-03",
+          "excess": -0.04922286671910747,
+          "strategy": 0.10766374570464166
+        },
+        {
+          "benchmark": 0.1591672813490479,
+          "date": "2026-11-04",
+          "excess": -0.041070464466670176,
+          "strategy": 0.11809681688237772
+        },
+        {
+          "benchmark": 0.15885898949828836,
+          "date": "2026-11-05",
+          "excess": -0.044698500344031,
+          "strategy": 0.11416048915425736
+        },
+        {
+          "benchmark": 0.15356356717583797,
+          "date": "2026-11-06",
+          "excess": -0.03590919477898846,
+          "strategy": 0.1176543723968495
+        },
+        {
+          "benchmark": 0.15006543934628747,
+          "date": "2026-11-09",
+          "excess": -0.013398656164130385,
+          "strategy": 0.13666678318215708
+        },
+        {
+          "benchmark": 0.14408110157623,
+          "date": "2026-11-10",
+          "excess": 0.003897264308257986,
+          "strategy": 0.14797836588448798
+        },
+        {
+          "benchmark": 0.15343629772695455,
+          "date": "2026-11-11",
+          "excess": -0.013445828599778054,
+          "strategy": 0.1399904691271765
+        },
+        {
+          "benchmark": 0.15752591398955418,
+          "date": "2026-11-12",
+          "excess": -0.011465049889554324,
+          "strategy": 0.14606086409999985
+        },
+        {
+          "benchmark": 0.15790374935924634,
+          "date": "2026-11-13",
+          "excess": -0.010171359201303964,
+          "strategy": 0.14773239015794237
+        },
+        {
+          "benchmark": 0.16367065950591475,
+          "date": "2026-11-16",
+          "excess": -0.01990305534823733,
+          "strategy": 0.14376760415767742
+        },
+        {
+          "benchmark": 0.16197588535484853,
+          "date": "2026-11-17",
+          "excess": 0.0019845326876186675,
+          "strategy": 0.1639604180424672
+        },
+        {
+          "benchmark": 0.15872613136780966,
+          "date": "2026-11-18",
+          "excess": 0.00019056604282474687,
+          "strategy": 0.1589166974106344
+        },
+        {
+          "benchmark": 0.154860090085291,
+          "date": "2026-11-19",
+          "excess": 0.007030929956651333,
+          "strategy": 0.16189102004194234
+        },
+        {
+          "benchmark": 0.1494644808528185,
+          "date": "2026-11-20",
+          "excess": 0.016785608607521985,
+          "strategy": 0.16625008946034048
+        },
+        {
+          "benchmark": 0.15409186817156018,
+          "date": "2026-11-23",
+          "excess": 0.015338423524445144,
+          "strategy": 0.16943029169600532
+        },
+        {
+          "benchmark": 0.14805131601260535,
+          "date": "2026-11-24",
+          "excess": 0.026087182045571256,
+          "strategy": 0.1741384980581766
+        },
+        {
+          "benchmark": 0.1484580596389935,
+          "date": "2026-11-25",
+          "excess": 0.01443859005747683,
+          "strategy": 0.16289664969647033
+        },
+        {
+          "benchmark": 0.1516324588482103,
+          "date": "2026-11-26",
+          "excess": 0.026955156379907086,
+          "strategy": 0.1785876152281174
+        },
+        {
+          "benchmark": 0.1525197674708998,
+          "date": "2026-11-27",
+          "excess": 0.03133318190246781,
+          "strategy": 0.1838529493733676
+        },
+        {
+          "benchmark": 0.14491279146043357,
+          "date": "2026-11-30",
+          "excess": 0.05428141193594449,
+          "strategy": 0.19919420339637806
+        },
+        {
+          "benchmark": 0.1417424064258863,
+          "date": "2026-12-01",
+          "excess": 0.05176851734904453,
+          "strategy": 0.19351092377493084
+        },
+        {
+          "benchmark": 0.1497175957240955,
+          "date": "2026-12-02",
+          "excess": 0.04095099734595231,
+          "strategy": 0.1906685930700478
+        },
+        {
+          "benchmark": 0.15770384127122283,
+          "date": "2026-12-03",
+          "excess": 0.02475456893990735,
+          "strategy": 0.18245841021113018
+        },
+        {
+          "benchmark": 0.1458430194548559,
+          "date": "2026-12-04",
+          "excess": 0.03516219682133204,
+          "strategy": 0.18100521627618793
+        },
+        {
+          "benchmark": 0.14678645730615014,
+          "date": "2026-12-07",
+          "excess": 0.023081129020126934,
+          "strategy": 0.16986758632627708
+        },
+        {
+          "benchmark": 0.14825843031059294,
+          "date": "2026-12-08",
+          "excess": 0.015018543599549794,
+          "strategy": 0.16327697391014273
+        },
+        {
+          "benchmark": 0.14783456315640486,
+          "date": "2026-12-09",
+          "excess": 0.0193620981849576,
+          "strategy": 0.16719666134136246
+        },
+        {
+          "benchmark": 0.14996023689754678,
+          "date": "2026-12-10",
+          "excess": 0.012589947892170272,
+          "strategy": 0.16255018478971706
+        },
+        {
+          "benchmark": 0.14568170402643354,
+          "date": "2026-12-11",
+          "excess": 0.010292926830639537,
+          "strategy": 0.15597463085707308
+        },
+        {
+          "benchmark": 0.14791146607333183,
+          "date": "2026-12-14",
+          "excess": 0.00032518142660875604,
+          "strategy": 0.1482366474999406
+        },
+        {
+          "benchmark": 0.1485033513417522,
+          "date": "2026-12-15",
+          "excess": 0.006066996847129413,
+          "strategy": 0.1545703481888816
+        },
+        {
+          "benchmark": 0.15419488797392433,
+          "date": "2026-12-16",
+          "excess": 0.0029854390369938866,
+          "strategy": 0.15718032701091822
+        },
+        {
+          "benchmark": 0.15287249425987826,
+          "date": "2026-12-17",
+          "excess": 0.0190559430939643,
+          "strategy": 0.17192843735384256
+        },
+        {
+          "benchmark": 0.15182428388937885,
+          "date": "2026-12-18",
+          "excess": 0.010637733266688043,
+          "strategy": 0.1624620171560669
+        },
+        {
+          "benchmark": 0.16076682681414267,
+          "date": "2026-12-21",
+          "excess": -0.008660649594550707,
+          "strategy": 0.15210617721959196
+        },
+        {
+          "benchmark": 0.16389387121161958,
+          "date": "2026-12-22",
+          "excess": -0.003937816229704572,
+          "strategy": 0.159956054981915
+        },
+        {
+          "benchmark": 0.1661996348609145,
+          "date": "2026-12-23",
+          "excess": -0.009908495166984999,
+          "strategy": 0.1562911396939295
+        },
+        {
+          "benchmark": 0.1720724884339897,
+          "date": "2026-12-24",
+          "excess": -0.009580317613113065,
+          "strategy": 0.16249217082087664
+        },
+        {
+          "benchmark": 0.1739074031526786,
+          "date": "2026-12-25",
+          "excess": -0.01761493532778924,
+          "strategy": 0.15629246782488937
+        },
+        {
+          "benchmark": 0.17013708578513098,
+          "date": "2026-12-28",
+          "excess": -0.014999817114199843,
+          "strategy": 0.15513726867093114
+        },
+        {
+          "benchmark": 0.170547189460446,
+          "date": "2026-12-29",
+          "excess": -0.021100916019029636,
+          "strategy": 0.14944627344141637
+        },
+        {
+          "benchmark": 0.1741142293677853,
+          "date": "2026-12-30",
+          "excess": -0.010363629221863846,
+          "strategy": 0.16375060014592147
+        }
+      ],
+      "504": []
+    },
+    "start_date": "2025-02-03",
+    "statistical": {
+      "adjusted_p_value": 0.844379668930116,
+      "bootstrap_mean_excess_95": {
+        "lower": -0.0007198072003323627,
+        "upper": 0.00021711116344706266
+      },
+      "one_sided_p_value": 0.844379668930116,
+      "research_trials": 1
+    },
+    "status": "invalid",
+    "thresholds": {
+      "max_adjusted_p_value": 0.05,
+      "max_drawdown": -0.35,
+      "min_annual_excess": 0.0,
+      "min_periods": 504,
+      "min_positive_year_ratio": 0.6,
+      "min_rolling_win_ratio": 0.55,
+      "min_sharpe": 0.5,
+      "stress_cost_bps": 50.0,
+      "validation_fraction": 0.3
+    },
+    "turnover": {
+      "average": 0.04120562244978144,
+      "maximum": 0.9999999999999998
+    },
+    "validation": {
+      "development": {
+        "benchmark": {
+          "annual_return": 0.12259723039125858,
+          "annual_vol": 0.04702814632243013,
+          "max_drawdown": -0.01659359872303179,
+          "n_periods": 347,
+          "sharpe": 2.4830628335451497,
+          "total_return": 0.17262082997032446
+        },
+        "excess": {
+          "annual_return": -0.056174444558899306,
+          "annual_vol": 0.10718072207786294,
+          "max_drawdown": -0.15049808126869335,
+          "n_periods": 347,
+          "sharpe": -0.48586350450150156,
+          "total_return": -0.07652250983379638
+        },
+        "periods": 347,
+        "strategy": {
+          "annual_return": 0.061944665726821446,
+          "annual_vol": 0.09594543772813671,
+          "max_drawdown": -0.12911394173093294,
+          "n_periods": 347,
+          "sharpe": 0.6743274360092262,
+          "total_return": 0.0862802538716887
+        }
+      },
+      "split_date": "2026-06-04",
+      "validation": {
+        "benchmark": {
+          "annual_return": 0.17674505713915445,
+          "annual_vol": 0.044424017629535274,
+          "max_drawdown": -0.015045993868835983,
+          "n_periods": 150,
+          "sharpe": 3.686843627147794,
+          "total_return": 0.10172409297669027
+        },
+        "excess": {
+          "annual_return": -0.08083309610253575,
+          "annual_vol": 0.10323768197822739,
+          "max_drawdown": -0.1027238602280085,
+          "n_periods": 150,
+          "sharpe": -0.7650897423306334,
+          "total_return": -0.04893337944613285
+        },
+        "periods": 150,
+        "strategy": {
+          "annual_return": 0.084293984846874,
+          "annual_vol": 0.08814944173941643,
+          "max_drawdown": -0.06808286218726034,
+          "n_periods": 150,
+          "sharpe": 0.9619835714546737,
+          "total_return": 0.049351196893462346
+        }
+      }
+    }
+  },
+  "summary": {
+    "attempted_trade_count": 376,
+    "batch_id": null,
+    "capacity_rejection_count": 0,
+    "cash_rejection_count": 22,
+    "counts": {
+      "events": 499,
+      "executions": 22,
+      "return_rows": 499,
+      "weight_rows": 4790
+    },
+    "error_code": null,
+    "error_summary": null,
+    "execution_data_fill_count": 752,
+    "execution_fidelity": {
+      "attempted_period_count": 22,
+      "maximum_target_weight_deviation": 0.0008096356639513413,
+      "mean": 0.9995502024089159,
+      "minimum": 0.9995502024089158
+    },
+    "execution_invalid_reasons": [],
+    "execution_reliable": true,
+    "limit_down_rejection_count": 0,
+    "limit_up_rejection_count": 0,
+    "market_state_rejection_count": 0,
+    "metrics": {
+      "annual_return": 0.06987590185630843,
+      "annual_vol": 0.09340392304414424,
+      "max_drawdown": -0.12911394173093294,
+      "n_periods": 499,
+      "sharpe": 0.7698215371633523,
+      "total_return": 0.14310151130797033
+    },
+    "period": {
+      "end_date": "2026-12-31",
+      "start_date": "2025-02-03"
+    },
+    "research_assessment": {
+      "evidence": {
+        "low_fidelity_period_count": 0,
+        "mean_execution_fidelity": 0.9995502024089159,
+        "persistent_exit_failure_symbols": [],
+        "persistent_tracking_error_periods": 0,
+        "successful_trade_count": 376
+      },
+      "passed": true,
+      "reasons": [],
+      "thresholds": {
+        "consecutive_deviation_periods": 2,
+        "consecutive_exit_failures": 2,
+        "maximum_target_weight_deviation": 0.05,
+        "minimum_execution_fidelity": 0.8,
+        "minimum_successful_trades": 1,
+        "require_successful_exits": false,
+        "require_target_tracking": false
+      },
+      "warnings": []
+    },
+    "research_invalid_reasons": [],
+    "research_valid": true,
+    "status": "succeeded",
+    "successful_trade_count": 376,
+    "suspension_rejection_count": 0,
+    "synthetic_state_count": 752,
+    "warnings": [
+      "CUSTOM_EXECUTION_DATA_FILL: project Python filled 752 missing execution-state values"
+    ],
+    "warnings_truncated": false
+  },
+  "validate": {
+    "dataset": "rq.bars",
+    "files": 5,
+    "issues": [
+      {
+        "code": "bar_key_gap",
+        "message": "30 required symbol/session bars are missing",
+        "severity": "error"
+      }
+    ],
+    "metrics": {
+      "as_of_date": "2025-05-07",
+      "calendar_basis": "local_observed_sessions",
+      "distinct_dates": 90,
+      "duplicate_rows": 0,
+      "end_date": "2025-05-07",
+      "invalid_activity": 0,
+      "invalid_dates": 0,
+      "invalid_ohlc": 0,
+      "invalid_prices": 0,
+      "missing_key_sample": [
+        [
+          "2025-01-30",
+          "600000.SH"
+        ],
+        [
+          "2025-01-31",
+          "600000.SH"
+        ],
+        [
+          "2025-02-03",
+          "600000.SH"
+        ],
+        [
+          "2025-02-04",
+          "600000.SH"
+        ],
+        [
+          "2025-02-05",
+          "600000.SH"
+        ],
+        [
+          "2025-02-06",
+          "600000.SH"
+        ],
+        [
+          "2025-02-07",
+          "600000.SH"
+        ],
+        [
+          "2025-02-10",
+          "600000.SH"
+        ],
+        [
+          "2025-02-11",
+          "600000.SH"
+        ],
+        [
+          "2025-02-12",
+          "600000.SH"
+        ]
+      ],
+      "missing_keys": 30,
+      "required_keys": 720,
+      "stale_days": 0,
+      "start_date": "2025-01-02",
+      "symbol_count": 8
+    },
+    "rows": 690,
+    "status": "failed"
+  },
+  "validate_duplicates": {
+    "dataset": "rq.bars",
+    "files": 1,
+    "issues": [
+      {
+        "code": "duplicate_keys",
+        "message": "Dataset contains 5 duplicate keys",
+        "severity": "error"
+      }
+    ],
+    "metrics": {
+      "calendar_basis": "local_observed_sessions",
+      "distinct_dates": 90,
+      "duplicate_rows": 5,
+      "end_date": "2025-05-07",
+      "invalid_activity": 0,
+      "invalid_dates": 0,
+      "invalid_ohlc": 0,
+      "invalid_prices": 0,
+      "missing_key_sample": [],
+      "missing_keys": 0,
+      "required_keys": 720,
+      "start_date": "2025-01-02",
+      "symbol_count": 8
+    },
+    "rows": 725,
+    "status": "failed"
+  },
+  "validate_stale": {
+    "dataset": "rq.bars",
+    "files": 4,
+    "issues": [
+      {
+        "code": "stale_end_date",
+        "message": "Dataset ends at 2025-04-16, before required 2025-05-07",
+        "severity": "error"
+      }
+    ],
+    "metrics": {
+      "as_of_date": "2025-05-07",
+      "calendar_basis": "local_observed_sessions",
+      "distinct_dates": 75,
+      "duplicate_rows": 0,
+      "end_date": "2025-04-16",
+      "invalid_activity": 0,
+      "invalid_dates": 0,
+      "invalid_ohlc": 0,
+      "invalid_prices": 0,
+      "missing_key_sample": [],
+      "missing_keys": 0,
+      "required_keys": 600,
+      "stale_days": 21,
+      "start_date": "2025-01-02",
+      "symbol_count": 8
+    },
+    "rows": 600,
+    "status": "failed"
+  }
+}

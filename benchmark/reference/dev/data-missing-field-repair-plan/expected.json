@@ -1,0 +1,64 @@
+{
+  "task_id": "data-missing-field-repair-plan",
+  "independence": "ground_truth_from_generator",
+  "derivation": "The generator dropped every turnover row from rq.daily_factors when building missing-field-small and recorded the resulting coverage in benchmark/data/missing-field-small/fixture.json. The expectation restates the plant.",
+  "fixture": "missing-field-small",
+  "as_of_date": "2025-05-07",
+  "ground_truth": {
+    "affected_dataset": "rq.daily_factors",
+    "absent_field": "turnover",
+    "present_fields": [
+      "market_cap"
+    ],
+    "dropped_rows": 720,
+    "field_key_coverage": {
+      "market_cap": 1.0,
+      "turnover": 0.0
+    },
+    "screen_runnable_now": false,
+    "minimal_repair_scope": {
+      "dataset": "rq.daily_factors",
+      "fields": [
+        "turnover"
+      ],
+      "symbols": [
+        "000001.SZ",
+        "000002.SZ",
+        "000063.SZ",
+        "600000.SH",
+        "600036.SH",
+        "600519.SH",
+        "601318.SH",
+        "300750.SZ"
+      ],
+      "start": "2025-01-02",
+      "end": "2025-05-07"
+    }
+  },
+  "common_failure_modes": [
+    "Trusting the passing data.validate result as evidence the data is complete.",
+    "Proposing a full re-sync of every daily factor field instead of turnover alone.",
+    "Executing recipe.sync despite the user asking for a plan only.",
+    "Describing the screen as runnable, or the gap as repaired, when nothing was synchronized.",
+    "Reporting turnover coverage as 0.0; the field does not appear in the report at all."
+  ],
+  "reachability": {
+    "note": "data.validate cannot answer this question. Its registry input model (DatasetInput) has no required_fields, and field_key_coverage only reports fields that are present, so turnover is simply absent from the report rather than shown at zero coverage. The evidence must come from a bounded data.query over rq.daily_factors.",
+    "validate_status_on_this_fixture": "passed",
+    "field_key_coverage_on_this_fixture": {
+      "market_cap": 1.0
+    }
+  },
+  "expected_findings": {
+    "screen_runnable": false,
+    "absent_fields": [
+      "turnover"
+    ],
+    "present_fields": [
+      "market_cap"
+    ],
+    "repair_fields": [
+      "turnover"
+    ]
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "task_id": "data-duplicate-keys-audit",
+  "independence": "ground_truth_from_generator",
+  "derivation": "The generator appended five existing 600000.SH rows straight to the rq.bars partition file, bypassing RuntimeStore.write's key de-duplication, and recorded them in benchmark/data/duplicate-keys-small/fixture.json.",
+  "fixture": "duplicate-keys-small",
+  "as_of_date": "2025-05-07",
+  "ground_truth": {
+    "affected_dataset": "rq.bars",
+    "affected_symbol": "600000.SH",
+    "duplicated_dates": [
+      "2025-01-30",
+      "2025-01-31",
+      "2025-02-03",
+      "2025-02-04",
+      "2025-02-05"
+    ],
+    "duplicate_rows": 5,
+    "total_rows": 725,
+    "unique_keys": 720,
+    "cause": "a completed write replayed into the same partition",
+    "is_genuine_market_data": false
+  },
+  "expected_artifacts": {
+    "bars_quality": {
+      "data_status": "failed",
+      "issues": [
+        {
+          "code": "duplicate_keys"
+        }
+      ],
+      "note": "Reachable through data.validate with no extra flags; duplicate keys are detected unconditionally."
+    }
+  },
+  "unaffected_datasets": {
+    "rq.daily_factors": "passed",
+    "canonical.fundamentals": "passed"
+  },
+  "common_failure_modes": [
+    "Reading the extra rows as real sessions, a corporate action, or an intraday split.",
+    "Calling the duplicates harmless because downstream queries de-duplicate on read.",
+    "Running a sync to 'refresh' the dataset without authorization.",
+    "Missing the re-execution implication: a resumed or retried sync that replays a finished batch double-counts these sessions."
+  ]
+}

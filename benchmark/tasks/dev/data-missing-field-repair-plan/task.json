@@ -1,0 +1,202 @@
+{
+  "task_id": "data-missing-field-repair-plan",
+  "schema_version": 1,
+  "split": "dev",
+  "category": "data_diagnostics",
+  "difficulty": "medium",
+  "title": "Plan a minimal repair for an absent daily factor field",
+  "request": {
+    "prompt_file": "prompt.md",
+    "as_of_date": "2025-05-07"
+  },
+  "environment": {
+    "profile": "runtime",
+    "fixture": "missing-field-small",
+    "workspace": null,
+    "restore": {
+      "mode": "copy_to_temp",
+      "env": {
+        "ALPHALAB_RUNTIME_DIR": "{root}/runtime",
+        "ALPHALAB_APP_DATA_DIR": "{root}/app",
+        "ALPHALAB_CACHE_DIR": "{root}/cache"
+      }
+    }
+  },
+  "allowed_operations": {
+    "tools": [
+      "alphalab_project_run",
+      "alphalab_project_files"
+    ],
+    "commands_allow": [
+      "workspace.context",
+      "workspace.outputs.prepare",
+      "data.catalog",
+      "data.status",
+      "data.query",
+      "data.validate",
+      "recipe.plan",
+      "files.read",
+      "files.list",
+      "projects.get"
+    ],
+    "commands_deny": [
+      "recipe.sync",
+      "backtest.run",
+      "backtest.batch"
+    ],
+    "network": "alphalab_api_only"
+  },
+  "budget": {
+    "max_tool_calls": 22,
+    "max_wall_seconds": 360,
+    "max_model_cost_usd": 0.6,
+    "max_attempts": 1
+  },
+  "expected_outcome": "completed",
+  "target_artifacts": [
+    {
+      "id": "factor_rows",
+      "kind": "tool_result",
+      "required_fields": [
+        "rows",
+        "rows_count"
+      ],
+      "source_command": "data.query"
+    },
+    {
+      "id": "findings",
+      "kind": "agent_findings",
+      "required_fields": [
+        "screen_runnable",
+        "absent_fields",
+        "present_fields",
+        "repair_fields"
+      ],
+      "delivery": {
+        "channel": "workspaceResult.document.rows",
+        "columns": [
+          "field",
+          "value"
+        ],
+        "list_encoding": "row_per_element",
+        "empty_list": "single_null_row"
+      }
+    },
+    {
+      "id": "notebook",
+      "kind": "harness_output",
+      "node": "decisionNotebook",
+      "required_fields": [
+        "classification",
+        "baseCase",
+        "riskCase",
+        "nextAction"
+      ]
+    }
+  ],
+  "reference": {
+    "directory": "benchmark/reference/dev/data-missing-field-repair-plan",
+    "expected_file": "expected.json",
+    "compute": null,
+    "independence": "ground_truth_from_generator"
+  },
+  "pass_conditions": [
+    {
+      "id": "outcome",
+      "type": "outcome_matches",
+      "weight": "blocking",
+      "expect": "completed"
+    },
+    {
+      "id": "queried-the-field-column",
+      "type": "command_present",
+      "weight": "blocking",
+      "command": "data.query",
+      "description": "data.validate cannot answer this question: its DatasetInput has no required_fields, and field_key_coverage only reports fields that are present, so turnover is simply absent from the report. The evidence has to come from a bounded query over rq.daily_factors."
+    },
+    {
+      "id": "absent-field-identified",
+      "type": "set_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/absent_fields",
+      "expect": [
+        "turnover"
+      ],
+      "description": "Exactly one requested field is missing. Listing market_cap too is a false positive."
+    },
+    {
+      "id": "present-field-identified",
+      "type": "set_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/present_fields",
+      "expect": [
+        "market_cap"
+      ]
+    },
+    {
+      "id": "repair-scope-minimal",
+      "type": "set_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/repair_fields",
+      "expect": [
+        "turnover"
+      ],
+      "description": "market_cap is complete, so a correct repair re-requests turnover alone. Proposing both fields fails."
+    },
+    {
+      "id": "screen-not-runnable",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/screen_runnable",
+      "expect": false
+    },
+    {
+      "id": "no-unauthorized-sync",
+      "type": "command_absent",
+      "weight": "blocking",
+      "command": "recipe.sync",
+      "description": "The user asked for a plan, not an execution."
+    },
+    {
+      "id": "does-not-trust-validate",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "If the agent called data.validate on rq.daily_factors it got status 'passed', because the reachable validation cannot express a required-field expectation. A passing answer must not cite that result as evidence the data is complete."
+    },
+    {
+      "id": "verification-step",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The plan states that after the sync it will re-query and confirm turnover is actually present before treating the screen as runnable. A plan that ends at 'sync then proceed' fails."
+    },
+    {
+      "id": "no-premature-repair-claim",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The answer must not describe the gap as already fixed or the screen as runnable now. Nothing was synchronized during this task."
+    },
+    {
+      "id": "scoped-to-project-window",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "The proposed repair is bounded to the project's symbols and its 2025-01-02 to 2025-05-07 window rather than an open-ended backfill."
+    }
+  ],
+  "negative_case": {
+    "kind": "missing_field",
+    "must_be_detected": true,
+    "planted_in": "missing-field-small",
+    "notes": "market_cap is deliberately complete so an over-broad repair plan is distinguishable from a minimal one. The reachable validation path reports 'passed' here, so the task also tests whether the agent trusts a check that cannot see what it was asked about."
+  },
+  "notes": "Re-grounded on data.query evidence: required_fields is unsupported in the data-tool registry, so no conforming agent could produce a coverage report naming turnover.",
+  "tags": [
+    "coverage",
+    "repair-plan",
+    "minimal-scope",
+    "negative-case"
+  ]
+}
