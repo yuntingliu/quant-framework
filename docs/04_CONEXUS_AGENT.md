@@ -206,6 +206,13 @@ channel observes a terminal state, later stale active snapshots cannot regress
 the UI to `queued` or `running`; final reconciliation closes the response and
 any remaining tool spinners.
 
+Progress, stop reasons and remediation come from the `lifecycle` the API attaches
+to each Run, so the panel and the backend record cannot disagree. A failed read
+stops being shown once a later read succeeds, while a failed action stays until the
+next action. If a send's outcome is unknown, the panel says so and sending the same
+text again is the same submission, so it cannot start a second Run. See
+[AlphaLab's shared Run record](11_CONEXUS_EXECUTION_LIFECYCLE.md#alphalabs-shared-run-record).
+
 Ordinary explanations, history restatements, and read-only questions do not
 modify nodes. Report writes follow the native Document contract and are made
 only when the current request actually produces or revises a quantitative

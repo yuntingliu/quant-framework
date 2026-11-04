@@ -122,7 +122,8 @@ Two consequences worth stating. The Agent must not treat a submitted job as a
 finished one — `maxAttempts: 1` means a second submission is duplicate
 execution, not a retry. And **cancelling a Run does not cancel backend work**:
 the abort signal reaches tool child processes, not a job already accepted by
-another service. Reclaiming it is the application's job.
+another service. Reclaiming it is the application's job; AlphaLab's answer is in
+[AlphaLab's shared Run record](#alphalabs-shared-run-record).
 
 ### Output submission and commit
 
@@ -262,6 +263,142 @@ AlphaLab the Host also gets a new port on each launch; the connection file is
 rewritten atomically and the Python API rereads it, so a restart is invisible to
 the browser apart from the cancelled Run.
 
+## AlphaLab's shared Run record
+
+The sections above describe the Host. The Host forgets things AlphaLab must still
+be able to explain: its event log is capped, its tool results are reduced, and it
+holds no record of the jobs a tool started or of whether a result reached the
+conversation. AlphaLab therefore keeps one server-side record per task in
+[`apps/api/services/agent_conversation_service.py`](../apps/api/services/agent_conversation_service.py).
+Network recovery lives in
+[`agent_run_service.py`](../apps/api/services/agent_run_service.py) and the shared
+vocabulary in [`agent_lifecycle.py`](../apps/api/services/agent_lifecycle.py).
+Benchmarks and any future multi-Agent work read this record rather than keeping
+their own. [`tests/api/test_agent_run_lifecycle.py`](../tests/api/test_agent_run_lifecycle.py)
+replays the faults below at the HTTP boundary, and
+[`tests/api/test_local_agent_integration.py`](../tests/api/test_local_agent_integration.py)
+checks submission identity, job correlation and restart against the real Host.
+
+### Task phases and stop reasons
+
+Each Run payload the API returns carries `lifecycle`, which is what the UI renders:
+
+```json
+{
+  "phase": "queued | running | awaiting_input | delivering | completed | blocked | failed | cancelled",
+  "stop": { "category": "...", "code": "...", "retry": "...", "remediation": "...", "resumable": false },
+  "delivery": "delivered | pending",
+  "jobs": [],
+  "activeJobs": 0
+}
+```
+
+`delivering` means the Run has ended and its outputs have not yet reached the
+conversation. `stop` is `null` for a Run that is active or completed. Every error
+code the pinned core can raise is mapped to a category on purpose, and a test scans
+the snapshot, so a Conexus upgrade that adds a code fails until it is placed.
+
+| Category | Means | `retry` |
+| --- | --- | --- |
+| `cancelled` | Cancelled before finishing | `new_run` |
+| `host_interrupted` | The Host stopped mid-Run; nothing was replayed | `new_run` |
+| `lost` | The Host no longer recognizes the Run | `check_first` |
+| `timeout` | Exceeded its time limit | `new_run` |
+| `provider` | The model provider failed or answered unusably | `new_run` |
+| `configuration` | The Agent cannot run as configured | `fix_setup` |
+| `input` | The request was not accepted as written | `change_request` |
+| `agent_blocked` | The Agent stopped and said why | `change_request` |
+| `internal` | Anything else | `check_first` |
+
+`resumable` is always `false`. No stopped task continues, for the reason given under
+[Host restart](#host-restart). A terminal state never changes once recorded, and a
+slow read cannot move a task backwards.
+
+### One message, at most one Run
+
+The browser generates a message ID once per send and reuses it when the same text is
+sent again after an undecided attempt. `conversationId:messageId` is the submission
+key, recorded in `agent_run_submissions` before anything is forwarded, and its digest
+goes to the Host as `Idempotency-Key`.
+
+The Host itself has no idempotency, so
+[`integrations/conexus/run-submissions.mjs`](../integrations/conexus/run-submissions.mjs)
+adds it from the launcher, without changing the vendored snapshot. It saves the Run
+and its access token to a `0600` file before the 202 leaves, so a restart between the
+two still replays the same Run. `GET /api/alphalab/submissions/:key` answers what
+became of a key.
+
+| What happened to `POST /api/conexus/runs` | Recorded as | A repeat of the same message |
+| --- | --- | --- |
+| Accepted | `accepted` | `200` with the same Run and `replayed: true` |
+| Another attempt is in flight | `submitting` | `409 submission_in_progress` |
+| Refused by the Host | row removed | Forwarded again |
+| Connection never established | row removed | Forwarded again |
+| Connection lost after sending | `unconfirmed` | Asks the Host; never resends while unknown |
+| Host says it never saw the key | `not_started` | Forwarded again |
+
+While a submission stays unconfirmed the API returns `409 submission_unconfirmed`. An
+`unconfirmed` submission is settled by the Host's answer, in a request or by the
+recovery worker. **Asking the Host is local mode only**, because a remote deployment
+does not have the launcher route. There it stays unconfirmed and is never resent, so
+the failure is a message the user must decide about, not a second billed Run.
+
+### The recovery worker
+
+`run_recovery_lifespan` runs for the life of the API process, so a task finishes
+being recorded with no browser open. Every two seconds it reads open Runs, resolves
+open submissions, and drains events by `Last-Event-ID` into the trace.
+
+A Run is marked `failed` with `run_record_lost` only after `LOST_RUN_READS` (3)
+consecutive answers of 401, 403, 404 or 410. An unreachable Host or a 503 is an
+outage, says nothing about the Run, and never ends it. Lost is not reported as
+cancelled, because nobody knows what the Run did.
+
+### Trace
+
+`GET /api/conexus/runs/{id}/trace` returns one account of a task: the message that
+started it, Host timing, model turns, tool calls and results, linked jobs, and
+output delivery. `seq` is the stable order AlphaLab recorded entries in, so a short
+Run's delivery can precede its drained events; `upstreamSequence` orders Host events.
+
+Tool calls keep the command name and call ID and never their arguments. Model turns
+keep a character count and never their content. Interactions keep only an ID. A
+failure message is kept only after `sanitize_text` removes credentials and internal
+paths. Traces are pruned after `ALPHALAB_AGENT_TRACE_RETENTION_DAYS` (default 30);
+open work and any task still owed its delivery or events are kept.
+
+`complete` is `false` when the account has a known hole: `events.gap` if the Host
+evicted events before they were read, `trace.truncated` past
+`MAX_TRACE_ENTRIES_PER_RUN`, `trace.incomplete` if the Host disappeared first. A
+trace can be incomplete; it does not claim otherwise.
+
+Three limits. **Token usage is unavailable:** the pinned Host discards the provider's
+usage, so `usage.available` is `false` and only model turns are counted. **Job
+correlation needs the local launcher**, which gives tools their Run ID. A remote Host
+does not, so its jobs are not linked to a Run. **Operation approvals are not traced:**
+the local Host's approval gate raises no Host event, so a Run shows `awaiting_input`
+while it waits, but the trace holds no entry for the question or the answer.
+
+### Cancelling work that outlives the Run
+
+`POST /api/conexus/runs/{id}/cancel` returns `{ run, jobs }`, and each job reports
+what actually happened to it:
+
+| Job | `outcome` |
+| --- | --- |
+| Queued and owned by this Run | `cancelled`; a worker that had already read it as queued cannot start it |
+| Running backtest | `still_running`; it cannot be interrupted safely, and its result is kept |
+| Running data sync | `cancelling`; it stops at its next batch |
+| Deduplicated onto another requester's job | `still_running`; not this Run's to stop |
+| Already finished | `already_finished` |
+
+### Output reconciliation
+
+When a terminal Run is delivered, the trace records `delivery.reconciled`: which
+outputs were expected, which were delivered, which a later Run superseded, and which
+were omitted by the size limit or missing from the workspace. With the linked jobs,
+that accounts for a task's completed side effects after a fault.
+
 ## Quick reference
 
 | Situation | Run status | Workspace | Replayed |
@@ -274,3 +411,5 @@ the browser apart from the cancelled Run.
 | Cancelled while queued | `cancelled` | untouched | no |
 | Browser disconnected | unchanged | unchanged | n/a |
 | Host restarted mid-Run | `cancelled` (`host_restarted`) | prior commits kept | no |
+| Host no longer knows the Run (AlphaLab) | `failed` (`run_record_lost`) | unknown | no |
+| Acknowledgement lost (AlphaLab) | whatever the Host recorded | unchanged | no |

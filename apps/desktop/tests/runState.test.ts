@@ -3,6 +3,7 @@ import { describe, it } from "node:test"
 
 import {
   changedWorkspaceNodesForRun,
+  errorClearedBy,
   isTerminalRun,
   mergeRunSnapshot,
   parseRunEventBlock,
@@ -26,6 +27,25 @@ describe("published Harness run state", () => {
   it("never lets a stale active snapshot replace a terminal state", () => {
     assert.equal(mergeRunSnapshot(run("completed"), run("running")).status, "completed")
     assert.equal(mergeRunSnapshot(run("running"), run("failed")).status, "failed")
+  })
+
+  it("does not let a stale snapshot bring back a question on a finished task", () => {
+    const finished = { ...run("completed"), summary: "Done" }
+    const stale = { ...run("running"), pendingInteraction: { id: "q", kind: "question" as const, question: "Continue?", ownerNodeId: "agent" } }
+    const merged = mergeRunSnapshot(finished, stale)
+    assert.equal(merged.pendingInteraction, undefined)
+    assert.equal(merged.summary, "Done")
+  })
+
+  it("clears a failed read once a later read succeeds, but keeps a failed action visible", () => {
+    assert.equal(errorClearedBy("poll", "run"), true)
+    assert.equal(errorClearedBy("stream", "run"), true)
+    assert.equal(errorClearedBy("connection", "history"), true)
+    assert.equal(errorClearedBy("history", "history"), true)
+    assert.equal(errorClearedBy("poll", "history"), false, "history says nothing about this Run")
+    assert.equal(errorClearedBy("action", "run"), false)
+    assert.equal(errorClearedBy("action", "history"), false)
+    assert.equal(errorClearedBy(null, "run"), false)
   })
 
   it("recognizes every terminal state", () => {

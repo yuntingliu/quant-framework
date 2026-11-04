@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -158,6 +159,122 @@ def test_local_agent_calls_python_tools_persists_report_and_recovers(tmp_path, m
         assert "{{ALPHALAB_WORKSPACE_COMMAND_SCHEMA}}" not in prompt
         assert "factor.research" in prompt
         assert "backtest.validation" in prompt
+    finally:
+        model.shutdown()
+        model.server_close()
+        thread.join(timeout=3)
+
+
+def test_real_host_honours_idempotency_correlates_jobs_and_survives_restart(tmp_path, monkeypatch):
+    """The Host side of the lifecycle contract that the fault-replay suite simulates."""
+    requests = []
+
+    class Model(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):
+            requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            step = len(requests)
+            name, args = ("use", {
+                "node_id": "alphalab-project-run", "capability": "tool.invoke",
+                "input": {"command": "backtest.run", "confirm_python_execution": True, "args": {
+                    "project_id": "sdk-v1-default", "start_date": "2025-01-02", "end_date": "2025-03-31",
+                }},
+            }) if step == 1 else ("complete", {"status": "done", "summary": "Lifecycle integration completed."})
+            body = json.dumps({"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [{
+                "id": f"step-{step}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)},
+            }]}, "finish_reason": "tool_calls"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    model = ThreadingHTTPServer(("127.0.0.1", 0), Model)
+    thread = threading.Thread(target=model.serve_forever, daemon=True)
+    thread.start()
+    for name in ("CONEXUS_MODEL_API_KEY", "CONEXUS_MODEL_ID", "CONEXUS_MODEL_BASE_URL"):
+        monkeypatch.setenv(name, "")
+    monkeypatch.setenv("ALPHALAB_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setenv("ALPHALAB_AGENT_MODE", "local")
+    monkeypatch.setattr("alphalab.local_agent.RUNTIME_DIR", tmp_path / "runtime")
+    api_port = free_port()
+    submission = {
+        "exposureId": "alphalab-research-agent", "input": {"request": "Run one backtest."},
+        "conversation": {"id": "lifecycle", "title": "Lifecycle", "createdAt": "2026-09-10T00:00:00Z",
+                         "messageId": "lifecycle-user", "message": "Run one backtest."},
+    }
+    key = hashlib.sha256(b"lifecycle:lifecycle-user").hexdigest()
+
+    def host_lookup():
+        return httpx.get(
+            f"{os.environ['CONEXUS_WEB_ORIGIN']}/api/alphalab/submissions/{key}", trust_env=False, timeout=5,
+            headers={"Authorization": f"Bearer {os.environ['CONEXUS_PUBLICATION_WORKSPACE_TOKEN']}"},
+        )
+
+    try:
+        for attempt in range(2):
+            with local_agent(ROOT, api_port=api_port):
+                with (tmp_path / "backend.log").open("a", encoding="utf-8") as log:
+                    backend = subprocess.Popen(
+                        [sys.executable, "-m", "uvicorn", "apps.api.main:app", "--host", "127.0.0.1", "--port", str(api_port)],
+                        cwd=ROOT, stdout=log, stderr=log,
+                    )
+                    try:
+                        with httpx.Client(base_url=f"http://127.0.0.1:{api_port}", trust_env=False, timeout=10) as client:
+                            wait_for(client, "/api/health")
+                            if attempt == 0:
+                                assert client.put("/api/model-providers", json={
+                                    "id": "integration", "name": "Integration model", "model": "test/local",
+                                    "base_url": f"http://127.0.0.1:{model.server_port}/v1", "api_key": "",
+                                }).status_code == 200
+                                created = client.post("/api/conexus/runs", json=submission)
+                                assert created.status_code < 300, created.text
+                                run_id = created.json()["run"]["id"]
+                                # Directly at the Host: a repeated key gets the original Run and token back.
+                                direct = {"Authorization": f"Bearer {os.environ['CONEXUS_PUBLICATION_WORKSPACE_TOKEN']}", "Idempotency-Key": key}
+                                url = f"{os.environ['CONEXUS_WEB_ORIGIN']}/api/public/harnesses/alphalab-research-agent/runs"
+                                again = httpx.post(url, headers=direct, json={"exposureId": submission["exposureId"], "input": submission["input"]}, trust_env=False, timeout=10)
+                                assert again.status_code == 202 and again.json()["run"]["id"] == run_id
+                                refused = httpx.post(url, headers={**direct, "Authorization": "Bearer wrong"}, json={}, trust_env=False, timeout=10)
+                                assert refused.status_code == 401 and "accessToken" not in refused.text
+                                # A backtest waits for the user: the lifecycle says so, and the answer goes through the API.
+                                waiting = wait_for(client, f"/api/conexus/runs/{run_id}",
+                                                   lambda r: r.json()["run"].get("pendingInteraction") is not None,
+                                                   timeout=90 if sys.platform == "win32" else 35).json()
+                                assert waiting["run"]["lifecycle"]["phase"] == "awaiting_input"
+                                assert waiting["run"]["lifecycle"]["jobs"] == [], "nothing runs before approval"
+                                interaction = waiting["run"]["pendingInteraction"]["id"]
+                                approved = client.post(f"/api/conexus/runs/{run_id}/interactions/{interaction}/answer", json={"answer": "Approve"})
+                                assert approved.status_code < 300, approved.text
+                            # Through the API, after completion and again after a restart of both processes.
+                            duplicate = client.post("/api/conexus/runs", json=submission)
+                            assert duplicate.status_code == 200, duplicate.text
+                            assert duplicate.json()["run"]["id"] == run_id and duplicate.json()["replayed"] is True
+                            known = host_lookup().json()
+                            assert known["known"] is True and known["run"]["id"] == run_id
+                            wait_for(client, f"/api/conexus/runs/{run_id}", lambda r: r.json()["run"]["status"] == "completed",
+                                     timeout=90 if sys.platform == "win32" else 35)
+                            trace = wait_for(client, f"/api/conexus/runs/{run_id}/trace", lambda r: r.json()["complete"] is True).json()
+                            assert trace["messageId"] == "lifecycle-user" and trace["phase"] == "completed"
+                            assert trace["tools"][0]["command"] == "backtest.run"
+                            assert [job["kind"] for job in trace["jobs"]] == ["backtest"], "the real tool must carry its Run id"
+                            assert {item["kind"] for item in trace["entries"]} >= {"submission.accepted", "run.started", "model.turn", "tool.result", "job.linked", "run.completed"}
+                            assert "run-secret" not in json.dumps(trace) and "accessToken" not in json.dumps(trace)
+                            assert "start_date" not in json.dumps(trace), "an approval's arguments stay out of the trace"
+                            session = client.get("/api/conexus/conversations").json()
+                            turns = next(item for item in session["conversations"] if item["id"] == "lifecycle")["messages"]
+                            assert len([item for item in turns if item["role"] == "user"]) == 1
+                            assert len([item for item in turns if item["role"] == "assistant"]) == 1
+                    finally:
+                        backend.terminate()
+                        backend.wait(timeout=15)
+        assert len(requests) == 2, "duplicates across a restart must not bill another model call"
+        # This file holds live Run credentials.
+        records = next(tmp_path.rglob("run-submissions.json"))
+        if sys.platform != "win32":
+            assert records.stat().st_mode & 0o077 == 0
     finally:
         model.shutdown()
         model.server_close()

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from alphalab.dataio import MissingDataError
+from apps.api.services.agent_run_service import AGENT_RUN_HEADER, link_job
 from apps.api.services.backtest_analytics_service import (
     analyze_attribution,
     analyze_backtest,
@@ -74,11 +75,17 @@ class BacktestBatchRequest(BaseModel):
 
 
 @router.post("/batches", status_code=202)
-def create_backtest_batch(request: BacktestBatchRequest) -> dict:
+def create_backtest_batch(
+    request: BacktestBatchRequest,
+    agent_run: str | None = Header(default=None, alias=AGENT_RUN_HEADER),
+) -> dict:
     if not request.confirm_python_execution:
         raise HTTPException(status_code=409, detail="backtests execute trusted local Python and require confirmation")
     try:
-        return submit_backtest_batch(request.model_dump(exclude={"confirm_python_execution"}))
+        batch = submit_backtest_batch(request.model_dump(exclude={"confirm_python_execution"}))
+        for job in batch["jobs"]:
+            link_job(agent_run, "backtest", job)
+        return batch
     except KeyError:
         raise HTTPException(status_code=404, detail="strategy not found") from None
     except ValueError as exc:
@@ -102,14 +109,19 @@ def compare(request: BacktestCompareRequest) -> dict:
 
 
 @router.post("/jobs", status_code=202)
-def create_backtest_job(request: BacktestRequest) -> dict:
+def create_backtest_job(
+    request: BacktestRequest,
+    agent_run: str | None = Header(default=None, alias=AGENT_RUN_HEADER),
+) -> dict:
     if request.confirm_python_execution is not True:
         raise HTTPException(
             status_code=409,
             detail="backtest executes trusted local Python and requires confirmation",
         )
     try:
-        return submit_backtest_job(request.model_dump(exclude={"confirm_python_execution"}))
+        job = submit_backtest_job(request.model_dump(exclude={"confirm_python_execution"}))
+        link_job(agent_run, "backtest", job)
+        return job
     except KeyError:
         raise HTTPException(status_code=404, detail="strategy not found") from None
     except ValueError as exc:

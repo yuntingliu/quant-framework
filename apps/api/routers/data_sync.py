@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from alphalab.dataio.errors import DataLoadError, MissingDataError
@@ -10,6 +10,7 @@ from alphalab.dataio.recipes import DataRecipeError
 from alphalab.dataio.rq_templates import DEFAULT_RQ_SYNC_TEMPLATE_ID
 from alphalab.dataio.sync import SyncRequest
 from apps.api.services import data_sync_service
+from apps.api.services.agent_run_service import AGENT_RUN_HEADER, link_job
 
 router = APIRouter(prefix="/api/data-sync", tags=["data-sync"])
 
@@ -197,12 +198,18 @@ def plan_recipe(project_id: str, request: RecipeExecutionRequest) -> dict:
 
 
 @router.post("/recipes/{project_id}/jobs", status_code=status.HTTP_202_ACCEPTED)
-def submit_recipe(project_id: str, request: RecipeExecutionRequest) -> dict:
+def submit_recipe(
+    project_id: str,
+    request: RecipeExecutionRequest,
+    agent_run: str | None = Header(default=None, alias=AGENT_RUN_HEADER),
+) -> dict:
     _confirmed(
         request.confirm_python_execution, "Executing Python data recipe requires confirmation"
     )
     try:
-        return data_sync_service.submit_recipe(project_id)
+        job = data_sync_service.submit_recipe(project_id)
+        link_job(agent_run, "sync", job)
+        return job
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="data recipe draft not found") from exc
     except DataLoadError as exc:

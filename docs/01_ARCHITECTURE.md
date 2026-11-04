@@ -416,7 +416,9 @@ and cannot create a second authoritative result.
 | `apps/api/routers/validation.py` | Validation source and no-code parameter API |
 | `apps/api/routers/backtests.py` | Confirmed background backtest jobs and frozen results |
 | `apps/api/routers/conexus.py` | Same-origin proxy for durable published-Harness runs and workspace Documents |
-| `apps/api/services/agent_conversation_service.py` | Server-side shared Agent conversation history and concurrent snapshot merging |
+| `apps/api/services/agent_conversation_service.py` | Server-side shared Agent conversation history, submissions, traces, job links and concurrent snapshot merging |
+| `apps/api/services/agent_run_service.py` | Agent Run recovery worker, Host reconciliation, output delivery and job cancellation |
+| `apps/api/services/agent_lifecycle.py` | Pure task phases, stop categories and trace sanitization |
 | `apps/api/routers/python_editor.py` | Fixed Pyrefly/Ruff WebSocket bridge and editor document endpoints |
 | `apps/api/routers/sdk_docs.py` | Read-only topic API backed by the canonical SDK guide |
 | `apps/api/services/python_editor_service.py` | Local server discovery, ignored source mirrors, framing, and SDK diagnostics |

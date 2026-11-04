@@ -1,6 +1,7 @@
 import { researchCompletion } from './research-completion.mjs'
 import { researchAuthorization, installResearchAuthorization } from './research-authorization.mjs'
 import { researchCanvas } from './research-canvas.mjs'
+import { installRunSubmissions } from './run-submissions.mjs'
 import { configuredCompletion, readActiveProvider } from './model-providers.mjs'
 import { configuredWebSearch } from './web-search.mjs'
 import { writeFile, rename } from 'node:fs/promises'
@@ -25,10 +26,17 @@ const workspace = await researchCanvas(resolve(sourceRoot, 'integrations/conexus
 const release = compileHarnessWorkspace({ workspace, harnessNodeId: 'alphalab-research-harness-v1' })
 const authorization = researchAuthorization(runtime.adapter, workspace.nodes.filter(node => node.type === 'tool').map(node => node.data))
 const token = process.env.CONEXUS_LOCAL_TOKEN
-const host = await createLocalHost({ projectRoot, release, slug, token, model, runtimeAdapter: authorization.adapter,
+// Tools see only their own context. Passing the Run id lets the API tie background jobs to it.
+const runtimeAdapter = { ...authorization.adapter,
+  executeTool: params => authorization.adapter.executeTool({ ...params, context: { ...params.context, runId: params.runId } }),
+}
+const host = await createLocalHost({ projectRoot, release, slug, token, model, runtimeAdapter,
   complete: researchCompletion(configuredCompletion(providerPath, createModelCompletion)),
 })
 installResearchAuthorization(host, authorization)
+await installRunSubmissions(host.app, { slug, token,
+  path: resolve(process.env.CONEXUS_LOCAL_ROOT, '..', 'secrets/run-submissions.json'),
+})
 host.app.post('/api/alphalab/search/test', async (request, reply) => {
   const expected = Buffer.from(`Bearer ${token}`)
   const received = Buffer.from(request.headers.authorization || '')

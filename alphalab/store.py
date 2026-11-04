@@ -518,6 +518,45 @@ class ResultStore:
         ).fetchall()
         return [self._backtest_job_dict(row) for row in rows]
 
+    def start_backtest_job(self, job_id: str, message: str) -> bool:
+        """Move a job to running unless it was stopped first, e.g. cancelled while queued."""
+
+        started = False
+
+        def work() -> None:
+            nonlocal started
+            cursor = self._conn.execute(
+                """UPDATE backtest_jobs
+                   SET status='running', message=?, started_at=?, finished_at=NULL,
+                       result_json=NULL, result_id=NULL, error=NULL, error_code=NULL,
+                       error_summary=NULL, error_details_json=NULL, log_reference=NULL
+                   WHERE id=? AND status IN ('queued', 'running')""",
+                (message, datetime.now().isoformat(timespec="seconds"), job_id),
+            )
+            started = cursor.rowcount > 0
+
+        self._write(work)
+        return started
+
+    def cancel_queued_backtest_job(self, job_id: str, message: str) -> bool:
+        """Stop a job only if it has not started. A running job is left to finish."""
+
+        cancelled = False
+
+        def work() -> None:
+            nonlocal cancelled
+            cursor = self._conn.execute(
+                """UPDATE backtest_jobs
+                   SET status='interrupted', finished_at=?, message=?, error=?,
+                       error_code='AGENT_RUN_CANCELLED', error_summary=?
+                   WHERE id=? AND status='queued'""",
+                (datetime.now().isoformat(timespec="seconds"), message, message, message, job_id),
+            )
+            cancelled = cursor.rowcount > 0
+
+        self._write(work)
+        return cancelled
+
     def mark_backtest_jobs_interrupted(self) -> int:
         changed = 0
 

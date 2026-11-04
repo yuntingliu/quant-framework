@@ -23,15 +23,28 @@ export function mergeRunSnapshot(
   incoming: PublishedHarnessRun,
 ): PublishedHarnessRun {
   if (current.id !== incoming.id) return incoming
-  const keepTerminalStatus = isTerminalRun(current) && !isTerminalRun(incoming)
+  // A stale active snapshot says nothing about a finished task, including any old question.
+  if (isTerminalRun(current) && !isTerminalRun(incoming)) return current
   return {
     ...current,
     ...incoming,
-    status: keepTerminalStatus ? current.status : incoming.status,
     ...(incoming.pendingInteraction
       ? { pendingInteraction: incoming.pendingInteraction }
       : { pendingInteraction: undefined }),
   }
+}
+
+export type AgentErrorSource = "action" | "connection" | "history" | "poll" | "stream"
+
+// A failed action stays visible until the next action. A failed read is only as true as
+// the most recent read: once one succeeds, its error describes nothing that is still the case.
+export function errorClearedBy(
+  source: AgentErrorSource | null,
+  success: "history" | "run",
+): boolean {
+  if (source === "connection") return true
+  if (success === "run") return source === "poll" || source === "stream"
+  return source === "history"
 }
 
 export function changedWorkspaceNodesForRun(
