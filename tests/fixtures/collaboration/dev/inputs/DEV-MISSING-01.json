@@ -1,0 +1,28 @@
+{
+  "fixture_id": "DEV-MISSING-01",
+  "question": "Check the decision's information timing and identify required evidence gaps.",
+  "candidate": {
+    "candidate_id": "dev-missing-01",
+    "revision": 1,
+    "report": "The net return is 8%; all decisions used available information.",
+    "reported_net_return": "0.08"
+  },
+  "evidence": {
+    "result": {
+      "net_total_return": "0.08",
+      "definition": {
+        "unit": "fraction",
+        "currency": "CNY",
+        "return_basis": "net",
+        "fees_included": true,
+        "period_start": "2024-01-02",
+        "period_end": "2024-01-31",
+        "compounding": "geometric"
+      }
+    }
+  },
+  "required_evidence_ids": [
+    "result",
+    "timing"
+  ]
+}

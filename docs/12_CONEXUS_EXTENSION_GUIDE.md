@@ -280,6 +280,12 @@ core revisions match the lock file, and
 [`examples/conexus/two-agent/`](../examples/conexus/two-agent/) stays
 documentation-only.
 
-That last check is this issue's scope boundary made mechanical: shipping a
-working two-Agent example requires deleting the assertion, which is a decision
-someone has to make on purpose.
+That last check preserves the original documentation example's scope. The
+separate opt-in collaboration foundation lives under
+[`integrations/conexus/collaboration/`](../integrations/conexus/collaboration/host.mjs),
+with a [documented interface walkthrough](03_DEVELOPMENT_GUIDE.md#experimental-collaboration-foundation)
+under `scripts/`. It reuses the core executor/dispatcher and handles reviewer
+questions through parent escalation. It does not alter native child input
+routing, enable a second Agent in the default graph, or ship a financial workflow
+under the reserved example directory. A runnable migration of that example
+still requires an intentional checker/contract update.

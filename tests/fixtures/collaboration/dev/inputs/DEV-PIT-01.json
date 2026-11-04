@@ -1,0 +1,22 @@
+{
+  "fixture_id": "DEV-PIT-01",
+  "question": "Check whether the input was available at the decision time.",
+  "candidate": {
+    "candidate_id": "dev-pit-01",
+    "revision": 1,
+    "report": "The 2024-01-02 decision uses the supplied quarterly observation."
+  },
+  "evidence": {
+    "timing": {
+      "observation_date": "2023-12-31",
+      "published_at": "2024-01-03T08:00:00+08:00",
+      "available_at": "2024-01-03T08:00:00+08:00",
+      "ingested_at": "2024-01-03T08:05:00+08:00",
+      "decision_at": "2024-01-02T09:30:00+08:00",
+      "market_timezone": "Asia/Shanghai"
+    }
+  },
+  "required_evidence_ids": [
+    "timing"
+  ]
+}

@@ -424,6 +424,48 @@ Any manually changed or custom source is preserved.
 Inactive legacy widgets may not be registered in `widgetComponents`, a layout
 preset, Agent workspace commands, or navigation.
 
+## Experimental collaboration foundation
+
+`alphalab.collaboration` is the Python facade for protocol v1 validation,
+immutable evidence/candidates, and the durable task/budget ledger.
+`integrations/conexus/collaboration/host.mjs` exposes `createCollaborationHost`
+over the existing Conexus executor and dispatcher. Host-issued identities and
+scopes authorize every operation; a reviewer can read assigned frozen evidence
+and submit its typed result. It cannot edit or execute research artifacts.
+This opt-in foundation leaves the normal single-Agent graph unchanged.
+
+The authoritative schemas and valid/invalid examples are in
+`alphalab/collaboration/schemas/` and `tests/fixtures/collaboration/contracts/`.
+Run the documented interface walkthrough after building the pinned runtime:
+
+```powershell
+node scripts/check_collaboration_handover.mjs --python .venv/Scripts/python.exe --output build/handover
+python scripts/check_collaboration_contracts.py
+python scripts/check_collaboration_fixtures.py
+node scripts/check_collaboration_foundation.mjs --mode scripted --scenario all --python .venv/Scripts/python.exe --output build/foundation
+```
+
+The walkthrough registers a task, freezes/reads evidence, runs one restricted
+reviewer, rejects a forged identity and forbidden write, accepts a typed review,
+and reopens the shared ledger. It uses scripted responses and attested synthetic
+units, with zero external model calls. Use `.venv/bin/python` on POSIX. Generated
+stores and verification artifacts stay under ignored `build/`.
+
+Real-provider checks are separate: `node scripts/check_collaboration_live.mjs
+--help` describes explicit opt-in, saved-provider settings, request/deadline caps
+and usage limitations. Ordinary tests never enable paid calls. A generic
+provider without verified input bounds/pricing cannot promise a hard total-token
+or monetary cap; missing usage and live billing cost remain unknown.
+
+`python scripts/package_collaboration_handover.py snapshot --output
+build/handover-packet` exports the current source with exact-byte hashes and
+excludes private plans/guides, credentials and generated data. `verify` checks
+the copy; `seal` requires a passing verification record bound to the source-tree
+digest and packages only explicitly allowlisted source and handover files.
+Uncommitted snapshots are identified as such. Financial review/correction
+orchestration and the final publication transaction remain integration work;
+validation and scripted protocol completion do not implement them.
+
 ## Verification
 
 Tests select temporary application, runtime, and cache directories before

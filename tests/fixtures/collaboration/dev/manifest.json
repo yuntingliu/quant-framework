@@ -1,0 +1,113 @@
+{
+    "schema_version":  1,
+    "fixture_set_id":  "issue-24-development",
+    "version":  1,
+    "set_kind":  "development",
+    "holdout":  "Reserved for Member 3; no confirmation cases or answers are included.",
+    "cases":  [
+                  {
+                      "fixture_id":  "DEV-CLAIM-01",
+                      "input_file":  "inputs/DEV-CLAIM-01.json",
+                      "sha256":  "25d7e457490fca0fce4b0547b1df7dbef7a32a126e17be1f32c641211956f561",
+                      "allowed_evidence_ids":  [
+                                                   "study"
+                                               ],
+                      "coverage":  [
+                                       "support"
+                                   ]
+                  },
+                  {
+                      "fixture_id":  "DEV-CLEAN-01",
+                      "input_file":  "inputs/DEV-CLEAN-01.json",
+                      "sha256":  "9febbea627c8a82835e2fffa655d77280969c1a042028e51e3b5dce94849d078",
+                      "allowed_evidence_ids":  [
+                                                   "result",
+                                                   "timing"
+                                               ],
+                      "coverage":  [
+                                       "returns",
+                                       "pit",
+                                       "report_consistency"
+                                   ]
+                  },
+                  {
+                      "fixture_id":  "DEV-CONFLICT-01",
+                      "input_file":  "inputs/DEV-CONFLICT-01.json",
+                      "sha256":  "615d395b0381246928f1494dbde5b26ec6d0d42413aa0ba90eac03ccdf56b9f7",
+                      "allowed_evidence_ids":  [
+                                                   "result"
+                                               ],
+                      "coverage":  [
+                                       "versioning",
+                                       "duplicate_delivery"
+                                   ]
+                  },
+                  {
+                      "fixture_id":  "DEV-DISPUTE-01",
+                      "input_file":  "inputs/DEV-DISPUTE-01.json",
+                      "sha256":  "fd47d92969518e7b17bd71493d435897c5e0fd8add7dd07beb4152539ea325bd",
+                      "allowed_evidence_ids":  [
+                                                   "result"
+                                               ],
+                      "coverage":  [
+                                       "returns",
+                                       "disagreement"
+                                   ]
+                  },
+                  {
+                      "fixture_id":  "DEV-FORMULA-01",
+                      "input_file":  "inputs/DEV-FORMULA-01.json",
+                      "sha256":  "13d63a1b7df8b0308a6e6a56e9b9be94ce80ff2159095427082986b034774bc2",
+                      "allowed_evidence_ids":  [
+                                                   "returns"
+                                               ],
+                      "coverage":  [
+                                       "formulas",
+                                       "returns"
+                                   ]
+                  },
+                  {
+                      "fixture_id":  "DEV-MISSING-01",
+                      "input_file":  "inputs/DEV-MISSING-01.json",
+                      "sha256":  "eaa0c21f51cbcbc5cd63deeca9190445924a7a15dfc79a5e5cbb7a03ae2f7b86",
+                      "allowed_evidence_ids":  [
+                                                   "result"
+                                               ],
+                      "coverage":  [
+                                       "pit",
+                                       "returns"
+                                   ]
+                  },
+                  {
+                      "fixture_id":  "DEV-PIT-01",
+                      "input_file":  "inputs/DEV-PIT-01.json",
+                      "sha256":  "2e8a5a6f1287d9b492c97de6a630bda4d6f18f716c429aab1830e0c8a1fec7c8",
+                      "allowed_evidence_ids":  [
+                                                   "timing"
+                                               ],
+                      "coverage":  [
+                                       "pit"
+                                   ]
+                  },
+                  {
+                      "fixture_id":  "DEV-REPORT-01",
+                      "input_file":  "inputs/DEV-REPORT-01.json",
+                      "sha256":  "0d6dadcd66be0859490b4d4ea590f6656182f70c277746d26f5ff8a9214080f8",
+                      "allowed_evidence_ids":  [
+                                                   "result"
+                                               ],
+                      "coverage":  [
+                                       "report_consistency",
+                                       "returns"
+                                   ]
+                  }
+              ],
+    "oracle":  {
+                   "file":  "oracle.json",
+                   "sha256":  "600fe77594cdb665763d5e72de27e428495d4cc1a703502ae54904e1aa7f9384"
+               },
+    "protocol_scenarios":  {
+                               "file":  "protocol-scenarios.json",
+                               "sha256":  "fa272daab6c4289c675766498d166a2cd6edddc813ff78a98f5364350b4668ce"
+                           }
+}

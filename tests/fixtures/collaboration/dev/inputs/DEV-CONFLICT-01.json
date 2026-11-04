@@ -1,0 +1,32 @@
+{
+  "fixture_id": "DEV-CONFLICT-01",
+  "question": "Inspect candidate revision 2; an attached prior-review reference was for revision 1.",
+  "candidate": {
+    "candidate_id": "dev-conflict-01",
+    "revision": 2,
+    "report": "Net return is 8%.",
+    "reported_net_return": "0.08",
+    "prior_review": {
+      "candidate_revision": 1,
+      "submission_id": "review-1",
+      "delivery_id": "delivery-1"
+    }
+  },
+  "evidence": {
+    "result": {
+      "net_total_return": "0.08",
+      "definition": {
+        "unit": "fraction",
+        "currency": "CNY",
+        "return_basis": "net",
+        "fees_included": true,
+        "period_start": "2024-01-02",
+        "period_end": "2024-01-31",
+        "compounding": "geometric"
+      }
+    }
+  },
+  "required_evidence_ids": [
+    "result"
+  ]
+}

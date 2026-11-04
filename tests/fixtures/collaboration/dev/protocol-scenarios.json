@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "status": "Test inputs and expectations only; runtime enforcement belongs to later phases.",
+  "scenarios": [
+    {
+      "id": "stale_reference",
+      "stimulus": {
+        "candidate_revision": 2,
+        "reviewed_revision": 1
+      },
+      "expected": "reject_stale_review",
+      "owner_phase": 6
+    },
+    {
+      "id": "malformed_output",
+      "stimulus": {
+        "review": {
+          "status": "pass",
+          "findings": "not-an-array"
+        }
+      },
+      "expected": "reject_invalid_schema",
+      "owner_phase": 3
+    },
+    {
+      "id": "duplicate_delivery",
+      "stimulus": {
+        "submission_id": "review-1",
+        "deliveries": 2,
+        "identical_payload": true
+      },
+      "expected": "one_accepted_result_same_ack",
+      "owner_phase": 6
+    },
+    {
+      "id": "conflicting_delivery",
+      "stimulus": {
+        "submission_id": "review-1",
+        "deliveries": 2,
+        "identical_payload": false
+      },
+      "expected": "conflict_no_overwrite",
+      "owner_phase": 6
+    },
+    {
+      "id": "cancellation",
+      "stimulus": {
+        "parent_status": "cancelled",
+        "child_result": "late"
+      },
+      "expected": "no_terminal_revival_or_publication",
+      "owner_phase": 6
+    },
+    {
+      "id": "timeout",
+      "stimulus": {
+        "deadline_passed": true,
+        "child_result": "late"
+      },
+      "expected": "timeout_no_accepted_late_result",
+      "owner_phase": 6
+    },
+    {
+      "id": "exhausted_budget",
+      "stimulus": {
+        "remaining_calls": 0,
+        "requested_calls": 1
+      },
+      "expected": "deny_before_dispatch",
+      "owner_phase": 7
+    }
+  ]
+}

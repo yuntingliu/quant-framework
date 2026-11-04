@@ -70,6 +70,7 @@ include = ["alphalab*", "apps", "apps.api*"]
 
 [tool.setuptools.package-data]
 "alphalab" = ["schema.sql"]
+"alphalab.collaboration" = ["schemas/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -13,7 +13,7 @@ Rebuild it from the full local research workspace with:
 
 ```powershell
 python scripts\build_example_data.py `
-  --source-root C:\Users\LYT\Documents\GitHub\quant-framework-factors
+  --source-root C:\path\to\quant-framework-factors
 ```
 
 Only the canonical files listed in `manifest.json` are tracked. Raw vendor

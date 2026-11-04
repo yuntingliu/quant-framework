@@ -1,0 +1,9 @@
+{
+  "fixture_id": "BASELINE-CONTEXT-01",
+  "version": 1,
+  "request": "Read local context and save an integration report.",
+  "report_title": "Single-Agent baseline report",
+  "report_content": "# Single-Agent baseline\n\nThe local context tool returned the built-in project. This scripted smoke test does not establish financial research quality.",
+  "summary": "Single-Agent scripted baseline completed.",
+  "scope": "Existing production integration, local scripted model, no market data or strategy execution. This is not a financial quality benchmark."
+}

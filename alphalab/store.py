@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import subprocess
 import threading
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -588,6 +589,50 @@ class ResultStore:
             df["date"] = pd.to_datetime(df["date"])
             df = df.set_index("date")
         return df
+
+    def export_backtest_evidence(self, backtest_id: str, *, max_rows: int = 10_000) -> dict | None:
+        """Read bounded persisted run evidence in one read-only SQLite snapshot.
+
+        A job can replay the same result ID. Reading its metadata, returns and
+        weights in separate calls could mix two saves; this transaction pins
+        all three without changing execution or historical source records.
+        """
+        if type(max_rows) is not int or not 1 <= max_rows <= 10_000:
+            raise ValueError("Evidence export requires a row bound from 1 to 10000.")
+        columns = (
+            "id", "code_version", "start_date", "end_date", "total_return", "annual_return",
+            "annual_vol", "sharpe", "max_drawdown", "n_periods", "provenance_json",
+            "execution_json", "event_json", "strategy_source", "settings_json",
+            "strategy_project_id", "project_strategy_id", "strategy_revision",
+            "strategy_source_sha256", "strategy_manifest_json", "validation_source",
+            "validation_revision", "validation_source_sha256", "validation_output_json",
+            "run_diagnostics_json",
+        )
+        with closing(sqlite3.connect(self.path.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("BEGIN")
+            text_columns = [name for name in columns if name.endswith("_json") or name.endswith("_source")]
+            size_sql = " + ".join(f"COALESCE(length(CAST({name} AS BLOB)),0)" for name in text_columns)
+            size = connection.execute(f"SELECT {size_sql} FROM backtests WHERE id=?", (backtest_id,)).fetchone()
+            if size is None:
+                return None
+            if size[0] > 8 * 1024 * 1024:
+                raise ValueError("Persisted evidence exceeds the export byte limit.")
+            row = connection.execute(f"SELECT {','.join(columns)} FROM backtests WHERE id=?", (backtest_id,)).fetchone()
+            result = {"record": dict(row)}
+            for key, table, fields in (
+                ("returns", "backtest_returns", "date,strategy,benchmark"),
+                ("weights", "backtest_weights", "date,symbol,weight"),
+            ):
+                order = "date,symbol" if key == "weights" else "date"
+                rows = connection.execute(
+                    f"SELECT {fields} FROM {table} WHERE backtest_id=? ORDER BY {order} LIMIT ?",
+                    (backtest_id, max_rows + 1),
+                ).fetchall()
+                if len(rows) > max_rows:
+                    raise ValueError("Persisted evidence exceeds the export row limit.")
+                result[key] = [dict(item) for item in rows]
+            return result
 
     def load_weights(self, backtest_id: str) -> pd.DataFrame:
         df = pd.read_sql(

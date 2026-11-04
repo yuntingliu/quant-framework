@@ -1,0 +1,1129 @@
+{
+    "$schema":  "http://json-schema.org/draft-07/schema#",
+    "$id":  "urn:alphalab:collaboration:protocol:v1",
+    "title":  "Minimal serial collaboration contracts v1",
+    "definitions":  {
+                        "id":  {
+                                   "type":  "string",
+                                   "minLength":  1,
+                                   "maxLength":  128,
+                                   "pattern":  "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                               },
+                        "hash":  {
+                                     "type":  "string",
+                                     "pattern":  "^[a-f0-9]{64}$"
+                                 },
+                        "datetime":  {
+                                         "type":  "string",
+                                         "format":  "date-time",
+                                         "maxLength":  40,
+                                         "pattern":  "(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+                                     },
+                        "date":  {
+                                     "type":  "string",
+                                     "format":  "date",
+                                     "maxLength":  10
+                                 },
+                        "category":  {
+                                         "enum":  [
+                                                      "formulas",
+                                                      "pit",
+                                                      "returns",
+                                                      "execution",
+                                                      "risk",
+                                                      "report_consistency",
+                                                      "support"
+                                                  ]
+                                     },
+                        "locator":  {
+                                        "type":  "string",
+                                        "minLength":  0,
+                                        "maxLength":  512,
+                                        "pattern":  "^(?:|/(?:[^~]|~[01])*|lines:[1-9][0-9]*:[1-9][0-9]*)$"
+                                    },
+                        "candidate_ref":  {
+                                              "type":  "object",
+                                              "additionalProperties":  false,
+                                              "properties":  {
+                                                                 "candidate_id":  {
+                                                                                      "$ref":  "#/definitions/id"
+                                                                                  },
+                                                                 "revision":  {
+                                                                                  "type":  "integer",
+                                                                                  "minimum":  1,
+                                                                                  "maximum":  9007199254740991
+                                                                              },
+                                                                 "sha256":  {
+                                                                                "$ref":  "#/definitions/hash"
+                                                                            }
+                                                             },
+                                              "required":  [
+                                                               "candidate_id",
+                                                               "revision",
+                                                               "sha256"
+                                                           ]
+                                          },
+                        "manifest_ref":  {
+                                             "type":  "object",
+                                             "additionalProperties":  false,
+                                             "properties":  {
+                                                                "manifest_id":  {
+                                                                                    "$ref":  "#/definitions/id"
+                                                                                },
+                                                                "revision":  {
+                                                                                 "type":  "integer",
+                                                                                 "minimum":  1,
+                                                                                 "maximum":  9007199254740991
+                                                                             },
+                                                                "sha256":  {
+                                                                               "$ref":  "#/definitions/hash"
+                                                                           }
+                                                            },
+                                             "required":  [
+                                                              "manifest_id",
+                                                              "revision",
+                                                              "sha256"
+                                                          ]
+                                         },
+                        "citation":  {
+                                         "type":  "object",
+                                         "additionalProperties":  false,
+                                         "properties":  {
+                                                            "artifact_id":  {
+                                                                                "$ref":  "#/definitions/id"
+                                                                            },
+                                                            "sha256":  {
+                                                                           "$ref":  "#/definitions/hash"
+                                                                       },
+                                                            "locator":  {
+                                                                            "$ref":  "#/definitions/locator"
+                                                                        }
+                                                        },
+                                         "required":  [
+                                                          "artifact_id",
+                                                          "sha256",
+                                                          "locator"
+                                                      ]
+                                     },
+                        "source_identity":  {
+                                                "type":  "object",
+                                                "additionalProperties":  false,
+                                                "properties":  {
+                                                                   "identity":  {
+                                                                                    "type":  "string",
+                                                                                    "minLength":  1,
+                                                                                    "maxLength":  256
+                                                                                },
+                                                                   "revision":  {
+                                                                                    "type":  [
+                                                                                                 "string",
+                                                                                                 "null"
+                                                                                             ],
+                                                                                    "maxLength":  128
+                                                                                },
+                                                                   "code_sha256":  {
+                                                                                       "anyOf":  [
+                                                                                                     {
+                                                                                                         "$ref":  "#/definitions/hash"
+                                                                                                     },
+                                                                                                     {
+                                                                                                         "type":  "null"
+                                                                                                     }
+                                                                                                 ]
+                                                                                   },
+                                                                   "environment_sha256":  {
+                                                                                              "anyOf":  [
+                                                                                                            {
+                                                                                                                "$ref":  "#/definitions/hash"
+                                                                                                            },
+                                                                                                            {
+                                                                                                                "type":  "null"
+                                                                                                            }
+                                                                                                        ]
+                                                                                          }
+                                                               },
+                                                "required":  [
+                                                                 "identity",
+                                                                 "revision",
+                                                                 "code_sha256",
+                                                                 "environment_sha256"
+                                                             ]
+                                            },
+                        "artifact":  {
+                                         "type":  "object",
+                                         "additionalProperties":  false,
+                                         "properties":  {
+                                                            "artifact_id":  {
+                                                                                "$ref":  "#/definitions/id"
+                                                                            },
+                                                            "sha256":  {
+                                                                           "$ref":  "#/definitions/hash"
+                                                                       },
+                                                            "byte_length":  {
+                                                                                "type":  "integer",
+                                                                                "minimum":  0,
+                                                                                "maximum":  2097152
+                                                                            },
+                                                            "media_type":  {
+                                                                               "enum":  [
+                                                                                            "application/json",
+                                                                                            "text/plain",
+                                                                                            "text/markdown",
+                                                                                            "application/octet-stream"
+                                                                                        ]
+                                                                           },
+                                                            "kind":  {
+                                                                         "enum":  [
+                                                                                      "data",
+                                                                                      "source",
+                                                                                      "result",
+                                                                                      "returns",
+                                                                                      "positions",
+                                                                                      "executions",
+                                                                                      "timing",
+                                                                                      "report",
+                                                                                      "publication",
+                                                                                      "provenance",
+                                                                                      "validation"
+                                                                                  ]
+                                                                     },
+                                                            "source":  {
+                                                                           "$ref":  "#/definitions/source_identity"
+                                                                       },
+                                                            "locators":  {
+                                                                             "type":  "array",
+                                                                             "items":  {
+                                                                                           "$ref":  "#/definitions/locator"
+                                                                                       },
+                                                                             "maxItems":  256,
+                                                                             "minItems":  1,
+                                                                             "uniqueItems":  true
+                                                                         }
+                                                        },
+                                         "required":  [
+                                                          "artifact_id",
+                                                          "sha256",
+                                                          "byte_length",
+                                                          "media_type",
+                                                          "kind",
+                                                          "source",
+                                                          "locators"
+                                                      ]
+                                     },
+                        "coverage_status":  {
+                                                "enum":  [
+                                                             "complete",
+                                                             "partial",
+                                                             "unavailable"
+                                                         ]
+                                            },
+                        "task_envelope":  {
+                                              "type":  "object",
+                                              "additionalProperties":  false,
+                                              "properties":  {
+                                                                 "schema_version":  {
+                                                                                        "const":  1
+                                                                                    },
+                                                                 "task_id":  {
+                                                                                 "$ref":  "#/definitions/id"
+                                                                             },
+                                                                 "root_run_id":  {
+                                                                                     "$ref":  "#/definitions/id"
+                                                                                 },
+                                                                 "researcher_node_id":  {
+                                                                                            "$ref":  "#/definitions/id"
+                                                                                        },
+                                                                 "reviewer_node_id":  {
+                                                                                          "$ref":  "#/definitions/id"
+                                                                                      },
+                                                                 "question":  {
+                                                                                  "type":  "string",
+                                                                                  "minLength":  1,
+                                                                                  "maxLength":  20000
+                                                                              },
+                                                                 "policy_id":  {
+                                                                                   "$ref":  "#/definitions/id"
+                                                                               },
+                                                                 "grant_id":  {
+                                                                                  "$ref":  "#/definitions/id"
+                                                                              },
+                                                                 "budget_id":  {
+                                                                                   "$ref":  "#/definitions/id"
+                                                                               },
+                                                                 "deadline":  {
+                                                                                  "$ref":  "#/definitions/datetime"
+                                                                              },
+                                                                 "max_review_rounds":  {
+                                                                                           "type":  "integer",
+                                                                                           "minimum":  1,
+                                                                                           "maximum":  10
+                                                                                       },
+                                                                 "not_applicable_categories":  {
+                                                                                                   "type":  "array",
+                                                                                                   "items":  {
+                                                                                                                 "$ref":  "#/definitions/category"
+                                                                                                             },
+                                                                                                   "maxItems":  7,
+                                                                                                   "uniqueItems":  true
+                                                                                               },
+                                                                 "required_categories":  {
+                                                                                             "type":  "array",
+                                                                                             "items":  {
+                                                                                                           "$ref":  "#/definitions/category"
+                                                                                                       },
+                                                                                             "maxItems":  7,
+                                                                                             "minItems":  1,
+                                                                                             "uniqueItems":  true
+                                                                                         }
+                                                             },
+                                              "required":  [
+                                                               "schema_version",
+                                                               "task_id",
+                                                               "root_run_id",
+                                                               "researcher_node_id",
+                                                               "reviewer_node_id",
+                                                               "question",
+                                                               "policy_id",
+                                                               "grant_id",
+                                                               "budget_id",
+                                                               "deadline",
+                                                               "max_review_rounds",
+                                                               "required_categories",
+                                                               "not_applicable_categories"
+                                                           ]
+                                          },
+                        "evidence_manifest":  {
+                                                  "type":  "object",
+                                                  "additionalProperties":  false,
+                                                  "properties":  {
+                                                                     "schema_version":  {
+                                                                                            "const":  1
+                                                                                        },
+                                                                     "task_id":  {
+                                                                                     "$ref":  "#/definitions/id"
+                                                                                 },
+                                                                     "manifest_id":  {
+                                                                                         "$ref":  "#/definitions/id"
+                                                                                     },
+                                                                     "revision":  {
+                                                                                      "type":  "integer",
+                                                                                      "minimum":  1,
+                                                                                      "maximum":  9007199254740991
+                                                                                  },
+                                                                     "created_at":  {
+                                                                                        "$ref":  "#/definitions/datetime"
+                                                                                    },
+                                                                     "code_identity":  {
+                                                                                           "type":  [
+                                                                                                        "string",
+                                                                                                        "null"
+                                                                                                    ],
+                                                                                           "maxLength":  256
+                                                                                       },
+                                                                     "environment_identity":  {
+                                                                                                  "type":  [
+                                                                                                               "string",
+                                                                                                               "null"
+                                                                                                           ],
+                                                                                                  "maxLength":  256
+                                                                                              },
+                                                                     "artifacts":  {
+                                                                                       "type":  "array",
+                                                                                       "items":  {
+                                                                                                     "$ref":  "#/definitions/artifact"
+                                                                                                 },
+                                                                                       "maxItems":  64,
+                                                                                       "minItems":  1
+                                                                                   },
+                                                                     "coverage":  {
+                                                                                      "type":  "object",
+                                                                                      "additionalProperties":  false,
+                                                                                      "properties":  {
+                                                                                                         "data":  {
+                                                                                                                      "$ref":  "#/definitions/coverage_status"
+                                                                                                                  },
+                                                                                                         "sources":  {
+                                                                                                                         "$ref":  "#/definitions/coverage_status"
+                                                                                                                     },
+                                                                                                         "results":  {
+                                                                                                                         "$ref":  "#/definitions/coverage_status"
+                                                                                                                     },
+                                                                                                         "pit":  {
+                                                                                                                     "$ref":  "#/definitions/coverage_status"
+                                                                                                                 }
+                                                                                                     },
+                                                                                      "required":  [
+                                                                                                       "data",
+                                                                                                       "sources",
+                                                                                                       "results",
+                                                                                                       "pit"
+                                                                                                   ]
+                                                                                  },
+                                                                     "omissions":  {
+                                                                                       "type":  "array",
+                                                                                       "items":  {
+                                                                                                     "type":  "string",
+                                                                                                     "minLength":  1,
+                                                                                                     "maxLength":  2000
+                                                                                                 },
+                                                                                       "maxItems":  50,
+                                                                                       "minItems":  0
+                                                                                   }
+                                                                 },
+                                                  "required":  [
+                                                                   "schema_version",
+                                                                   "task_id",
+                                                                   "manifest_id",
+                                                                   "revision",
+                                                                   "created_at",
+                                                                   "code_identity",
+                                                                   "environment_identity",
+                                                                   "artifacts",
+                                                                   "coverage",
+                                                                   "omissions"
+                                                               ]
+                                              },
+                        "metric":  {
+                                       "type":  "object",
+                                       "additionalProperties":  false,
+                                       "properties":  {
+                                                          "metric_id":  {
+                                                                            "$ref":  "#/definitions/id"
+                                                                        },
+                                                          "value":  {
+                                                                        "type":  "number"
+                                                                    },
+                                                          "unit":  {
+                                                                       "enum":  [
+                                                                                    "fraction",
+                                                                                    "percent",
+                                                                                    "bps",
+                                                                                    "currency",
+                                                                                    "count",
+                                                                                    "ratio"
+                                                                                ]
+                                                                   },
+                                                          "period_start":  {
+                                                                               "$ref":  "#/definitions/date"
+                                                                           },
+                                                          "period_end":  {
+                                                                             "$ref":  "#/definitions/date"
+                                                                         },
+                                                          "return_basis":  {
+                                                                               "enum":  [
+                                                                                            "gross",
+                                                                                            "net",
+                                                                                            "not_applicable"
+                                                                                        ]
+                                                                           },
+                                                          "compounding":  {
+                                                                              "enum":  [
+                                                                                           "geometric",
+                                                                                           "arithmetic",
+                                                                                           "not_applicable"
+                                                                                       ]
+                                                                          },
+                                                          "fees":  {
+                                                                       "enum":  [
+                                                                                    "included",
+                                                                                    "excluded",
+                                                                                    "not_applicable"
+                                                                                ]
+                                                                   },
+                                                          "benchmark":  {
+                                                                            "type":  [
+                                                                                         "string",
+                                                                                         "null"
+                                                                                     ],
+                                                                            "maxLength":  256
+                                                                        },
+                                                          "evidence":  {
+                                                                           "type":  "array",
+                                                                           "items":  {
+                                                                                         "$ref":  "#/definitions/citation"
+                                                                                     },
+                                                                           "maxItems":  20,
+                                                                           "minItems":  1
+                                                                       }
+                                                      },
+                                       "required":  [
+                                                        "metric_id",
+                                                        "value",
+                                                        "unit",
+                                                        "period_start",
+                                                        "period_end",
+                                                        "return_basis",
+                                                        "compounding",
+                                                        "fees",
+                                                        "benchmark",
+                                                        "evidence"
+                                                    ]
+                                   },
+                        "claim":  {
+                                      "type":  "object",
+                                      "additionalProperties":  false,
+                                      "properties":  {
+                                                         "claim_id":  {
+                                                                          "$ref":  "#/definitions/id"
+                                                                      },
+                                                         "text":  {
+                                                                      "type":  "string",
+                                                                      "minLength":  1,
+                                                                      "maxLength":  10000
+                                                                  },
+                                                         "evidence":  {
+                                                                          "type":  "array",
+                                                                          "items":  {
+                                                                                        "$ref":  "#/definitions/citation"
+                                                                                    },
+                                                                          "maxItems":  20,
+                                                                          "minItems":  1
+                                                                      }
+                                                     },
+                                      "required":  [
+                                                       "claim_id",
+                                                       "text",
+                                                       "evidence"
+                                                   ]
+                                  },
+                        "research_package":  {
+                                                 "type":  "object",
+                                                 "additionalProperties":  false,
+                                                 "properties":  {
+                                                                    "schema_version":  {
+                                                                                           "const":  1
+                                                                                       },
+                                                                    "task_id":  {
+                                                                                    "$ref":  "#/definitions/id"
+                                                                                },
+                                                                    "run_id":  {
+                                                                                   "$ref":  "#/definitions/id"
+                                                                               },
+                                                                    "candidate_id":  {
+                                                                                         "$ref":  "#/definitions/id"
+                                                                                     },
+                                                                    "revision":  {
+                                                                                     "type":  "integer",
+                                                                                     "minimum":  1,
+                                                                                     "maximum":  9007199254740991
+                                                                                 },
+                                                                    "question":  {
+                                                                                     "type":  "string",
+                                                                                     "minLength":  1,
+                                                                                     "maxLength":  20000
+                                                                                 },
+                                                                    "manifest":  {
+                                                                                     "$ref":  "#/definitions/manifest_ref"
+                                                                                 },
+                                                                    "draft_report":  {
+                                                                                         "$ref":  "#/definitions/citation"
+                                                                                     },
+                                                                    "publication":  {
+                                                                                        "$ref":  "#/definitions/citation"
+                                                                                    },
+                                                                    "claims":  {
+                                                                                   "type":  "array",
+                                                                                   "items":  {
+                                                                                                 "$ref":  "#/definitions/claim"
+                                                                                             },
+                                                                                   "maxItems":  100,
+                                                                                   "minItems":  1
+                                                                               },
+                                                                    "metrics":  {
+                                                                                    "type":  "array",
+                                                                                    "items":  {
+                                                                                                  "$ref":  "#/definitions/metric"
+                                                                                              },
+                                                                                    "maxItems":  100,
+                                                                                    "minItems":  0
+                                                                                },
+                                                                    "assumptions":  {
+                                                                                        "type":  "array",
+                                                                                        "items":  {
+                                                                                                      "type":  "string",
+                                                                                                      "minLength":  1,
+                                                                                                      "maxLength":  2000
+                                                                                                  },
+                                                                                        "maxItems":  50,
+                                                                                        "minItems":  0
+                                                                                    },
+                                                                    "source_refs":  {
+                                                                                        "type":  "array",
+                                                                                        "items":  {
+                                                                                                      "$ref":  "#/definitions/citation"
+                                                                                                  },
+                                                                                        "maxItems":  30,
+                                                                                        "minItems":  0
+                                                                                    },
+                                                                    "data_refs":  {
+                                                                                      "type":  "array",
+                                                                                      "items":  {
+                                                                                                    "$ref":  "#/definitions/citation"
+                                                                                                },
+                                                                                      "maxItems":  30,
+                                                                                      "minItems":  0
+                                                                                  },
+                                                                    "result_refs":  {
+                                                                                        "type":  "array",
+                                                                                        "items":  {
+                                                                                                      "$ref":  "#/definitions/citation"
+                                                                                                  },
+                                                                                        "maxItems":  30,
+                                                                                        "minItems":  0
+                                                                                    },
+                                                                    "timing":  {
+                                                                                   "type":  "object",
+                                                                                   "additionalProperties":  false,
+                                                                                   "properties":  {
+                                                                                                      "decision_at":  {
+                                                                                                                          "anyOf":  [
+                                                                                                                                        {
+                                                                                                                                            "$ref":  "#/definitions/datetime"
+                                                                                                                                        },
+                                                                                                                                        {
+                                                                                                                                            "type":  "null"
+                                                                                                                                        }
+                                                                                                                                    ]
+                                                                                                                      },
+                                                                                                      "availability_evidence":  {
+                                                                                                                                    "type":  "array",
+                                                                                                                                    "items":  {
+                                                                                                                                                  "$ref":  "#/definitions/citation"
+                                                                                                                                              },
+                                                                                                                                    "maxItems":  30,
+                                                                                                                                    "minItems":  0
+                                                                                                                                }
+                                                                                                  },
+                                                                                   "required":  [
+                                                                                                    "decision_at",
+                                                                                                    "availability_evidence"
+                                                                                                ]
+                                                                               },
+                                                                    "limitations":  {
+                                                                                        "type":  "array",
+                                                                                        "items":  {
+                                                                                                      "type":  "string",
+                                                                                                      "minLength":  1,
+                                                                                                      "maxLength":  2000
+                                                                                                  },
+                                                                                        "maxItems":  50,
+                                                                                        "minItems":  0
+                                                                                    }
+                                                                },
+                                                 "required":  [
+                                                                  "schema_version",
+                                                                  "task_id",
+                                                                  "run_id",
+                                                                  "candidate_id",
+                                                                  "revision",
+                                                                  "question",
+                                                                  "manifest",
+                                                                  "draft_report",
+                                                                  "publication",
+                                                                  "claims",
+                                                                  "metrics",
+                                                                  "assumptions",
+                                                                  "source_refs",
+                                                                  "data_refs",
+                                                                  "result_refs",
+                                                                  "timing",
+                                                                  "limitations"
+                                                              ]
+                                             },
+                        "delegation_request":  {
+                                                   "type":  "object",
+                                                   "additionalProperties":  false,
+                                                   "properties":  {
+                                                                      "schema_version":  {
+                                                                                             "const":  1
+                                                                                         },
+                                                                      "task_id":  {
+                                                                                      "$ref":  "#/definitions/id"
+                                                                                  },
+                                                                      "root_run_id":  {
+                                                                                          "$ref":  "#/definitions/id"
+                                                                                      },
+                                                                      "parent_run_id":  {
+                                                                                            "$ref":  "#/definitions/id"
+                                                                                        },
+                                                                      "child_task_id":  {
+                                                                                            "$ref":  "#/definitions/id"
+                                                                                        },
+                                                                      "attempt_id":  {
+                                                                                         "$ref":  "#/definitions/id"
+                                                                                     },
+                                                                      "node_id":  {
+                                                                                      "$ref":  "#/definitions/id"
+                                                                                  },
+                                                                      "role":  {
+                                                                                   "const":  "reviewer"
+                                                                               },
+                                                                      "round":  {
+                                                                                    "type":  "integer",
+                                                                                    "minimum":  1,
+                                                                                    "maximum":  9007199254740991
+                                                                                },
+                                                                      "candidate":  {
+                                                                                        "$ref":  "#/definitions/candidate_ref"
+                                                                                    },
+                                                                      "manifest":  {
+                                                                                       "$ref":  "#/definitions/manifest_ref"
+                                                                                   },
+                                                                      "result_type":  {
+                                                                                          "const":  "review_result"
+                                                                                      },
+                                                                      "policy_id":  {
+                                                                                        "$ref":  "#/definitions/id"
+                                                                                    },
+                                                                      "grant_id":  {
+                                                                                       "$ref":  "#/definitions/id"
+                                                                                   },
+                                                                      "budget_id":  {
+                                                                                        "$ref":  "#/definitions/id"
+                                                                                    },
+                                                                      "deadline":  {
+                                                                                       "$ref":  "#/definitions/datetime"
+                                                                                   }
+                                                                  },
+                                                   "required":  [
+                                                                    "schema_version",
+                                                                    "task_id",
+                                                                    "root_run_id",
+                                                                    "parent_run_id",
+                                                                    "child_task_id",
+                                                                    "attempt_id",
+                                                                    "node_id",
+                                                                    "role",
+                                                                    "round",
+                                                                    "candidate",
+                                                                    "manifest",
+                                                                    "result_type",
+                                                                    "policy_id",
+                                                                    "grant_id",
+                                                                    "budget_id",
+                                                                    "deadline"
+                                                                ]
+                                               },
+                        "review_coverage":  {
+                                                "type":  "object",
+                                                "additionalProperties":  false,
+                                                "properties":  {
+                                                                   "category":  {
+                                                                                    "$ref":  "#/definitions/category"
+                                                                                },
+                                                                   "status":  {
+                                                                                  "enum":  [
+                                                                                               "checked",
+                                                                                               "not_applicable",
+                                                                                               "missing"
+                                                                                           ]
+                                                                              },
+                                                                   "reason":  {
+                                                                                  "type":  "string",
+                                                                                  "minLength":  0,
+                                                                                  "maxLength":  2000
+                                                                              },
+                                                                   "evidence":  {
+                                                                                    "type":  "array",
+                                                                                    "items":  {
+                                                                                                  "$ref":  "#/definitions/citation"
+                                                                                              },
+                                                                                    "maxItems":  20,
+                                                                                    "minItems":  0
+                                                                                }
+                                                               },
+                                                "required":  [
+                                                                 "category",
+                                                                 "status",
+                                                                 "reason",
+                                                                 "evidence"
+                                                             ]
+                                            },
+                        "finding":  {
+                                        "type":  "object",
+                                        "additionalProperties":  false,
+                                        "properties":  {
+                                                           "finding_id":  {
+                                                                              "$ref":  "#/definitions/id"
+                                                                          },
+                                                           "category":  {
+                                                                            "$ref":  "#/definitions/category"
+                                                                        },
+                                                           "severity":  {
+                                                                            "enum":  [
+                                                                                         "blocking",
+                                                                                         "error",
+                                                                                         "warning",
+                                                                                         "info"
+                                                                                     ]
+                                                                        },
+                                                           "certainty":  {
+                                                                             "enum":  [
+                                                                                          "confirmed",
+                                                                                          "uncertain"
+                                                                                      ]
+                                                                         },
+                                                           "claim_id":  {
+                                                                            "anyOf":  [
+                                                                                          {
+                                                                                              "$ref":  "#/definitions/id"
+                                                                                          },
+                                                                                          {
+                                                                                              "type":  "null"
+                                                                                          }
+                                                                                      ]
+                                                                        },
+                                                           "metric_id":  {
+                                                                             "anyOf":  [
+                                                                                           {
+                                                                                               "$ref":  "#/definitions/id"
+                                                                                           },
+                                                                                           {
+                                                                                               "type":  "null"
+                                                                                           }
+                                                                                       ]
+                                                                         },
+                                                           "explanation":  {
+                                                                               "type":  "string",
+                                                                               "minLength":  1,
+                                                                               "maxLength":  6000
+                                                                           },
+                                                           "expected":  {
+                                                                            "type":  [
+                                                                                         "string",
+                                                                                         "null"
+                                                                                     ],
+                                                                            "maxLength":  4000
+                                                                        },
+                                                           "observed":  {
+                                                                            "type":  [
+                                                                                         "string",
+                                                                                         "null"
+                                                                                     ],
+                                                                            "maxLength":  4000
+                                                                        },
+                                                           "evidence":  {
+                                                                            "type":  "array",
+                                                                            "items":  {
+                                                                                          "$ref":  "#/definitions/citation"
+                                                                                      },
+                                                                            "maxItems":  20,
+                                                                            "minItems":  1
+                                                                        },
+                                                           "requested_correction":  {
+                                                                                        "type":  "string",
+                                                                                        "minLength":  1,
+                                                                                        "maxLength":  4000
+                                                                                    },
+                                                           "verification":  {
+                                                                                "type":  "string",
+                                                                                "minLength":  1,
+                                                                                "maxLength":  4000
+                                                                            }
+                                                       },
+                                        "required":  [
+                                                         "finding_id",
+                                                         "category",
+                                                         "severity",
+                                                         "certainty",
+                                                         "claim_id",
+                                                         "metric_id",
+                                                         "explanation",
+                                                         "expected",
+                                                         "observed",
+                                                         "evidence",
+                                                         "requested_correction",
+                                                         "verification"
+                                                     ]
+                                    },
+                        "review_result":  {
+                                              "type":  "object",
+                                              "additionalProperties":  false,
+                                              "properties":  {
+                                                                 "schema_version":  {
+                                                                                        "const":  1
+                                                                                    },
+                                                                 "task_id":  {
+                                                                                 "$ref":  "#/definitions/id"
+                                                                             },
+                                                                 "submission_id":  {
+                                                                                       "$ref":  "#/definitions/id"
+                                                                                   },
+                                                                 "child_task_id":  {
+                                                                                       "$ref":  "#/definitions/id"
+                                                                                   },
+                                                                 "attempt_id":  {
+                                                                                    "$ref":  "#/definitions/id"
+                                                                                },
+                                                                 "round":  {
+                                                                               "type":  "integer",
+                                                                               "minimum":  1,
+                                                                               "maximum":  9007199254740991
+                                                                           },
+                                                                 "candidate":  {
+                                                                                   "$ref":  "#/definitions/candidate_ref"
+                                                                               },
+                                                                 "manifest":  {
+                                                                                  "$ref":  "#/definitions/manifest_ref"
+                                                                              },
+                                                                 "status":  {
+                                                                                "enum":  [
+                                                                                             "pass",
+                                                                                             "findings",
+                                                                                             "incomplete",
+                                                                                             "blocked"
+                                                                                         ]
+                                                                            },
+                                                                 "coverage":  {
+                                                                                  "type":  "array",
+                                                                                  "items":  {
+                                                                                                "$ref":  "#/definitions/review_coverage"
+                                                                                            },
+                                                                                  "maxItems":  7,
+                                                                                  "minItems":  1
+                                                                              },
+                                                                 "findings":  {
+                                                                                  "type":  "array",
+                                                                                  "items":  {
+                                                                                                "$ref":  "#/definitions/finding"
+                                                                                            },
+                                                                                  "maxItems":  100,
+                                                                                  "minItems":  0
+                                                                              },
+                                                                 "missing_evidence":  {
+                                                                                          "type":  "array",
+                                                                                          "items":  {
+                                                                                                        "type":  "string",
+                                                                                                        "minLength":  1,
+                                                                                                        "maxLength":  2000
+                                                                                                    },
+                                                                                          "maxItems":  50,
+                                                                                          "minItems":  0
+                                                                                      },
+                                                                 "reason":  {
+                                                                                "type":  [
+                                                                                             "string",
+                                                                                             "null"
+                                                                                         ],
+                                                                                "maxLength":  4000
+                                                                            }
+                                                             },
+                                              "required":  [
+                                                               "schema_version",
+                                                               "task_id",
+                                                               "submission_id",
+                                                               "child_task_id",
+                                                               "attempt_id",
+                                                               "round",
+                                                               "candidate",
+                                                               "manifest",
+                                                               "status",
+                                                               "coverage",
+                                                               "findings",
+                                                               "missing_evidence",
+                                                               "reason"
+                                                           ]
+                                          },
+                        "disposition":  {
+                                            "type":  "object",
+                                            "additionalProperties":  false,
+                                            "properties":  {
+                                                               "finding_id":  {
+                                                                                  "$ref":  "#/definitions/id"
+                                                                              },
+                                                               "status":  {
+                                                                              "enum":  [
+                                                                                           "corrected",
+                                                                                           "disputed",
+                                                                                           "unresolved"
+                                                                                       ]
+                                                                          },
+                                                               "reason":  {
+                                                                              "type":  "string",
+                                                                              "minLength":  1,
+                                                                              "maxLength":  4000
+                                                                          },
+                                                               "evidence":  {
+                                                                                "type":  "array",
+                                                                                "items":  {
+                                                                                              "$ref":  "#/definitions/citation"
+                                                                                          },
+                                                                                "maxItems":  20,
+                                                                                "minItems":  1
+                                                                            },
+                                                               "changed_artifact_ids":  {
+                                                                                            "type":  "array",
+                                                                                            "items":  {
+                                                                                                          "$ref":  "#/definitions/id"
+                                                                                                      },
+                                                                                            "maxItems":  64,
+                                                                                            "minItems":  0,
+                                                                                            "uniqueItems":  true
+                                                                                        }
+                                                           },
+                                            "required":  [
+                                                             "finding_id",
+                                                             "status",
+                                                             "reason",
+                                                             "evidence",
+                                                             "changed_artifact_ids"
+                                                         ]
+                                        },
+                        "correction_response":  {
+                                                    "type":  "object",
+                                                    "additionalProperties":  false,
+                                                    "properties":  {
+                                                                       "schema_version":  {
+                                                                                              "const":  1
+                                                                                          },
+                                                                       "task_id":  {
+                                                                                       "$ref":  "#/definitions/id"
+                                                                                   },
+                                                                       "response_id":  {
+                                                                                           "$ref":  "#/definitions/id"
+                                                                                       },
+                                                                       "review_submission_id":  {
+                                                                                                    "$ref":  "#/definitions/id"
+                                                                                                },
+                                                                       "reviewed_candidate":  {
+                                                                                                  "$ref":  "#/definitions/candidate_ref"
+                                                                                              },
+                                                                       "new_candidate":  {
+                                                                                             "$ref":  "#/definitions/candidate_ref"
+                                                                                         },
+                                                                       "dispositions":  {
+                                                                                            "type":  "array",
+                                                                                            "items":  {
+                                                                                                          "$ref":  "#/definitions/disposition"
+                                                                                                      },
+                                                                                            "maxItems":  100,
+                                                                                            "minItems":  0
+                                                                                        },
+                                                                       "remaining_disagreements":  {
+                                                                                                       "type":  "array",
+                                                                                                       "items":  {
+                                                                                                                     "$ref":  "#/definitions/id"
+                                                                                                                 },
+                                                                                                       "maxItems":  100,
+                                                                                                       "minItems":  0,
+                                                                                                       "uniqueItems":  true
+                                                                                                   }
+                                                                   },
+                                                    "required":  [
+                                                                     "schema_version",
+                                                                     "task_id",
+                                                                     "response_id",
+                                                                     "review_submission_id",
+                                                                     "reviewed_candidate",
+                                                                     "new_candidate",
+                                                                     "dispositions",
+                                                                     "remaining_disagreements"
+                                                                 ]
+                                                },
+                        "destination":  {
+                                            "type":  "object",
+                                            "additionalProperties":  false,
+                                            "properties":  {
+                                                               "report_id":  {
+                                                                                 "$ref":  "#/definitions/id"
+                                                                             },
+                                                               "mode":  {
+                                                                            "enum":  [
+                                                                                         "create",
+                                                                                         "update"
+                                                                                     ]
+                                                                        },
+                                                               "expected_workspace_revision":  {
+                                                                                                   "type":  "integer",
+                                                                                                   "minimum":  0,
+                                                                                                   "maximum":  9007199254740991
+                                                                                               },
+                                                               "expected_report_revision":  {
+                                                                                                "type":  [
+                                                                                                             "integer",
+                                                                                                             "null"
+                                                                                                         ],
+                                                                                                "minimum":  1,
+                                                                                                "maximum":  9007199254740991
+                                                                                            }
+                                                           },
+                                            "required":  [
+                                                             "report_id",
+                                                             "mode",
+                                                             "expected_workspace_revision",
+                                                             "expected_report_revision"
+                                                         ]
+                                        },
+                        "final_output_request":  {
+                                                     "type":  "object",
+                                                     "additionalProperties":  false,
+                                                     "properties":  {
+                                                                        "schema_version":  {
+                                                                                               "const":  1
+                                                                                           },
+                                                                        "task_id":  {
+                                                                                        "$ref":  "#/definitions/id"
+                                                                                    },
+                                                                        "request_id":  {
+                                                                                           "type":  "string",
+                                                                                           "minLength":  1,
+                                                                                           "maxLength":  200
+                                                                                       },
+                                                                        "idempotency_key":  {
+                                                                                                "$ref":  "#/definitions/id"
+                                                                                            },
+                                                                        "expected_task_version":  {
+                                                                                                      "type":  "integer",
+                                                                                                      "minimum":  0,
+                                                                                                      "maximum":  9007199254740991
+                                                                                                  },
+                                                                        "candidate":  {
+                                                                                          "$ref":  "#/definitions/candidate_ref"
+                                                                                      },
+                                                                        "manifest":  {
+                                                                                         "$ref":  "#/definitions/manifest_ref"
+                                                                                     },
+                                                                        "review_submission_id":  {
+                                                                                                     "$ref":  "#/definitions/id"
+                                                                                                 },
+                                                                        "correction_response_id":  {
+                                                                                                       "anyOf":  [
+                                                                                                                     {
+                                                                                                                         "$ref":  "#/definitions/id"
+                                                                                                                     },
+                                                                                                                     {
+                                                                                                                         "type":  "null"
+                                                                                                                     }
+                                                                                                                 ]
+                                                                                                   },
+                                                                        "draft_report":  {
+                                                                                             "$ref":  "#/definitions/citation"
+                                                                                         },
+                                                                        "payload_sha256":  {
+                                                                                               "$ref":  "#/definitions/hash"
+                                                                                           },
+                                                                        "destination":  {
+                                                                                            "$ref":  "#/definitions/destination"
+                                                                                        },
+                                                                        "outputs":  {
+                                                                                        "$ref":  "urn:alphalab:workspace-outputs:v1"
+                                                                                    }
+                                                                    },
+                                                     "required":  [
+                                                                      "schema_version",
+                                                                      "task_id",
+                                                                      "request_id",
+                                                                      "idempotency_key",
+                                                                      "expected_task_version",
+                                                                      "candidate",
+                                                                      "manifest",
+                                                                      "review_submission_id",
+                                                                      "correction_response_id",
+                                                                      "draft_report",
+                                                                      "payload_sha256",
+                                                                      "destination",
+                                                                      "outputs"
+                                                                  ]
+                                                 }
+                    }
+}

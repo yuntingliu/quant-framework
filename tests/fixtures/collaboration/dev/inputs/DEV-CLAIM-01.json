@@ -1,0 +1,23 @@
+{
+  "fixture_id": "DEV-CLAIM-01",
+  "question": "Check whether the conclusion follows from the supplied study.",
+  "candidate": {
+    "candidate_id": "dev-claim-01",
+    "revision": 1,
+    "report": "This strategy guarantees positive future returns."
+  },
+  "evidence": {
+    "study": {
+      "scope": "in_sample",
+      "sessions": 20,
+      "independent_out_of_sample_trials": 0,
+      "past_results_only": true,
+      "limitations": [
+        "No evidence about guaranteed future outcomes."
+      ]
+    }
+  },
+  "required_evidence_ids": [
+    "study"
+  ]
+}

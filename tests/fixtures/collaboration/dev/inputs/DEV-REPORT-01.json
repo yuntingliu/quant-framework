@@ -1,0 +1,27 @@
+{
+  "fixture_id": "DEV-REPORT-01",
+  "question": "Check whether the report and result describe the same net return.",
+  "candidate": {
+    "candidate_id": "dev-report-01",
+    "revision": 1,
+    "report": "Net total return for January is 12%.",
+    "reported_net_return": "0.12"
+  },
+  "evidence": {
+    "result": {
+      "net_total_return": "0.08",
+      "definition": {
+        "unit": "fraction",
+        "currency": "CNY",
+        "return_basis": "net",
+        "fees_included": true,
+        "period_start": "2024-01-02",
+        "period_end": "2024-01-31",
+        "compounding": "geometric"
+      }
+    }
+  },
+  "required_evidence_ids": [
+    "result"
+  ]
+}

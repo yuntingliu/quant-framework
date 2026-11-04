@@ -1,0 +1,36 @@
+{
+  "fixture_id": "DEV-CLEAN-01",
+  "question": "Verify the return figure and historical availability without inventing findings.",
+  "candidate": {
+    "candidate_id": "dev-clean-01",
+    "revision": 1,
+    "report": "The net return is 8%; the supplied input was available before the decision.",
+    "reported_net_return": "0.08"
+  },
+  "evidence": {
+    "result": {
+      "net_total_return": "0.08",
+      "definition": {
+        "unit": "fraction",
+        "currency": "CNY",
+        "return_basis": "net",
+        "fees_included": true,
+        "period_start": "2024-01-02",
+        "period_end": "2024-01-31",
+        "compounding": "geometric"
+      }
+    },
+    "timing": {
+      "observation_date": "2023-12-31",
+      "published_at": "2024-01-03T08:00:00+08:00",
+      "available_at": "2024-01-03T08:00:00+08:00",
+      "ingested_at": "2024-01-03T08:05:00+08:00",
+      "decision_at": "2024-01-04T09:30:00+08:00",
+      "market_timezone": "Asia/Shanghai"
+    }
+  },
+  "required_evidence_ids": [
+    "result",
+    "timing"
+  ]
+}

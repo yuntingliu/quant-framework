@@ -1,5 +1,11 @@
 # Two-Agent interface contract
 
+This document describes native delegation on the pinned local Host. The separate
+[Issue #24 foundation](../../../docs/03_DEVELOPMENT_GUIDE.md#experimental-collaboration-foundation)
+now provides a restricted opt-in Host with structured review submission,
+task-scoped evidence and shared budgets. It avoids direct child questions via
+parent escalation; the native input-routing defect documented here is unchanged.
+
 The handover document for the later multi-Agent work. Everything below was
 verified by probe against the pinned core in `build/conexus`
 (`UPSTREAM.json` revision `9cd8c69`), not inferred from the core's own

@@ -1,0 +1,28 @@
+{
+  "fixture_id": "DEV-DISPUTE-01",
+  "question": "Assess the reviewer's allegation that fees were excluded using the supplied result definition.",
+  "candidate": {
+    "candidate_id": "dev-dispute-01",
+    "revision": 1,
+    "report": "Net return is 8%, after fees.",
+    "reported_net_return": "0.08",
+    "reviewer_allegation": "The reported 8% excludes fees."
+  },
+  "evidence": {
+    "result": {
+      "net_total_return": "0.08",
+      "definition": {
+        "unit": "fraction",
+        "currency": "CNY",
+        "return_basis": "net",
+        "fees_included": true,
+        "period_start": "2024-01-02",
+        "period_end": "2024-01-31",
+        "compounding": "geometric"
+      }
+    }
+  },
+  "required_evidence_ids": [
+    "result"
+  ]
+}

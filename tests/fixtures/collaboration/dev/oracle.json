@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "scope": "Development only. Never include this oracle or manifest labels in an Agent request.",
+  "cases": {
+    "DEV-FORMULA-01": {
+      "expected_status": "findings",
+      "categories": [
+        "formulas"
+      ],
+      "facts": {
+        "compound_return": "-0.01"
+      },
+      "citations": [
+        "/evidence/returns/rows/0/return",
+        "/evidence/returns/rows/1/return",
+        "/candidate/report"
+      ],
+      "rationale": "1.10 * 0.90 - 1 = -0.01. This is -1%, not 0%."
+    },
+    "DEV-PIT-01": {
+      "expected_status": "findings",
+      "categories": [
+        "pit"
+      ],
+      "facts": {
+        "available_after_decision": true
+      },
+      "citations": [
+        "/evidence/timing/decision_at",
+        "/evidence/timing/available_at"
+      ],
+      "rationale": "Availability on January 3 is after the January 2 decision, regardless of the December observation date."
+    },
+    "DEV-REPORT-01": {
+      "expected_status": "findings",
+      "categories": [
+        "report_consistency"
+      ],
+      "facts": {
+        "net_total_return": "0.08",
+        "report_minus_result": "0.04",
+        "fees_included": true
+      },
+      "citations": [
+        "/candidate/reported_net_return",
+        "/evidence/result/net_total_return",
+        "/evidence/result/definition"
+      ],
+      "rationale": "12% minus 8% is 4 percentage points for the same net January return definition."
+    },
+    "DEV-CLAIM-01": {
+      "expected_status": "findings",
+      "categories": [
+        "support"
+      ],
+      "facts": {
+        "missing_evidence_ids": []
+      },
+      "citations": [
+        "/candidate/report",
+        "/evidence/study/scope",
+        "/evidence/study/independent_out_of_sample_trials"
+      ],
+      "rationale": "Qualitative development expectation: 20 in-sample sessions do not support guaranteed future returns. No generic automated semantic scorer is claimed; independent review is required before evaluation use."
+    },
+    "DEV-CLEAN-01": {
+      "expected_status": "pass",
+      "categories": [],
+      "facts": {
+        "available_after_decision": false,
+        "report_minus_result": "0",
+        "fees_included": true,
+        "missing_evidence_ids": []
+      },
+      "citations": [
+        "/evidence/result/definition",
+        "/evidence/timing/available_at",
+        "/evidence/timing/decision_at"
+      ],
+      "rationale": "The declared return and result agree, and availability precedes the decision. Pass covers only the fixture's required categories."
+    },
+    "DEV-MISSING-01": {
+      "expected_status": "incomplete",
+      "categories": [
+        "missing_evidence"
+      ],
+      "facts": {
+        "missing_evidence_ids": [
+          "timing"
+        ]
+      },
+      "citations": [
+        "/required_evidence_ids",
+        "/evidence/result"
+      ],
+      "rationale": "PIT cannot be verified without timing evidence; the existing result alone cannot fill that gap."
+    },
+    "DEV-DISPUTE-01": {
+      "expected_status": "pass",
+      "categories": [],
+      "facts": {
+        "fees_included": true,
+        "report_minus_result": "0"
+      },
+      "citations": [
+        "/candidate/reviewer_allegation",
+        "/evidence/result/definition/fees_included"
+      ],
+      "rationale": "A correct researcher may dispute this allegation. The frozen definition explicitly includes fees; no correction is warranted solely because the reviewer alleges otherwise."
+    },
+    "DEV-CONFLICT-01": {
+      "expected_status": "blocked",
+      "categories": [
+        "versioning"
+      ],
+      "facts": {
+        "net_total_return": "0.08"
+      },
+      "citations": [
+        "/candidate/revision",
+        "/candidate/prior_review/candidate_revision"
+      ],
+      "rationale": "Review of revision 1 cannot approve revision 2. Delivery replay enforcement is implemented and tested in later phases."
+    }
+  }
+}

@@ -1,0 +1,2255 @@
+{
+  "description": "Synthetic contract examples, not actual Agent runs or acceptance records. Context is Host-only and must not be included in model prompts.",
+  "messages": {
+    "task_envelope": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "root_run_id": "root-1",
+      "researcher_node_id": "researcher-1",
+      "reviewer_node_id": "reviewer-1",
+      "question": "Verify the supplied two-session research result.",
+      "policy_id": "policy-1",
+      "grant_id": "grant-1",
+      "budget_id": "budget-1",
+      "deadline": "2027-01-01T00:00:00Z",
+      "max_review_rounds": 3,
+      "required_categories": [
+        "formulas",
+        "pit",
+        "returns",
+        "execution",
+        "risk",
+        "report_consistency",
+        "support"
+      ],
+      "not_applicable_categories": [
+        "execution",
+        "risk"
+      ]
+    },
+    "evidence_manifest": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "manifest_id": "manifest-2",
+      "revision": 2,
+      "created_at": "2026-11-02T00:00:00Z",
+      "code_identity": "fixture-code-1",
+      "environment_identity": "fixture-environment-1",
+      "artifacts": [
+        {
+          "artifact_id": "source",
+          "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+          "byte_length": 52,
+          "media_type": "text/plain",
+          "kind": "source",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            ""
+          ]
+        },
+        {
+          "artifact_id": "data",
+          "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+          "byte_length": 99,
+          "media_type": "application/json",
+          "kind": "data",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/rows",
+            "/rows/0/return_value"
+          ]
+        },
+        {
+          "artifact_id": "result",
+          "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+          "byte_length": 77,
+          "media_type": "application/json",
+          "kind": "result",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/net_return"
+          ]
+        },
+        {
+          "artifact_id": "timing",
+          "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+          "byte_length": 86,
+          "media_type": "application/json",
+          "kind": "timing",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/available_at"
+          ]
+        },
+        {
+          "artifact_id": "report",
+          "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03",
+          "byte_length": 41,
+          "media_type": "text/markdown",
+          "kind": "report",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "lines:1:1"
+          ]
+        },
+        {
+          "artifact_id": "publication",
+          "sha256": "9bc02c1e9afd43c2de5e717a50539bc6378b1928e887bef3550dded701b83d0e",
+          "byte_length": 813,
+          "media_type": "application/json",
+          "kind": "publication",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            ""
+          ]
+        }
+      ],
+      "coverage": {
+        "data": "complete",
+        "sources": "complete",
+        "results": "complete",
+        "pit": "complete"
+      },
+      "omissions": []
+    },
+    "research_package": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "run_id": "root-1",
+      "candidate_id": "candidate-1",
+      "revision": 2,
+      "question": "Verify the supplied two-session research result.",
+      "manifest": {
+        "manifest_id": "manifest-2",
+        "revision": 2,
+        "sha256": "7b3f589afcfdc4ddc94c6212b802d017c1a367232348c4444a7659d8252c1eab"
+      },
+      "draft_report": {
+        "artifact_id": "report",
+        "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03",
+        "locator": ""
+      },
+      "publication": {
+        "artifact_id": "publication",
+        "sha256": "9bc02c1e9afd43c2de5e717a50539bc6378b1928e887bef3550dded701b83d0e",
+        "locator": ""
+      },
+      "claims": [
+        {
+          "claim_id": "return-claim",
+          "text": "The two-session total net return is -1%.",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        }
+      ],
+      "metrics": [
+        {
+          "metric_id": "net-return",
+          "value": -0.01,
+          "unit": "fraction",
+          "period_start": "2024-01-02",
+          "period_end": "2024-01-03",
+          "return_basis": "net",
+          "compounding": "geometric",
+          "fees": "included",
+          "benchmark": null,
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        }
+      ],
+      "assumptions": [
+        "Synthetic fixed two-session example."
+      ],
+      "source_refs": [
+        {
+          "artifact_id": "source",
+          "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+          "locator": ""
+        }
+      ],
+      "data_refs": [
+        {
+          "artifact_id": "data",
+          "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+          "locator": "/rows"
+        }
+      ],
+      "result_refs": [
+        {
+          "artifact_id": "result",
+          "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+          "locator": ""
+        }
+      ],
+      "timing": {
+        "decision_at": "2024-01-04T09:30:00+08:00",
+        "availability_evidence": [
+          {
+            "artifact_id": "timing",
+            "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+            "locator": "/available_at"
+          }
+        ]
+      },
+      "limitations": [
+        "No inference about future performance."
+      ]
+    },
+    "delegation_request": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "root_run_id": "root-1",
+      "parent_run_id": "root-1",
+      "child_task_id": "review-2",
+      "attempt_id": "attempt-2",
+      "node_id": "reviewer-1",
+      "role": "reviewer",
+      "round": 2,
+      "candidate": {
+        "candidate_id": "candidate-1",
+        "revision": 2,
+        "sha256": "9fd0af9494f75c08591c82a27d5e36428ee390db7da1bbd9e6dc388f6c85dd2a"
+      },
+      "manifest": {
+        "manifest_id": "manifest-2",
+        "revision": 2,
+        "sha256": "7b3f589afcfdc4ddc94c6212b802d017c1a367232348c4444a7659d8252c1eab"
+      },
+      "result_type": "review_result",
+      "policy_id": "policy-1",
+      "grant_id": "grant-1",
+      "budget_id": "budget-1",
+      "deadline": "2027-01-01T00:00:00Z"
+    },
+    "review_result": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "submission_id": "submission-2",
+      "child_task_id": "review-2",
+      "attempt_id": "attempt-2",
+      "round": 2,
+      "candidate": {
+        "candidate_id": "candidate-1",
+        "revision": 2,
+        "sha256": "9fd0af9494f75c08591c82a27d5e36428ee390db7da1bbd9e6dc388f6c85dd2a"
+      },
+      "manifest": {
+        "manifest_id": "manifest-2",
+        "revision": 2,
+        "sha256": "7b3f589afcfdc4ddc94c6212b802d017c1a367232348c4444a7659d8252c1eab"
+      },
+      "status": "pass",
+      "coverage": [
+        {
+          "category": "formulas",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        },
+        {
+          "category": "pit",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "timing",
+              "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+              "locator": "/available_at"
+            }
+          ]
+        },
+        {
+          "category": "returns",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        },
+        {
+          "category": "execution",
+          "status": "not_applicable",
+          "reason": "No orders or risk model are claimed in this synthetic arithmetic task.",
+          "evidence": []
+        },
+        {
+          "category": "risk",
+          "status": "not_applicable",
+          "reason": "No orders or risk model are claimed in this synthetic arithmetic task.",
+          "evidence": []
+        },
+        {
+          "category": "report_consistency",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        },
+        {
+          "category": "support",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        }
+      ],
+      "findings": [],
+      "missing_evidence": [],
+      "reason": null
+    },
+    "correction_response": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "response_id": "correction-1",
+      "review_submission_id": "submission-1",
+      "reviewed_candidate": {
+        "candidate_id": "candidate-1",
+        "revision": 1,
+        "sha256": "b21d63959f583e94508eb5a504b87116348d577decc2fd9f41c355b2f57938e3"
+      },
+      "new_candidate": {
+        "candidate_id": "candidate-1",
+        "revision": 2,
+        "sha256": "9fd0af9494f75c08591c82a27d5e36428ee390db7da1bbd9e6dc388f6c85dd2a"
+      },
+      "dispositions": [
+        {
+          "finding_id": "finding-1",
+          "status": "corrected",
+          "reason": "The return figure and report are now geometrically compounded.",
+          "evidence": [
+            {
+              "artifact_id": "data",
+              "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+              "locator": "/rows"
+            },
+            {
+              "artifact_id": "report",
+              "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03",
+              "locator": ""
+            }
+          ],
+          "changed_artifact_ids": [
+            "report",
+            "publication"
+          ]
+        }
+      ],
+      "remaining_disagreements": []
+    },
+    "final_output_request": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "request_id": "request-1",
+      "idempotency_key": "delivery-1",
+      "expected_task_version": 3,
+      "candidate": {
+        "candidate_id": "candidate-1",
+        "revision": 2,
+        "sha256": "9fd0af9494f75c08591c82a27d5e36428ee390db7da1bbd9e6dc388f6c85dd2a"
+      },
+      "manifest": {
+        "manifest_id": "manifest-2",
+        "revision": 2,
+        "sha256": "7b3f589afcfdc4ddc94c6212b802d017c1a367232348c4444a7659d8252c1eab"
+      },
+      "review_submission_id": "submission-2",
+      "correction_response_id": "correction-1",
+      "draft_report": {
+        "artifact_id": "report",
+        "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03",
+        "locator": ""
+      },
+      "payload_sha256": "9bc02c1e9afd43c2de5e717a50539bc6378b1928e887bef3550dded701b83d0e",
+      "destination": {
+        "report_id": "report-1",
+        "mode": "create",
+        "expected_workspace_revision": 0,
+        "expected_report_revision": null
+      },
+      "outputs": {
+        "summary": "The two-session total net return is -1%.",
+        "decisionNotebook": {
+          "classification": "reviewed",
+          "baseCase": "The two-session total net return is -1%.",
+          "riskCase": "Only two synthetic sessions.",
+          "nextAction": "Inspect the frozen evidence.",
+          "candidateExpressions": []
+        },
+        "workspaceResult": {
+          "version": 1,
+          "requestId": "request-1",
+          "kind": "document",
+          "reportId": "report-1",
+          "title": "Two-session result",
+          "sources": [],
+          "columns": [
+            {
+              "key": "value",
+              "label": "Net return",
+              "format": "percent"
+            },
+            {
+              "key": "count",
+              "label": "Reports",
+              "format": "number"
+            }
+          ],
+          "rows": [
+            {
+              "value": -0.01,
+              "count": 1
+            }
+          ]
+        },
+        "workspaceCommands": {
+          "version": 1,
+          "requestId": "request-1",
+          "commands": [
+            {
+              "type": "open_result",
+              "resultId": "report-1"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "previous": {
+    "manifest": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "manifest_id": "manifest-1",
+      "revision": 1,
+      "created_at": "2026-11-02T00:00:00Z",
+      "code_identity": "fixture-code-1",
+      "environment_identity": "fixture-environment-1",
+      "artifacts": [
+        {
+          "artifact_id": "source",
+          "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+          "byte_length": 52,
+          "media_type": "text/plain",
+          "kind": "source",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            ""
+          ]
+        },
+        {
+          "artifact_id": "data",
+          "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+          "byte_length": 99,
+          "media_type": "application/json",
+          "kind": "data",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/rows",
+            "/rows/0/return_value"
+          ]
+        },
+        {
+          "artifact_id": "result",
+          "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+          "byte_length": 77,
+          "media_type": "application/json",
+          "kind": "result",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/net_return"
+          ]
+        },
+        {
+          "artifact_id": "timing",
+          "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+          "byte_length": 86,
+          "media_type": "application/json",
+          "kind": "timing",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/available_at"
+          ]
+        },
+        {
+          "artifact_id": "report",
+          "sha256": "f90d4c2626ffa999d055facf3710e6ffecd612ddf3e47e720c44cae8a5678964",
+          "byte_length": 36,
+          "media_type": "text/markdown",
+          "kind": "report",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "lines:1:1"
+          ]
+        },
+        {
+          "artifact_id": "publication",
+          "sha256": "ed27d2cedb0c3372f4e741727dc1914cf2f085fccc374139c65dc09b8f3d3aff",
+          "byte_length": 799,
+          "media_type": "application/json",
+          "kind": "publication",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            ""
+          ]
+        }
+      ],
+      "coverage": {
+        "data": "complete",
+        "sources": "complete",
+        "results": "complete",
+        "pit": "complete"
+      },
+      "omissions": []
+    },
+    "manifest_ref": {
+      "manifest_id": "manifest-1",
+      "revision": 1,
+      "sha256": "fe9c378ee1009c1a6d4e7b270df97d84aac59923966a814b735bdffd26e15742"
+    },
+    "evidence": {
+      "source": {
+        "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+        "media_type": "text/plain",
+        "content": "Frozen synthetic source revision 1; never executed.\n"
+      },
+      "data": {
+        "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+        "media_type": "application/json",
+        "content": {
+          "rows": [
+            {
+              "date": "2024-01-02",
+              "return_value": "0.10"
+            },
+            {
+              "date": "2024-01-03",
+              "return_value": "-0.10"
+            }
+          ]
+        }
+      },
+      "result": {
+        "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+        "media_type": "application/json",
+        "content": {
+          "fees": "included",
+          "net_return": -0.01,
+          "return_basis": "net",
+          "unit": "fraction"
+        }
+      },
+      "timing": {
+        "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+        "media_type": "application/json",
+        "content": {
+          "available_at": "2024-01-03T17:00:00+08:00",
+          "decision_at": "2024-01-04T09:30:00+08:00"
+        }
+      },
+      "report": {
+        "sha256": "f90d4c2626ffa999d055facf3710e6ffecd612ddf3e47e720c44cae8a5678964",
+        "media_type": "text/markdown",
+        "content": "The two-session total return is 0%.\n"
+      },
+      "publication": {
+        "sha256": "ed27d2cedb0c3372f4e741727dc1914cf2f085fccc374139c65dc09b8f3d3aff",
+        "media_type": "application/json",
+        "content": {
+          "outputs": {
+            "decisionNotebook": {
+              "baseCase": "The two-session total return is 0%.",
+              "candidateExpressions": [],
+              "classification": "reviewed",
+              "nextAction": "Inspect the frozen evidence.",
+              "riskCase": "Only two synthetic sessions."
+            },
+            "summary": "The two-session total return is 0%.",
+            "workspaceCommands": {
+              "commands": [
+                {
+                  "resultId": "report-1",
+                  "type": "open_result"
+                }
+              ],
+              "requestId": "request-1",
+              "version": 1
+            },
+            "workspaceResult": {
+              "columns": [
+                {
+                  "format": "percent",
+                  "key": "value",
+                  "label": "Net return"
+                },
+                {
+                  "format": "number",
+                  "key": "count",
+                  "label": "Reports"
+                }
+              ],
+              "kind": "document",
+              "reportId": "report-1",
+              "requestId": "request-1",
+              "rows": [
+                {
+                  "count": 1,
+                  "value": 0
+                }
+              ],
+              "sources": [],
+              "title": "Two-session result",
+              "version": 1
+            }
+          },
+          "report": {
+            "artifact_id": "report",
+            "locator": "",
+            "sha256": "f90d4c2626ffa999d055facf3710e6ffecd612ddf3e47e720c44cae8a5678964"
+          }
+        }
+      }
+    },
+    "research_package": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "run_id": "root-1",
+      "candidate_id": "candidate-1",
+      "revision": 1,
+      "question": "Verify the supplied two-session research result.",
+      "manifest": {
+        "manifest_id": "manifest-1",
+        "revision": 1,
+        "sha256": "fe9c378ee1009c1a6d4e7b270df97d84aac59923966a814b735bdffd26e15742"
+      },
+      "draft_report": {
+        "artifact_id": "report",
+        "sha256": "f90d4c2626ffa999d055facf3710e6ffecd612ddf3e47e720c44cae8a5678964",
+        "locator": ""
+      },
+      "publication": {
+        "artifact_id": "publication",
+        "sha256": "ed27d2cedb0c3372f4e741727dc1914cf2f085fccc374139c65dc09b8f3d3aff",
+        "locator": ""
+      },
+      "claims": [
+        {
+          "claim_id": "return-claim",
+          "text": "The two-session total return is 0%.",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        }
+      ],
+      "metrics": [
+        {
+          "metric_id": "net-return",
+          "value": 0,
+          "unit": "fraction",
+          "period_start": "2024-01-02",
+          "period_end": "2024-01-03",
+          "return_basis": "net",
+          "compounding": "geometric",
+          "fees": "included",
+          "benchmark": null,
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        }
+      ],
+      "assumptions": [
+        "Synthetic fixed two-session example."
+      ],
+      "source_refs": [
+        {
+          "artifact_id": "source",
+          "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+          "locator": ""
+        }
+      ],
+      "data_refs": [
+        {
+          "artifact_id": "data",
+          "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+          "locator": "/rows"
+        }
+      ],
+      "result_refs": [
+        {
+          "artifact_id": "result",
+          "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+          "locator": ""
+        }
+      ],
+      "timing": {
+        "decision_at": "2024-01-04T09:30:00+08:00",
+        "availability_evidence": [
+          {
+            "artifact_id": "timing",
+            "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+            "locator": "/available_at"
+          }
+        ]
+      },
+      "limitations": [
+        "No inference about future performance."
+      ]
+    },
+    "candidate": {
+      "candidate_id": "candidate-1",
+      "revision": 1,
+      "sha256": "b21d63959f583e94508eb5a504b87116348d577decc2fd9f41c355b2f57938e3"
+    },
+    "review": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "submission_id": "submission-1",
+      "child_task_id": "review-1",
+      "attempt_id": "attempt-1",
+      "round": 1,
+      "candidate": {
+        "candidate_id": "candidate-1",
+        "revision": 1,
+        "sha256": "b21d63959f583e94508eb5a504b87116348d577decc2fd9f41c355b2f57938e3"
+      },
+      "manifest": {
+        "manifest_id": "manifest-1",
+        "revision": 1,
+        "sha256": "fe9c378ee1009c1a6d4e7b270df97d84aac59923966a814b735bdffd26e15742"
+      },
+      "status": "findings",
+      "coverage": [
+        {
+          "category": "formulas",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        },
+        {
+          "category": "pit",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "timing",
+              "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+              "locator": "/available_at"
+            }
+          ]
+        },
+        {
+          "category": "returns",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        },
+        {
+          "category": "execution",
+          "status": "not_applicable",
+          "reason": "No orders or risk model are claimed in this synthetic arithmetic task.",
+          "evidence": []
+        },
+        {
+          "category": "risk",
+          "status": "not_applicable",
+          "reason": "No orders or risk model are claimed in this synthetic arithmetic task.",
+          "evidence": []
+        },
+        {
+          "category": "report_consistency",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        },
+        {
+          "category": "support",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        }
+      ],
+      "findings": [
+        {
+          "finding_id": "finding-1",
+          "category": "formulas",
+          "severity": "error",
+          "certainty": "confirmed",
+          "claim_id": "return-claim",
+          "metric_id": "net-return",
+          "explanation": "The draft adds the two returns rather than compounding them.",
+          "expected": "-1%",
+          "observed": "0%",
+          "evidence": [
+            {
+              "artifact_id": "data",
+              "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+              "locator": "/rows"
+            },
+            {
+              "artifact_id": "report",
+              "sha256": "f90d4c2626ffa999d055facf3710e6ffecd612ddf3e47e720c44cae8a5678964",
+              "locator": ""
+            }
+          ],
+          "requested_correction": "Correct the return figure and report.",
+          "verification": "Multiply 1.10 by 0.90 and subtract one."
+        }
+      ],
+      "missing_evidence": [],
+      "reason": null
+    }
+  },
+  "context": {
+    "task": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "root_run_id": "root-1",
+      "researcher_node_id": "researcher-1",
+      "reviewer_node_id": "reviewer-1",
+      "question": "Verify the supplied two-session research result.",
+      "policy_id": "policy-1",
+      "grant_id": "grant-1",
+      "budget_id": "budget-1",
+      "deadline": "2027-01-01T00:00:00Z",
+      "max_review_rounds": 3,
+      "required_categories": [
+        "formulas",
+        "pit",
+        "returns",
+        "execution",
+        "risk",
+        "report_consistency",
+        "support"
+      ],
+      "not_applicable_categories": [
+        "execution",
+        "risk"
+      ]
+    },
+    "manifest": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "manifest_id": "manifest-2",
+      "revision": 2,
+      "created_at": "2026-11-02T00:00:00Z",
+      "code_identity": "fixture-code-1",
+      "environment_identity": "fixture-environment-1",
+      "artifacts": [
+        {
+          "artifact_id": "source",
+          "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+          "byte_length": 52,
+          "media_type": "text/plain",
+          "kind": "source",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            ""
+          ]
+        },
+        {
+          "artifact_id": "data",
+          "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+          "byte_length": 99,
+          "media_type": "application/json",
+          "kind": "data",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/rows",
+            "/rows/0/return_value"
+          ]
+        },
+        {
+          "artifact_id": "result",
+          "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+          "byte_length": 77,
+          "media_type": "application/json",
+          "kind": "result",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/net_return"
+          ]
+        },
+        {
+          "artifact_id": "timing",
+          "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+          "byte_length": 86,
+          "media_type": "application/json",
+          "kind": "timing",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/available_at"
+          ]
+        },
+        {
+          "artifact_id": "report",
+          "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03",
+          "byte_length": 41,
+          "media_type": "text/markdown",
+          "kind": "report",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "lines:1:1"
+          ]
+        },
+        {
+          "artifact_id": "publication",
+          "sha256": "9bc02c1e9afd43c2de5e717a50539bc6378b1928e887bef3550dded701b83d0e",
+          "byte_length": 813,
+          "media_type": "application/json",
+          "kind": "publication",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            ""
+          ]
+        }
+      ],
+      "coverage": {
+        "data": "complete",
+        "sources": "complete",
+        "results": "complete",
+        "pit": "complete"
+      },
+      "omissions": []
+    },
+    "manifest_ref": {
+      "manifest_id": "manifest-2",
+      "revision": 2,
+      "sha256": "7b3f589afcfdc4ddc94c6212b802d017c1a367232348c4444a7659d8252c1eab"
+    },
+    "evidence": {
+      "source": {
+        "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+        "media_type": "text/plain",
+        "content": "Frozen synthetic source revision 1; never executed.\n"
+      },
+      "data": {
+        "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+        "media_type": "application/json",
+        "content": {
+          "rows": [
+            {
+              "date": "2024-01-02",
+              "return_value": "0.10"
+            },
+            {
+              "date": "2024-01-03",
+              "return_value": "-0.10"
+            }
+          ]
+        }
+      },
+      "result": {
+        "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+        "media_type": "application/json",
+        "content": {
+          "fees": "included",
+          "net_return": -0.01,
+          "return_basis": "net",
+          "unit": "fraction"
+        }
+      },
+      "timing": {
+        "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+        "media_type": "application/json",
+        "content": {
+          "available_at": "2024-01-03T17:00:00+08:00",
+          "decision_at": "2024-01-04T09:30:00+08:00"
+        }
+      },
+      "report": {
+        "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03",
+        "media_type": "text/markdown",
+        "content": "The two-session total net return is -1%.\n"
+      },
+      "publication": {
+        "sha256": "9bc02c1e9afd43c2de5e717a50539bc6378b1928e887bef3550dded701b83d0e",
+        "media_type": "application/json",
+        "content": {
+          "outputs": {
+            "decisionNotebook": {
+              "baseCase": "The two-session total net return is -1%.",
+              "candidateExpressions": [],
+              "classification": "reviewed",
+              "nextAction": "Inspect the frozen evidence.",
+              "riskCase": "Only two synthetic sessions."
+            },
+            "summary": "The two-session total net return is -1%.",
+            "workspaceCommands": {
+              "commands": [
+                {
+                  "resultId": "report-1",
+                  "type": "open_result"
+                }
+              ],
+              "requestId": "request-1",
+              "version": 1
+            },
+            "workspaceResult": {
+              "columns": [
+                {
+                  "format": "percent",
+                  "key": "value",
+                  "label": "Net return"
+                },
+                {
+                  "format": "number",
+                  "key": "count",
+                  "label": "Reports"
+                }
+              ],
+              "kind": "document",
+              "reportId": "report-1",
+              "requestId": "request-1",
+              "rows": [
+                {
+                  "count": 1,
+                  "value": -0.01
+                }
+              ],
+              "sources": [],
+              "title": "Two-session result",
+              "version": 1
+            }
+          },
+          "report": {
+            "artifact_id": "report",
+            "locator": "",
+            "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03"
+          }
+        }
+      }
+    },
+    "candidate": {
+      "candidate_id": "candidate-1",
+      "revision": 2,
+      "sha256": "9fd0af9494f75c08591c82a27d5e36428ee390db7da1bbd9e6dc388f6c85dd2a"
+    },
+    "delegation": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "root_run_id": "root-1",
+      "parent_run_id": "root-1",
+      "child_task_id": "review-2",
+      "attempt_id": "attempt-2",
+      "node_id": "reviewer-1",
+      "role": "reviewer",
+      "round": 2,
+      "candidate": {
+        "candidate_id": "candidate-1",
+        "revision": 2,
+        "sha256": "9fd0af9494f75c08591c82a27d5e36428ee390db7da1bbd9e6dc388f6c85dd2a"
+      },
+      "manifest": {
+        "manifest_id": "manifest-2",
+        "revision": 2,
+        "sha256": "7b3f589afcfdc4ddc94c6212b802d017c1a367232348c4444a7659d8252c1eab"
+      },
+      "result_type": "review_result",
+      "policy_id": "policy-1",
+      "grant_id": "grant-1",
+      "budget_id": "budget-1",
+      "deadline": "2027-01-01T00:00:00Z"
+    },
+    "research_package": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "run_id": "root-1",
+      "candidate_id": "candidate-1",
+      "revision": 2,
+      "question": "Verify the supplied two-session research result.",
+      "manifest": {
+        "manifest_id": "manifest-2",
+        "revision": 2,
+        "sha256": "7b3f589afcfdc4ddc94c6212b802d017c1a367232348c4444a7659d8252c1eab"
+      },
+      "draft_report": {
+        "artifact_id": "report",
+        "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03",
+        "locator": ""
+      },
+      "publication": {
+        "artifact_id": "publication",
+        "sha256": "9bc02c1e9afd43c2de5e717a50539bc6378b1928e887bef3550dded701b83d0e",
+        "locator": ""
+      },
+      "claims": [
+        {
+          "claim_id": "return-claim",
+          "text": "The two-session total net return is -1%.",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        }
+      ],
+      "metrics": [
+        {
+          "metric_id": "net-return",
+          "value": -0.01,
+          "unit": "fraction",
+          "period_start": "2024-01-02",
+          "period_end": "2024-01-03",
+          "return_basis": "net",
+          "compounding": "geometric",
+          "fees": "included",
+          "benchmark": null,
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        }
+      ],
+      "assumptions": [
+        "Synthetic fixed two-session example."
+      ],
+      "source_refs": [
+        {
+          "artifact_id": "source",
+          "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+          "locator": ""
+        }
+      ],
+      "data_refs": [
+        {
+          "artifact_id": "data",
+          "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+          "locator": "/rows"
+        }
+      ],
+      "result_refs": [
+        {
+          "artifact_id": "result",
+          "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+          "locator": ""
+        }
+      ],
+      "timing": {
+        "decision_at": "2024-01-04T09:30:00+08:00",
+        "availability_evidence": [
+          {
+            "artifact_id": "timing",
+            "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+            "locator": "/available_at"
+          }
+        ]
+      },
+      "limitations": [
+        "No inference about future performance."
+      ]
+    },
+    "next_candidate": {
+      "candidate_id": "candidate-1",
+      "revision": 2,
+      "sha256": "9fd0af9494f75c08591c82a27d5e36428ee390db7da1bbd9e6dc388f6c85dd2a"
+    },
+    "previous_manifest": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "manifest_id": "manifest-1",
+      "revision": 1,
+      "created_at": "2026-11-02T00:00:00Z",
+      "code_identity": "fixture-code-1",
+      "environment_identity": "fixture-environment-1",
+      "artifacts": [
+        {
+          "artifact_id": "source",
+          "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+          "byte_length": 52,
+          "media_type": "text/plain",
+          "kind": "source",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            ""
+          ]
+        },
+        {
+          "artifact_id": "data",
+          "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+          "byte_length": 99,
+          "media_type": "application/json",
+          "kind": "data",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/rows",
+            "/rows/0/return_value"
+          ]
+        },
+        {
+          "artifact_id": "result",
+          "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+          "byte_length": 77,
+          "media_type": "application/json",
+          "kind": "result",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/net_return"
+          ]
+        },
+        {
+          "artifact_id": "timing",
+          "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+          "byte_length": 86,
+          "media_type": "application/json",
+          "kind": "timing",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/available_at"
+          ]
+        },
+        {
+          "artifact_id": "report",
+          "sha256": "f90d4c2626ffa999d055facf3710e6ffecd612ddf3e47e720c44cae8a5678964",
+          "byte_length": 36,
+          "media_type": "text/markdown",
+          "kind": "report",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "lines:1:1"
+          ]
+        },
+        {
+          "artifact_id": "publication",
+          "sha256": "ed27d2cedb0c3372f4e741727dc1914cf2f085fccc374139c65dc09b8f3d3aff",
+          "byte_length": 799,
+          "media_type": "application/json",
+          "kind": "publication",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            ""
+          ]
+        }
+      ],
+      "coverage": {
+        "data": "complete",
+        "sources": "complete",
+        "results": "complete",
+        "pit": "complete"
+      },
+      "omissions": []
+    },
+    "review": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "submission_id": "submission-2",
+      "child_task_id": "review-2",
+      "attempt_id": "attempt-2",
+      "round": 2,
+      "candidate": {
+        "candidate_id": "candidate-1",
+        "revision": 2,
+        "sha256": "9fd0af9494f75c08591c82a27d5e36428ee390db7da1bbd9e6dc388f6c85dd2a"
+      },
+      "manifest": {
+        "manifest_id": "manifest-2",
+        "revision": 2,
+        "sha256": "7b3f589afcfdc4ddc94c6212b802d017c1a367232348c4444a7659d8252c1eab"
+      },
+      "status": "pass",
+      "coverage": [
+        {
+          "category": "formulas",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        },
+        {
+          "category": "pit",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "timing",
+              "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+              "locator": "/available_at"
+            }
+          ]
+        },
+        {
+          "category": "returns",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        },
+        {
+          "category": "execution",
+          "status": "not_applicable",
+          "reason": "No orders or risk model are claimed in this synthetic arithmetic task.",
+          "evidence": []
+        },
+        {
+          "category": "risk",
+          "status": "not_applicable",
+          "reason": "No orders or risk model are claimed in this synthetic arithmetic task.",
+          "evidence": []
+        },
+        {
+          "category": "report_consistency",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        },
+        {
+          "category": "support",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        }
+      ],
+      "findings": [],
+      "missing_evidence": [],
+      "reason": null
+    },
+    "correction": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "response_id": "correction-1",
+      "review_submission_id": "submission-1",
+      "reviewed_candidate": {
+        "candidate_id": "candidate-1",
+        "revision": 1,
+        "sha256": "b21d63959f583e94508eb5a504b87116348d577decc2fd9f41c355b2f57938e3"
+      },
+      "new_candidate": {
+        "candidate_id": "candidate-1",
+        "revision": 2,
+        "sha256": "9fd0af9494f75c08591c82a27d5e36428ee390db7da1bbd9e6dc388f6c85dd2a"
+      },
+      "dispositions": [
+        {
+          "finding_id": "finding-1",
+          "status": "corrected",
+          "reason": "The return figure and report are now geometrically compounded.",
+          "evidence": [
+            {
+              "artifact_id": "data",
+              "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+              "locator": "/rows"
+            },
+            {
+              "artifact_id": "report",
+              "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03",
+              "locator": ""
+            }
+          ],
+          "changed_artifact_ids": [
+            "report",
+            "publication"
+          ]
+        }
+      ],
+      "remaining_disagreements": []
+    },
+    "task_state": {
+      "status": "ready",
+      "version": 3
+    },
+    "destination": {
+      "report_id": "report-1",
+      "mode": "create",
+      "expected_workspace_revision": 0,
+      "expected_report_revision": null
+    }
+  },
+  "correction_context": {
+    "task": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "root_run_id": "root-1",
+      "researcher_node_id": "researcher-1",
+      "reviewer_node_id": "reviewer-1",
+      "question": "Verify the supplied two-session research result.",
+      "policy_id": "policy-1",
+      "grant_id": "grant-1",
+      "budget_id": "budget-1",
+      "deadline": "2027-01-01T00:00:00Z",
+      "max_review_rounds": 3,
+      "required_categories": [
+        "formulas",
+        "pit",
+        "returns",
+        "execution",
+        "risk",
+        "report_consistency",
+        "support"
+      ],
+      "not_applicable_categories": [
+        "execution",
+        "risk"
+      ]
+    },
+    "manifest": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "manifest_id": "manifest-2",
+      "revision": 2,
+      "created_at": "2026-11-02T00:00:00Z",
+      "code_identity": "fixture-code-1",
+      "environment_identity": "fixture-environment-1",
+      "artifacts": [
+        {
+          "artifact_id": "source",
+          "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+          "byte_length": 52,
+          "media_type": "text/plain",
+          "kind": "source",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            ""
+          ]
+        },
+        {
+          "artifact_id": "data",
+          "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+          "byte_length": 99,
+          "media_type": "application/json",
+          "kind": "data",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/rows",
+            "/rows/0/return_value"
+          ]
+        },
+        {
+          "artifact_id": "result",
+          "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+          "byte_length": 77,
+          "media_type": "application/json",
+          "kind": "result",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/net_return"
+          ]
+        },
+        {
+          "artifact_id": "timing",
+          "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+          "byte_length": 86,
+          "media_type": "application/json",
+          "kind": "timing",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/available_at"
+          ]
+        },
+        {
+          "artifact_id": "report",
+          "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03",
+          "byte_length": 41,
+          "media_type": "text/markdown",
+          "kind": "report",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "lines:1:1"
+          ]
+        },
+        {
+          "artifact_id": "publication",
+          "sha256": "9bc02c1e9afd43c2de5e717a50539bc6378b1928e887bef3550dded701b83d0e",
+          "byte_length": 813,
+          "media_type": "application/json",
+          "kind": "publication",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            ""
+          ]
+        }
+      ],
+      "coverage": {
+        "data": "complete",
+        "sources": "complete",
+        "results": "complete",
+        "pit": "complete"
+      },
+      "omissions": []
+    },
+    "manifest_ref": {
+      "manifest_id": "manifest-2",
+      "revision": 2,
+      "sha256": "7b3f589afcfdc4ddc94c6212b802d017c1a367232348c4444a7659d8252c1eab"
+    },
+    "evidence": {
+      "source": {
+        "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+        "media_type": "text/plain",
+        "content": "Frozen synthetic source revision 1; never executed.\n"
+      },
+      "data": {
+        "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+        "media_type": "application/json",
+        "content": {
+          "rows": [
+            {
+              "date": "2024-01-02",
+              "return_value": "0.10"
+            },
+            {
+              "date": "2024-01-03",
+              "return_value": "-0.10"
+            }
+          ]
+        }
+      },
+      "result": {
+        "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+        "media_type": "application/json",
+        "content": {
+          "fees": "included",
+          "net_return": -0.01,
+          "return_basis": "net",
+          "unit": "fraction"
+        }
+      },
+      "timing": {
+        "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+        "media_type": "application/json",
+        "content": {
+          "available_at": "2024-01-03T17:00:00+08:00",
+          "decision_at": "2024-01-04T09:30:00+08:00"
+        }
+      },
+      "report": {
+        "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03",
+        "media_type": "text/markdown",
+        "content": "The two-session total net return is -1%.\n"
+      },
+      "publication": {
+        "sha256": "9bc02c1e9afd43c2de5e717a50539bc6378b1928e887bef3550dded701b83d0e",
+        "media_type": "application/json",
+        "content": {
+          "outputs": {
+            "decisionNotebook": {
+              "baseCase": "The two-session total net return is -1%.",
+              "candidateExpressions": [],
+              "classification": "reviewed",
+              "nextAction": "Inspect the frozen evidence.",
+              "riskCase": "Only two synthetic sessions."
+            },
+            "summary": "The two-session total net return is -1%.",
+            "workspaceCommands": {
+              "commands": [
+                {
+                  "resultId": "report-1",
+                  "type": "open_result"
+                }
+              ],
+              "requestId": "request-1",
+              "version": 1
+            },
+            "workspaceResult": {
+              "columns": [
+                {
+                  "format": "percent",
+                  "key": "value",
+                  "label": "Net return"
+                },
+                {
+                  "format": "number",
+                  "key": "count",
+                  "label": "Reports"
+                }
+              ],
+              "kind": "document",
+              "reportId": "report-1",
+              "requestId": "request-1",
+              "rows": [
+                {
+                  "count": 1,
+                  "value": -0.01
+                }
+              ],
+              "sources": [],
+              "title": "Two-session result",
+              "version": 1
+            }
+          },
+          "report": {
+            "artifact_id": "report",
+            "locator": "",
+            "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03"
+          }
+        }
+      }
+    },
+    "candidate": {
+      "candidate_id": "candidate-1",
+      "revision": 2,
+      "sha256": "9fd0af9494f75c08591c82a27d5e36428ee390db7da1bbd9e6dc388f6c85dd2a"
+    },
+    "delegation": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "root_run_id": "root-1",
+      "parent_run_id": "root-1",
+      "child_task_id": "review-2",
+      "attempt_id": "attempt-2",
+      "node_id": "reviewer-1",
+      "role": "reviewer",
+      "round": 2,
+      "candidate": {
+        "candidate_id": "candidate-1",
+        "revision": 2,
+        "sha256": "9fd0af9494f75c08591c82a27d5e36428ee390db7da1bbd9e6dc388f6c85dd2a"
+      },
+      "manifest": {
+        "manifest_id": "manifest-2",
+        "revision": 2,
+        "sha256": "7b3f589afcfdc4ddc94c6212b802d017c1a367232348c4444a7659d8252c1eab"
+      },
+      "result_type": "review_result",
+      "policy_id": "policy-1",
+      "grant_id": "grant-1",
+      "budget_id": "budget-1",
+      "deadline": "2027-01-01T00:00:00Z"
+    },
+    "research_package": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "run_id": "root-1",
+      "candidate_id": "candidate-1",
+      "revision": 2,
+      "question": "Verify the supplied two-session research result.",
+      "manifest": {
+        "manifest_id": "manifest-2",
+        "revision": 2,
+        "sha256": "7b3f589afcfdc4ddc94c6212b802d017c1a367232348c4444a7659d8252c1eab"
+      },
+      "draft_report": {
+        "artifact_id": "report",
+        "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03",
+        "locator": ""
+      },
+      "publication": {
+        "artifact_id": "publication",
+        "sha256": "9bc02c1e9afd43c2de5e717a50539bc6378b1928e887bef3550dded701b83d0e",
+        "locator": ""
+      },
+      "claims": [
+        {
+          "claim_id": "return-claim",
+          "text": "The two-session total net return is -1%.",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        }
+      ],
+      "metrics": [
+        {
+          "metric_id": "net-return",
+          "value": -0.01,
+          "unit": "fraction",
+          "period_start": "2024-01-02",
+          "period_end": "2024-01-03",
+          "return_basis": "net",
+          "compounding": "geometric",
+          "fees": "included",
+          "benchmark": null,
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        }
+      ],
+      "assumptions": [
+        "Synthetic fixed two-session example."
+      ],
+      "source_refs": [
+        {
+          "artifact_id": "source",
+          "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+          "locator": ""
+        }
+      ],
+      "data_refs": [
+        {
+          "artifact_id": "data",
+          "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+          "locator": "/rows"
+        }
+      ],
+      "result_refs": [
+        {
+          "artifact_id": "result",
+          "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+          "locator": ""
+        }
+      ],
+      "timing": {
+        "decision_at": "2024-01-04T09:30:00+08:00",
+        "availability_evidence": [
+          {
+            "artifact_id": "timing",
+            "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+            "locator": "/available_at"
+          }
+        ]
+      },
+      "limitations": [
+        "No inference about future performance."
+      ]
+    },
+    "next_candidate": {
+      "candidate_id": "candidate-1",
+      "revision": 2,
+      "sha256": "9fd0af9494f75c08591c82a27d5e36428ee390db7da1bbd9e6dc388f6c85dd2a"
+    },
+    "previous_manifest": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "manifest_id": "manifest-1",
+      "revision": 1,
+      "created_at": "2026-11-02T00:00:00Z",
+      "code_identity": "fixture-code-1",
+      "environment_identity": "fixture-environment-1",
+      "artifacts": [
+        {
+          "artifact_id": "source",
+          "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+          "byte_length": 52,
+          "media_type": "text/plain",
+          "kind": "source",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            ""
+          ]
+        },
+        {
+          "artifact_id": "data",
+          "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+          "byte_length": 99,
+          "media_type": "application/json",
+          "kind": "data",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/rows",
+            "/rows/0/return_value"
+          ]
+        },
+        {
+          "artifact_id": "result",
+          "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+          "byte_length": 77,
+          "media_type": "application/json",
+          "kind": "result",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/net_return"
+          ]
+        },
+        {
+          "artifact_id": "timing",
+          "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+          "byte_length": 86,
+          "media_type": "application/json",
+          "kind": "timing",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "/available_at"
+          ]
+        },
+        {
+          "artifact_id": "report",
+          "sha256": "f90d4c2626ffa999d055facf3710e6ffecd612ddf3e47e720c44cae8a5678964",
+          "byte_length": 36,
+          "media_type": "text/markdown",
+          "kind": "report",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            "",
+            "lines:1:1"
+          ]
+        },
+        {
+          "artifact_id": "publication",
+          "sha256": "ed27d2cedb0c3372f4e741727dc1914cf2f085fccc374139c65dc09b8f3d3aff",
+          "byte_length": 799,
+          "media_type": "application/json",
+          "kind": "publication",
+          "source": {
+            "identity": "synthetic-development-evidence",
+            "revision": "1",
+            "code_sha256": null,
+            "environment_sha256": null
+          },
+          "locators": [
+            ""
+          ]
+        }
+      ],
+      "coverage": {
+        "data": "complete",
+        "sources": "complete",
+        "results": "complete",
+        "pit": "complete"
+      },
+      "omissions": []
+    },
+    "review": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "submission_id": "submission-1",
+      "child_task_id": "review-1",
+      "attempt_id": "attempt-1",
+      "round": 1,
+      "candidate": {
+        "candidate_id": "candidate-1",
+        "revision": 1,
+        "sha256": "b21d63959f583e94508eb5a504b87116348d577decc2fd9f41c355b2f57938e3"
+      },
+      "manifest": {
+        "manifest_id": "manifest-1",
+        "revision": 1,
+        "sha256": "fe9c378ee1009c1a6d4e7b270df97d84aac59923966a814b735bdffd26e15742"
+      },
+      "status": "findings",
+      "coverage": [
+        {
+          "category": "formulas",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        },
+        {
+          "category": "pit",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "timing",
+              "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+              "locator": "/available_at"
+            }
+          ]
+        },
+        {
+          "category": "returns",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        },
+        {
+          "category": "execution",
+          "status": "not_applicable",
+          "reason": "No orders or risk model are claimed in this synthetic arithmetic task.",
+          "evidence": []
+        },
+        {
+          "category": "risk",
+          "status": "not_applicable",
+          "reason": "No orders or risk model are claimed in this synthetic arithmetic task.",
+          "evidence": []
+        },
+        {
+          "category": "report_consistency",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        },
+        {
+          "category": "support",
+          "status": "checked",
+          "reason": "",
+          "evidence": [
+            {
+              "artifact_id": "result",
+              "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+              "locator": "/net_return"
+            }
+          ]
+        }
+      ],
+      "findings": [
+        {
+          "finding_id": "finding-1",
+          "category": "formulas",
+          "severity": "error",
+          "certainty": "confirmed",
+          "claim_id": "return-claim",
+          "metric_id": "net-return",
+          "explanation": "The draft adds the two returns rather than compounding them.",
+          "expected": "-1%",
+          "observed": "0%",
+          "evidence": [
+            {
+              "artifact_id": "data",
+              "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+              "locator": "/rows"
+            },
+            {
+              "artifact_id": "report",
+              "sha256": "f90d4c2626ffa999d055facf3710e6ffecd612ddf3e47e720c44cae8a5678964",
+              "locator": ""
+            }
+          ],
+          "requested_correction": "Correct the return figure and report.",
+          "verification": "Multiply 1.10 by 0.90 and subtract one."
+        }
+      ],
+      "missing_evidence": [],
+      "reason": null
+    },
+    "correction": {
+      "schema_version": 1,
+      "task_id": "task-1",
+      "response_id": "correction-1",
+      "review_submission_id": "submission-1",
+      "reviewed_candidate": {
+        "candidate_id": "candidate-1",
+        "revision": 1,
+        "sha256": "b21d63959f583e94508eb5a504b87116348d577decc2fd9f41c355b2f57938e3"
+      },
+      "new_candidate": {
+        "candidate_id": "candidate-1",
+        "revision": 2,
+        "sha256": "9fd0af9494f75c08591c82a27d5e36428ee390db7da1bbd9e6dc388f6c85dd2a"
+      },
+      "dispositions": [
+        {
+          "finding_id": "finding-1",
+          "status": "corrected",
+          "reason": "The return figure and report are now geometrically compounded.",
+          "evidence": [
+            {
+              "artifact_id": "data",
+              "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+              "locator": "/rows"
+            },
+            {
+              "artifact_id": "report",
+              "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03",
+              "locator": ""
+            }
+          ],
+          "changed_artifact_ids": [
+            "report",
+            "publication"
+          ]
+        }
+      ],
+      "remaining_disagreements": []
+    },
+    "task_state": {
+      "status": "ready",
+      "version": 3
+    },
+    "destination": {
+      "report_id": "report-1",
+      "mode": "create",
+      "expected_workspace_revision": 0,
+      "expected_report_revision": null
+    }
+  }
+}

@@ -1,0 +1,1118 @@
+[
+  {
+    "name": "valid-task_envelope",
+    "kind": "task_envelope",
+    "expected_code": null,
+    "patches": []
+  },
+  {
+    "name": "valid-evidence_manifest",
+    "kind": "evidence_manifest",
+    "expected_code": null,
+    "patches": []
+  },
+  {
+    "name": "valid-research_package",
+    "kind": "research_package",
+    "expected_code": null,
+    "patches": []
+  },
+  {
+    "name": "valid-delegation_request",
+    "kind": "delegation_request",
+    "expected_code": null,
+    "patches": []
+  },
+  {
+    "name": "valid-review_result",
+    "kind": "review_result",
+    "expected_code": null,
+    "patches": []
+  },
+  {
+    "name": "valid-correction_response",
+    "kind": "correction_response",
+    "expected_code": null,
+    "patches": []
+  },
+  {
+    "name": "valid-final_output_request",
+    "kind": "final_output_request",
+    "expected_code": null,
+    "patches": []
+  },
+  {
+    "name": "unknown-field",
+    "kind": "review_result",
+    "expected_code": "INVALID_CONTRACT",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "secret"
+        ],
+        "value": "do-not-echo"
+      }
+    ]
+  },
+  {
+    "name": "unknown-version",
+    "kind": "research_package",
+    "expected_code": "INVALID_CONTRACT",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "schema_version"
+        ],
+        "value": 2
+      }
+    ]
+  },
+  {
+    "name": "wrong-task",
+    "kind": "review_result",
+    "expected_code": "TASK_MISMATCH",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "task_id"
+        ],
+        "value": "another-task"
+      }
+    ]
+  },
+  {
+    "name": "stale-candidate",
+    "kind": "review_result",
+    "expected_code": "STALE_CANDIDATE",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "candidate",
+          "revision"
+        ],
+        "value": 1
+      }
+    ]
+  },
+  {
+    "name": "stale-manifest",
+    "kind": "review_result",
+    "expected_code": "EVIDENCE_CONFLICT",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "manifest",
+          "sha256"
+        ],
+        "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    ]
+  },
+  {
+    "name": "unknown-citation",
+    "kind": "review_result",
+    "expected_code": "EVIDENCE_CONFLICT",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "coverage",
+          0,
+          "evidence",
+          0,
+          "artifact_id"
+        ],
+        "value": "unknown"
+      }
+    ]
+  },
+  {
+    "name": "unauthorized-locator",
+    "kind": "review_result",
+    "expected_code": "INVALID_CITATION",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "coverage",
+          0,
+          "evidence",
+          0,
+          "locator"
+        ],
+        "value": "/secret"
+      }
+    ]
+  },
+  {
+    "name": "unresolvable-locator",
+    "kind": "review_result",
+    "expected_code": "INVALID_CITATION",
+    "patches": [
+      {
+        "scope": "context",
+        "operation": "delete",
+        "path": [
+          "evidence",
+          "result",
+          "content",
+          "unit"
+        ]
+      },
+      {
+        "scope": "context",
+        "operation": "delete",
+        "path": [
+          "evidence",
+          "result",
+          "content",
+          "fees"
+        ]
+      },
+      {
+        "scope": "context",
+        "operation": "delete",
+        "path": [
+          "evidence",
+          "result",
+          "content",
+          "return_basis"
+        ]
+      },
+      {
+        "scope": "context",
+        "operation": "delete",
+        "path": [
+          "evidence",
+          "result",
+          "content",
+          "net_return"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "missing-category",
+    "kind": "review_result",
+    "expected_code": "INCOMPLETE_REVIEW",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "coverage"
+        ],
+        "value": [
+          {
+            "category": "formulas",
+            "status": "checked",
+            "reason": "",
+            "evidence": [
+              {
+                "artifact_id": "result",
+                "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+                "locator": "/net_return"
+              }
+            ]
+          },
+          {
+            "category": "pit",
+            "status": "checked",
+            "reason": "",
+            "evidence": [
+              {
+                "artifact_id": "timing",
+                "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+                "locator": "/available_at"
+              }
+            ]
+          },
+          {
+            "category": "returns",
+            "status": "checked",
+            "reason": "",
+            "evidence": [
+              {
+                "artifact_id": "result",
+                "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+                "locator": "/net_return"
+              }
+            ]
+          },
+          {
+            "category": "execution",
+            "status": "not_applicable",
+            "reason": "No orders or risk model are claimed in this synthetic arithmetic task.",
+            "evidence": []
+          },
+          {
+            "category": "risk",
+            "status": "not_applicable",
+            "reason": "No orders or risk model are claimed in this synthetic arithmetic task.",
+            "evidence": []
+          },
+          {
+            "category": "report_consistency",
+            "status": "checked",
+            "reason": "",
+            "evidence": [
+              {
+                "artifact_id": "result",
+                "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+                "locator": "/net_return"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pit-unavailable",
+    "kind": "review_result",
+    "expected_code": "INCOMPLETE_REVIEW",
+    "patches": [
+      {
+        "scope": "context",
+        "operation": "set",
+        "path": [
+          "manifest",
+          "coverage",
+          "pit"
+        ],
+        "value": "unavailable"
+      }
+    ]
+  },
+  {
+    "name": "no-required-evidence",
+    "kind": "review_result",
+    "expected_code": "INCOMPLETE_REVIEW",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "coverage",
+          0,
+          "evidence"
+        ],
+        "value": []
+      }
+    ]
+  },
+  {
+    "name": "wrong-child",
+    "kind": "review_result",
+    "expected_code": "TASK_MISMATCH",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "child_task_id"
+        ],
+        "value": "wrong-child"
+      }
+    ]
+  },
+  {
+    "name": "duplicate-coverage",
+    "kind": "review_result",
+    "expected_code": "INVALID_CONTRACT",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "coverage",
+          6,
+          "category"
+        ],
+        "value": "formulas"
+      }
+    ]
+  },
+  {
+    "name": "pass-with-finding",
+    "kind": "review_result",
+    "expected_code": "INCOMPLETE_REVIEW",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "findings"
+        ],
+        "value": [
+          {
+            "finding_id": "finding-1",
+            "category": "formulas",
+            "severity": "error",
+            "certainty": "confirmed",
+            "claim_id": "return-claim",
+            "metric_id": "net-return",
+            "explanation": "The draft adds the two returns rather than compounding them.",
+            "expected": "-1%",
+            "observed": "0%",
+            "evidence": [
+              {
+                "artifact_id": "result",
+                "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+                "locator": ""
+              }
+            ],
+            "requested_correction": "Correct the return figure and report.",
+            "verification": "Multiply 1.10 by 0.90 and subtract one."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "incomplete-allowed",
+    "kind": "review_result",
+    "expected_code": null,
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "status"
+        ],
+        "value": "incomplete"
+      },
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "coverage",
+          1,
+          "status"
+        ],
+        "value": "missing"
+      },
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "coverage",
+          1,
+          "reason"
+        ],
+        "value": "Need availability evidence."
+      },
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "coverage",
+          1,
+          "evidence"
+        ],
+        "value": []
+      },
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "missing_evidence"
+        ],
+        "value": [
+          "timing"
+        ]
+      },
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "reason"
+        ],
+        "value": "Timing is missing."
+      }
+    ]
+  },
+  {
+    "name": "missing-disposition",
+    "kind": "correction_response",
+    "expected_code": "INVALID_CORRECTION",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "dispositions"
+        ],
+        "value": []
+      }
+    ]
+  },
+  {
+    "name": "unchanged-claimed-edit",
+    "kind": "correction_response",
+    "expected_code": "INVALID_CORRECTION",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "dispositions",
+          0,
+          "changed_artifact_ids"
+        ],
+        "value": [
+          "data"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "explicit-disagreement",
+    "kind": "correction_response",
+    "expected_code": null,
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "dispositions",
+          0,
+          "status"
+        ],
+        "value": "disputed"
+      },
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "dispositions",
+          0,
+          "reason"
+        ],
+        "value": "The reviewer interpretation is disputed."
+      },
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "dispositions",
+          0,
+          "changed_artifact_ids"
+        ],
+        "value": []
+      },
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "remaining_disagreements"
+        ],
+        "value": [
+          "finding-1"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "hidden-disagreement",
+    "kind": "correction_response",
+    "expected_code": "INVALID_CORRECTION",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "dispositions",
+          0,
+          "status"
+        ],
+        "value": "unresolved"
+      }
+    ]
+  },
+  {
+    "name": "cancelled-final",
+    "kind": "final_output_request",
+    "expected_code": "FINALIZATION_BLOCKED",
+    "patches": [
+      {
+        "scope": "context",
+        "operation": "set",
+        "path": [
+          "task_state",
+          "status"
+        ],
+        "value": "cancelled"
+      }
+    ]
+  },
+  {
+    "name": "stale-task-version",
+    "kind": "final_output_request",
+    "expected_code": "FINALIZATION_BLOCKED",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "expected_task_version"
+        ],
+        "value": 2
+      }
+    ]
+  },
+  {
+    "name": "changed-report",
+    "kind": "final_output_request",
+    "expected_code": "EVIDENCE_CONFLICT",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "draft_report",
+          "sha256"
+        ],
+        "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    ]
+  },
+  {
+    "name": "changed-output-summary",
+    "kind": "final_output_request",
+    "expected_code": "STALE_CANDIDATE",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "outputs",
+          "summary"
+        ],
+        "value": "An unreviewed conclusion."
+      }
+    ]
+  },
+  {
+    "name": "stale-destination",
+    "kind": "final_output_request",
+    "expected_code": "VERSION_CONFLICT",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "destination",
+          "expected_workspace_revision"
+        ],
+        "value": 1
+      }
+    ]
+  },
+  {
+    "name": "unresolved-final",
+    "kind": "final_output_request",
+    "expected_code": "FINALIZATION_BLOCKED",
+    "patches": [
+      {
+        "scope": "context",
+        "operation": "set",
+        "path": [
+          "correction",
+          "remaining_disagreements"
+        ],
+        "value": [
+          "finding-1"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "wrong-grant",
+    "kind": "delegation_request",
+    "expected_code": "TASK_MISMATCH",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "grant_id"
+        ],
+        "value": "another-grant"
+      }
+    ]
+  },
+  {
+    "name": "excess-round",
+    "kind": "delegation_request",
+    "expected_code": "TASK_MISMATCH",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "round"
+        ],
+        "value": 4
+      }
+    ]
+  },
+  {
+    "name": "extended-deadline",
+    "kind": "delegation_request",
+    "expected_code": "TASK_MISMATCH",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "deadline"
+        ],
+        "value": "2028-01-01T00:00:00Z"
+      }
+    ]
+  },
+  {
+    "name": "duplicate-artifact",
+    "kind": "evidence_manifest",
+    "expected_code": "INVALID_CONTRACT",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "artifacts"
+        ],
+        "value": [
+          {
+            "artifact_id": "source",
+            "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+            "byte_length": 52,
+            "media_type": "text/plain",
+            "kind": "source",
+            "source": {
+              "identity": "synthetic-development-evidence",
+              "revision": "1",
+              "code_sha256": null,
+              "environment_sha256": null
+            },
+            "locators": [
+              ""
+            ]
+          },
+          {
+            "artifact_id": "data",
+            "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+            "byte_length": 99,
+            "media_type": "application/json",
+            "kind": "data",
+            "source": {
+              "identity": "synthetic-development-evidence",
+              "revision": "1",
+              "code_sha256": null,
+              "environment_sha256": null
+            },
+            "locators": [
+              "",
+              "/rows",
+              "/rows/0/return_value"
+            ]
+          },
+          {
+            "artifact_id": "result",
+            "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+            "byte_length": 77,
+            "media_type": "application/json",
+            "kind": "result",
+            "source": {
+              "identity": "synthetic-development-evidence",
+              "revision": "1",
+              "code_sha256": null,
+              "environment_sha256": null
+            },
+            "locators": [
+              "",
+              "/net_return"
+            ]
+          },
+          {
+            "artifact_id": "timing",
+            "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+            "byte_length": 86,
+            "media_type": "application/json",
+            "kind": "timing",
+            "source": {
+              "identity": "synthetic-development-evidence",
+              "revision": "1",
+              "code_sha256": null,
+              "environment_sha256": null
+            },
+            "locators": [
+              "",
+              "/available_at"
+            ]
+          },
+          {
+            "artifact_id": "report",
+            "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03",
+            "byte_length": 41,
+            "media_type": "text/markdown",
+            "kind": "report",
+            "source": {
+              "identity": "synthetic-development-evidence",
+              "revision": "1",
+              "code_sha256": null,
+              "environment_sha256": null
+            },
+            "locators": [
+              "",
+              "lines:1:1"
+            ]
+          },
+          {
+            "artifact_id": "publication",
+            "sha256": "9bc02c1e9afd43c2de5e717a50539bc6378b1928e887bef3550dded701b83d0e",
+            "byte_length": 813,
+            "media_type": "application/json",
+            "kind": "publication",
+            "source": {
+              "identity": "synthetic-development-evidence",
+              "revision": "1",
+              "code_sha256": null,
+              "environment_sha256": null
+            },
+            "locators": [
+              ""
+            ]
+          },
+          {
+            "artifact_id": "source",
+            "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+            "byte_length": 52,
+            "media_type": "text/plain",
+            "kind": "source",
+            "source": {
+              "identity": "synthetic-development-evidence",
+              "revision": "1",
+              "code_sha256": null,
+              "environment_sha256": null
+            },
+            "locators": [
+              ""
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "dishonest-coverage",
+    "kind": "evidence_manifest",
+    "expected_code": "INVALID_CONTRACT",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "artifacts"
+        ],
+        "value": [
+          {
+            "artifact_id": "source",
+            "sha256": "967877232518f309bbff134c365b9788e3bd6e7258b22dffab271313d7a41ca8",
+            "byte_length": 52,
+            "media_type": "text/plain",
+            "kind": "source",
+            "source": {
+              "identity": "synthetic-development-evidence",
+              "revision": "1",
+              "code_sha256": null,
+              "environment_sha256": null
+            },
+            "locators": [
+              ""
+            ]
+          },
+          {
+            "artifact_id": "data",
+            "sha256": "dc0de30ecba5f382eb7c728bd318bc46b5cf71e394a9a6d8feb91de97b9db6ab",
+            "byte_length": 99,
+            "media_type": "application/json",
+            "kind": "data",
+            "source": {
+              "identity": "synthetic-development-evidence",
+              "revision": "1",
+              "code_sha256": null,
+              "environment_sha256": null
+            },
+            "locators": [
+              "",
+              "/rows",
+              "/rows/0/return_value"
+            ]
+          },
+          {
+            "artifact_id": "result",
+            "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+            "byte_length": 77,
+            "media_type": "application/json",
+            "kind": "result",
+            "source": {
+              "identity": "synthetic-development-evidence",
+              "revision": "1",
+              "code_sha256": null,
+              "environment_sha256": null
+            },
+            "locators": [
+              "",
+              "/net_return"
+            ]
+          },
+          {
+            "artifact_id": "report",
+            "sha256": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03",
+            "byte_length": 41,
+            "media_type": "text/markdown",
+            "kind": "report",
+            "source": {
+              "identity": "synthetic-development-evidence",
+              "revision": "1",
+              "code_sha256": null,
+              "environment_sha256": null
+            },
+            "locators": [
+              "",
+              "lines:1:1"
+            ]
+          },
+          {
+            "artifact_id": "publication",
+            "sha256": "9bc02c1e9afd43c2de5e717a50539bc6378b1928e887bef3550dded701b83d0e",
+            "byte_length": 813,
+            "media_type": "application/json",
+            "kind": "publication",
+            "source": {
+              "identity": "synthetic-development-evidence",
+              "revision": "1",
+              "code_sha256": null,
+              "environment_sha256": null
+            },
+            "locators": [
+              ""
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "final-rechecks-review-coverage",
+    "kind": "final_output_request",
+    "expected_code": "INCOMPLETE_REVIEW",
+    "patches": [
+      {
+        "scope": "context",
+        "operation": "set",
+        "path": [
+          "review",
+          "coverage"
+        ],
+        "value": [
+          {
+            "category": "formulas",
+            "status": "checked",
+            "reason": "",
+            "evidence": [
+              {
+                "artifact_id": "result",
+                "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+                "locator": "/net_return"
+              }
+            ]
+          },
+          {
+            "category": "pit",
+            "status": "checked",
+            "reason": "",
+            "evidence": [
+              {
+                "artifact_id": "timing",
+                "sha256": "063ca74f454753b4f768285da8b255822d06a6b19eeb2af6c840a5a920a1499f",
+                "locator": "/available_at"
+              }
+            ]
+          },
+          {
+            "category": "returns",
+            "status": "checked",
+            "reason": "",
+            "evidence": [
+              {
+                "artifact_id": "result",
+                "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+                "locator": "/net_return"
+              }
+            ]
+          },
+          {
+            "category": "execution",
+            "status": "not_applicable",
+            "reason": "No orders or risk model are claimed in this synthetic arithmetic task.",
+            "evidence": []
+          },
+          {
+            "category": "risk",
+            "status": "not_applicable",
+            "reason": "No orders or risk model are claimed in this synthetic arithmetic task.",
+            "evidence": []
+          },
+          {
+            "category": "report_consistency",
+            "status": "checked",
+            "reason": "",
+            "evidence": [
+              {
+                "artifact_id": "result",
+                "sha256": "282b8925dfc1103914b68ae9bcfec5e494ef9eed97e68155580fa6417e7cbd12",
+                "locator": "/net_return"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "wrong-source-artifact-kind",
+    "kind": "research_package",
+    "expected_code": "EVIDENCE_CONFLICT",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "source_refs",
+          0,
+          "artifact_id"
+        ],
+        "value": "report"
+      },
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "source_refs",
+          0,
+          "sha256"
+        ],
+        "value": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03"
+      }
+    ]
+  },
+  {
+    "name": "boolean-is-not-numeric-output",
+    "kind": "final_output_request",
+    "expected_code": "STALE_CANDIDATE",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "outputs",
+          "workspaceResult",
+          "rows",
+          0,
+          "count"
+        ],
+        "value": true
+      }
+    ]
+  },
+  {
+    "name": "missing-known-decision-time",
+    "kind": "research_package",
+    "expected_code": "INVALID_CONTRACT",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "timing",
+          "decision_at"
+        ],
+        "value": null
+      }
+    ]
+  },
+  {
+    "name": "pit-needs-timing-citation",
+    "kind": "review_result",
+    "expected_code": "INCOMPLETE_REVIEW",
+    "patches": [
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "coverage",
+          1,
+          "evidence",
+          0,
+          "artifact_id"
+        ],
+        "value": "report"
+      },
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "coverage",
+          1,
+          "evidence",
+          0,
+          "sha256"
+        ],
+        "value": "1e1c6a476b7c751c13d14b4021c0301dc8964d218d9d9840713dfdf863ad8b03"
+      },
+      {
+        "scope": "payload",
+        "operation": "set",
+        "path": [
+          "coverage",
+          1,
+          "evidence",
+          0,
+          "locator"
+        ],
+        "value": ""
+      }
+    ]
+  },
+  {
+    "name": "correction-needs-the-reviewed-manifest",
+    "kind": "correction_response",
+    "expected_code": "INVALID_CORRECTION",
+    "patches": [
+      {
+        "scope": "context",
+        "operation": "set",
+        "path": [
+          "previous_manifest",
+          "manifest_id"
+        ],
+        "value": "unrelated-manifest"
+      }
+    ]
+  }
+]

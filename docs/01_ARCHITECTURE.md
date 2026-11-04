@@ -46,6 +46,15 @@ direct search adapter. Reports and Run state persist under the local runtime dat
 directory. The included core has no Canvas UI or enterprise application dependency.
 The existing remote service mode is selected explicitly with `--agent remote`.
 
+The experimental collaboration foundation is opt-in and separate from that
+default graph. `alphalab/collaboration/` owns protocol validation and immutable
+evidence/task/budget stores. `integrations/conexus/collaboration/` supplies the
+restricted Host using the same core executor and dispatcher. Frozen evidence
+is task-scoped; reviewer authority comes from Host registration. The foundation
+never publishes intermediate business outputs. See the
+[development walkthrough](03_DEVELOPMENT_GUIDE.md#experimental-collaboration-foundation)
+for the public interfaces and their integration boundary.
+
 ```text
 Data recipe ── execute/sync ── canonical research store
                                       │

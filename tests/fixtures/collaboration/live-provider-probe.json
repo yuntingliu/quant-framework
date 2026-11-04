@@ -1,0 +1,6 @@
+{
+  "fixture_id": "LIVE-PROVIDER-AUTH-01",
+  "version": 1,
+  "request": "Reply OK.",
+  "scope": "One authorized request to the configured HTTPS provider with a deliberately invalid test credential; require HTTP 401 and sanitized failure."
+}

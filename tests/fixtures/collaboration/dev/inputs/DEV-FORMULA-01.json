@@ -1,0 +1,29 @@
+{
+  "fixture_id": "DEV-FORMULA-01",
+  "question": "Check the total return calculation against the two supplied period returns.",
+  "candidate": {
+    "candidate_id": "dev-formula-01",
+    "revision": 1,
+    "report": "The compounded total return is 0%.",
+    "reported_net_return": "0.00"
+  },
+  "evidence": {
+    "returns": {
+      "rows": [
+        {
+          "date": "2024-01-02",
+          "return": "0.10"
+        },
+        {
+          "date": "2024-01-03",
+          "return": "-0.10"
+        }
+      ],
+      "unit": "fraction",
+      "return_basis": "net"
+    }
+  },
+  "required_evidence_ids": [
+    "returns"
+  ]
+}

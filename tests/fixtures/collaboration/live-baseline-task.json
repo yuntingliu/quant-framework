@@ -1,0 +1,8 @@
+{
+  "fixture_id": "LIVE-BASELINE-01",
+  "version": 1,
+  "request": "Read local context once using workspace.context. Save one standard report titled 'Live Agent connection report' containing the Markdown below. Use the existing workspace.outputs.prepare and atomic output-edit workflow, then complete. Do not change project source, download market data, run Python or backtests, ask questions, or search the web. Report Markdown: # Live Agent connection check\n\nThe built-in project is sdk-v1-default. This check verifies the Agent connection and report workflow; it does not establish financial research quality.",
+  "report_title": "Live Agent connection report",
+  "required_report_text": "sdk-v1-default",
+  "scope": "Disposable production single-Agent workflow; real provider, synthetic local context, no market-data access."
+}

@@ -5,6 +5,12 @@ the contract for a two-Agent example that the later multi-Agent work will
 build. Nothing here is a working example, and nothing here should be read as
 evidence that multi-Agent support is finished.
 
+The separate Issue #24 collaboration foundation is now available through the
+[development walkthrough](../../../docs/03_DEVELOPMENT_GUIDE.md#experimental-collaboration-foundation).
+Its restricted Host, frozen evidence, typed review delivery and shared budgets
+are opt-in. The financial researcher/reviewer workflow and final publication
+remain integration work. This reserved directory stays documentation-only.
+
 What exists today is recorded in [INTERFACE.md](INTERFACE.md): which parts of
 delegation already work on the bundled local Host, which parts are missing, and
 one verified defect that blocks the obvious implementation. That document is the

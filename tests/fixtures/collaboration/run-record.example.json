@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "record_id": "illustrative-example-not-measurement",
+  "task_id": "EXAMPLE",
+  "fixture": {
+    "id": "EXAMPLE",
+    "version": 1,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "manifest_sha256": null
+  },
+  "paired_case_id": "EXAMPLE",
+  "arm": "single",
+  "mode": "scripted",
+  "repetition": 1,
+  "seed": 0,
+  "source": {
+    "base_commit": "d12bbb3ee763b046b3333c9134f4bf6e508412d8",
+    "working_commit": "d12bbb3ee763b046b3333c9134f4bf6e508412d8",
+    "core_revision": "9cd8c6934b4fac54cc513cba4f6e7960b57688c3",
+    "dirty": false,
+    "diff_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "dependency_hashes": {}
+  },
+  "environment": {
+    "python": "3.12",
+    "node": "22.18",
+    "platform": "example"
+  },
+  "configuration": {
+    "model": "scripted/example",
+    "provider": "loopback-example",
+    "prompt_version": "example-v1",
+    "schema_version": "measurement-v1",
+    "policy_version": null,
+    "evidence_manifest": null,
+    "usage_note": "Example only; not measured quality or performance."
+  },
+  "budget": {
+    "wall_seconds": 120,
+    "model_calls": 4,
+    "tokens": null,
+    "cost": null,
+    "currency": null,
+    "enforcement": "Example harness cap, not shared Host enforcement."
+  },
+  "root_run_id": "example-run-1",
+  "child_run_ids": [],
+  "started_at": "2026-01-01T00:00:00Z",
+  "finished_at": "2026-01-01T00:00:01Z",
+  "timings": {
+    "startup_seconds": 0.2,
+    "request_to_terminal_seconds": 0.5,
+    "total_seconds": 1,
+    "queue_seconds": null,
+    "start_kind": "cold"
+  },
+  "roles": [
+    {
+      "role": "researcher",
+      "model_calls": 1,
+      "tool_calls": 1,
+      "retries": 0,
+      "searches": 0,
+      "usage": {
+        "status": "unavailable",
+        "input_tokens": null,
+        "output_tokens": null,
+        "reason": "Example of unavailable provider usage."
+      },
+      "cost": {
+        "status": "scripted_no_external_provider",
+        "amount": "0",
+        "currency": null,
+        "pricing_snapshot": null,
+        "reason": "Illustrative loopback-only example; not an acceptance record."
+      }
+    }
+  ],
+  "totals": {
+    "model_calls": 1,
+    "tool_calls": 1,
+    "retries": 0,
+    "searches": 0,
+    "usage": {
+      "status": "unavailable",
+      "input_tokens": null,
+      "output_tokens": null,
+      "reason": "Example of unavailable provider usage."
+    },
+    "cost": {
+      "status": "scripted_no_external_provider",
+      "amount": "0",
+      "currency": null,
+      "pricing_snapshot": null,
+      "reason": "Illustrative loopback-only example; not an acceptance record."
+    }
+  },
+  "attempts": [
+    {
+      "id": "example-call-1",
+      "role": "researcher",
+      "round": 0,
+      "status": "succeeded",
+      "http_status": 200,
+      "tool_names": [
+        "complete"
+      ]
+    }
+  ],
+  "human_interventions": [],
+  "outcome": {
+    "status": "completed",
+    "reason": null,
+    "qualified": null,
+    "quality_scores": null
+  },
+  "artifacts": []
+}

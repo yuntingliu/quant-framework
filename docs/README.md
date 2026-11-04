@@ -14,7 +14,7 @@
 - [Architecture](01_ARCHITECTURE.md): module responsibilities, workbenches, and execution flow.
 - [Strategy SDK contract](02_STRATEGY_SDK_V1_CONTRACT.md): events, schedules, inputs, outputs, and backtest rules.
 - [Data SDK contract](05_DATA_SDK_V1_CONTRACT.md): custom providers and the DataEngine interface.
-- [Development guide](03_DEVELOPMENT_GUIDE.md): code placement, frontend/backend contracts, and checks.
+- [Development guide](03_DEVELOPMENT_GUIDE.md): code placement, frontend/backend contracts, checks, and the experimental collaboration interface walkthrough.
 - [Testing guide](guides/testing.md): test groups and common commands.
 - [Contributing](../CONTRIBUTING.md): branches and review workflow.
 - [Multifactor research notes](guides/multifactor-research.md): conceptual factor evaluation and monthly portfolio construction; illustrative rules, not SDK defaults.

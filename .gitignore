@@ -76,3 +76,11 @@ report-migration.json
 /runtime/
 /backups/
 /private-deployment/
+
+# Private implementation plans and agent progress checklists.
+/.local-plans/
+
+# Local collaboration implementation reference guides.
+/docs/guides/collaboration-baseline.md
+/docs/guides/collaboration-foundation.md
+/docs/guides/collaboration-handover.md
