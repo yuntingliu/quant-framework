@@ -29,6 +29,8 @@ export const MODE_SHORTCUTS: Record<WorkspaceMode, string[]> = {
   factor: ["factor.workbench"],
   project: ["project.workbench"],
   strategy: ["strategy.workbench"],
-  validation: ["validation.workbench"],
+  // Paper-trading risk sits with validation: both judge a strategy's output before
+  // anyone acts on it.
+  validation: ["validation.workbench", "trading.alerts"],
   report: ["report.workbench"],
 }

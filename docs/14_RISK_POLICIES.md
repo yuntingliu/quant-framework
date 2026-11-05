@@ -169,6 +169,21 @@ The Risk Console (`apps/desktop/src/widgets/execution/RiskConsole.tsx`) shows th
 active rulebook, separates blocking checks from warnings and research notes, and
 exposes the holdings analysis.
 
+### Where it lives in the workbench
+
+The console is the `trading.alerts` widget. Open the **Validation** mode and use
+the **+** button in the toolbar; the widget is listed there. It was previously an
+active widget that no workspace mode offered, so the add-widget menu could never
+reach it; `apps/desktop/tests/workspaceModes.test.ts` now fails if a mode offers
+an unknown widget or if the console leaves every mode.
+
+For a quick look without the interface, the backend serves the same data. Run
+`python -m uvicorn apps.api.main:app --port 8000`, then open `/docs` for an
+interactive reference; the frontend development server is
+`npm --prefix apps/desktop run dev:web`, which proxies `/api` to that port. The
+one-command check of the four acceptance criteria is
+`python scripts/check_paper_risk.py`.
+
 ## Tests
 
 | File | Covers |
