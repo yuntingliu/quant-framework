@@ -12,6 +12,7 @@ from alphalab.dataio import (
     create_rq_engine_from_env,
     create_runtime_engine,
 )
+from alphalab.dataio.snapshots import SnapshotStore
 from alphalab.store import ResultStore
 from alphalab.strategy.engine import (
     StrategyBacktestResult,
@@ -29,6 +30,7 @@ __all__ = [
     "RQDataConfig",
     "RQDataProvider",
     "ResultStore",
+    "SnapshotStore",
     "StrategyBacktestResult",
     "StrategyRepository",
     "StrategySourceError",
