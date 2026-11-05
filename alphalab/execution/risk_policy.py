@@ -130,11 +130,10 @@ class RiskLimits:
             raise RiskPolicyError(
                 f"volume_lookback_days must be a positive whole number, got {lookback!r}"
             )
-        if self.min_cash_weight + self.max_gross_exposure > 1.0 + 1e-9:
-            raise RiskPolicyError(
-                "min_cash_weight plus max_gross_exposure must leave room for each other "
-                f"(got {self.min_cash_weight} + {self.max_gross_exposure})"
-            )
+        # ``min_cash_weight`` and ``max_gross_exposure`` are bounds, not shares of a
+        # budget: an 80% invested / 20% cash portfolio satisfies both a 10% cash floor
+        # and a 100% exposure cap. Their sum therefore carries no meaning, and the
+        # evaluations reject a portfolio that violates either bound on its own.
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -349,12 +348,29 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def default_policy() -> RiskPolicy:
+def policy_identity(account_id: str, strategy_id: str | None = None) -> str:
+    """The stable document a version history belongs to.
+
+    Each account -- and each strategy override -- owns its own rulebook, so two
+    accounts can both publish "version 2" without colliding, and one account's
+    history never absorbs another's.
+    """
+    if strategy_id:
+        return f"strategy:{strategy_id}"
+    return f"account:{account_id}"
+
+
+def default_policy(
+    *,
+    policy_id: str = DEFAULT_POLICY_ID,
+    scope: str = SCOPE_ACCOUNT,
+    scope_id: str = "",
+) -> RiskPolicy:
     return RiskPolicy(
-        policy_id=DEFAULT_POLICY_ID,
+        policy_id=policy_id,
         version=1,
-        scope=SCOPE_ACCOUNT,
-        scope_id="",
+        scope=scope,
+        scope_id=scope_id,
         limits=RiskLimits(),
         pause=PauseRules(),
         reason=(
@@ -425,4 +441,5 @@ __all__ = [
     "SEVERITY_WARNING",
     "default_policy",
     "policy_from_payload",
+    "policy_identity",
 ]

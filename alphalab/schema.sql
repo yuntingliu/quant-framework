@@ -375,6 +375,20 @@ CREATE INDEX IF NOT EXISTS idx_risk_evaluations_account
 CREATE INDEX IF NOT EXISTS idx_risk_evaluations_preview
     ON risk_evaluations(preview_id);
 
+-- One row per approved preview that has actually been applied. The insert happens
+-- inside the same transaction that writes the fills, so two concurrent requests
+-- holding the same approval cannot both execute it: the second insert conflicts
+-- and the transaction rolls back untouched. The revision hash is the account state
+-- (cash, quantities, average costs, status) the approval was judged against.
+CREATE TABLE IF NOT EXISTS risk_preview_claims (
+    account_id TEXT NOT NULL,
+    preview_id TEXT NOT NULL,
+    revision_sha256 TEXT NOT NULL,
+    policy_version INTEGER NOT NULL,
+    claimed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (account_id, preview_id)
+) WITHOUT ROWID;
+
 -- A holdings-risk analysis is reproducible: the frozen inputs are stored next to
 -- the result and keyed by their hash, so the same inputs always replay the same
 -- numbers, and a missing input is recorded instead of guessed.

@@ -174,7 +174,8 @@ def test_duplicate_holdings_and_unsorted_inputs_hash_the_same():
     assert analyse(forwards)["portfolio"] == analyse(backwards)["portfolio"]
 
 
-def test_an_empty_account_returns_an_explicit_gap_instead_of_crashing():
+def test_an_empty_account_returns_a_complete_unevaluated_shape():
+    """Every early return must keep the same keys so a consumer never sees {}."""
     inputs = frozen_inputs(
         holdings=[],
         series={},
@@ -183,10 +184,45 @@ def test_an_empty_account_returns_an_explicit_gap_instead_of_crashing():
         source="demo",
     )
     result = analyse(inputs)
-    assert result["portfolio"] == {}
     assert result["unevaluated"]["reason"] == "no valued holdings"
     assert result["warnings"]
     assert result["disclaimer"] == DISCLAIMER
+
+    portfolio = result["portfolio"]
+    assert portfolio["evaluated"] is False
+    assert portfolio["annualized_volatility"] is None
+    assert portfolio["observations"] == 0
+    assert portfolio["symbols"] == []
+    assert isinstance(portfolio["note"], str) and portfolio["note"]
+
+    concentration = result["concentration"]
+    assert concentration["evaluated"] is False
+    assert concentration["effective_positions"] is None
+    assert concentration["top1_weight"] is None
+    assert concentration["hhi"] is None
+    assert concentration["positions"] == 0
+
+    assert set(result["shocks"]) >= {"price_shock", "volatility", "correlation", "note"}
+    for name in ("price_shock", "volatility", "correlation"):
+        assert result["shocks"][name]["evaluated"] is False
+        assert result["shocks"][name]["unevaluated_reason"]
+
+    assert result["scenarios"]["items"] == []
+    assert result["scenarios"]["unevaluated_reason"] == "no valued holdings"
+
+
+def test_a_portfolio_without_history_keeps_the_same_unevaluated_shape():
+    inputs = make_inputs()
+    for symbol in SYMBOLS:
+        inputs["series"][symbol] = inputs["series"][symbol][-3:]
+    result = analyse(inputs)
+    assert result["portfolio"]["evaluated"] is False
+    assert result["portfolio"]["annualized_volatility"] is None
+    assert result["concentration"]["evaluated"] is False
+    assert result["shocks"]["volatility"]["evaluated"] is False
+    assert result["scenarios"]["items"] == []
+    assert result["scenarios"]["unevaluated_reason"]
+    assert result["unevaluated"]["symbols"]
 
 
 def test_parameters_reject_unusable_values():

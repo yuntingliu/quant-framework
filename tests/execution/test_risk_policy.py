@@ -69,7 +69,6 @@ def test_revise_requires_a_reason_and_a_real_change():
         ({"max_order_value": float("inf")}, "max_order_value"),
         ({"max_order_weight": 1.5}, "max_order_weight"),
         ({"max_position_weight": -0.1}, "max_position_weight"),
-        ({"min_cash_weight": 0.6, "max_gross_exposure": 0.6}, "leave room"),
         ({"volume_lookback_days": 0}, "volume_lookback_days"),
         ({"volume_lookback_days": True}, "volume_lookback_days"),
         ({"max_participation": 0.0}, "max_participation"),
@@ -78,6 +77,21 @@ def test_revise_requires_a_reason_and_a_real_change():
 def test_limits_reject_unusable_values(payload, message):
     with pytest.raises(RiskPolicyError, match=message):
         RiskLimits(**payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"min_cash_weight": 0.10, "max_gross_exposure": 1.0},
+        {"min_cash_weight": 0.20, "max_gross_exposure": 0.95},
+        {"min_cash_weight": 0.50, "max_gross_exposure": 1.0},
+    ],
+)
+def test_bounds_are_independent_of_each_other(payload):
+    """A cash floor and an exposure cap are bounds, not shares of one budget."""
+    limits = RiskLimits(**payload)
+    assert limits.min_cash_weight == payload["min_cash_weight"]
+    assert limits.max_gross_exposure == payload["max_gross_exposure"]
 
 
 def test_limits_from_dict_rejects_unknown_fields():

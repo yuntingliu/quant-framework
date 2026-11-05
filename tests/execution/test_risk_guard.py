@@ -181,6 +181,24 @@ def test_a_tightened_policy_enforces_concentration_exposure_cash_and_turnover():
     assert any(item.rule == "max_turnover" for item in churn.blocking)
 
 
+def test_a_cash_floor_and_a_full_exposure_cap_can_coexist():
+    """10% cash and a 100% exposure cap are both satisfiable by an 80/20 portfolio."""
+    bounds = policy(
+        max_order_value=10_000_000.0,
+        min_cash_weight=0.10,
+        max_gross_exposure=1.0,
+    )
+    invested = evaluate(bounds, snapshot(), [buy(quantity=8000.0, price=100.0)])
+    assert invested.allowed, [item.message for item in invested.blocking]
+    assert invested.projected.cash_weight == pytest.approx(0.2, abs=0.001)
+    assert invested.projected.gross_exposure == pytest.approx(0.8, abs=0.001)
+
+    overspent = evaluate(bounds, snapshot(), [buy(quantity=9990.0, price=100.0)])
+    assert not overspent.allowed
+    assert any(item.rule == "min_cash_weight" for item in overspent.blocking)
+    assert not any(item.rule == "max_gross_exposure" for item in overspent.blocking)
+
+
 def test_liquidity_blocks_when_volume_is_known_and_warns_when_it_is_not():
     known = evaluate(
         policy(max_order_value=10_000_000.0, max_participation=0.10),

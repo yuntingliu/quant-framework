@@ -20,10 +20,20 @@ Two tables hold this:
 | --- | --- |
 | `risk_policies` | One row per `(policy_id, version)`: the limits, the pause rules, the reason, the author, the timestamp |
 | `risk_policy_activation` | Which policy version one account, and optionally one strategy, follows now |
+| `risk_preview_claims` | One row per approval that has actually been applied, with the account revision it was judged against |
 
-A strategy-scoped activation overrides the account policy without replacing it:
+Every account owns its own document, named `account:<account_id>`, and every
+strategy override owns `strategy:<strategy_id>`. Two accounts can therefore both
+publish "version 2" without colliding, and one account's history never absorbs
+another's. Only the account document is seeded automatically; a strategy document
+is created when someone publishes an override. That override then replaces the
+account policy for that strategy without touching it:
 `ResultStore.active_risk_policy(account_id, strategy_id)` looks for the strategy
 row first, then the account row.
+
+A database seeded before this naming existed keeps resolving its `default`
+activation; the first publish starts the account's own chain from the rules in
+force at that moment, and the old rows stay readable.
 
 ### Limits
 
@@ -37,6 +47,10 @@ row first, then the account row.
 | `max_turnover` | Largest turnover of one pass, as share of equity | 2.0 |
 | `max_participation` | Largest order as share of average daily volume (`null` disables) | 0.10 |
 | `volume_lookback_days` | Trading days behind the volume average | 20 |
+
+`min_cash_weight` and `max_gross_exposure` are independent bounds, not shares of
+one budget: an 80% invested / 20% cash portfolio satisfies both a 10% cash floor
+and a 100% exposure cap. Each bound is checked on its own.
 
 The baseline is deliberately non-binding for the limits that did not exist
 before, so deploying the policy does not silently refuse portfolios that used to
@@ -86,8 +100,25 @@ that authorised them (`orders.risk_evaluation_id`).
 deliberately not of the door or the clock. `/api/paper/rebalance/execute`
 requires that id, recomputes the evaluation against the current account, and
 refuses with `409` when the two differ, naming what changed (prices, cash, or the
-policy version). An approval therefore cannot be replayed after the account has
-moved.
+policy version).
+
+Recomputing before the write closes the "old approval" gap, but not the race: two
+requests can both pass that comparison and then both write. So execution also
+claims the approval *inside the writing transaction*:
+
+1. `INSERT` the `(account_id, preview_id)` pair into `risk_preview_claims` with
+   `ON CONFLICT DO NOTHING`;
+2. compare the hash of the account state the approval was judged against with the
+   state inside the transaction;
+3. confirm the `(policy_id, version)` the approval was judged under is still the
+   one activated for the account;
+4. only then apply the fills.
+
+If the claim already exists, the request is refused as an executed approval; if
+the account moved, it is refused as a stale approval. Either way the transaction
+rolls back, so the loser leaves no claim, no fill and no cash change behind. Two
+concurrent executions of one approval therefore produce one set of fills, never
+two.
 
 The store applies orders in a single transaction with `BEGIN IMMEDIATE` and rolls
 back on any error, so a refused check or a mid-flight failure cannot leave the
@@ -108,6 +139,12 @@ holds, from daily closes:
   pairwise correlation shifted by +0.2;
 * **assumptions and gaps** — frequency, window, source, and an explicit
   `unevaluated` block for positions without enough history.
+
+Every path returns the same shape. An account with no valued holdings, or one
+whose history is too short, gets explicit `null` numbers with
+`evaluated: false` and a reason — never `{}` and never a zero. That keeps the
+response safe to render: the console shows "not evaluated" and the explanation
+instead of a number it would have to invent.
 
 The analysis is a pure function of frozen inputs (`frozen_inputs` →
 `input_hash` → `analyse`). The service stores the inputs next to the result in

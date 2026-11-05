@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -19,6 +20,14 @@ from alphalab.utils.paths import APP_DATA_DIR, RUNTIME_APP_DIR
 _SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 _SEED_DB = APP_DATA_DIR / "alphalab.db"
 _DEFAULT_DB = RUNTIME_APP_DIR / "alphalab.db"
+
+
+class PreviewAlreadyConsumed(ValueError):
+    """The approved preview has already been applied once."""
+
+
+class AccountStateChanged(ValueError):
+    """The account moved between the evaluation and the application."""
 
 
 def _uuid() -> str:
@@ -913,6 +922,73 @@ class ResultStore:
             ),
         }
 
+    def paper_account_revision(self, account_id: str = "paper") -> str:
+        """Hash of the account facts an approval is bound to.
+
+        Cash, quantities, average costs and the pause state -- not market prices,
+        which come from the data rather than from the account. Two executions of
+        the same approval see the same revision; any fill or pause in between
+        changes it, which is how a stale approval is detected inside the writing
+        transaction instead of before it.
+        """
+        row = self._conn.execute(
+            "SELECT cash, status FROM paper_accounts WHERE id = ?", (account_id,)
+        ).fetchone()
+        positions = self._conn.execute(
+            """SELECT symbol, quantity, avg_cost FROM paper_positions
+               WHERE account_id = ? AND quantity > 0 ORDER BY symbol""",
+            (account_id,),
+        ).fetchall()
+        body = {
+            "cash": round(float(row["cash"]), 6) if row is not None else 0.0,
+            "status": str(row["status"]) if row is not None else "missing",
+            "positions": [
+                [item["symbol"], round(float(item["quantity"]), 6), round(float(item["avg_cost"]), 6)]
+                for item in positions
+            ],
+        }
+        return hashlib.sha256(
+            json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+
+    def _claim_preview(self, account_id: str, claim: dict) -> None:
+        """Claim an approval and verify the account still matches it.
+
+        Runs inside the caller's transaction. Raising here rolls the claim back
+        with the fills, so a refused execution leaves neither behind.
+        """
+        preview_id = str(claim["preview_id"])
+        revision = str(claim["revision_sha256"])
+        version = int(claim.get("policy_version") or 0)
+        policy_id = str(claim.get("policy_id") or "")
+        cursor = self._conn.execute(
+            """INSERT INTO risk_preview_claims
+               (account_id, preview_id, revision_sha256, policy_version)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(account_id, preview_id) DO NOTHING""",
+            (account_id, preview_id, revision, version),
+        )
+        if cursor.rowcount == 0:
+            raise PreviewAlreadyConsumed(
+                f"preview {preview_id!r} was already executed for account {account_id!r}"
+            )
+        current = self.paper_account_revision(account_id)
+        if current != revision:
+            raise AccountStateChanged(
+                f"account {account_id!r} changed after preview {preview_id!r} was approved"
+            )
+        if policy_id:
+            still_active = self._conn.execute(
+                """SELECT COUNT(*) FROM risk_policy_activation
+                   WHERE account_id = ? AND policy_id = ? AND version = ?""",
+                (account_id, policy_id, version),
+            ).fetchone()[0]
+            if int(still_active) == 0:
+                raise AccountStateChanged(
+                    f"the policy in force for account {account_id!r} changed after preview "
+                    f"{preview_id!r} was approved"
+                )
+
     def apply_paper_orders(
         self,
         orders: list[dict],
@@ -922,6 +998,7 @@ class ResultStore:
         commission_rate: float = 0.0003,
         nav_date: str | None = None,
         risk_evaluation_id: str | None = None,
+        claim: dict | None = None,
     ) -> dict:
         self.ensure_paper_account(account_id)
         order_ids: list[str] = []
@@ -929,6 +1006,8 @@ class ResultStore:
         with self._lock:
             try:
                 self._conn.execute("BEGIN IMMEDIATE")
+                if claim is not None:
+                    self._claim_preview(account_id, claim)
                 account = self._conn.execute(
                     "SELECT * FROM paper_accounts WHERE id = ?",
                     (account_id,),

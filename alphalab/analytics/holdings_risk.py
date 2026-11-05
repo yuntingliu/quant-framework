@@ -121,6 +121,61 @@ def input_hash(inputs: Mapping[str, Any]) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
+def _empty_concentration() -> dict[str, Any]:
+    """The stable shape of an unevaluated concentration block."""
+    return {
+        "positions": 0,
+        "evaluated_positions": 0,
+        "top1_weight": None,
+        "top3_weight": None,
+        "hhi": None,
+        "effective_positions": None,
+        "largest": None,
+        "evaluated": False,
+    }
+
+
+def _empty_portfolio() -> dict[str, Any]:
+    return {
+        "annualized_volatility": None,
+        "observations": 0,
+        "symbols": [],
+        "evaluated": False,
+        "note": (
+            "Not evaluated: the analysis needs valued positions and enough price history "
+            "before it can estimate a portfolio volatility."
+        ),
+    }
+
+
+def _empty_shocks(reason: str) -> dict[str, Any]:
+    """Every shock reports itself as unevaluated rather than as a zero loss."""
+    return {
+        "price_shock": {
+            "assumption": "every held price moves at once",
+            "loss_value": None,
+            "loss_share_of_holdings": None,
+            "evaluated": False,
+            "unevaluated_reason": reason,
+        },
+        "volatility": {
+            "assumption": "portfolio volatility scaled by a factor",
+            "baseline_annualized_volatility": None,
+            "shocked_annualized_volatility": None,
+            "evaluated": False,
+            "unevaluated_reason": reason,
+        },
+        "correlation": {
+            "assumption": "every pairwise correlation rises by a fixed amount",
+            "baseline_annualized_volatility": None,
+            "shocked_annualized_volatility": None,
+            "evaluated": False,
+            "unevaluated_reason": reason,
+        },
+        "note": "Shocks are mechanical what-ifs on the current holdings, not forecasts.",
+    }
+
+
 def analyse(inputs: Mapping[str, Any]) -> dict[str, Any]:
     """Run the holdings analysis from frozen inputs only.
 
@@ -163,11 +218,18 @@ def analyse(inputs: Mapping[str, Any]) -> dict[str, Any]:
             ),
         },
         "holdings": [],
-        "concentration": {},
+        "concentration": _empty_concentration(),
         "contributions": [],
-        "portfolio": {},
-        "scenarios": {"items": [], "complete": False},
-        "shocks": {},
+        "portfolio": _empty_portfolio(),
+        "scenarios": {
+            "method": "worst historical windows for these weights",
+            "window_days": parameters.scenario_window,
+            "requested": parameters.scenario_count,
+            "items": [],
+            "complete": False,
+            "unevaluated_reason": "no valued holdings",
+        },
+        "shocks": _empty_shocks("no valued holdings"),
         "unevaluated": {"symbols": [], "reasons": {}, "weight_share": 0.0},
         "warnings": warnings,
         "disclaimer": DISCLAIMER,
@@ -221,6 +283,13 @@ def analyse(inputs: Mapping[str, Any]) -> dict[str, Any]:
     if not evaluated:
         warnings.append("No position had enough price history for a risk evaluation.")
         result["concentration"] = _concentration(result["holdings"], weights, evaluated)
+        result["portfolio"] = _empty_portfolio()
+        result["shocks"] = _empty_shocks(
+            "no position had enough price history to estimate volatility"
+        )
+        result["scenarios"]["unevaluated_reason"] = (
+            "no position had enough price history to replay a scenario"
+        )
         return result
 
     usable_weights = {symbol: weights[symbol] for symbol in evaluated}

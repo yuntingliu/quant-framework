@@ -26,7 +26,15 @@ from alphalab.execution.risk_guard import (
     pause_breaches,
     resume_decision,
 )
-from alphalab.execution.risk_policy import RiskPolicy, default_policy, policy_from_payload
+from alphalab.execution.risk_policy import (
+    SCOPE_ACCOUNT,
+    SCOPE_STRATEGY,
+    RiskPolicy,
+    default_policy,
+    policy_from_payload,
+    policy_identity,
+)
+from alphalab.store import AccountStateChanged, PreviewAlreadyConsumed
 from apps.api.services.data_service import _engine
 
 _EXECUTION_COUNTER_FIELDS = (
@@ -548,10 +556,14 @@ def publish_paper_risk_policy(
     """Append a new policy version and activate it. Old versions are untouched."""
     store = ResultStore()
     try:
-        current = _policy_for(store, account_id, strategy_id)
+        # A caller may address the scope through the payload instead of the
+        # transport field; both must resolve to the same document.
+        if strategy_id is None and str(payload.get("scope") or "") == SCOPE_STRATEGY:
+            strategy_id = str(payload.get("scope_id") or "").strip() or None
+        document = _policy_document(store, account_id, strategy_id)
         if strategy_id and not payload.get("scope"):
-            payload = {**payload, "scope": "strategy", "scope_id": strategy_id}
-        proposal = policy_from_payload(payload, base=current)
+            payload = {**payload, "scope": SCOPE_STRATEGY, "scope_id": strategy_id}
+        proposal = policy_from_payload(payload, base=document)
         saved = store.save_risk_policy(proposal.to_record())
         store.activate_risk_policy(
             account_id,
@@ -623,20 +635,61 @@ def _project_max_weight(project_id: str) -> float:
 
 
 def _policy_for(store: ResultStore, account_id: str, strategy_id: str | None = None) -> RiskPolicy:
+    """The policy in force for this account or strategy, seeding a baseline once.
+
+    Only the *account* document is seeded automatically. A strategy-scoped
+    document exists only once someone publishes an override, so a preview never
+    invents a second rulebook just because it names a strategy.
+    """
     record = store.active_risk_policy(account_id, strategy_id)
     if record is None:
-        seeded = default_policy()
+        seeded = default_policy(
+            policy_id=policy_identity(account_id),
+            scope=SCOPE_ACCOUNT,
+        )
         store.save_risk_policy(seeded.to_record())
         store.activate_risk_policy(
             account_id,
             seeded.policy_id,
             seeded.version,
+            scope=SCOPE_ACCOUNT,
+            scope_id="",
             reason="Seeded baseline policy for this paper account",
         )
         record = store.active_risk_policy(account_id, strategy_id)
     if record is None:
         raise ValueError("no risk policy could be activated for this paper account")
     return RiskPolicy.from_record(record)
+
+
+def _policy_document(
+    store: ResultStore, account_id: str, strategy_id: str | None = None
+) -> RiskPolicy:
+    """The version history to extend when publishing.
+
+    An account and each strategy override own separate documents, so publishing on
+    one account cannot collide with another account's version numbers, and a
+    strategy override keeps its own history instead of rewriting the account's.
+    """
+    identity = policy_identity(account_id, strategy_id)
+    latest = store.get_risk_policy(identity)
+    if latest is not None:
+        return RiskPolicy.from_record(latest)
+    effective = _policy_for(store, account_id, strategy_id)
+    seeded = replace(
+        effective,
+        policy_id=identity,
+        version=1,
+        scope=SCOPE_STRATEGY if strategy_id else SCOPE_ACCOUNT,
+        scope_id=strategy_id or "",
+        reason=(
+            f"Seeded from {effective.label} so this document has its own version history; "
+            f"the effective rules are copied, not shared."
+        ),
+        created_at=None,
+    )
+    store.save_risk_policy(seeded.to_record())
+    return RiskPolicy.from_record(store.get_risk_policy(identity) or seeded.to_record())
 
 
 def _average_daily_volumes(
@@ -871,6 +924,10 @@ def preview_paper_rebalance(
         orders = _target_orders(snapshot, targets)
         verdict = evaluate(policy, snapshot, orders, door=door)
         _persist_pause(store, policy, snapshot)
+        # The approval binds the account as it stands *after* any pause this
+        # evaluation just applied, so the claim in the writing transaction can
+        # compare like with like.
+        account_revision = store.paper_account_revision(account_id)
         gross_target = float(sum(targets.values()))
         maximum_target = max(targets.values(), default=0.0)
         signal_ok = bool(targets)
@@ -958,6 +1015,7 @@ def preview_paper_rebalance(
         "policy": verdict.policy.to_json(),
         "snapshot_id": recorded["snapshot_id"],
         "evaluation_id": recorded["evaluation_id"],
+        "account_revision": account_revision,
         "metrics": verdict.metrics.as_dict(),
         "account": account,
         "projected": verdict.projected.as_dict(),
@@ -1010,8 +1068,40 @@ def execute_paper_rebalance(
             signal_id=preview["signal_id"],
             nav_date=preview["price_date"],
             risk_evaluation_id=preview["evaluation_id"],
+            # The claim and the revision check run inside the writing transaction, so
+            # two requests holding the same approval cannot both create fills.
+            claim={
+                "preview_id": preview["preview_id"],
+                "revision_sha256": preview["account_revision"],
+                "policy_version": int(preview["policy"]["version"]),
+                "policy_id": preview["policy"]["policy_id"],
+            },
         )
         positions = store.list_paper_positions(account_id)
+    except PreviewAlreadyConsumed as exc:
+        raise StalePreviewError(
+            {
+                "message": (
+                    "This approval has already been executed; run the preview again and "
+                    "approve the new one."
+                ),
+                "preview_id": preview_id,
+                "changes": [str(exc)],
+                "blocking": [],
+            }
+        ) from exc
+    except AccountStateChanged as exc:
+        raise StalePreviewError(
+            {
+                "message": (
+                    "The account changed after the preview was approved, so the approval is "
+                    "no longer valid; run the preview again."
+                ),
+                "preview_id": preview_id,
+                "changes": [str(exc)],
+                "blocking": [],
+            }
+        ) from exc
     finally:
         store.close()
     return {

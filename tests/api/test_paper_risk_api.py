@@ -1,4 +1,4 @@
-"""The HTTP doors: a direct call cannot skip the rules, and stale previews are refused."""
+﻿"""The HTTP doors: a direct call cannot skip the rules, and stale previews are refused."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def test_a_direct_api_order_cannot_bypass_the_hard_rules(client):
     assert response.status_code == 409, response.text
     detail = response.json()["detail"]
     assert detail["blocking"]
-    assert detail["policy"] == "default v1"
+    assert detail["policy"] == "account:paper v1"
     assert any(item["rule"] == "max_order_value" for item in detail["blocking"])
 
     after = account(client)

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 
 import pytest
 
 from alphalab import ResultStore, create_default_engine
+from alphalab.store import AccountStateChanged, PreviewAlreadyConsumed
 from apps.api.services import result_service
 
 
@@ -58,7 +60,7 @@ def test_preview_records_a_snapshot_and_an_evaluation(paper):
     assert preview["allowed"] is True
     assert preview["risk_status"] == "ready"
     assert len(preview["orders"]) == len(paper.symbols)
-    assert preview["policy"]["label"] == "default v1"
+    assert preview["policy"]["label"] == "account:paper v1"
     assert preview["price_date"] == paper.latest
     assert preview["snapshot_id"] and preview["evaluation_id"]
     assert preview["disclaimer"].startswith("Paper simulation only")
@@ -166,7 +168,7 @@ def test_the_manual_door_enforces_the_same_hard_rules(paper):
         )
     detail = excinfo.value.detail
     assert detail["blocking"]
-    assert detail["policy"] == "default v1"
+    assert detail["policy"] == "account:paper v1"
     assert detail["preview_id"]
     # The refusal did not move a single share or yuan.
     assert account_state(paper) == before
@@ -182,7 +184,7 @@ def test_a_permitted_manual_order_records_its_policy_and_projection(paper):
     )
     assert result["id"]
     assert result["risk"]["allowed"] is True
-    assert result["risk"]["policy"]["label"] == "default v1"
+    assert result["risk"]["policy"]["label"] == "account:paper v1"
     assert result["risk"]["evaluation_id"]
     assert result["risk"]["projected"]["applied"] is True
 
@@ -238,7 +240,7 @@ def test_publishing_a_policy_appends_a_version_and_changes_the_verdict(paper):
         account_id="paper",
     )
     assert published["active"]["version"] == 2
-    assert published["active"]["label"] == "default v2"
+    assert published["active"]["label"] == "account:paper v2"
     assert [item["version"] for item in published["versions"]] == [1, 2]
     assert published["versions"][0]["reason"].startswith("Baseline")
     assert published["versions"][1]["reason"] == "Order cap tightened after the incident review"
@@ -319,3 +321,234 @@ def test_the_audit_lists_every_door(paper):
     assert "rebalance_preview" in doors
     assert "manual_order" in doors
     assert all(item["snapshot_id"] for item in audit if item["door"] == "manual_order")
+
+
+# -- the review findings ---------------------------------------------------
+
+
+def test_one_approval_cannot_be_executed_twice(paper):
+    preview = result_service.preview_paper_rebalance(
+        signal_id=paper.signal_id, profile="demo", account_id="paper"
+    )
+    first = result_service.execute_paper_rebalance(
+        signal_id=paper.signal_id,
+        profile="demo",
+        account_id="paper",
+        confirm=True,
+        preview_id=preview["preview_id"],
+    )
+    assert first["status"] == "filled"
+
+    with pytest.raises(result_service.StalePreviewError) as excinfo:
+        result_service.execute_paper_rebalance(
+            signal_id=paper.signal_id,
+            profile="demo",
+            account_id="paper",
+            confirm=True,
+            preview_id=preview["preview_id"],
+        )
+    assert "out of date" in str(excinfo.value).lower() or "already" in str(excinfo.value).lower()
+
+    store = ResultStore(paper.database)
+    try:
+        assert len(store.list_orders(limit=50, account_id="paper")) == len(preview["orders"])
+    finally:
+        store.close()
+
+
+def test_concurrent_executions_of_one_approval_produce_one_set_of_fills(paper):
+    preview = result_service.preview_paper_rebalance(
+        signal_id=paper.signal_id, profile="demo", account_id="paper"
+    )
+    barrier = threading.Barrier(2)
+    outcomes: list[tuple[str, object]] = []
+    lock = threading.Lock()
+
+    def run() -> None:
+        barrier.wait(timeout=30)
+        try:
+            result = result_service.execute_paper_rebalance(
+                signal_id=paper.signal_id,
+                profile="demo",
+                account_id="paper",
+                confirm=True,
+                preview_id=preview["preview_id"],
+            )
+            outcome: tuple[str, object] = ("filled", result)
+        except Exception as exc:  # noqa: BLE001 - the loser raises a refusal
+            outcome = ("refused", exc)
+        with lock:
+            outcomes.append(outcome)
+
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=120)
+
+    filled = [item for item in outcomes if item[0] == "filled"]
+    refused = [item for item in outcomes if item[0] == "refused"]
+    assert len(filled) == 1, f"expected exactly one winner, got {outcomes}"
+    assert len(refused) == 1
+    assert isinstance(refused[0][1], result_service.StalePreviewError)
+
+    store = ResultStore(paper.database)
+    try:
+        orders = store.list_orders(limit=50, account_id="paper")
+        assert len(orders) == len(preview["orders"]), "the approval must not create a second set of fills"
+        account = store.paper_account("paper")
+    finally:
+        store.close()
+    expected_cash = filled[0][1]["account"]["cash"]
+    assert account["cash"] == pytest.approx(expected_cash)
+
+
+def test_a_claim_is_refused_when_the_account_moved_since_the_approval(paper):
+    preview = result_service.preview_paper_rebalance(
+        signal_id=paper.signal_id, profile="demo", account_id="paper"
+    )
+    store = ResultStore(paper.database)
+    try:
+        before = store.paper_account("paper")["cash"]
+        with pytest.raises(AccountStateChanged):
+            store.apply_paper_orders(
+                preview["orders"],
+                account_id="paper",
+                nav_date=preview["price_date"],
+                claim={
+                    "preview_id": preview["preview_id"],
+                    "revision_sha256": "not-the-revision",
+                    "policy_version": 1,
+                },
+            )
+        after = store.paper_account("paper")["cash"]
+        assert after == pytest.approx(before), "a refused claim must roll back untouched"
+        assert len(store.list_orders(limit=50, account_id="paper")) == 0
+    finally:
+        store.close()
+
+
+def test_a_consumed_claim_is_refused_even_with_a_matching_revision(paper):
+    preview = result_service.preview_paper_rebalance(
+        signal_id=paper.signal_id, profile="demo", account_id="paper"
+    )
+    store = ResultStore(paper.database)
+    try:
+        revision = preview["account_revision"]
+        store.apply_paper_orders(
+            preview["orders"],
+            account_id="paper",
+            nav_date=preview["price_date"],
+            claim={
+                "preview_id": preview["preview_id"],
+                "revision_sha256": revision,
+                "policy_version": 1,
+            },
+        )
+        with pytest.raises(PreviewAlreadyConsumed):
+            store.apply_paper_orders(
+                preview["orders"],
+                account_id="paper",
+                nav_date=preview["price_date"],
+                claim={
+                    "preview_id": preview["preview_id"],
+                    "revision_sha256": revision,
+                    "policy_version": 1,
+                },
+            )
+        assert len(store.list_orders(limit=50, account_id="paper")) == len(preview["orders"])
+    finally:
+        store.close()
+
+
+def test_a_claim_is_refused_when_the_policy_moved(paper):
+    preview = result_service.preview_paper_rebalance(
+        signal_id=paper.signal_id, profile="demo", account_id="paper"
+    )
+    result_service.publish_paper_risk_policy(
+        {"reason": "Tighten after the approval", "limits": {"max_order_value": 90_000.0}},
+        account_id="paper",
+    )
+    store = ResultStore(paper.database)
+    try:
+        with pytest.raises(AccountStateChanged) as excinfo:
+            store.apply_paper_orders(
+                preview["orders"],
+                account_id="paper",
+                nav_date=preview["price_date"],
+                claim={
+                    "preview_id": preview["preview_id"],
+                    "revision_sha256": preview["account_revision"],
+                    "policy_version": int(preview["policy"]["version"]),
+                    "policy_id": preview["policy"]["policy_id"],
+                },
+            )
+        assert "policy" in str(excinfo.value)
+        assert len(store.list_orders(limit=50, account_id="paper")) == 0
+    finally:
+        store.close()
+
+
+def test_two_accounts_publish_versions_without_colliding(paper):
+    result_service.publish_paper_risk_policy(
+        {"reason": "Account A tightens its order cap", "limits": {"max_order_value": 80_000.0}},
+        account_id="paper-a",
+    )
+    second = result_service.publish_paper_risk_policy(
+        {"reason": "Account B tightens its order cap", "limits": {"max_order_value": 60_000.0}},
+        account_id="paper-b",
+    )
+    assert second["active"]["version"] == 2
+    assert second["active"]["limits"]["max_order_value"] == 60_000.0
+
+    first = result_service.paper_risk_policy("paper-a")
+    other = result_service.paper_risk_policy("paper-b")
+    assert first["active"]["policy_id"] != other["active"]["policy_id"]
+    assert first["active"]["limits"]["max_order_value"] == 80_000.0
+    assert [item["version"] for item in first["versions"]] == [1, 2]
+    assert [item["version"] for item in other["versions"]] == [1, 2]
+
+
+def test_a_strategy_override_keeps_its_own_history(paper):
+    account = result_service.publish_paper_risk_policy(
+        {"reason": "Account-wide change", "limits": {"max_order_value": 90_000.0}},
+        account_id="paper",
+    )
+    strategy = result_service.publish_paper_risk_policy(
+        {
+            "reason": "This strategy trades smaller",
+            "limits": {"max_order_value": 5_000.0},
+            "scope": "strategy",
+            "scope_id": "sdk-v1-default",
+        },
+        account_id="paper",
+    )
+    assert strategy["active"]["policy_id"] == "strategy:sdk-v1-default"
+    assert account["active"]["policy_id"] == "account:paper"
+    assert strategy["active"]["limits"]["max_order_value"] == 5_000.0
+    assert account["active"]["limits"]["max_order_value"] == 90_000.0
+
+    scoped = result_service.paper_risk_policy("paper", strategy_id="sdk-v1-default")
+    plain = result_service.paper_risk_policy("paper")
+    assert scoped["active"]["version"] == 2
+    assert plain["active"]["version"] == 2
+    assert scoped["active"]["policy_id"] != plain["active"]["policy_id"]
+
+
+def test_an_empty_account_returns_a_complete_unevaluated_analysis(paper):
+    analysis = result_service.paper_risk_analysis(account_id="paper", profile="demo")
+    assert analysis["portfolio"]["evaluated"] is False
+    assert analysis["portfolio"]["annualized_volatility"] is None
+    assert analysis["concentration"]["evaluated"] is False
+    assert analysis["concentration"]["effective_positions"] is None
+    assert analysis["concentration"]["top1_weight"] is None
+    assert analysis["scenarios"]["items"] == []
+    assert analysis["shocks"]["price_shock"]["evaluated"] is False
+    assert analysis["shocks"]["correlation"]["evaluated"] is False
+    assert analysis["warnings"]
+    assert analysis["unevaluated"]["symbols"] == []
+    assert analysis["disclaimer"]
+    # The same empty account replays to the same hash instead of a new shape.
+    replay = result_service.paper_risk_analysis(account_id="paper", profile="demo")
+    assert replay["cached"] is True
+    assert replay["concentration"] == analysis["concentration"]

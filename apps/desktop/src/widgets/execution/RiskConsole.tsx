@@ -18,6 +18,10 @@ function percent(value: number | null | undefined): string {
   return typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : "n/a"
 }
 
+function fixed(value: number | null | undefined, digits = 2): string {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "n/a"
+}
+
 export function RiskConsoleWidget() {
   const [profile] = useDataProfile()
   const [strategies, setStrategies] = useState<Array<{ id: string; name: string }>>([])
@@ -168,34 +172,39 @@ export function RiskConsoleWidget() {
       {analysisError && <p className="error">{analysisError}</p>}
       {analysis && (
         <div>
+          {analysis.portfolio?.evaluated === false && (
+            <div className="risk-row">
+              <AlertTriangle size={16} className="warn" />
+              <strong>not evaluated</strong>
+              <span>{analysis.portfolio?.note ?? "The analysis could not be evaluated."}</span>
+            </div>
+          )}
           <div className="risk-list">
             <div className="risk-row">
               <CheckCircle2 size={16} className="ok" />
               <strong>annualised volatility</strong>
-              <span>{percent(analysis.portfolio.annualized_volatility)}</span>
+              <span>{percent(analysis.portfolio?.annualized_volatility)}</span>
             </div>
             <div className="risk-row">
               <CheckCircle2 size={16} className="ok" />
               <strong>largest position</strong>
-              <span>{percent(analysis.concentration.top1_weight)} ({analysis.concentration.largest ?? "n/a"})</span>
+              <span>
+                {percent(analysis.concentration?.top1_weight)} ({analysis.concentration?.largest ?? "n/a"})
+              </span>
             </div>
             <div className="risk-row">
               <CheckCircle2 size={16} className="ok" />
               <strong>effective positions</strong>
-              <span>
-                {analysis.concentration.effective_positions === null
-                  ? "n/a"
-                  : analysis.concentration.effective_positions.toFixed(2)}
-              </span>
+              <span>{fixed(analysis.concentration?.effective_positions)}</span>
             </div>
-            {analysis.scenarios.items.map((scenario) => (
+            {(analysis.scenarios?.items ?? []).map((scenario) => (
               <div className="risk-row" key={`scenario-${scenario.start}`}>
                 <AlertTriangle size={16} className="warn" />
                 <strong>{scenario.start} → {scenario.end}</strong>
                 <span>{percent(scenario.portfolio_return)}</span>
               </div>
             ))}
-            {analysis.warnings.map((warning) => (
+            {(analysis.warnings ?? []).map((warning) => (
               <div className="risk-row" key={`warning-${warning.slice(0, 40)}`}>
                 <AlertTriangle size={16} className="warn" />
                 <strong>analysis warning</strong>
@@ -203,12 +212,13 @@ export function RiskConsoleWidget() {
               </div>
             ))}
           </div>
-          {analysis.unevaluated.symbols.length > 0 && (
+          {(analysis.unevaluated?.symbols ?? []).length > 0 && (
             <div className="risk-row">
               <AlertTriangle size={16} className="warn" />
               <strong>not evaluated</strong>
               <span>
-                {analysis.unevaluated.symbols.join(", ")} ({percent(analysis.unevaluated.weight_share)} of the account)
+                {(analysis.unevaluated?.symbols ?? []).join(", ")} (
+                {percent(analysis.unevaluated?.weight_share)} of the account)
               </span>
             </div>
           )}
