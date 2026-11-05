@@ -12,10 +12,31 @@ from alphalab.execution.broker import (
 from alphalab.execution.order import Order, OrderSide, OrderStatus, OrderType
 from alphalab.execution.order_logger import OrderLogger
 from alphalab.execution.paper_trader import PaperTrader, Position, Trade
-from alphalab.execution.risk_guard import RiskGuard, RiskGuardConfig, RiskViolation
+from alphalab.execution.risk_guard import (
+    AccountRiskMetrics,
+    AccountSnapshot,
+    PositionSnapshot,
+    ProjectedAccount,
+    RiskFinding,
+    RiskVerdict,
+    account_risk_metrics,
+    evaluate,
+    pause_breaches,
+    resume_decision,
+)
+from alphalab.execution.risk_policy import (
+    PauseRules,
+    RiskLimits,
+    RiskPolicy,
+    RiskPolicyError,
+    default_policy,
+    policy_from_payload,
+)
 from alphalab.execution.signal_executor import ExecutionResult, SignalExecutor
 
 __all__ = [
+    "AccountRiskMetrics",
+    "AccountSnapshot",
     "BrokerAccount",
     "BrokerContract",
     "BrokerOrder",
@@ -30,10 +51,21 @@ __all__ = [
     "OrderStatus",
     "OrderType",
     "PaperTrader",
+    "PauseRules",
     "Position",
-    "RiskGuard",
-    "RiskGuardConfig",
-    "RiskViolation",
+    "PositionSnapshot",
+    "ProjectedAccount",
+    "RiskFinding",
+    "RiskLimits",
+    "RiskPolicy",
+    "RiskPolicyError",
+    "RiskVerdict",
     "SignalExecutor",
     "Trade",
+    "account_risk_metrics",
+    "default_policy",
+    "evaluate",
+    "pause_breaches",
+    "policy_from_payload",
+    "resume_decision",
 ]

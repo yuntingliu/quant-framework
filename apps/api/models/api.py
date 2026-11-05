@@ -20,7 +20,7 @@ class PaperOrderRequest(BaseModel):
     quantity: float = Field(gt=0)
     price: float | None = Field(default=None, gt=0)
     signal_id: str | None = None
-    profile: Literal["runtime"] = "runtime"
+    profile: Literal["demo", "runtime"] = "runtime"
     account_id: str = "paper"
 
     @field_validator("action")
@@ -58,9 +58,10 @@ class PaperOrderRequest(BaseModel):
 class PaperRebalanceRequest(BaseModel):
     strategy_id: str | None = None
     signal_id: str | None = None
-    profile: Literal["runtime"] = "runtime"
+    profile: Literal["demo", "runtime"] = "runtime"
     account_id: str = "paper"
     confirm: bool = False
+    preview_id: str | None = None
 
     @field_validator("account_id")
     @classmethod
@@ -69,3 +70,39 @@ class PaperRebalanceRequest(BaseModel):
         if not normalized:
             raise ValueError("account_id is required")
         return normalized
+
+
+class PaperRiskPolicyRequest(BaseModel):
+    """A new policy version: the change plus why it exists."""
+
+    reason: str = Field(min_length=1)
+    author: str = "operator"
+    limits: dict = Field(default_factory=dict)
+    pause: dict = Field(default_factory=dict)
+    account_id: str = "paper"
+    strategy_id: str | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("reason is required: explain why the rules change")
+        return value.strip()
+
+
+class PaperRiskAnalysisRequest(BaseModel):
+    account_id: str = "paper"
+    profile: Literal["demo", "runtime"] = "runtime"
+    parameters: dict | None = None
+
+
+class PaperResumeRequest(BaseModel):
+    account_id: str = "paper"
+    reason: str = Field(min_length=1)
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("reason is required when a paused account resumes")
+        return value.strip()
