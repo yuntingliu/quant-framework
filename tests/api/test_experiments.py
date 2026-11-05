@@ -3,7 +3,7 @@ import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from threading import Event
+from threading import Barrier, Event
 
 import pandas as pd
 import pytest
@@ -94,14 +94,20 @@ def test_runtime_budget_does_not_rewrite_completed_experiment(setup_experiment):
     assert repository.get_experiment(identity) == before
 
 
-def test_running_cancellation_drains_worker_and_retains_result(setup_experiment):
+@pytest.mark.parametrize("stop", ["cancel", "budget", "budget_restart"])
+@pytest.mark.parametrize("fails", [False, True])
+def test_running_stop_drains_worker_and_retains_result(setup_experiment, stop, fails):
     repository, spec = setup_experiment
-    identity = repository.create_experiment(spec)["id"]
+    identity = repository.create_experiment({**spec, "max_runtime_seconds": 60})["id"]
     started, release = Event(), Event()
+    calls = []
 
     def runner(*args, backtest_id=None):
+        calls.append(backtest_id)
         started.set()
         assert release.wait(10)
+        if fails:
+            raise ValueError("retained trial failure")
         with sqlite3.connect(repository.path) as connection:
             connection.execute("INSERT INTO backtests(id, config_yaml) VALUES (?, '')", (backtest_id,))
         return {"id": backtest_id, "metrics": {"sharpe": 1.0}}
@@ -111,8 +117,28 @@ def test_running_cancellation_drains_worker_and_retains_result(setup_experiment)
     try:
         manager.start(identity)
         assert started.wait(10)
-        assert manager.cancel(identity)["execution"]["status"] == "cancelling"
+        if stop == "cancel":
+            assert manager.cancel(identity)["execution"]["status"] == "cancelling"
+        else:
+            with repository._conn:
+                repository._conn.execute("UPDATE experiment_execution SET started_at = datetime('now', '-61 seconds') WHERE experiment_id = ?", (identity,))
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if repository.get_experiment(identity)["execution"]["status"] == "cancelling":
+                    break
+                time.sleep(0.02)
+            assert repository.get_experiment(identity)["execution"]["status"] == "cancelling"
+        before = repository.get_experiment(identity)["execution"]
+        with pytest.raises(PermissionError, match="cancelling"):
+            repository.delete_project(spec["project_id"])
+        if stop == "budget_restart":
+            manager.shutdown()
         release.set()
+        if stop == "budget_restart":
+            jobs.shutdown()
+            jobs = BacktestJobManager(repository.path, runner=runner)
+            manager = ExperimentManager(repository.path, jobs)
+            assert manager.start(identity)["execution"]["started_at"] == before["started_at"]
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             state = repository.get_experiment(identity)
@@ -120,14 +146,69 @@ def test_running_cancellation_drains_worker_and_retains_result(setup_experiment)
                 break
             time.sleep(0.02)
         assert state["execution"]["status"] == "cancelled"
-        assert state["trials"][0]["status"] == "succeeded"
-        assert state["trials"][0]["result_id"]
+        assert state["execution"]["error"] == ("Cancellation requested" if stop == "cancel" else "Runtime budget exhausted")
+        assert state["trials"][0]["status"] == ("failed" if fails else "succeeded")
+        if fails:
+            assert state["trials"][0]["error"] == "retained trial failure"
+        else:
+            assert state["trials"][0]["result_id"] == calls[0]
         assert state["trials"][1]["status"] == "cancelled"
         assert repository._conn.execute("SELECT COUNT(*) FROM backtest_jobs").fetchone()[0] == 1
+        assert len(calls) == 1
     finally:
         release.set()
         manager.shutdown()
         jobs.shutdown()
+
+
+@pytest.mark.parametrize("order", ["cancel_first", "budget_first", "concurrent"])
+def test_cancel_and_budget_keep_first_stop_reason(setup_experiment, order):
+    repository, spec = setup_experiment
+    identity = repository.create_experiment({**spec, "max_runtime_seconds": 60})["id"]
+    repository.start_experiment(identity)
+    job = repository.advance_experiment(identity)
+    with repository._conn:
+        repository._conn.execute("UPDATE experiment_execution SET started_at = datetime('now', '-61 seconds') WHERE experiment_id = ?", (identity,))
+    barrier = Barrier(2)
+
+    def stop(cancel):
+        local = StrategyRepository(repository.path)
+        try:
+            if order == "concurrent":
+                barrier.wait(timeout=5)
+            if cancel:
+                local.cancel_experiment(identity)
+            else:
+                local.advance_experiment(identity)
+        finally:
+            local.close()
+
+    if order == "concurrent":
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(stop, value) for value in (True, False)]
+            for future in futures:
+                future.result(timeout=10)
+    else:
+        stop(order == "cancel_first")
+        stop(order != "cancel_first")
+    state = repository.get_experiment(identity)
+    assert state["execution"]["status"] == "cancelled"
+    reason = state["execution"]["error"]
+    expected = "Cancellation requested" if order == "cancel_first" else "Runtime budget exhausted"
+    assert reason in {"Cancellation requested", "Runtime budget exhausted"}
+    if order != "concurrent":
+        assert reason == expected
+    store = ResultStore(repository.path)
+    try:
+        saved = store.get_backtest_job(job)
+        assert saved["error_summary"] == reason
+        assert saved["error_code"] == ("EXPERIMENT_CANCELLED" if reason == "Cancellation requested" else "EXPERIMENT_TIME_BUDGET_EXHAUSTED")
+        assert not store.claim_backtest_job(job)
+    finally:
+        store.close()
+    assert all(trial["status"] == "cancelled" and trial["error"] == reason for trial in state["trials"])
+    assert repository.cancel_experiment(identity) == state
+    assert repository._conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_cancellation_migrates_existing_execution_table(setup_experiment):
