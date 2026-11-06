@@ -57,7 +57,7 @@ export function SearchProviderSettings({ open, local, profiles }: { open: boolea
       } else {
         setSettings(data)
         setKey("")
-        setMessage(tr("Saved. The next search uses these settings.", "已保存，下次搜索将使用此设置。"))
+        setMessage(tr("Saved. Each run keeps the settings selected at its first search.", "已保存。每个任务在首次搜索时选定配置，并在该任务中保持不变。"))
       }
     } catch (error) { setMessage(error instanceof Error ? error.message : "Search settings request failed.") }
     finally { setBusy(false) }

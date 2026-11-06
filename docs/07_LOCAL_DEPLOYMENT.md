@@ -110,7 +110,31 @@ Open **Model and search → Web search**:
 3. For Brave, enter a private search key. An empty field preserves its saved key.
 4. **Test search** uses an unsaved configuration with a fixed public documentation
    query; it may incur provider charges. It does not send research reports.
-5. **Save search settings** applies to the next search without restarting AlphaLab.
+5. **Save search settings** requires no restart. Each Agent run selects its search
+   settings on its first search and retains that provider, model, and key for
+   subsequent searches in the same run. A later run selects the current settings.
+
+The search API also supports named profiles through `id`, `name`, and `activate`.
+The existing settings form edits the active search profile; requests without a
+profile ID or name remain supported. Saving with `activate=false` leaves the
+active selection unchanged. Blank Brave key input retains only that profile's
+saved key. When no saved target profile exists, a legacy request with no profile
+ID or name may use the current environment key: testing leaves it in the
+environment, while saving records it privately in the default profile. New
+named profiles never inherit environment credentials. `clear_brave_api_key=true`
+explicitly removes the effective key; saving that clear records an empty key
+even when an environment key remains configured. The saved profile then
+reports missing configuration until a replacement is supplied. Clearing and
+replacing a key in the same request is rejected, including during connection
+tests. Tests never persist changes. Explicit OpenRouter profile references must
+resolve to that saved profile, with its own endpoint, model, and key; missing
+references never borrow another profile's credentials.
+
+Search settings remain in `conexus/secrets/search-providers.json` beneath
+`ALPHALAB_RUNTIME_DIR`. Legacy version 1 settings are read as the default named
+profile without changing the file. An explicit successful save writes version 2
+atomically. Invalid updates preserve the existing settings. Named-profile UI
+management and sanitized configuration export/import are separate features.
 
 Settings are shared by the installation, with keys stored in the private backend
 runtime directory. Separate local installations can configure different providers;
