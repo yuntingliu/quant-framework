@@ -45,6 +45,8 @@ data/*
 data/app/
 data/runtime/
 .alphalab-release.json
+/release-manifest.json
+backup-manifest.json
 logs/
 artifacts/
 outputs/

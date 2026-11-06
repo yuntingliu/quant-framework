@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from alphalab import ResultStore
+from alphalab import ResultStore, __version__
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.utils.build_info import build_info
 from apps.api.auth import HttpBasicAuthMiddleware
@@ -40,7 +40,7 @@ FRONTEND_DIST = Path(__file__).resolve().parents[2] / "build" / "web"
 app = FastAPI(
     title="AlphaLab Barebone API",
     description="Provider-first quant framework workstation API",
-    version="0.7.0",
+    version=__version__,
 )
 app.state.loaded_env_files = tuple(str(path) for path in LOADED_ENV_FILES)
 

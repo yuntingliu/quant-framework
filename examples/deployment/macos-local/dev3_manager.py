@@ -100,7 +100,43 @@ def health(expected=None):
     raise RuntimeError("Authenticated service health timed out.")
 
 
-def check_jobs():
+def release_cli(release, *args):
+    """Run the release's own ``alphalab release`` command and return its JSON output."""
+    result = subprocess.run(
+        [str(release / ".venv/bin/python"), "-m", "alphalab.cli", "release", *args],
+        cwd=release, capture_output=True, text=True,
+    )
+    try:
+        payload = json.loads(result.stdout)
+    except ValueError:
+        payload = {"status": "error", "error": result.stderr.strip()}
+    return result.returncode, payload
+
+
+def deployment_mismatch(release, health_payload):
+    # Mirrors alphalab.release.deployment_matches_manifest; this script runs
+    # outside the release virtual environment.
+    manifest = json.loads((release / "release-manifest.json").read_text())
+    expected = {
+        "commit_sha": manifest["commit_sha"],
+        "version": manifest["app"]["version"],
+        "core_revision": manifest["core"]["revision"],
+    }
+    return [f"{key} is {health_payload.get(key)!r}, expected {value!r}" for key, value in expected.items() if health_payload.get(key) != value]
+
+
+def check_jobs(release=None):
+    """Refuse to interrupt research work; the release's own guard covers every task source."""
+    release = (release or CURRENT).resolve()
+    if not (release / "alphalab/release.py").is_file():
+        return legacy_check_jobs()
+    code, result = release_cli(release, "tasks", "--runtime-dir", str(RUNTIME))
+    if code:
+        raise RuntimeError("Active tasks block the release change: " + json.dumps(result.get("active") or result))
+
+
+def legacy_check_jobs():
+    # Releases built before alphalab.release existed cannot run the shared guard.
     for name, table in [("alphalab.db", "backtest_jobs"), ("dataio.db", "sync_jobs")]:
         database = RUNTIME / "app" / name
         if not database.exists():
@@ -118,6 +154,16 @@ def check_jobs():
         runs = json.loads(local.read_text()).get("runs", [])
         if any(run.get("status") in {"queued", "running"} for run in runs):
             raise RuntimeError("An Agent run is active; wait before changing the release.")
+
+
+def check_release(release):
+    args = ["verify", "--release-dir", str(release)]
+    if CURRENT.exists() and CURRENT.resolve() != release.resolve():
+        args += ["--current", str(CURRENT.resolve())]
+    code, result = release_cli(release, *args)
+    if code:
+        raise RuntimeError("Release manifest or compatibility check failed: " + json.dumps(result))
+    return result
 
 
 def snapshot(tag="manual", offline=False):
@@ -230,7 +276,10 @@ def deploy(ref):
     validation = release / ".mac-local-build-validated.json"
     if not validation.is_file() or json.loads(validation.read_text())["commit_sha"] != commit:
         raise RuntimeError("Build and validation must finish before activation.")
-    check_jobs()
+    if not (release / "release-manifest.json").is_file():
+        release_cli(release, "manifest", "--release-dir", str(release), "--commit", commit, "--ref", ref)
+    check_release(release)
+    check_jobs(release)
     stop(WEB)
     stop(PRIVATE)
     backup = None
@@ -266,6 +315,9 @@ def deploy(ref):
         start(WEB)
         start(PUBLIC)
         result = health(commit)
+        mismatch = deployment_mismatch(release, result)
+        if mismatch:
+            raise RuntimeError("Running instance does not match the release manifest: " + "; ".join(mismatch))
         agent = api("/api/conexus/status")
         if not agent.get("available") or agent.get("mode") != "local_harness":
             raise RuntimeError("Local Conexus readiness failed: " + json.dumps(agent))

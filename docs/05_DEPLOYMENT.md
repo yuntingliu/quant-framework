@@ -48,9 +48,32 @@ Here, `runtime` means the configured runtime directory. Each independent instanc
 
 1. Select a specific source commit; install and build it in a separate directory.
 2. Run the checks required by the [development guide](03_DEVELOPMENT_GUIDE.md).
-3. Check background-task state and back up databases and research data.
-4. Switch to the verified release and restart the relevant services.
-5. Verify the application version, data access, and required Agent capabilities. Roll back the code release if verification fails.
+3. Record a release manifest and verify the release against it and against the active release.
+4. Check background-task state and back up databases and research data.
+5. Switch to the verified release and restart the relevant services.
+6. Verify the application version, core revision, data access, and required Agent capabilities. Roll back the code release if verification fails.
+
+### Release manifests
+
+`alphalab release manifest --release-dir <release> --commit <sha> --ref <ref>` writes `release-manifest.json` (schema `alphalab.release-manifest.v1`) into the release root. It records the commit and deployment ref, the application version, the pinned Conexus core revision, layout version and packages from `integrations/conexus/runtime.lock.json`, whether `build/conexus` was built, the Python and Node requirements, and SHA-256 hashes of `pyproject.toml`, the core lock, `vendor/conexus/EXPORT.json`, and the desktop package manifests. The file describes one deployment and stays out of Git.
+
+`alphalab release verify --release-dir <release> [--current <active release>]` exits non-zero when:
+
+- a pinned input no longer matches its hash, or the core lock revision differs from the manifest;
+- `build/conexus/UPSTREAM.json` differs from the core lock, or is missing although the manifest says it was built;
+- `pyproject.toml` and `alphalab.__version__` disagree with the manifest version;
+- the running Python is older than the release requires;
+- the Conexus runtime `layoutVersion` changes relative to the active release. Pass `--allow-layout-change` (or `ALPHALAB_ALLOW_LAYOUT_CHANGE=1` for `scripts/deploy_linux.sh`) only after reviewing the migration.
+
+A core revision or application version change is reported as a note and does not block activation.
+
+### Active-task protection
+
+`alphalab release tasks [--runtime-dir <runtime>]` exits with status 1 while any of these are queued, running, or pending: backtest jobs and research runs in `app/alphalab.db`, sync jobs in `app/dataio.db`, undelivered non-terminal Agent runs in `app/agent-conversations.sqlite3`, and Runs in `conexus/project/state.json`. It opens databases read-only and reports the PID in `conexus/project/host.lock` for information only. Deployment scripts call it immediately before switching the release and leave the active release untouched when work is in progress.
+
+### Version query
+
+`/api/health` reports `version`, `commit_sha`, `deployed_at`, `core_revision`, and a `manifest` summary (schema, commit, ref, creation time) when the release has one. `alphalab release version` prints the local checkout's versions; `alphalab release version --url http://127.0.0.1:8000` queries a running loopback instance, using `ALPHALAB_WEB_USERNAME` and `ALPHALAB_WEB_PASSWORD` when authentication is enabled. A deployment is healthy only when the commit, application version, and core revision all match its manifest.
 
 The deployment environment owns release paths, service configuration, domains, tunnels, and rollback records. A code rollback must not overwrite research data produced after the update.
 
@@ -60,7 +83,7 @@ Verify the application first, then its external services. An empty runtime direc
 
 | Check | What it establishes |
 | --- | --- |
-| `/api/health` | `status: "ok"`, `frontend: "ready"`, version, and result-store state; no full coverage scan |
+| `/api/health` | `status: "ok"`, `frontend: "ready"`, version, commit, core revision, manifest, and result-store state; no full coverage scan |
 | `/app/` | HTML, scripts, and styles load; projects and editors can be opened |
 | `/api/data/providers`, `/api/data-sync/health` | Data directories, freshness, and sync state |
 | `/api/python-editor/capabilities` | Local Python editor tools are available |

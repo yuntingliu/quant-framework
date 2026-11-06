@@ -14,8 +14,13 @@ SECRET_ASSIGNMENT = re.compile(
 PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 LOCAL_PREFIXES = (
     "data/app/", "data/runtime/", "data/cache/", "data/backups/",
-    "build/", "artifacts/", ".pytest_cache/",
+    "build/", "artifacts/", ".pytest_cache/", "runtime/", "backups/",
 )
+# Instance credentials, per-deployment manifests and backup records.
+PRIVATE_NAMES = frozenset({
+    "model-providers.json", "search-providers.json", "alphalab-connection.json",
+    "admin-token", "release-manifest.json", "backup-manifest.json",
+})
 
 
 def main() -> int:
@@ -25,7 +30,11 @@ def main() -> int:
     failures: list[str] = []
     for relative in filter(None, tracked):
         normalized = relative.replace("\\", "/")
-        if normalized == ".env" or normalized.startswith(LOCAL_PREFIXES):
+        if (
+            normalized == ".env"
+            or normalized.startswith(LOCAL_PREFIXES)
+            or Path(normalized).name in PRIVATE_NAMES
+        ):
             failures.append(f"tracked local state: {normalized}")
             continue
         if "node_modules" in Path(normalized).parts or "__pycache__" in Path(normalized).parts:
