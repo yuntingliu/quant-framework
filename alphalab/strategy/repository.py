@@ -68,6 +68,7 @@ class StrategyRepository(ProjectStrategies, ExperimentRuns):
         self._conn.execute("PRAGMA busy_timeout = 30000")
         self._lock = threading.RLock()
         self._conn.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
+        self._migrate_experiment_cancellation()
         self._seed_default()
         self._migrate_pipeline_projects()
         self._repair_legacy_factor_migrations()
@@ -80,6 +81,21 @@ class StrategyRepository(ProjectStrategies, ExperimentRuns):
 
     def close(self) -> None:
         self._conn.close()
+
+    def _migrate_experiment_cancellation(self) -> None:
+        with self._conn:
+            self._conn.execute("BEGIN IMMEDIATE")
+            schema = self._conn.execute("SELECT sql FROM sqlite_master WHERE name = 'experiment_execution'").fetchone()[0]
+            if "'cancelling'" in schema:
+                return
+            self._conn.execute("""CREATE TABLE experiment_execution_new (
+                experiment_id TEXT PRIMARY KEY REFERENCES research_experiments(id),
+                status TEXT NOT NULL CHECK(status IN ('running', 'cancelling', 'cancelled', 'succeeded', 'failed')),
+                selection_json TEXT, error TEXT,
+                started_at TEXT NOT NULL DEFAULT (datetime('now')), finished_at TEXT)""")
+            self._conn.execute("INSERT INTO experiment_execution_new SELECT * FROM experiment_execution")
+            self._conn.execute("DROP TABLE experiment_execution")
+            self._conn.execute("ALTER TABLE experiment_execution_new RENAME TO experiment_execution")
 
     def _seed_default(self) -> None:
         if self._conn.execute(
@@ -668,9 +684,9 @@ class StrategyRepository(ProjectStrategies, ExperimentRuns):
             if bool(row["built_in"]):
                 raise PermissionError("built-in projects are immutable")
             active = self._conn.execute(
-                """SELECT execution.experiment_id FROM experiment_execution execution
+                """SELECT execution.experiment_id, execution.status FROM experiment_execution execution
                    JOIN research_experiments experiment ON experiment.id = execution.experiment_id
-                   WHERE experiment.project_id = ? AND execution.status = 'running'""", (normalized,)
+                   WHERE experiment.project_id = ? AND execution.status IN ('running', 'cancelling')""", (normalized,)
             ).fetchall()
             jobs = self._conn.execute(
                 """SELECT id, status, request_json FROM backtest_jobs
@@ -681,7 +697,7 @@ class StrategyRepository(ProjectStrategies, ExperimentRuns):
                    JOIN research_experiments experiment ON experiment.id = trial.experiment_id
                    WHERE experiment.project_id = ?""", (normalized,)
             ).fetchall()}
-            blockers = [f"experiment {row[0]} (running)" for row in active]
+            blockers = [f"experiment {row[0]} ({row[1]})" for row in active]
             blockers.extend(f"job {job['id']} ({job['status']})" for job in jobs
                             if job["id"] in linked or json.loads(job["request_json"]).get("project_id") == normalized)
             if blockers:

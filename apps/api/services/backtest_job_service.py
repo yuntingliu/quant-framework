@@ -252,15 +252,8 @@ class BacktestJobManager:
 
     def _run_owned(self, job_id: str, request: dict) -> None:
         with self._store() as store:
-            current = store.get_backtest_job(job_id)
-        if current is None or current["status"] in {"succeeded", "failed", "interrupted"}:
-            return
-        with self._store() as store:
-            store.update_backtest_job(
-                job_id,
-                status="running",
-                message="Running complete strategy backtest",
-            )
+            if not store.claim_backtest_job(job_id):
+                return
         try:
             arguments = (
                 request["project_id"],

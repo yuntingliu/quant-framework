@@ -35,6 +35,7 @@ class ExperimentSpec(BaseModel):
     tie_break: Literal["candidate_order"] = "candidate_order"
     max_trials: int = Field(ge=2, le=1000)
     max_concurrency: Literal[1] = 1
+    max_runtime_seconds: int | None = Field(default=None, gt=0, strict=True)
     data_manifest_id: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")

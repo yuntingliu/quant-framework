@@ -117,8 +117,32 @@ influence is not automatically certified.
 Its presence is marked `unverified`; absence is marked `missing`. Neither state
 claims reproducibility after market-data updates. Date validation alone does not
 establish PIT correctness or prevent arbitrary Python from accessing future data.
-Queries retain failed, cancelled, and interrupted rows. There is no cancellation
-endpoint, model-fitting stage, rolling-window orchestration, or frontend yet.
+Queries retain failed, cancelled, and interrupted rows. There is no model-fitting
+stage, rolling-window orchestration, or frontend yet.
+
+## Safely stop an experiment
+
+`POST /api/experiments/{id}/cancel` returns 202 (404 if missing). It is
+idempotent, requires no Python execution consent, and preserves terminal states.
+
+- Unstarted trials become `cancelled`; queued jobs become `interrupted` with
+  `EXPERIMENT_CANCELLED` and cannot restart. Atomic claim/cancel writes decide
+  whether a queued job runs.
+- Running trials finish and retain their results. The experiment stays
+  `cancelling`, blocks deletion, then becomes `cancelled`. No further trial starts.
+- Optional positive integer `max_runtime_seconds` sets a soft budget from first
+  start; null/omitted means unlimited. Queue time and downtime count; restarting
+  does not reset it. Database UTC wall-clock timing has second precision and is
+  affected by clock adjustments.
+- Expiry uses the same stop path with `Runtime budget exhausted` and queued-job
+  code `EXPERIMENT_TIME_BUDGET_EXHAUSTED`. Expired queued jobs cannot be claimed.
+  The first stop reason wins. Committed experiment completion is preserved;
+  otherwise expiry precedes reconciliation, without discarding stored results.
+
+This does not forcibly stop running work or guarantee a hard deadline. After a
+restart, call run/cancel to resume stopping. Recovery may rerun jobs still marked
+running after a crash, but never completed or cancelled jobs. Existing execution
+tables migrate transactionally.
 
 ## Run a recorded experiment
 

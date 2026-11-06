@@ -435,6 +435,24 @@ class ResultStore:
         self._write(work)
         return job_id
 
+    def claim_backtest_job(self, job_id: str) -> bool:
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                """UPDATE backtest_jobs SET status = 'running', started_at = datetime('now'),
+                   message = 'Running complete strategy backtest'
+                   WHERE id = ? AND status IN ('queued', 'running')
+                   AND NOT EXISTS (
+                     SELECT 1 FROM experiment_trials trial
+                     JOIN research_experiments experiment ON experiment.id = trial.experiment_id
+                     JOIN experiment_execution execution ON execution.experiment_id = experiment.id
+                     WHERE trial.job_id = backtest_jobs.id AND backtest_jobs.status = 'queued'
+                     AND (execution.status != 'running' OR
+                       CAST(strftime('%s', 'now') AS INTEGER) - CAST(strftime('%s', execution.started_at) AS INTEGER)
+                       >= json_extract(experiment.protocol_json, '$.max_runtime_seconds'))
+                   )""", (job_id,),
+            )
+            return cursor.rowcount == 1
+
     def update_backtest_job(
         self,
         job_id: str,
