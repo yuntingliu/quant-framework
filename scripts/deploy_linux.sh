@@ -93,7 +93,30 @@ Path(sys.argv[1]).write_text(
     encoding="utf-8",
 )
 PY
+  "$RELEASE/.venv/bin/python" -m alphalab.cli release manifest \
+    --release-dir "$RELEASE" --commit "$COMMIT" --ref "$REF" >/dev/null
   BUILDING_RELEASE=0
+fi
+
+# Releases built before manifests existed receive one before activation.
+if [[ ! -f "$RELEASE/release-manifest.json" ]]; then
+  "$RELEASE/.venv/bin/python" -m alphalab.cli release manifest \
+    --release-dir "$RELEASE" --commit "$COMMIT" --ref "$REF" >/dev/null
+fi
+VERIFY_ARGS=(--release-dir "$RELEASE")
+if [[ -n "$PREVIOUS" && "$PREVIOUS" != "$RELEASE" ]]; then
+  VERIFY_ARGS+=(--current "$PREVIOUS")
+fi
+if [[ "${ALPHALAB_ALLOW_LAYOUT_CHANGE:-0}" == "1" ]]; then
+  VERIFY_ARGS+=(--allow-layout-change)
+fi
+if ! "$RELEASE/.venv/bin/python" -m alphalab.cli release verify "${VERIFY_ARGS[@]}"; then
+  echo "Release manifest or compatibility check failed; the active release is unchanged." >&2
+  exit 1
+fi
+if ! "$RELEASE/.venv/bin/python" -m alphalab.cli release tasks --runtime-dir "$RUNTIME_DIR"; then
+  echo "Active tasks are running; the active release is unchanged." >&2
+  exit 1
 fi
 
 DB="$RUNTIME_DIR/app/alphalab.db"
@@ -115,7 +138,7 @@ mv -Tf "$NEXT_LINK" "$CURRENT_LINK"
 
 restart_and_check() {
   systemctl --user restart "$SERVICE_NAME"
-  "$RELEASE/.venv/bin/python" - "$ENV_FILE" "$COMMIT" "$HEALTH_URL" <<'PY'
+  "$RELEASE/.venv/bin/python" - "$ENV_FILE" "$RELEASE/release-manifest.json" "$HEALTH_URL" <<'PY'
 import base64
 import json
 import sys
@@ -124,6 +147,8 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 from pathlib import Path
+
+from alphalab.release import deployment_matches_manifest
 
 values = {}
 for raw in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
@@ -145,19 +170,17 @@ health_url = sys.argv[3]
 if urlsplit(health_url).hostname not in {"127.0.0.1", "localhost", "::1"}:
     raise SystemExit("Release health checks must use a loopback origin")
 request = urllib.request.Request(health_url, headers=headers)
-expected_commit = sys.argv[2]
+manifest = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
 for _ in range(30):
     try:
         with urllib.request.urlopen(request, timeout=2) as response:
             body = json.load(response)
-        if (
-            response.status == 200
-            and body.get("status") == "ok"
-            and body.get("commit_sha") == expected_commit
-        ):
+        if response.status == 200 and not deployment_matches_manifest(body, manifest):
             raise SystemExit(0)
     except (OSError, ValueError, urllib.error.URLError):
-        time.sleep(1)
+        pass
+    # A still-starting or mismatched instance gets the same wait as a refused connection.
+    time.sleep(1)
 raise SystemExit("AlphaLab health check failed")
 PY
 }

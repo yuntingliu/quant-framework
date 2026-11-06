@@ -48,7 +48,28 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument("--agent", choices=["local", "remote", "off"], default="local")
     serve.add_argument("--agent-port", type=int, default=0, help="Local Conexus port; 0 selects an available port")
+    _add_release_commands(commands)
     return parser
+
+
+def _add_release_commands(commands: Any) -> None:
+    release = commands.add_parser("release", help="Inspect and verify deployable releases")
+    release_commands = release.add_subparsers(dest="release_command", required=True)
+    manifest = release_commands.add_parser("manifest", help="Write the release manifest")
+    manifest.add_argument("--release-dir", default=".")
+    manifest.add_argument("--commit", required=True)
+    manifest.add_argument("--ref")
+    verify = release_commands.add_parser(
+        "verify", help="Verify a release against its manifest and the current release"
+    )
+    verify.add_argument("--release-dir", default=".")
+    verify.add_argument("--current", help="Currently active release directory, if any")
+    verify.add_argument("--allow-layout-change", action="store_true")
+    version = release_commands.add_parser("version", help="Show local or running instance versions")
+    version.add_argument("--url", help="Loopback origin or health URL of a running instance")
+    version.add_argument("--release-dir", default=None)
+    tasks = release_commands.add_parser("tasks", help="List active tasks that block a release switch")
+    tasks.add_argument("--runtime-dir", default=None)
 
 
 def _add_sync_arguments(parser: argparse.ArgumentParser) -> None:
@@ -90,6 +111,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = doctor_report()
         print(json.dumps(result, indent=2, ensure_ascii=True, default=str))
         return 0 if result.get("status") == "ready" else 1
+    if args.command == "release":
+        return _release(args)
     if args.command != "data":
         return 2
     result: Any
@@ -145,6 +168,63 @@ def main(argv: Sequence[str] | None = None) -> int:
     ):
         return 1
     return 0
+
+
+def _release(args: argparse.Namespace) -> int:
+    import os
+    from pathlib import Path
+
+    from alphalab import release
+
+    def emit(value: Any) -> None:
+        print(json.dumps(value, indent=2, ensure_ascii=True, default=str))
+
+    try:
+        if args.release_command == "manifest":
+            manifest = release.build_manifest(args.release_dir, commit_sha=args.commit, ref=args.ref)
+            path = release.write_manifest(args.release_dir, manifest)
+            emit({"status": "ok", "path": str(path), "manifest": manifest})
+            return 0
+        if args.release_command == "verify":
+            manifest = release.read_manifest(args.release_dir)
+            problems = release.verify_manifest(args.release_dir, manifest)
+            current = None
+            if args.current and (Path(args.current) / release.MANIFEST_NAME).is_file():
+                current = release.read_manifest(args.current)
+            notes: list[str] = []
+            if not problems:
+                notes = release.check_compatibility(
+                    current, manifest, allow_layout_change=args.allow_layout_change
+                )
+            emit({"status": "failed" if problems else "ok", "problems": problems, "notes": notes})
+            return 1 if problems else 0
+        if args.release_command == "version":
+            if args.url:
+                result = release.query_instance_version(
+                    args.url,
+                    username=os.getenv("ALPHALAB_WEB_USERNAME"),
+                    password=os.getenv("ALPHALAB_WEB_PASSWORD"),
+                )
+            else:
+                result = release.current_versions(args.release_dir or release.REPO_ROOT)
+            emit(result)
+            return 0
+        if args.release_command == "tasks":
+            from alphalab.utils.paths import RUNTIME_DIR
+
+            runtime = Path(args.runtime_dir) if args.runtime_dir else RUNTIME_DIR
+            active = release.find_active_tasks(runtime)
+            emit({
+                "status": "busy" if active else "idle",
+                "runtime_dir": str(runtime),
+                "active": active,
+                "host_lock_pid": release.host_lock_owner(runtime),
+            })
+            return 1 if active else 0
+    except release.ReleaseError as exc:
+        emit({"status": "error", "error_type": type(exc).__name__, "error": str(exc)})
+        return 2
+    return 2
 
 
 def _split(value: str) -> list[str]:

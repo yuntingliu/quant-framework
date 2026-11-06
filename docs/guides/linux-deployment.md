@@ -89,7 +89,7 @@ cd "$HOME/src/quant-framework"
 bash scripts/deploy_linux.sh origin/main
 ```
 
-The script fetches the requested ref, builds the web client and Python environment in a separate release directory, runs checks, switches the current-release symlink, restarts the service, and checks the authenticated health endpoint. On failure it restores the previous valid release; a failed first deployment stops the new service.
+The script fetches the requested ref, builds the web client and Python environment in a separate release directory, runs checks, and writes `release-manifest.json`. Before switching the current-release symlink it verifies the release against its manifest and the active release, and refuses to continue while background tasks are active (see [release manifests and active-task protection](../05_DEPLOYMENT.md#release-manifests)). It then restarts the service and waits until the authenticated health endpoint reports the manifest's commit, application version, and core revision. On failure it restores the previous valid release; a failed first deployment stops the new service. A refused verification or an active task leaves the running service untouched.
 
 The build defaults to a 4 GiB Node heap limit, configurable through `NODE_OPTIONS`. The script requires Linux systemd, `flock`, and GNU utilities; it is not an installer for other operating systems.
 

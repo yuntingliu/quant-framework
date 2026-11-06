@@ -114,8 +114,15 @@ try:
             if result.returncode:
                 status(state="failed", step=index, command=label, returncode=result.returncode)
                 raise SystemExit(f"Build failed at step {index}; inspect {log_path}")
+    subprocess.run(
+        [str(python), "-m", "alphalab.cli", "release", "manifest", "--release-dir", str(release), "--commit", commit, "--ref", ref],
+        cwd=release, env=environment, stdout=subprocess.DEVNULL, check=True,
+    )
+    manifest = json.loads((release / "release-manifest.json").read_text())
     metadata = {
         "commit_sha": commit,
+        "app_version": manifest["app"]["version"],
+        "core_revision": manifest["core"]["revision"],
         "validated_at": datetime.now(timezone.utc).isoformat(),
         "build_seconds": round(time.monotonic() - started, 2),
         "platform": "darwin-arm64",

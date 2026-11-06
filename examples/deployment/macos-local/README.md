@@ -88,10 +88,13 @@ it only after a private snapshot. It does not push or force-update GitHub.
 Merge conflicts stop the update before deployment. The existing release remains
 active while building.
 
-`deploy <commit>` requires a validated release. It refuses active Agent,
-backtest and synchronization jobs; snapshots data and configuration; switches
-the release symlink; and checks authenticated service/Agent readiness. A failed
-activation restores the previous release and its matching state.
+`deploy <commit>` requires a validated release. It verifies the release against
+its `release-manifest.json` and the active release with `alphalab release verify`;
+refuses active Agent, backtest, research and synchronization work through
+`alphalab release tasks`; snapshots data and configuration; switches the release
+symlink; and checks that authenticated service/Agent readiness reports the
+manifest's commit, version and core revision. A failed activation restores the
+previous release and its matching state.
 
 `backup` uses SQLite's backup API and verifies the saved databases. Backups also
 contain populated configuration, model credentials and research files, so keep
