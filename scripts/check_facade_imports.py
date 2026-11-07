@@ -23,6 +23,7 @@ EXPECTED = [
     "evaluate_factor_history",
     "evaluate_factor_research",
     "ResultStore",
+    "SnapshotStore",
 ]
 
 

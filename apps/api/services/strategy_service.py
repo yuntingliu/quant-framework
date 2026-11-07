@@ -21,6 +21,7 @@ from alphalab.dataio.recipes import (
     update_recipe_parameters,
 )
 from alphalab.dataio.runtime import OperationsStore, RuntimeStore
+from alphalab.dataio.snapshots import SnapshotStore
 from alphalab.provenance import build_research_provenance
 from alphalab.store import ResultStore
 from alphalab.strategy.engine import (
@@ -784,9 +785,13 @@ def run_project_backtest(
     strategy_name: str | None = None,
     settings: dict | None = None,
     batch_id: str | None = None,
+    data_manifest_id: str | None = None,
+    recipe_version: dict | None = None,
 ) -> dict[str, Any]:
     if profile not in {"demo", "runtime"}:
         raise ValueError("profile must be demo or runtime")
+    if data_manifest_id is not None and profile != "runtime":
+        raise ValueError("data snapshots require the runtime profile")
     repo = _strategy_repository(strategy_id)
     if settings is not None:
         repo.use_run_settings(settings)
@@ -805,19 +810,32 @@ def run_project_backtest(
             raise KeyError(f"{project_id}@{revision}")
         pinned_revision = int(package["revision"])
         runtime_datasets = _runtime_datasets_for_backtest(package)
-        engine = _engine(profile)
         with ExitStack() as data_locks:
-            if profile == "runtime":
-                runtime_store = RuntimeStore()
-                for dataset in runtime_datasets:
-                    data_locks.enter_context(
-                        runtime_store.dataset_read_lock(dataset, timeout_seconds=30.0)
-                    )
+            snapshot_manifest = None
+            if data_manifest_id is not None:
+                snapshots = SnapshotStore()
+                snapshot_manifest = snapshots.manifest(data_manifest_id)
+                if not set(runtime_datasets).issubset(snapshot_manifest["datasets"]):
+                    raise ValueError("snapshot does not cover required backtest datasets")
+                engine = data_locks.enter_context(snapshots.open(data_manifest_id))
+            else:
+                engine = _engine(profile)
+                if profile == "runtime":
+                    runtime_store = RuntimeStore()
+                    for dataset in runtime_datasets:
+                        data_locks.enter_context(
+                            runtime_store.dataset_read_lock(dataset, timeout_seconds=30.0)
+                        )
             provenance = build_research_provenance(
                 profile,
                 strategy_python=package["source"],
                 runtime_datasets=runtime_datasets,
+                snapshot_manifest=snapshot_manifest,
             )
+            if snapshot_manifest is not None:
+                provenance["data_manifest_id"] = data_manifest_id
+                provenance["recipe_version"] = recipe_version
+                provenance["recipe_version_status"] = "recorded_at_submission" if recipe_version else "not_recorded"
             run = run_strategy_backtest(
                 repo,
                 project_id,

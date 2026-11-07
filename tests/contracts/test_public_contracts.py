@@ -14,6 +14,7 @@ def test_public_facade_is_small_and_sdk_native():
         "RQDataConfig",
         "RQDataProvider",
         "ResultStore",
+        "SnapshotStore",
         "StrategyBacktestResult",
         "StrategyRepository",
         "StrategySourceError",
