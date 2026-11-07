@@ -128,3 +128,23 @@ class SnapshotStore:
                 except OSError as exc:
                     raise DataLoadError(f"Missing snapshot object: {entry['sha256']}") from exc
             yield create_runtime_engine(root)
+
+    def collect_orphans(self, *, confirm=False):
+        """Retain every published manifest; remove only unreachable objects."""
+        runtime = RuntimeStore(self.runtime_root)
+        with runtime.dataset_lock("snapshot-publication", timeout_seconds=30):
+            referenced = set()
+            for path in self.manifests.iterdir():
+                if path.suffix != ".json":
+                    raise DataLoadError("Unexpected manifest file; cleanup aborted")
+                referenced.update(entry["sha256"] for entry in self.manifest(path.stem)["files"])
+            candidates = sorted(path.name for path in self.objects.iterdir()
+                                if path.name not in referenced)
+            for name in candidates:
+                path = self.objects / name
+                if path.is_symlink() or not path.is_file():
+                    raise DataLoadError("Unexpected snapshot object; cleanup aborted")
+            if confirm:
+                for name in candidates:
+                    (self.objects / name).unlink()
+            return {"objects": candidates, "deleted": confirm}

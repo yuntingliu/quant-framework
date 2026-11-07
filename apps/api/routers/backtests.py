@@ -7,7 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from alphalab.dataio import MissingDataError
+from alphalab.dataio import DataLoadError, MissingDataError
 from apps.api.services.backtest_analytics_service import (
     analyze_attribution,
     analyze_backtest,
@@ -40,6 +40,7 @@ class BacktestRequest(BaseModel):
     end_date: str = Field(min_length=1)
     profile: Literal["runtime"] = "runtime"
     revision: int | None = Field(default=None, ge=1)
+    data_manifest_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     confirm_python_execution: bool
 
 
@@ -63,6 +64,7 @@ class BacktestBatchRequest(BaseModel):
     start_date: str
     end_date: str
     profile: Literal["runtime"] = "runtime"
+    data_manifest_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     confirm_python_execution: bool = False
 
     @field_validator("strategy_ids")
@@ -79,6 +81,8 @@ def create_backtest_batch(request: BacktestBatchRequest) -> dict:
         raise HTTPException(status_code=409, detail="backtests execute trusted local Python and require confirmation")
     try:
         return submit_backtest_batch(request.model_dump(exclude={"confirm_python_execution"}))
+    except DataLoadError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError:
         raise HTTPException(status_code=404, detail="strategy not found") from None
     except ValueError as exc:
@@ -110,6 +114,8 @@ def create_backtest_job(request: BacktestRequest) -> dict:
         )
     try:
         return submit_backtest_job(request.model_dump(exclude={"confirm_python_execution"}))
+    except DataLoadError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError:
         raise HTTPException(status_code=404, detail="strategy not found") from None
     except ValueError as exc:

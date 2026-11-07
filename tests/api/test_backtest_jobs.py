@@ -428,6 +428,33 @@ def test_submission_path_queues_the_complete_backtest_directly(monkeypatch):
     ]
 
 
+def test_snapshot_and_recipe_are_pinned_in_queued_request(tmp_path, monkeypatch):
+    import alphalab
+    from alphalab.dataio.runtime import OperationsStore
+
+    snapshots = alphalab.SnapshotStore(tmp_path)
+    manifest = snapshots.capture(["rq.bars"])
+    operations = OperationsStore(tmp_path)
+    recipe = operations.save_recipe_draft("project", "# original recipe")
+    monkeypatch.setattr(alphalab, "SnapshotStore", lambda: snapshots)
+    monkeypatch.setattr(strategy_service, "operations_store", lambda: operations)
+    monkeypatch.setattr(strategy_service, "get_revision", lambda *args, **kwargs: {"revision": 1})
+    request = backtest_job_service._prepare_backtest_request(
+        {"project_id": "project", "profile": "runtime", "start_date": "2024-01-01",
+         "end_date": "2024-12-31", "data_manifest_id": manifest["id"]},
+        project={"current_revision": 1}, validation={"current_revision": 1},
+    )
+    operations.save_recipe_draft("project", "# edited recipe")
+    store = ResultStore(tmp_path / "jobs.db")
+    try:
+        job_id = store.create_backtest_job(request)
+        job = store.get_backtest_job(job_id)
+        assert job["request"]["data_manifest_id"] == manifest["id"]
+        assert job["request"]["recipe_version"] == recipe
+    finally:
+        store.close()
+
+
 def test_backtest_summary_is_bounded_and_events_are_paged(tmp_path, monkeypatch):
     database = tmp_path / "paged-results.db"
     dates = pd.bdate_range("2024-01-01", periods=20)

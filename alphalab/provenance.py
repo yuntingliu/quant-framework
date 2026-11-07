@@ -22,6 +22,7 @@ def build_research_provenance(
     data_root: str | Path | None = None,
     runtime_root: str | Path | None = None,
     runtime_datasets: Iterable[str] | None = None,
+    snapshot_manifest: dict | None = None,
 ) -> dict:
     if profile not in {"demo", "runtime"}:
         raise ValueError("profile must be demo or runtime")
@@ -54,7 +55,8 @@ def build_research_provenance(
         "data": (
             _demo_snapshot(Path(data_root) if data_root is not None else DATA_DIR)
             if profile == "demo"
-            else _runtime_snapshot(
+            else {"kind": "data_snapshot", "manifest": snapshot_manifest}
+            if snapshot_manifest is not None else _runtime_snapshot(
                 Path(runtime_root) if runtime_root is not None else RUNTIME_DIR,
                 runtime_datasets,
             )

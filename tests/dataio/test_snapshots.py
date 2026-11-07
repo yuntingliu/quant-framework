@@ -112,3 +112,78 @@ def test_capture_holds_writer_lock_and_publishes_no_partial_manifest(snapshot_da
     assert checked
     assert list(snapshots.manifests.iterdir()) == []
     runtime.write("rq.bars", bars)
+
+
+def test_cleanup_preserves_all_manifests_and_shared_objects(snapshot_data):
+    _, snapshots, _ = snapshot_data
+    first = snapshots.capture()
+    second = snapshots.capture()
+    orphan = snapshots.objects / ("0" * 64)
+    orphan.write_bytes(b"abandoned capture")
+    assert snapshots.collect_orphans() == {"objects": [orphan.name], "deleted": False}
+    assert orphan.exists()
+    assert snapshots.collect_orphans(confirm=True)["deleted"]
+    assert not orphan.exists()
+    for identity in (first["id"], second["id"]):
+        with snapshots.open(identity):
+            pass
+
+
+def test_cleanup_aborts_before_deletion_if_manifest_is_corrupt(snapshot_data):
+    _, snapshots, _ = snapshot_data
+    manifest = snapshots.capture()
+    orphan = snapshots.objects / ("0" * 64)
+    orphan.write_bytes(b"abandoned capture")
+    (snapshots.manifests / f"{manifest['id']}.json").write_text("{}")
+    with pytest.raises(DataLoadError):
+        snapshots.collect_orphans(confirm=True)
+    assert orphan.exists()
+
+
+def test_backtest_service_persists_snapshot_and_replays_validation(snapshot_data, tmp_path, monkeypatch):
+    from alphalab.store import ResultStore
+    from apps.api.services import strategy_service
+
+    runtime, snapshots, bars = snapshot_data
+    manifest = snapshots.capture()
+    database = tmp_path / "research.db"
+    monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(database))
+    monkeypatch.setattr(strategy_service, "ResultStore", lambda: ResultStore(database))
+    monkeypatch.setattr(strategy_service, "SnapshotStore", lambda: snapshots)
+
+    def forbid_live_engine(_profile):
+        pytest.fail("snapshot execution opened live data")
+
+    monkeypatch.setattr(strategy_service, "_engine", forbid_live_engine)
+    recipe = {"source": "# frozen recipe", "source_sha256": "recipe-hash"}
+    arguments = dict(project_id="sdk-v1-default", start_date="2024-01-01",
+                     end_date="2024-03-29", profile="runtime", revision=1,
+                     data_manifest_id=manifest["id"], recipe_version=recipe)
+    before = strategy_service.run_project_backtest(**arguments)
+    runtime.write("rq.bars", bars.assign(close=bars.close * 2, raw_close=bars.raw_close * 2))
+    after = strategy_service.run_project_backtest(**arguments)
+    assert before["returns"] == after["returns"]
+    assert before["validation_output"] == after["validation_output"]
+    store = ResultStore(database)
+    try:
+        provenance = json.loads(store.get_backtest_record(after["id"])["provenance_json"])
+        assert provenance["data_manifest_id"] == manifest["id"]
+        assert provenance["data"]["manifest"] == manifest
+        assert provenance["recipe_version"] == recipe
+        assert provenance["code"] and provenance["environment"]
+    finally:
+        store.close()
+
+
+def test_backtest_rejects_incomplete_snapshot_without_opening_live_data(snapshot_data, tmp_path, monkeypatch):
+    from apps.api.services import strategy_service
+
+    _, snapshots, _ = snapshot_data
+    manifest = snapshots.capture(["rq.bars"])
+    monkeypatch.setattr(strategy_service, "repository", lambda: StrategyRepository(tmp_path / "research.db"))
+    monkeypatch.setattr(strategy_service, "SnapshotStore", lambda: snapshots)
+    with pytest.raises(ValueError, match="does not cover"):
+        strategy_service.run_project_backtest(
+            "sdk-v1-default", "2024-01-01", "2024-03-29", "runtime",
+            data_manifest_id=manifest["id"],
+        )

@@ -275,7 +275,7 @@ class BacktestJobManager:
                 keyword_arguments["validation_revision"] = request.get("validation_revision")
             if "backtest_id" in parameters:
                 keyword_arguments["backtest_id"] = job_id
-            for key in ("strategy_id", "strategy_name", "settings", "batch_id"):
+            for key in ("strategy_id", "strategy_name", "settings", "batch_id", "data_manifest_id", "recipe_version"):
                 if key in parameters and key in request:
                     keyword_arguments[key] = request[key]
             if keyword_arguments:
@@ -351,6 +351,13 @@ def _prepare_backtest_request(request: dict, project: dict | None = None, valida
         "strategy_name": next((row["name"] for row in project.get("strategies", []) if row["id"] == selected), selected),
         "settings": dict(project.get("settings") or {}),
     }
+    if request.get("data_manifest_id"):
+        from alphalab import SnapshotStore
+
+        identity = request["data_manifest_id"]
+        SnapshotStore().manifest(identity)
+        normalized["data_manifest_id"] = identity
+        normalized["recipe_version"] = strategy_service.operations_store().get_recipe_draft(project_id)
     return normalized
 
 
