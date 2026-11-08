@@ -1,6 +1,5 @@
 import { researchCanvas } from './research-canvas.mjs'
-import { configuredCompletion, readActiveProvider } from './model-providers.mjs'
-import { configuredWebSearch } from './web-search.mjs'
+import { createJsonAgentConfiguration } from './configuration-runtime.mjs'
 import { writeFile, rename } from 'node:fs/promises'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -12,18 +11,19 @@ const { createLocalHost, createLocalRuntime, createModelCompletion, compileHarne
 
 const model = 'alphalab/configured-provider'
 const providerPath = process.env.ALPHALAB_MODEL_PROVIDERS_FILE || resolve(process.env.CONEXUS_LOCAL_ROOT, '..', 'secrets/model-providers.json')
-const webSearch = configuredWebSearch(providerPath)
+// Fixed JSON startup. SQLite composition is deliberately not selectable here.
+const configuration = createJsonAgentConfiguration(providerPath, createModelCompletion)
 const slug = 'alphalab-research-agent'
 const projectRoot = process.env.CONEXUS_LOCAL_ROOT
 const runtime = createLocalRuntime({ projectRoot,
   toolEnvironment: { ALPHALAB_API_ORIGIN: process.env.ALPHALAB_API_ORIGIN },
-  capabilities: { 'web.search': webSearch },
+  capabilities: { 'web.search': configuration.webSearch },
 })
 const workspace = await researchCanvas(resolve(sourceRoot, 'integrations/conexus/alphalab-research-agent'), { model, slug })
 const release = compileHarnessWorkspace({ workspace, harnessNodeId: 'alphalab-research-harness-v1' })
 const token = process.env.CONEXUS_LOCAL_TOKEN
 const host = await createLocalHost({ projectRoot, release, slug, token, model, runtimeAdapter: runtime.adapter,
-  complete: configuredCompletion(providerPath, createModelCompletion),
+  complete: configuration.complete,
 })
 host.app.post('/api/alphalab/search/test', async (request, reply) => {
   const expected = Buffer.from(`Bearer ${token}`)
@@ -31,16 +31,15 @@ host.app.post('/api/alphalab/search/test', async (request, reply) => {
   if (!token || received.length !== expected.length || !timingSafeEqual(received, expected)) {
     return reply.code(401).send({ error: 'Authentication required.' })
   }
-  const search = configuredWebSearch(providerPath, { settingsOverride: request.body })
-  return search({ input: { query: 'OpenRouter web search server tool documentation', count: 3 }, signal: AbortSignal.timeout(50000) })
+  return configuration.testSearch(request.body, { input: { query: 'OpenRouter web search server tool documentation', count: 3 }, signal: AbortSignal.timeout(50000) })
 })
 host.app.addHook('preSerialization', async (request, _reply, payload) => {
   if (request.routeOptions.url !== '/health') return payload
-  return { ...payload, modelConfigured: Boolean(await readActiveProvider(providerPath)) }
+  return { ...payload, modelConfigured: await configuration.modelConfigured() }
 })
 host.app.addHook('preHandler', async request => {
   if (request.method === 'POST' && request.routeOptions.url === `/api/public/harnesses/${slug}/runs`
-      && !(await readActiveProvider(providerPath))) {
+      && !(await configuration.modelConfigured())) {
     const error = new Error('Open Model providers and configure a model before starting the Agent.')
     error.statusCode = 503
     throw error
@@ -48,12 +47,13 @@ host.app.addHook('preHandler', async request => {
 })
 let closing
 function close() {
-  closing ??= host.close().finally(() => runtime.close())
+  closing ??= host.close().finally(async () => { runtime.close(); await configuration.close() })
   return closing
 }
 const parentPipe = process.env.ALPHALAB_AGENT_PARENT_PIPE === '1'
 host.app.addHook('onClose', async () => {
   runtime.close()
+  await configuration.close()
   if (parentPipe) process.stdin.destroy()
 })
 try {

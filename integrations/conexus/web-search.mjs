@@ -1,4 +1,4 @@
-import { readActiveProvider } from './model-providers.mjs'
+import { readActiveProvider, providerFromSnapshot, containsProviderCredential } from './model-providers.mjs'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
@@ -9,6 +9,12 @@ const PROFILE_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const VALID_PROVIDERS = new Set(['openrouter', 'brave', 'off'])
 
 const failure = (code, error) => ({ result: { success: false, code, error, retryable: false } })
+
+function publicSearchResult(payload, execution, strict) {
+  if (!strict) return payload
+  return containsProviderCredential(payload, [execution.apiKey, execution.braveApiKey])
+    ? failure('search_provider_error', 'The search provider returned an unsafe response.') : payload
+}
 
 async function boundedJson(response) {
   const chunks = []
@@ -157,6 +163,27 @@ async function resolveSearchExecution(providerPath, env, settingsOverride) {
     ? overrideProfile(settingsOverride)
     : savedActiveProfile(await readSearchSettings(join(dirname(providerPath), 'search-providers.json')))
       ?? environmentProfile(env)
+  return searchExecution(profile, () => profile.model_profile_id
+    ? readModelProfileById(providerPath, profile.model_profile_id)
+    : readActiveProvider(providerPath, env))
+}
+
+/** One read supplies both the selected search and its referenced model. */
+export async function searchExecutionFromSnapshot(snapshot, env = {}, settingsOverride) {
+  const choice = snapshot.selections.search
+  let profile
+  if (settingsOverride) profile = overrideProfile(settingsOverride)
+  else if (choice.kind === 'none') return { mode: 'off' }
+  else if (choice.kind === 'environment') profile = environmentProfile(env)
+  else {
+    const settings = normalizeSearchSettings(snapshot.documents.search)
+    profile = settings.profiles.find(row => row.id === choice.id)
+    if (!profile) throw new Error('The saved search selection is unavailable.')
+  }
+  return searchExecution(profile, () => providerFromSnapshot(snapshot, env, profile.model_profile_id))
+}
+
+async function searchExecution(profile, resolveModel) {
   if (profile.provider === 'off') return { mode: 'off' }
   if (profile.provider === 'brave') {
     if (!profile.brave_api_key) {
@@ -168,9 +195,7 @@ async function resolveSearchExecution(providerPath, env, settingsOverride) {
     }
     return { mode: 'brave', braveApiKey: profile.brave_api_key }
   }
-  const modelProfile = profile.model_profile_id
-    ? await readModelProfileById(providerPath, profile.model_profile_id)
-    : await readActiveProvider(providerPath, env)
+  const modelProfile = await resolveModel()
   if (!isOpenRouterProfile(modelProfile)) {
     return {
       mode: 'error',
@@ -188,7 +213,7 @@ async function resolveSearchExecution(providerPath, env, settingsOverride) {
 }
 
 /** Search credentials are resolved locally and never passed through tool inputs. */
-export function configuredWebSearch(providerPath, { env = process.env, fetchImpl = fetch, settingsOverride } = {}) {
+export function configuredWebSearch(providerPath, { env = process.env, fetchImpl = fetch, settingsOverride, resolveExecution } = {}) {
   const executions = new WeakMap()
   return async params => {
     const query = typeof params.input?.query === 'string' ? params.input.query.trim() : ''
@@ -200,11 +225,11 @@ export function configuredWebSearch(providerPath, { env = process.env, fetchImpl
       if (params.signal) {
         execution = executions.get(params.signal)
         if (!execution) {
-          execution = resolveSearchExecution(providerPath, env, settingsOverride)
+          execution = resolveExecution ? resolveExecution(params.signal, settingsOverride) : resolveSearchExecution(providerPath, env, settingsOverride)
           executions.set(params.signal, execution)
         }
         execution = await execution
-      } else execution = await resolveSearchExecution(providerPath, env, settingsOverride)
+      } else execution = await (resolveExecution ? resolveExecution(undefined, settingsOverride) : resolveSearchExecution(providerPath, env, settingsOverride))
       if (execution.mode === 'off') {
         return failure('search_disabled', 'Web search is disabled in Model and search settings. Local research tools remain available.')
       }
@@ -252,7 +277,7 @@ export function configuredWebSearch(providerPath, { env = process.env, fetchImpl
           if (results.length >= limit) break
         }
         if (!results.length) return failure('search_no_sources', 'OpenRouter returned no source citations. Do not treat the response as verified search evidence.')
-        return { result: { success: true, provider: 'openrouter', results } }
+        return publicSearchResult({ result: { success: true, provider: 'openrouter', results } }, execution, Boolean(resolveExecution))
       }
       const url = new URL('https://api.search.brave.com/res/v1/web/search')
       url.searchParams.set('q', query)
@@ -267,7 +292,7 @@ export function configuredWebSearch(providerPath, { env = process.env, fetchImpl
         return failure('search_provider_error', `Brave search returned HTTP ${response.status}. Check search configuration before retrying.`)
       }
       const data = await boundedJson(response)
-      return {
+      return publicSearchResult({
         result: {
           success: true,
           provider: 'brave',
@@ -277,7 +302,7 @@ export function configuredWebSearch(providerPath, { env = process.env, fetchImpl
             snippet: row.description ?? '',
           })),
         },
-      }
+      }, execution, Boolean(resolveExecution))
     } catch {
       return failure('search_request_failed', 'Web search failed or timed out. Check the provider and network configuration before retrying.')
     }
