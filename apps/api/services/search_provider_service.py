@@ -211,6 +211,34 @@ def _prepare_profile(
     *,
     clear_brave_api_key: bool,
 ) -> dict[str, Any]:
+    return prepare_profile(
+        profile,
+        settings,
+        clear_brave_api_key=clear_brave_api_key,
+        initial_environment=_environment_profile()
+        if _may_capture_environment(profile, settings)
+        else None,
+    )
+
+
+def _may_capture_environment(profile, settings) -> bool:
+    profile_id, _ = _target_profile_identity(profile, settings)
+    return (
+        profile_id == _DEFAULT_PROFILE_ID
+        and profile.get("id") is None
+        and profile.get("name") is None
+        and not any(row["id"] == profile_id for row in settings["profiles"])
+    )
+
+
+def prepare_profile(
+    profile: Mapping[str, object],
+    settings: Mapping[str, Any],
+    *,
+    clear_brave_api_key: bool = False,
+    initial_environment: Mapping[str, object] | None = None,
+) -> dict[str, Any]:
+    """Pure profile preparation; environment capture is an explicit caller input."""
     profile_id, default_name = _target_profile_identity(profile, settings)
     previous = next((row for row in settings["profiles"] if row["id"] == profile_id), None)
     if previous is None and profile.get("id") is not None and profile.get("name") is None:
@@ -225,9 +253,8 @@ def _prepare_profile(
         and profile.get("id") is None
         and profile.get("name") is None
     ):
-        environment = _environment_profile()
-        if environment["brave_api_key"]:
-            key_source = environment
+        if initial_environment and initial_environment.get("brave_api_key"):
+            key_source = initial_environment
     return {
         "id": profile_id,
         "name": _resolve_profile_name(profile, previous, default_name=default_name),
@@ -322,6 +349,31 @@ def _validate_runtime_profile(
     *,
     allow_incomplete_brave: bool,
 ) -> None:
+    is_openrouter = (
+        _validate_provider(
+            profile.get("provider"), message="Choose OpenRouter, Brave or Off for search."
+        )
+        == "openrouter"
+    )
+    identifier = (
+        _normalize_model_profile_id(profile.get("model_profile_id")) if is_openrouter else None
+    )
+    validate_runtime_profile(
+        profile,
+        allow_incomplete_brave=allow_incomplete_brave,
+        model_settings=models.read_settings() if is_openrouter and identifier is not None else None,
+        active_model=models.active_profile() if is_openrouter and identifier is None else None,
+    )
+
+
+def validate_runtime_profile(
+    profile: Mapping[str, object],
+    *,
+    allow_incomplete_brave: bool,
+    model_settings: Mapping[str, Any] | None = None,
+    active_model: Mapping[str, object] | None = None,
+) -> None:
+    """Validate readiness using models from the same caller-supplied snapshot."""
     provider = _validate_provider(
         profile.get("provider"), message="Choose OpenRouter, Brave or Off for search."
     )
@@ -331,7 +383,7 @@ def _validate_runtime_profile(
             candidate = next(
                 (
                     row
-                    for row in models.read_settings()["profiles"]
+                    for row in (model_settings or {"profiles": []})["profiles"]
                     if isinstance(row, Mapping) and row.get("id") == identifier
                 ),
                 None,
@@ -339,7 +391,7 @@ def _validate_runtime_profile(
             if not _is_openrouter_model_profile(candidate):
                 raise ValueError("Choose a saved OpenRouter model profile with an API key.")
             return
-        if not _is_openrouter_model_profile(models.active_profile()):
+        if not _is_openrouter_model_profile(active_model):
             raise ValueError("Choose an active OpenRouter model profile with an API key.")
         return
     if provider == "brave" and not _normalize_brave_api_key(profile.get("brave_api_key", "")):

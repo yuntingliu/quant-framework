@@ -74,12 +74,7 @@ def public_settings() -> dict:
 def save_profile(profile: dict, *, activate: bool) -> dict:
     with _LOCK:
         settings = read_settings()
-        previous = next((row for row in settings["profiles"] if row["id"] == profile["id"]), None)
-        # Empty input preserves a stored key only when the destination is unchanged.
-        # A provider switch must never send an old provider's key to another origin.
-        if not profile.get("api_key") and previous and profile["base_url"].strip().rstrip("/") == previous["base_url"]:
-            profile = {**profile, "api_key": previous.get("api_key", "")}
-        profile = validate_profile(profile)
+        profile = prepare_profile(profile, settings)
         rows = [row for row in settings["profiles"] if row["id"] != profile["id"]]
         if len(rows) >= 20:
             raise ValueError("At most 20 provider profiles are supported.")
@@ -99,7 +94,17 @@ def save_profile(profile: dict, *, activate: bool) -> dict:
 
 
 def resolve_test_profile(profile: dict) -> dict:
-    previous = next((row for row in read_settings()["profiles"] if row["id"] == profile["id"]), None)
-    if not profile.get("api_key") and previous and profile["base_url"].strip().rstrip("/") == previous["base_url"]:
+    return prepare_profile(profile, read_settings())
+
+
+def prepare_profile(profile: dict, settings: dict) -> dict:
+    """Resolve same-destination retention against supplied saved state only."""
+    previous = next((row for row in settings["profiles"] if row["id"] == profile["id"]), None)
+    # Changing the destination must never forward another provider's key.
+    if (
+        not profile.get("api_key")
+        and previous
+        and profile["base_url"].strip().rstrip("/") == previous["base_url"]
+    ):
         profile = {**profile, "api_key": previous.get("api_key", "")}
     return validate_profile(profile)

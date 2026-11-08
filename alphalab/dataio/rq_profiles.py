@@ -130,9 +130,8 @@ def save_profile(
     clear_password: bool = False,
 ) -> dict[str, Any]:
     settings = read_settings()
-    normalized = validate_profile_input(profile)
+    normalized = prepare_profile(profile, settings, clear_password=clear_password)
     previous = next((row for row in settings["profiles"] if row["id"] == normalized["id"]), None)
-    normalized["password"] = _resolve_password(normalized, previous, clear_password=clear_password)
     rows = [row for row in settings["profiles"] if row["id"] != normalized["id"]]
     if previous is None and len(rows) >= 20:
         raise ValueError("At most 20 RQData profiles are supported.")
@@ -200,18 +199,21 @@ def active_config() -> dict[str, str]:
 
 
 def resolve_connection_profile(profile: Mapping[str, object]) -> SavedRQProfile:
-    settings = read_settings()
+    normalized = prepare_profile(profile, read_settings())
+    return SavedRQProfile(**normalized)
+
+
+def prepare_profile(
+    profile: Mapping[str, object],
+    settings: Mapping[str, Any],
+    *,
+    clear_password: bool = False,
+) -> dict[str, str]:
+    """Apply password retention/deletion to explicitly supplied saved state."""
     normalized = validate_profile_input(profile)
     previous = next((row for row in settings["profiles"] if row["id"] == normalized["id"]), None)
-    normalized["password"] = _resolve_password(normalized, previous, clear_password=False)
-    return SavedRQProfile(
-        id=normalized["id"],
-        name=normalized["name"],
-        provider=normalized["provider"],
-        user=normalized["user"],
-        password=normalized["password"],
-        host=normalized["host"],
-    )
+    normalized["password"] = _resolve_password(normalized, previous, clear_password=clear_password)
+    return normalized
 
 
 def missing_environment_keys(env: Mapping[str, str] | None = None) -> list[str]:
