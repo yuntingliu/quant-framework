@@ -35,6 +35,7 @@ logic. These describe the pinned core snapshot and are validated by
 - [Deployment branches and dev3](09_DEPLOYMENT_BRANCHES.md): exact deployed revision, legacy branch mapping, local architecture, private configuration and management.
 - [Local deployment](07_LOCAL_DEPLOYMENT.md): bundled Conexus runtime and model-provider settings.
 - [Configuration transfer format](guides/configuration-transfer.md): pure sanitized metadata schema, selection intent, migrations, and deferred storage/security decisions.
+- [Isolated Node configuration reader](guides/configuration-store-node.md): read-only Python-store interoperability, Worker lifecycle, private snapshots, and runtime limitations.
 - [Deployment acceptance](08_LOCAL_DEPLOYMENT_VALIDATION.md): verification before promotion.
 
 - [Deployment](05_DEPLOYMENT.md): building, configuration, persistence, updates, and operational checks.
