@@ -19,15 +19,25 @@ from apps.api.services.configuration_binding_service import (
 
 
 def create_configuration_app(
-    backend, *, environment=None, agent_identity=None, include_data=False, data_options=None
+    backend,
+    *,
+    environment=None,
+    agent_identity=None,
+    agent_connection=None,
+    include_data=False,
+    data_options=None,
 ):
     """Prepare profile routes; agent_identity is a consistency assertion only.
 
-    Non-Off SQLite search probes remain unavailable until an authenticated owned
-    endpoint can supply a complete private connection bound to the owner lifetime.
-    An arbitrary identity/connection dictionary never authorizes a probe.
+    Only a live private managed connection can authorize SQLite search probes.
+    No identity/connection dictionary or environment value authorizes a probe.
     """
-    binding = ModelSearchBindings(backend, environment=environment, agent_identity=agent_identity)
+    binding = ModelSearchBindings(
+        backend,
+        environment=environment,
+        agent_identity=agent_identity,
+        agent_connection=agent_connection,
+    )
     if type(include_data) is not bool or (include_data and backend.mode != "sqlite"):
         raise ConfigurationStoreError("INVALID_ARGUMENT")
     # Keep the same explicitly supplied private environment snapshot used by

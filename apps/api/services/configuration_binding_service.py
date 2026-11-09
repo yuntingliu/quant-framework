@@ -10,6 +10,7 @@ from contextlib import contextmanager
 
 from fastapi import HTTPException, Request
 
+from alphalab.utils.configuration_agent import OwnedAgentConnection
 from alphalab.utils.configuration_backend import ConfigurationBackend
 from alphalab.utils.configuration_store import ConfigurationStoreError
 from alphalab.utils.private_settings import runtime_root
@@ -85,13 +86,25 @@ class _BoundService:
 class ModelSearchBindings:
     """One backend for every GET, Save, Test and selection route in this scope."""
 
-    __slots__ = ("backend", "_sql", "models", "search")
+    __slots__ = ("backend", "_sql", "models", "search", "_agent")
 
     @_guard
-    def __init__(self, backend: ConfigurationBackend, *, environment=None, agent_identity=None):
+    def __init__(
+        self,
+        backend: ConfigurationBackend,
+        *,
+        environment=None,
+        agent_identity=None,
+        agent_connection=None,
+    ):
         if type(backend) is not ConfigurationBackend:
             raise ValueError
         self.backend, self._sql = backend, None
+        self._agent = agent_connection
+        if agent_connection is not None:
+            if backend.mode != "sqlite" or type(agent_connection) is not OwnedAgentConnection:
+                raise ConfigurationStoreError("STORE_UNAVAILABLE")
+            agent_connection.require_owner(backend)
         if agent_identity is not None:
             # Compatibility assertion only: a composition identity says nothing
             # about an HTTP endpoint. Never turn this input into authorization.
@@ -112,16 +125,18 @@ class ModelSearchBindings:
         return "ModelSearchBindings(<private>)"
 
     def require_search_agent(self, *, provider):
-        """Fail before secret resolution until an owned endpoint can be verified.
-
-        Current Host health/descriptor identity is public and production startup
-        is JSON-only. There is no authenticated SQLite endpoint contract from
-        which to mint an immutable private origin/token/identity connection. Do
-        not accept a caller's identity assertion or consult ambient connection
-        variables as a substitute. Off needs no connection; JSON stays legacy.
-        """
+        """Require our actual managed child before private SQLite resolution."""
         if self.backend.mode == "sqlite" and provider != "off":
-            raise ConfigurationStoreError("STORE_UNAVAILABLE")
+            if type(self._agent) is not OwnedAgentConnection:
+                raise ConfigurationStoreError("STORE_UNAVAILABLE")
+            self._agent.require_owner(self.backend)
+
+    def test_search_agent(self, settings):
+        self.require_search_agent(provider=settings["provider"])
+        return self._agent.test_search(self.backend, settings)
+
+    def authenticate_search_agent(self):
+        self._agent.authenticate(self.backend)
 
 
 async def configuration_bindings(request: Request):

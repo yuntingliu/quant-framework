@@ -7,6 +7,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 import httpx
+from anyio import to_thread
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
@@ -95,6 +96,10 @@ async def test_search_provider(
 ) -> dict:
     require_local()
     binding.require_search_agent(provider=request.provider)
+    if binding.backend.mode == "sqlite" and request.provider != "off":
+        # Authenticate before extracting a private profile, then authenticate
+        # again on the exact dispatch socket after resolution.
+        await to_thread.run_sync(binding.authenticate_search_agent)
     try:
         settings = binding.search.resolve_test_profile(
             request.model_dump(
@@ -112,6 +117,10 @@ async def test_search_provider(
             "message": "Web search is disabled. No search request was sent.",
             "results": [],
         }
+    if binding.backend.mode == "sqlite":
+        # Separate from legacy ambient origin/token lookup. The private launch
+        # capability authenticates anew and pins the same socket for dispatch.
+        return await to_thread.run_sync(binding.test_search_agent, settings)
     origin = agent_run_service.web_origin()
     parsed = urlsplit(origin)
     token = os.getenv("CONEXUS_PUBLICATION_WORKSPACE_TOKEN", "").strip()
