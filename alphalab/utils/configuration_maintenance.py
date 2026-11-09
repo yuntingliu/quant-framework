@@ -25,6 +25,7 @@ from alphalab.utils.configuration_store import ConfigurationStoreError, _safe_ca
 
 _LOCAL = threading.local()
 _RELATIVE_LOCK = Path("app/secrets/configuration-maintenance.lock")
+_WORKER_LEASES = []
 
 
 @dataclass
@@ -108,7 +109,6 @@ def checked_root(root):
     return path
 
 
-@contextmanager
 def configuration_access(root, *, exclusive=False, timeout=0.0):
     """Shared use or exclusive offline lease; never upgrade a shared lease.
 
@@ -117,6 +117,55 @@ def configuration_access(root, *, exclusive=False, timeout=0.0):
     Acquire this lease before provider-local locks, never from store callbacks.
     """
 
+    return _access(root, _RELATIVE_LOCK, exclusive=exclusive, timeout=timeout)
+
+
+def execution_access(root, *, exclusive=False, timeout=0.0):
+    """Cooperative job/child admission, independent of the backend owner's lease.
+
+    Shared admission never waits: shutdown may hold this exclusive gate while
+    waiting for API maintenance lifetimes to close, without a lock-order cycle.
+    A child holds its own shared lease until actual process completion.
+    """
+    if not exclusive and timeout != 0:
+        raise ConfigurationStoreError("INVALID_ARGUMENT")
+    return _access(
+        root,
+        Path("app/secrets/configuration-execution.lock"),
+        exclusive=exclusive,
+        timeout=timeout,
+    )
+
+
+def execution_operation(function):
+    """Fence scheduler admission and direct sync operations with an explicit root."""
+
+    @wraps(function)
+    def guarded(self, *args, **kwargs):
+        with execution_access(self.root):
+            return function(self, *args, **kwargs)
+
+    return guarded
+
+
+def hold_worker_execution(root):
+    """Retain the raw OS lease through worker thread/finalizer teardown.
+
+    Do not close at target-function return: SDK threads can outlive that return.
+    Spawned workers use os._exit after bootstrap; the OS releases these retained
+    descriptors on actual process exit, including crash/forced termination.
+    """
+    import multiprocessing
+
+    if multiprocessing.parent_process() is None:
+        raise ConfigurationStoreError("INVALID_ARGUMENT")
+    lease = execution_access(root)
+    lease.__enter__()
+    _WORKER_LEASES.append(lease)
+
+
+@contextmanager
+def _access(root, relative_lock, *, exclusive, timeout):
     def acquire():
         if (
             type(exclusive) is not bool
@@ -125,7 +174,7 @@ def configuration_access(root, *, exclusive=False, timeout=0.0):
         ):
             raise ConfigurationStoreError("INVALID_ARGUMENT")
         location = checked_root(root)
-        key = os.path.normcase(str(location))
+        key = os.path.normcase(str(location / relative_lock))
         held = getattr(_LOCAL, "held", {})
         previous = held.get(key)
         if previous is not None and previous.pid == os.getpid():
@@ -133,7 +182,7 @@ def configuration_access(root, *, exclusive=False, timeout=0.0):
                 raise ConfigurationStoreError("STORE_BUSY")
             previous.users += 1
             return previous, key
-        path = location / _RELATIVE_LOCK
+        path = location / relative_lock
         if path.parent.resolve() != path.parent:
             raise ConfigurationStoreError("UNSAFE_STORAGE")
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o777 if os.name == "nt" else 0o700)

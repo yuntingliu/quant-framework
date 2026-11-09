@@ -41,6 +41,7 @@ logic. These describe the pinned core snapshot and are validated by
 - [Explicit offline configuration migration](guides/configuration-offline-migration.md): maintenance exclusion, saved credential/selection preservation, Python/Node verification, and interrupted-outcome handling without activation.
 - [Coordinated backend preparation](guides/configuration-backend-selection.md): explicit model/search bindings, installation ownership, Python/Node agreement and deferred activation boundaries.
 - [Isolated SQLite RQData execution](guides/configuration-rq-execution.md): per-job process isolation, private recipe IPC, rotation/restart semantics and deployment prerequisites.
+- [Offline deployment and private backups](guides/configuration-deployment.md): cooperative worker draining, recursive SQLite backups, guarded JSON deployment writes and disabled historical restore.
 - [Deployment acceptance](08_LOCAL_DEPLOYMENT_VALIDATION.md): verification before promotion.
 
 - [Deployment](05_DEPLOYMENT.md): building, configuration, persistence, updates, and operational checks.

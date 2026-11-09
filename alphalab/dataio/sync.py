@@ -28,6 +28,7 @@ from alphalab.dataio.rq_sync import RQAcquirer
 from alphalab.dataio.rq_templates import DEFAULT_RQ_SYNC_TEMPLATE_ID, get_rq_sync_template
 from alphalab.dataio.runtime import OperationsStore, RuntimeStore
 from alphalab.dataio.symbols import canonical_a_share_symbol, is_a_share_symbol
+from alphalab.utils.configuration_maintenance import execution_access, execution_operation
 from alphalab.utils.paths import RUNTIME_DIR
 
 SyncDataset = Literal[
@@ -319,6 +320,7 @@ class RQSyncService:
         self.operations = self.store.operations
         self.acquirer = acquirer
 
+    @execution_operation
     def run(self, job_id: str) -> dict:
         job = self.operations.get_job(job_id)
         if job is None:
@@ -770,11 +772,13 @@ class SyncJobManager:
         if recover_pending:
             self.recover_pending()
 
+    @execution_operation
     def recover_pending(self):
         """Schedule persisted work only after an explicit binding is fully owned."""
         for job in self.operations.recover_jobs():
             self._schedule(job["id"], job["request"])
 
+    @execution_operation
     def submit(self, request: SyncRequest) -> dict:
         self._ensure_idle()
         payload = request.model_dump(mode="json")
@@ -786,6 +790,7 @@ class SyncJobManager:
         assert result is not None
         return result
 
+    @execution_operation
     def submit_recipe(self, source: str, *, project_id: str) -> dict:
         self._ensure_idle()
         payload = {
@@ -804,6 +809,7 @@ class SyncJobManager:
         assert result is not None
         return result
 
+    @execution_operation
     def run_now(self, request: SyncRequest) -> dict:
         payload = request.model_dump(mode="json")
         if self._request_validator is not None:
@@ -813,6 +819,7 @@ class SyncJobManager:
             return self._job_runner(self.root, job_id)
         return RQSyncService(self.root).run(job_id)
 
+    @execution_operation
     def run_recipe_now(self, source: str, *, project_id: str = "test") -> dict:
         payload = {
             "source": "rq",
@@ -883,7 +890,10 @@ def _run_recipe_job(root: Path, job_id: str) -> dict:
     # same runtime. Both may discover a persisted queued job during lazy manager
     # initialization, so claim the shared execution lane before inspecting its
     # status and skip work another process already completed.
-    with RuntimeStore(root).dataset_lock("sync-job-queue", timeout_seconds=1800.0):
+    with (
+        execution_access(root),
+        RuntimeStore(root).dataset_lock("sync-job-queue", timeout_seconds=1800.0),
+    ):
         return _run_recipe_job_exclusive(root, job_id)
 
 

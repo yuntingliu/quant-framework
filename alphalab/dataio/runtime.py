@@ -575,6 +575,57 @@ class OperationsStore:
             return cursor.rowcount > 0
 
 
+@contextmanager
+def runtime_execution_lock(root, dataset, *, shared=False, timeout_seconds=0.0):
+    """File/process lock without constructing stores or initializing databases."""
+    root = Path(root)
+    if timeout_seconds < 0:
+        raise ValueError("timeout_seconds must not be negative")
+    # POSIX flock provides real shared locks. The Windows fallback remains
+    # exclusive because msvcrt byte-range read locks do not compose across
+    # multiple descriptors in one process.
+    lock_shared = shared and os.name != "nt"
+    key = f"{root.resolve()}::{dataset}"
+    with _PROCESS_LOCKS_GUARD:
+        process_lock = _PROCESS_LOCKS.setdefault(key, _ProcessReadWriteLock())
+    deadline = time.monotonic() + timeout_seconds
+    if not process_lock.acquire(shared=lock_shared, timeout_seconds=timeout_seconds):
+        raise DataLoadError(f"Dataset is already being written: {dataset}")
+    lock_path = root / ".locks" / f"{dataset.replace('.', '_')}.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor: int | None = None
+    file_locked = False
+    try:
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR)
+        while True:
+            try:
+                _acquire_file_lock(descriptor, shared=lock_shared)
+                break
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    os.close(descriptor)
+                    descriptor = None
+                    raise DataLoadError(f"Dataset is locked by another process: {dataset}") from exc
+                time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+        file_locked = True
+        if not shared:
+            payload = str(os.getpid()).encode("ascii")
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            os.write(descriptor, payload)
+            os.ftruncate(descriptor, len(payload))
+        yield
+    finally:
+        try:
+            if descriptor is not None:
+                try:
+                    if file_locked:
+                        _release_file_lock(descriptor)
+                finally:
+                    os.close(descriptor)
+        finally:
+            process_lock.release(shared=lock_shared)
+
+
 class RuntimeStore:
     def __init__(self, root: str | Path | None = None):
         self.root = Path(root) if root is not None else RUNTIME_DIR
@@ -582,60 +633,11 @@ class RuntimeStore:
         self.operations = OperationsStore(self.root)
 
     @contextmanager
-    def _dataset_lock(
-        self,
-        dataset: str,
-        *,
-        shared: bool,
-        timeout_seconds: float,
-    ) -> Iterator[None]:
-        if timeout_seconds < 0:
-            raise ValueError("timeout_seconds must not be negative")
-        # POSIX flock provides real shared locks. The Windows fallback remains
-        # exclusive because msvcrt byte-range read locks do not compose across
-        # multiple descriptors in one process.
-        lock_shared = shared and os.name != "nt"
-        key = f"{self.root.resolve()}::{dataset}"
-        with _PROCESS_LOCKS_GUARD:
-            process_lock = _PROCESS_LOCKS.setdefault(key, _ProcessReadWriteLock())
-        deadline = time.monotonic() + timeout_seconds
-        if not process_lock.acquire(shared=lock_shared, timeout_seconds=timeout_seconds):
-            raise DataLoadError(f"Dataset is already being written: {dataset}")
-        lock_path = self.root / ".locks" / f"{dataset.replace('.', '_')}.lock"
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor: int | None = None
-        file_locked = False
-        try:
-            descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR)
-            while True:
-                try:
-                    _acquire_file_lock(descriptor, shared=lock_shared)
-                    break
-                except OSError as exc:
-                    if time.monotonic() >= deadline:
-                        os.close(descriptor)
-                        descriptor = None
-                        raise DataLoadError(
-                            f"Dataset is locked by another process: {dataset}"
-                        ) from exc
-                    time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
-            file_locked = True
-            if not shared:
-                payload = str(os.getpid()).encode("ascii")
-                os.lseek(descriptor, 0, os.SEEK_SET)
-                os.write(descriptor, payload)
-                os.ftruncate(descriptor, len(payload))
+    def _dataset_lock(self, dataset, *, shared, timeout_seconds):
+        with runtime_execution_lock(
+            self.root, dataset, shared=shared, timeout_seconds=timeout_seconds
+        ):
             yield
-        finally:
-            try:
-                if descriptor is not None:
-                    try:
-                        if file_locked:
-                            _release_file_lock(descriptor)
-                    finally:
-                        os.close(descriptor)
-            finally:
-                process_lock.release(shared=lock_shared)
 
     @contextmanager
     def dataset_lock(

@@ -25,6 +25,7 @@ from alphalab.dataio.rq_templates import (
     get_rq_sync_template,
     list_rq_sync_templates,
 )
+from alphalab.utils.configuration_maintenance import hold_worker_execution
 
 RQDATA_PYTHON_DOCS_URL = "https://www.ricequant.com/doc/rqdata/python/index-rqdatac"
 MAX_RECIPE_SOURCE_BYTES = 300_000
@@ -1039,6 +1040,15 @@ def _execute_loaded_recipe(
 
 
 def _recipe_worker(connection: Connection, source: str, mode: str, root: str | None) -> None:
+    from alphalab.utils.paths import RUNTIME_DIR
+
+    hold_worker_execution(Path(root) if root is not None else RUNTIME_DIR)
+    _admitted_recipe_worker(connection, source, mode, root)
+
+
+def _admitted_recipe_worker(
+    connection: Connection, source: str, mode: str, root: str | None
+) -> None:
     stdout = io.StringIO()
     stderr = io.StringIO()
     try:

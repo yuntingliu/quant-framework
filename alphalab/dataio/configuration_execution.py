@@ -24,6 +24,7 @@ from urllib.parse import unquote
 from pandas import CategoricalDtype
 
 from alphalab.dataio.errors import DataLoadError
+from alphalab.utils.configuration_maintenance import hold_worker_execution
 from alphalab.utils.configuration_store import _safe_call
 
 MAX_PRIVATE_BYTES = 32 * 1024
@@ -209,6 +210,13 @@ def _recipe(source, mode, root, client, password):
 
 
 def _worker(pipe, root, installation_id, revision, operation, job_id, source, sdk_factory):
+    hold_worker_execution(root)
+    return _admitted_worker(
+        pipe, root, installation_id, revision, operation, job_id, source, sdk_factory
+    )
+
+
+def _admitted_worker(pipe, root, installation_id, revision, operation, job_id, source, sdk_factory):
     if operation == "plan":
         # Planning has no SDK and must not create/write runtime lock metadata.
         return _worker_exclusive(

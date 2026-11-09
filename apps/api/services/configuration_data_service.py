@@ -8,6 +8,8 @@ never at submission; interrupted/recovered jobs start a fresh capture/process.
 from __future__ import annotations
 
 import threading
+import time
+from concurrent.futures import wait
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,6 +18,7 @@ from alphalab.dataio.recipes import execute_data_recipe, inspect_data_recipe_sou
 from alphalab.dataio.runtime import RuntimeStore
 from alphalab.dataio.sync import SyncJobManager, build_sync_plan
 from alphalab.utils.configuration_backend import ConfigurationBackend
+from alphalab.utils.configuration_maintenance import execution_access
 from alphalab.utils.configuration_store import ConfigurationStoreError
 from apps.api.services.configuration_profile_service import (
     ConfigurationProfileServices,
@@ -152,7 +155,7 @@ class ConfigurationDataServices:
             self.manager.operations if hasattr(self, "manager") else RuntimeStore(root).operations
         )
         try:
-            with self.backend.borrow():
+            with self.backend.borrow(), execution_access(self.backend.root):
                 if Path(root) != self.backend.root:
                     raise ValueError
                 if self._closed or self._stop.is_set():
@@ -334,15 +337,24 @@ class ConfigurationDataServices:
             self._validate_submission(request.model_dump(mode="json"))
             return build_sync_plan(request, root=self.backend.root)
 
-    def close(self):
+    def close(self, *, timeout_seconds=8):
+        if type(timeout_seconds) not in {int, float} or not 0 <= timeout_seconds <= 30:
+            raise ConfigurationStoreError("INVALID_ARGUMENT")
+        deadline = time.monotonic() + timeout_seconds
         with self._condition:
             if self._released:
                 return
             self._closed = True
             self._stop.set()
-        self.manager.shutdown(wait=True)
+        self.manager.shutdown(wait=False)
+        with self.manager._lock:
+            pending = tuple(self.manager._futures.values())
+        if pending and wait(pending, timeout=max(0, deadline - time.monotonic())).not_done:
+            raise ConfigurationStoreError("STORE_BUSY")
         with self._condition:
-            if not self._condition.wait_for(lambda: self._active == 0, timeout=8):
+            if not self._condition.wait_for(
+                lambda: self._active == 0, timeout=max(0, deadline - time.monotonic())
+            ):
                 # Keep ownership if a caller still holds an active operation.
                 raise ConfigurationStoreError("STORE_BUSY")
             if not self._released:
