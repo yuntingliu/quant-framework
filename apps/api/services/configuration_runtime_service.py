@@ -40,9 +40,10 @@ class _PrivateRQModule:
 class RQJobConfiguration:
     """One job's immutable credential capture; each client is fresh and lazy.
 
-    This does not isolate the real SDK's global connection state. Future cutover
-    must keep the single execution lane/process isolation; never overlap two
-    differently configured clients on one live rqdatac module.
+    The client()/sync_service() helpers alone do not isolate global SDK state.
+    ConfigurationDataServices transfers the captured values through private IPC
+    to one fresh process per execution; never overlap differently configured
+    clients on one live rqdatac module.
     """
 
     __slots__ = ("_configuration", "_revision", "_installation_id")
@@ -62,6 +63,10 @@ class RQJobConfiguration:
     @property
     def installation_id(self):
         return self._installation_id
+
+    def extract_private(self):
+        """Intentional trusted handoff to one owned, isolated execution process."""
+        return self._configuration.extract_private()
 
     @_guard
     def client(self, *, module=None):

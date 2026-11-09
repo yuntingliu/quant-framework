@@ -915,7 +915,12 @@ def execute_data_recipe(
     root: str | Path | None = None,
     timeout_seconds: float = 1800.0,
     cancelled: Callable[[], bool] | None = None,
+    execution=None,
 ) -> dict[str, Any]:
+    if execution is not None:
+        return execution(
+            source, mode=mode, root=root, timeout_seconds=timeout_seconds, cancelled=cancelled
+        )
     inspection = inspect_data_recipe_source(source)
     context = multiprocessing.get_context("spawn")
     parent, child = context.Pipe(duplex=False)
@@ -994,7 +999,9 @@ def probe_data_recipe(source: str, *, mode: str = "plan", root: str | Path | Non
             data_sdk_v1.rq = previous_sdk_proxy
 
 
-def _execute_loaded_recipe(source: str, *, mode: str, root: str | None) -> dict[str, Any]:
+def _execute_loaded_recipe(
+    source: str, *, mode: str, root: str | None, context_factory=None
+) -> dict[str, Any]:
     module = types.ModuleType("alphalab_user_data_recipe")
     module.__file__ = "<alphalab-data-recipe>"
     exec(compile(source, module.__file__, "exec"), module.__dict__)
@@ -1005,7 +1012,7 @@ def _execute_loaded_recipe(source: str, *, mode: str, root: str | None) -> dict[
     ]
     if len(functions) != 1:
         raise DataRecipeError("runtime requires exactly one data recipe", phase="register")
-    context = DataRecipeContext(mode=mode, root=root)
+    context = (context_factory or DataRecipeContext)(mode=mode, root=root)
     returned = functions[0](context)
     sync_request: dict[str, Any] | None
     if isinstance(returned, RQSyncRequest):

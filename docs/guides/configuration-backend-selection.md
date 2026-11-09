@@ -54,8 +54,10 @@ with ConfigurationBackend.sqlite(root, installation_id=known_id) as owner:
     # before leaving the owner lifetime.
 ```
 
-This deliberately limited factory mounts only model/search configuration and
-health routes. RQData, jobs, recipes and other workbench routes are absent.
+By default this deliberately limited factory mounts only model/search configuration
+and health routes. RQData, jobs and recipes require the separate explicit
+`include_data=True` composition described in
+[isolated RQData execution](configuration-rq-execution.md); other workbench routes remain absent.
 It must not replace the production full app before the deferred integrations.
 An explicitly supplied environment snapshot is optional, defaults to empty,
 and is only resolved for `environment` intent. `none`, incomplete saved profiles
@@ -129,8 +131,9 @@ does not give an independently launched Node process an OS maintenance lease.
 
 ## Deferred activation sequence and dependencies
 
-Phase 4B.5B.2 must integrate RQData per-job capture, SDK process isolation,
-recipe subprocesses, deployment writes, and backups. None is enabled here.
+Phase 4B.5B.2A prepares optional isolated RQData jobs and recipe execution.
+Phase 4B.5B.2B must still integrate deployment writes, worker draining and backups.
+None is activated in normal production startup.
 
 Phase 4B.5B.3 must implement offline atomic persistent activation, admission for
 all supported processes, recovery/rollback and end-to-end cutover. The required

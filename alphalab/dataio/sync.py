@@ -323,6 +323,15 @@ class RQSyncService:
         job = self.operations.get_job(job_id)
         if job is None:
             raise KeyError(job_id)
+        backend = job["request"].get("configuration_backend")
+        if backend is not None and (backend != "sqlite" or self.acquirer is None):
+            self.operations.update_job(
+                job_id,
+                status="failed",
+                message="RQData job failed",
+                error="A SQLite job requires an explicitly captured client.",
+            )
+            return self.operations.get_job(job_id)
         request = SyncRequest.model_validate(job["request"])
         template = get_rq_sync_template(request.template_id)
         progress = 0
@@ -743,18 +752,34 @@ class RQSyncService:
 class SyncJobManager:
     """One-process, single-worker queue backed by the runtime operations DB."""
 
-    def __init__(self, root: str | Path | None = None):
+    def __init__(
+        self,
+        root: str | Path | None = None,
+        *,
+        job_runner=None,
+        request_validator=None,
+        recover_pending=True,
+    ):
         self.root = Path(root) if root is not None else RUNTIME_DIR
+        self._job_runner = job_runner
+        self._request_validator = request_validator
         self.operations = OperationsStore(self.root)
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rq-sync")
         self._futures: dict[str, Future] = {}
         self._lock = threading.Lock()
+        if recover_pending:
+            self.recover_pending()
+
+    def recover_pending(self):
+        """Schedule persisted work only after an explicit binding is fully owned."""
         for job in self.operations.recover_jobs():
             self._schedule(job["id"], job["request"])
 
     def submit(self, request: SyncRequest) -> dict:
         self._ensure_idle()
         payload = request.model_dump(mode="json")
+        if self._request_validator is not None:
+            self._request_validator(payload)
         job_id = self.operations.create_job(payload)
         self._schedule(job_id, payload)
         result = self.operations.get_job(job_id)
@@ -763,37 +788,44 @@ class SyncJobManager:
 
     def submit_recipe(self, source: str, *, project_id: str) -> dict:
         self._ensure_idle()
+        payload = {
+            "source": "rq",
+            "kind": "python_recipe",
+            "project_id": project_id,
+            "recipe_source": source,
+        }
+        if self._request_validator is not None:
+            self._request_validator(payload)
         inspection = inspect_data_recipe_source(source)
-        job_id = self.operations.create_job(
-            {
-                "source": "rq",
-                "kind": "python_recipe",
-                "project_id": project_id,
-                "recipe_source": source,
-                "recipe_source_sha256": inspection.source_sha256,
-            }
-        )
+        payload["recipe_source_sha256"] = inspection.source_sha256
+        job_id = self.operations.create_job(payload)
         self._schedule(job_id, {"kind": "python_recipe"})
         result = self.operations.get_job(job_id)
         assert result is not None
         return result
 
     def run_now(self, request: SyncRequest) -> dict:
-        job_id = self.operations.create_job(request.model_dump(mode="json"))
+        payload = request.model_dump(mode="json")
+        if self._request_validator is not None:
+            self._request_validator(payload)
+        job_id = self.operations.create_job(payload)
+        if self._job_runner is not None:
+            return self._job_runner(self.root, job_id)
         return RQSyncService(self.root).run(job_id)
 
     def run_recipe_now(self, source: str, *, project_id: str = "test") -> dict:
+        payload = {
+            "source": "rq",
+            "kind": "python_recipe",
+            "project_id": project_id,
+            "recipe_source": source,
+        }
+        if self._request_validator is not None:
+            self._request_validator(payload)
         inspection = inspect_data_recipe_source(source)
-        job_id = self.operations.create_job(
-            {
-                "source": "rq",
-                "kind": "python_recipe",
-                "project_id": project_id,
-                "recipe_source": source,
-                "recipe_source_sha256": inspection.source_sha256,
-            }
-        )
-        return _run_recipe_job(self.root, job_id)
+        payload["recipe_source_sha256"] = inspection.source_sha256
+        job_id = self.operations.create_job(payload)
+        return (self._job_runner or _run_recipe_job)(self.root, job_id)
 
     def cancel(self, job_id: str) -> dict | None:
         if not self.operations.request_cancel(job_id):
@@ -821,8 +853,18 @@ class SyncJobManager:
             raise DataLoadError(f"An RQ sync job is already active: {active[0]['id']}")
 
     def _schedule(self, job_id: str, request: dict) -> None:
+        if self._job_runner is None and request.get("configuration_backend") is not None:
+            self.operations.update_job(
+                job_id,
+                status="failed",
+                message="RQData job failed",
+                error="This job requires its explicit configuration backend.",
+            )
+            return
         target = (
-            (_run_recipe_job, self.root, job_id)
+            (self._job_runner, self.root, job_id)
+            if self._job_runner is not None
+            else (_run_recipe_job, self.root, job_id)
             if request.get("kind") == "python_recipe"
             else (RQSyncService(self.root).run, job_id)
         )
@@ -853,6 +895,14 @@ def _run_recipe_job_exclusive(root: Path, job_id: str) -> dict:
     if job["status"] in {"succeeded", "failed", "cancelled", "interrupted"}:
         return job
     request = dict(job["request"])
+    if request.get("configuration_backend") is not None:
+        operations.update_job(
+            job_id,
+            status="failed",
+            message="Python data recipe failed",
+            error="This recipe requires its explicit configuration backend.",
+        )
+        return operations.get_job(job_id)
     source = str(request.get("recipe_source") or "")
     operations.update_job(
         job_id,

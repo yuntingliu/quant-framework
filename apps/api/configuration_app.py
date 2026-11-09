@@ -1,8 +1,8 @@
-"""Explicit model/search API composition; never installed as the production app.
+"""Explicit configuration API composition; never installed as the production app.
 
-The caller owns the backend lease until API and Agent shutdown. Deferred RQData,
-recipe and deployment routes are deliberately absent, preventing partial full
-workbench activation or jobs that still depend on legacy JSON configuration.
+The caller owns the backend lease until API and Agent shutdown. Model/search
+routes are the default; isolated SQLite data routes require include_data=True.
+Deployment and other full-workbench routes remain unavailable.
 """
 
 from contextlib import asynccontextmanager
@@ -18,7 +18,9 @@ from apps.api.services.configuration_binding_service import (
 )
 
 
-def create_configuration_app(backend, *, environment=None, agent_identity=None):
+def create_configuration_app(
+    backend, *, environment=None, agent_identity=None, include_data=False, data_options=None
+):
     """Prepare profile routes; agent_identity is a consistency assertion only.
 
     Non-Off SQLite search probes remain unavailable until an authenticated owned
@@ -26,6 +28,12 @@ def create_configuration_app(backend, *, environment=None, agent_identity=None):
     An arbitrary identity/connection dictionary never authorizes a probe.
     """
     binding = ModelSearchBindings(backend, environment=environment, agent_identity=agent_identity)
+    if type(include_data) is not bool or (include_data and backend.mode != "sqlite"):
+        raise ConfigurationStoreError("INVALID_ARGUMENT")
+    # Keep the same explicitly supplied private environment snapshot used by
+    # model/search, even if the caller later mutates its construction dictionary.
+    data_environment = binding._sql._environment.copy() if include_data else None
+    options = dict(data_options or {})
 
     @asynccontextmanager
     async def lifespan(_app):
@@ -34,12 +42,33 @@ def create_configuration_app(backend, *, environment=None, agent_identity=None):
             # when an application object was constructed earlier.
             if backend.mode == "sqlite":
                 binding._sql.read_snapshot()
-            yield
+            data = None
+            try:
+                if include_data:
+                    from apps.api.services.configuration_data_service import (
+                        ConfigurationDataServices,
+                    )
+
+                    data = ConfigurationDataServices(
+                        backend, environment=data_environment, **options
+                    )
+                    _app.state.configuration_data = data
+                yield
+            finally:
+                if data is not None:
+                    import anyio
+
+                    await anyio.to_thread.run_sync(data.close)
+                    del _app.state.configuration_data
 
     app = FastAPI(lifespan=lifespan)
     app.state.configuration_bindings = binding
     app.include_router(model_providers.router)
     app.include_router(search_providers.router)
+    if include_data:
+        from apps.api.routers.configuration_data_sync import router
+
+        app.include_router(router)
 
     @app.exception_handler(ConfigurationStoreError)
     async def unavailable(_request, error):
