@@ -10,6 +10,7 @@ from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 from alphalab.dataio.errors import DataLoadError
+from alphalab.utils.configuration_maintenance import legacy_settings_operation
 from alphalab.utils.env import load_env_files
 from alphalab.utils.private_settings import (
     app_secret_path,
@@ -123,6 +124,7 @@ def public_settings() -> dict[str, Any]:
     }
 
 
+@legacy_settings_operation(lambda: settings_path())
 def save_profile(
     profile: Mapping[str, object],
     *,

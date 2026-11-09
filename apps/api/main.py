@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from alphalab import ResultStore
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.utils.build_info import build_info
+from alphalab.utils.configuration_maintenance import configuration_access
+from alphalab.utils.private_settings import runtime_root
 from apps.api.auth import HttpBasicAuthMiddleware
 from apps.api.config import LOADED_ENV_FILES
 from apps.api.routers import (
@@ -38,10 +41,18 @@ from apps.api.routers import (
 
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "build" / "web"
 
+@asynccontextmanager
+async def configuration_lifespan(_app):
+    # A live API excludes offline migration; JSON remains the only active backend.
+    with configuration_access(runtime_root()):
+        yield
+
+
 app = FastAPI(
     title="AlphaLab Barebone API",
     description="Provider-first quant framework workstation API",
     version="0.7.0",
+    lifespan=configuration_lifespan,
 )
 app.state.loaded_env_files = tuple(str(path) for path in LOADED_ENV_FILES)
 

@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Mapping
 
+from alphalab.utils.configuration_maintenance import legacy_settings_operation
 from alphalab.utils.private_settings import read_json_settings, runtime_root, write_json_settings
 from apps.api.services import model_provider_service as models
 
@@ -152,6 +153,7 @@ def public_settings() -> dict[str, Any]:
     }
 
 
+@legacy_settings_operation(lambda: settings_path())
 def save_profile(
     profile: Mapping[str, object],
     *,

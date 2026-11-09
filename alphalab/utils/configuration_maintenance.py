@@ -1,0 +1,201 @@
+"""Cooperative, installation-wide exclusion for explicit offline maintenance.
+
+Normal JSON writers and application lifetimes take shared leases. Maintenance
+takes an exclusive lease, without changing the selected storage backend. This
+does not fence old releases, editors, or deployment programs that ignore this
+protocol: the operator must stop those before acknowledging offline access.
+Locks are bounded, local-filesystem only, released by the OS after process exit,
+and never removed or repaired automatically. Windows uses LockFileEx, not ACLs.
+"""
+
+from __future__ import annotations
+
+import errno
+import math
+import os
+import stat
+import threading
+import time
+from contextlib import contextmanager
+from dataclasses import dataclass
+from functools import wraps
+from pathlib import Path
+
+from alphalab.utils.configuration_store import ConfigurationStoreError, _safe_call
+
+_LOCAL = threading.local()
+_RELATIVE_LOCK = Path("app/secrets/configuration-maintenance.lock")
+
+
+@dataclass
+class _HeldLease:
+    pid: int
+    exclusive: bool
+    descriptor: int
+    users: int = 1
+
+
+def _windows_lock(descriptor, exclusive, unlock=False):
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    class Overlapped(ctypes.Structure):
+        _fields_ = [
+            ("internal", ctypes.c_size_t),
+            ("internal_high", ctypes.c_size_t),
+            ("offset", wintypes.DWORD),
+            ("offset_high", wintypes.DWORD),
+            ("event", wintypes.HANDLE),
+        ]
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle, overlap = msvcrt.get_osfhandle(descriptor), Overlapped()
+    if unlock:
+        operation = kernel.UnlockFileEx
+        operation.argtypes = [
+            wintypes.HANDLE,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            ctypes.POINTER(Overlapped),
+        ]
+        arguments = (handle, 0, 1, 0, ctypes.byref(overlap))
+    else:
+        operation = kernel.LockFileEx
+        operation.argtypes = [
+            wintypes.HANDLE,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            ctypes.POINTER(Overlapped),
+        ]
+        arguments = (handle, 1 | (2 if exclusive else 0), 0, 1, 0, ctypes.byref(overlap))
+    operation.restype = wintypes.BOOL
+    if not operation(*arguments):
+        code = ctypes.get_last_error()
+        if code in {32, 33, 158}:
+            raise BlockingIOError(errno.EAGAIN, "Configuration maintenance is busy.")
+        raise OSError("Configuration maintenance lock is unavailable.")
+
+
+def _lock(descriptor, exclusive, *, unlock=False):
+    if os.name == "nt":
+        _windows_lock(descriptor, exclusive, unlock)
+    else:
+        import fcntl
+
+        operation = (
+            fcntl.LOCK_UN
+            if unlock
+            else ((fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | fcntl.LOCK_NB)
+        )
+        fcntl.flock(descriptor, operation)
+
+
+def checked_root(root):
+    """Validate explicit lexical/resolved location without reading settings."""
+    if type(root) not in {str, Path} and not isinstance(root, Path):
+        raise ConfigurationStoreError("INVALID_ARGUMENT")
+    if not str(root).strip() or "\0" in str(root):
+        raise ConfigurationStoreError("INVALID_ARGUMENT")
+    path = Path(root).absolute()
+    if os.name == "nt" and str(path).startswith("\\\\"):
+        raise ConfigurationStoreError("UNSAFE_STORAGE")
+    if os.path.normcase(str(path.resolve())) != os.path.normcase(str(path)):
+        raise ConfigurationStoreError("UNSAFE_STORAGE")
+    return path
+
+
+@contextmanager
+def configuration_access(root, *, exclusive=False, timeout=0.0):
+    """Shared use or exclusive offline lease; never upgrade a shared lease.
+
+    Same-thread shared nesting is allowed. Exclusive reentry is refused, so a
+    migration cannot accidentally invoke live readers/writers inside its fence.
+    Acquire this lease before provider-local locks, never from store callbacks.
+    """
+
+    def acquire():
+        if (
+            type(exclusive) is not bool
+            or type(timeout) not in {int, float}
+            or (not math.isfinite(timeout) or not 0 <= timeout <= 5)
+        ):
+            raise ConfigurationStoreError("INVALID_ARGUMENT")
+        location = checked_root(root)
+        key = os.path.normcase(str(location))
+        held = getattr(_LOCAL, "held", {})
+        previous = held.get(key)
+        if previous is not None and previous.pid == os.getpid():
+            if exclusive or previous.exclusive:
+                raise ConfigurationStoreError("STORE_BUSY")
+            previous.users += 1
+            return previous, key
+        path = location / _RELATIVE_LOCK
+        if path.parent.resolve() != path.parent:
+            raise ConfigurationStoreError("UNSAFE_STORAGE")
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o777 if os.name == "nt" else 0o700)
+        if os.name != "nt" and path.parent.stat().st_mode & 0o077:
+            raise ConfigurationStoreError("UNSAFE_STORAGE")
+        descriptor = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        try:
+            actual, named = os.fstat(descriptor), path.lstat()
+            if (
+                not stat.S_ISREG(actual.st_mode)
+                or actual.st_nlink != 1
+                or (actual.st_dev, actual.st_ino) != (named.st_dev, named.st_ino)
+                or not stat.S_ISREG(named.st_mode)
+                or (os.name != "nt" and actual.st_mode & 0o077)
+            ):
+                raise ConfigurationStoreError("UNSAFE_STORAGE")
+            deadline = time.monotonic() + timeout
+            while True:
+                try:
+                    _lock(descriptor, exclusive)
+                    break
+                except (BlockingIOError, PermissionError):
+                    if time.monotonic() >= deadline:
+                        raise ConfigurationStoreError("STORE_BUSY") from None
+                    time.sleep(min(0.01, max(0, deadline - time.monotonic())))
+            held = dict(held)
+            lease = _HeldLease(os.getpid(), exclusive, descriptor)
+            held[key] = lease
+            _LOCAL.held = held
+            return lease, key
+        except BaseException:
+            os.close(descriptor)
+            raise
+
+    lease, key = _safe_call(acquire)
+    try:
+        yield
+    finally:
+        lease.users -= 1
+        if not lease.users:
+            current = dict(_LOCAL.held)
+            current.pop(key, None)
+            _LOCAL.held = current
+
+            def release():
+                try:
+                    _lock(lease.descriptor, lease.exclusive, unlock=True)
+                finally:
+                    os.close(lease.descriptor)
+
+            _safe_call(release)
+
+
+def legacy_settings_operation(path_factory):
+    """Fence a supported JSON read/modify/write before its existing locks."""
+
+    def decorate(function):
+        @wraps(function)
+        def guarded(*args, **kwargs):
+            with configuration_access(path_factory().parents[2]):
+                return function(*args, **kwargs)
+
+        return guarded
+
+    return decorate

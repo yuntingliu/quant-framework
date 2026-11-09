@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from alphalab.utils.configuration_maintenance import legacy_settings_operation
 from alphalab.utils.paths import RUNTIME_DIR
 
 _LOCK = threading.RLock()
@@ -71,6 +72,7 @@ def public_settings() -> dict:
     }
 
 
+@legacy_settings_operation(lambda: settings_path())
 def save_profile(profile: dict, *, activate: bool) -> dict:
     with _LOCK:
         settings = read_settings()

@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from alphalab.utils.configuration_maintenance import configuration_access
 from alphalab.utils.env import load_env_files
 from alphalab.utils.paths import RUNTIME_DIR
 
@@ -25,7 +26,7 @@ def _free_port() -> int:
 
 
 @contextmanager
-def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[subprocess.Popen]:
+def _local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[subprocess.Popen]:
     """Start one local host and clean up only the process owned by this launcher."""
 
     import httpx
@@ -147,6 +148,14 @@ def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[s
                     os.environ.pop(name, None)
                 else:
                     os.environ[name] = value
+
+
+@contextmanager
+def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[subprocess.Popen]:
+    """Hold a shared installation lease throughout the existing Host lifecycle."""
+    with configuration_access(RUNTIME_DIR.resolve()):
+        with _local_agent(root, api_port=api_port, agent_port=agent_port) as child:
+            yield child
 
 
 def serve_with_local_agent(root: Path, *, host: str, port: int, agent_port: int = 0) -> None:
