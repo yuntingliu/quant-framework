@@ -46,7 +46,7 @@ export function createJsonAgentConfiguration(providerPath, createModelCompletion
  * each search's profile and referenced model always share one SQLite snapshot.
  */
 export function createSqliteAgentConfiguration(root, createModelCompletion, options = {}) {
-  let env, fetchImpl, reader
+  let env, fetchImpl, reader, expectedInstallationId
   try {
     if (typeof createModelCompletion !== 'function') throw 0
     const supplied = options.env ?? {}
@@ -57,6 +57,9 @@ export function createSqliteAgentConfiguration(root, createModelCompletion, opti
     })))
     fetchImpl = options.fetchImpl ?? fetch
     if (typeof fetchImpl !== 'function') throw 0
+    expectedInstallationId = options.expectedInstallationId
+    if (expectedInstallationId !== undefined && (typeof expectedInstallationId !== 'string'
+      || !/^[0-9a-f]{32}$/.test(expectedInstallationId))) throw 0
     reader = new ConfigurationStoreReader(root, options.readerOptions)
   } catch { throw new ConfigurationRuntimeError('INVALID_ARGUMENT') }
   const shutdown = new AbortController(), signals = new WeakMap()
@@ -93,8 +96,13 @@ export function createSqliteAgentConfiguration(root, createModelCompletion, opti
       try { subscription?.[Symbol.dispose]() } catch { /* Never expose cleanup failures. */ }
     }
   }
-  const resolveProvider = async signal => providerFromSnapshot(await reader.readSnapshot({ signal }), env)
-  const resolveExecution = async (signal, override) => searchExecutionFromSnapshot(await reader.readSnapshot({ signal }), env, override)
+  const read = async signal => {
+    const snapshot = await reader.readSnapshot({ signal })
+    if (expectedInstallationId !== undefined && snapshot.installation_id !== expectedInstallationId) throw 0
+    return snapshot
+  }
+  const resolveProvider = async signal => providerFromSnapshot(await read(signal), env)
+  const resolveExecution = async (signal, override) => searchExecutionFromSnapshot(await read(signal), env, override)
   const complete = configuredCompletion(null, profile => {
     const call = createModelCompletion(profile)
     return async request => {

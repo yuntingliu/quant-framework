@@ -39,6 +39,7 @@ logic. These describe the pinned core snapshot and are validated by
 - [Inactive Python configuration services](guides/configuration-store-python-services.md): explicitly injected SQLite services, consistent profile edits, credential rules, and deferred runtime cutover.
 - [Inactive runtime configuration bindings](guides/configuration-runtime.md): explicit Agent composition, separate model/search capture timing, RQData job bindings, and coordinated cutover prerequisites.
 - [Explicit offline configuration migration](guides/configuration-offline-migration.md): maintenance exclusion, saved credential/selection preservation, Python/Node verification, and interrupted-outcome handling without activation.
+- [Coordinated backend preparation](guides/configuration-backend-selection.md): explicit model/search bindings, installation ownership, Python/Node agreement and deferred activation boundaries.
 - [Deployment acceptance](08_LOCAL_DEPLOYMENT_VALIDATION.md): verification before promotion.
 
 - [Deployment](05_DEPLOYMENT.md): building, configuration, persistence, updates, and operational checks.

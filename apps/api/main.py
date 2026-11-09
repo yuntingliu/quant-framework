@@ -15,7 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from alphalab import ResultStore
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.utils.build_info import build_info
-from alphalab.utils.configuration_maintenance import configuration_access
+from alphalab.utils.configuration_backend import ConfigurationBackend
+from alphalab.utils.configuration_maintenance import checked_root
 from alphalab.utils.private_settings import runtime_root
 from apps.api.auth import HttpBasicAuthMiddleware
 from apps.api.config import LOADED_ENV_FILES
@@ -38,14 +39,35 @@ from apps.api.routers import (
     system,
     validation,
 )
+from apps.api.services.configuration_binding_service import ModelSearchBindings
 
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "build" / "web"
+
 
 @asynccontextmanager
 async def configuration_lifespan(_app):
     # A live API excludes offline migration; JSON remains the only active backend.
-    with configuration_access(runtime_root()):
-        yield
+    supplied = getattr(_app.state, "configuration_backend", None)
+    if supplied is not None:
+        if (
+            type(supplied) is not ConfigurationBackend
+            or supplied.mode != "json"
+            or supplied.root != checked_root(runtime_root())
+        ):
+            raise RuntimeError("The production API requires the coordinated JSON backend.")
+        with supplied.borrow():
+            _app.state.configuration_bindings = ModelSearchBindings(supplied)
+            try:
+                yield
+            finally:
+                del _app.state.configuration_bindings
+        return
+    with ConfigurationBackend.json(runtime_root()) as owner:
+        _app.state.configuration_bindings = ModelSearchBindings(owner)
+        try:
+            yield
+        finally:
+            del _app.state.configuration_bindings
 
 
 app = FastAPI(

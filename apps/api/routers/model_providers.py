@@ -6,12 +6,16 @@ import os
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
-from apps.api.services import model_provider_service as service
+from alphalab.utils.configuration_store import ConfigurationStoreError
+from apps.api.services.configuration_binding_service import (
+    configuration_bindings,
+    configuration_http_error,
+)
 
 
 class PrivateValidationRoute(APIRoute):
@@ -25,6 +29,8 @@ class PrivateValidationRoute(APIRoute):
                 return await handler(request)
             except RequestValidationError:
                 raise HTTPException(422, "Check the provider name, API URL, model ID, and key length.") from None
+            except ConfigurationStoreError as error:
+                raise configuration_http_error(error) from None
 
         return private_handler
 
@@ -40,6 +46,15 @@ class ProviderRequest(BaseModel):
     model: str = Field(min_length=1, max_length=200)
     api_key: str = Field(default="", max_length=8192, repr=False)
     activate: bool = True
+    expected_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    clear_api_key: bool = False
+
+
+class ProfileSelectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(pattern=r"^(profile|environment|none)$")
+    id: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
+    expected_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
 
 def require_local() -> None:
@@ -48,18 +63,23 @@ def require_local() -> None:
 
 
 @router.get("")
-def read_model_providers() -> dict:
+def read_model_providers(binding=Depends(configuration_bindings)) -> dict:
     try:
-        return service.public_settings()
+        return binding.models.public_settings()
     except (ValueError, OSError):
         raise HTTPException(503, "Model settings could not be read.") from None
 
 
 @router.put("")
-def save_model_provider(request: ProviderRequest) -> dict:
+def save_model_provider(request: ProviderRequest, binding=Depends(configuration_bindings)) -> dict:
     require_local()
     try:
-        return service.save_profile(request.model_dump(exclude={"activate"}), activate=request.activate)
+        return binding.models.save_profile(
+            request.model_dump(exclude={"activate", "expected_revision", "clear_api_key"}),
+            activate=request.activate,
+            expected_revision=request.expected_revision,
+            clear_api_key=request.clear_api_key,
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     except OSError:
@@ -67,10 +87,13 @@ def save_model_provider(request: ProviderRequest) -> dict:
 
 
 @router.post("/test")
-async def test_model_provider(request: ProviderRequest) -> dict:
+async def test_model_provider(request: ProviderRequest, binding=Depends(configuration_bindings)) -> dict:
     require_local()
     try:
-        profile = service.resolve_test_profile(request.model_dump(exclude={"activate"}))
+        profile = binding.models.resolve_test_profile(
+            request.model_dump(exclude={"activate", "expected_revision", "clear_api_key"}),
+            clear_api_key=request.clear_api_key,
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     try:
@@ -96,3 +119,12 @@ async def test_model_provider(request: ProviderRequest) -> dict:
         return {"ok": True, "message": "Model responded. Run an Agent request to verify tool calling."}
     except (httpx.HTTPError, ValueError, TypeError, AttributeError):
         return {"ok": False, "message": "Model request failed or timed out. Check the endpoint and provider configuration."}
+
+
+@router.put("/selection")
+def select_model_profile(request: ProfileSelectionRequest, binding=Depends(configuration_bindings)):
+    require_local()
+    return binding.models.select(
+        request.model_dump(exclude={"expected_revision"}, exclude_none=True),
+        expected_revision=request.expected_revision,
+    )

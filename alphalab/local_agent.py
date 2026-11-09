@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from alphalab.utils.configuration_maintenance import configuration_access
+from alphalab.utils.configuration_backend import ConfigurationBackend
 from alphalab.utils.env import load_env_files
 from alphalab.utils.paths import RUNTIME_DIR
 
@@ -26,7 +26,9 @@ def _free_port() -> int:
 
 
 @contextmanager
-def _local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[subprocess.Popen]:
+def _local_agent(
+    root: Path, *, api_port: int, agent_port: int = 0, configuration_backend: ConfigurationBackend
+) -> Iterator[subprocess.Popen]:
     """Start one local host and clean up only the process owned by this launcher."""
 
     import httpx
@@ -60,7 +62,9 @@ def _local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[
             check.bind(("127.0.0.1", port))
         except OSError as exc:
             raise RuntimeError(f"Local Agent port {port} is already in use.") from exc
-    state = RUNTIME_DIR.resolve() / "conexus"
+    if configuration_backend.mode != "json":
+        raise RuntimeError("The production Agent requires the coordinated JSON backend.")
+    state = configuration_backend.root / "conexus"
     secret_root = state / "secrets"
     secret_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     admin_path = secret_root / "admin-token"
@@ -82,6 +86,7 @@ def _local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[
         "ALPHALAB_API_ORIGIN": f"http://127.0.0.1:{api_port}",
         "ALPHALAB_AGENT_MODE": "local",
         "ALPHALAB_AGENT_PARENT_PIPE": "1",
+        "ALPHALAB_AGENT_CONFIGURATION_DECISION": json.dumps(configuration_backend.node_contract()),
     }
     log_path = state / "host.log"
     # Windows helpers are hidden; stdout/stderr stay in the local diagnostic log.
@@ -113,6 +118,7 @@ def _local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[
                         connected = json.loads(connection.read_text(encoding="utf-8"))
                         origin = f"http://127.0.0.1:{port}"
                         if connected.get("pid") == child.pid and connected.get("origin") == origin:
+                            configuration_backend.verify_agent_identity(connected.get("configuration"))
                             response = client.get(f"{origin}/api/public/harnesses/alphalab-research-agent/descriptor")
                             if response.status_code == 200:
                                 break
@@ -153,30 +159,42 @@ def _local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[
 @contextmanager
 def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[subprocess.Popen]:
     """Hold a shared installation lease throughout the existing Host lifecycle."""
-    with configuration_access(RUNTIME_DIR.resolve()):
-        with _local_agent(root, api_port=api_port, agent_port=agent_port) as child:
-            yield child
+    with ConfigurationBackend.json(RUNTIME_DIR.resolve()) as backend:
+        with backend.borrow():
+            with _local_agent(
+                root, api_port=api_port, agent_port=agent_port, configuration_backend=backend
+            ) as child:
+                yield child
 
 
 def serve_with_local_agent(root: Path, *, host: str, port: int, agent_port: int = 0) -> None:
     import uvicorn
 
-    with local_agent(root, api_port=port, agent_port=agent_port) as child:
-        server = uvicorn.Server(uvicorn.Config("apps.api.main:app", host=host, port=port))
+    with ConfigurationBackend.json(RUNTIME_DIR.resolve()) as backend, backend.borrow(), _local_agent(
+        root, api_port=port, agent_port=agent_port, configuration_backend=backend
+    ) as child:
+        from apps.api.main import app
+
+        app.state.configuration_backend = backend
         stopped = threading.Event()
+        watcher = None
 
-        def monitor() -> None:
-            while not stopped.wait(0.5):
-                if child.poll() is not None:
-                    server.should_exit = True
-                    return
-
-        watcher = threading.Thread(target=monitor, daemon=True)
-        watcher.start()
         try:
+            server = uvicorn.Server(uvicorn.Config(app, host=host, port=port))
+
+            def monitor() -> None:
+                while not stopped.wait(0.5):
+                    if child.poll() is not None:
+                        server.should_exit = True
+                        return
+
+            watcher = threading.Thread(target=monitor, daemon=True)
+            watcher.start()
             server.run()
             if child.poll() is not None:
                 raise RuntimeError("The local Conexus Agent stopped unexpectedly; inspect data/runtime/conexus/host.log.")
         finally:
             stopped.set()
-            watcher.join(timeout=2)
+            if watcher is not None and watcher.ident is not None:
+                watcher.join(timeout=2)
+            del app.state.configuration_backend

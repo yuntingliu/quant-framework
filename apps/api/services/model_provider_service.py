@@ -8,16 +8,17 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from alphalab.utils.configuration_maintenance import legacy_settings_operation
-from alphalab.utils.paths import RUNTIME_DIR
+from alphalab.utils.private_settings import runtime_root
 
 _LOCK = threading.RLock()
 
 
 def settings_path() -> Path:
-    root = Path(os.getenv("ALPHALAB_RUNTIME_DIR", str(RUNTIME_DIR))).expanduser()
+    root = runtime_root()
     return root / "conexus" / "secrets" / "model-providers.json"
 
 
+@legacy_settings_operation(lambda: settings_path())
 def read_settings() -> dict:
     path = settings_path()
     if not path.exists():

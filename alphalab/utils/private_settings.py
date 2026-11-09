@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 from typing import Callable, TypeVar
 
+from alphalab.utils.configuration_backend import scoped_json_root
 from alphalab.utils.paths import RUNTIME_DIR
 
 T = TypeVar("T")
@@ -17,9 +18,14 @@ _GLOBAL_LOCK = threading.RLock()
 
 
 def runtime_root() -> Path:
-    """Resolve the current runtime root from the live environment."""
+    """Use the explicit JSON binding root, otherwise the existing environment root."""
 
-    return Path(os.getenv("ALPHALAB_RUNTIME_DIR", str(RUNTIME_DIR))).expanduser()
+    scoped = scoped_json_root()
+    return (
+        scoped
+        if scoped is not None
+        else Path(os.getenv("ALPHALAB_RUNTIME_DIR", str(RUNTIME_DIR))).expanduser()
+    )
 
 
 def app_secret_path(filename: str) -> Path:

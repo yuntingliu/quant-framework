@@ -7,14 +7,18 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
-from apps.api.routers.model_providers import require_local
+from alphalab.utils.configuration_store import ConfigurationStoreError
+from apps.api.routers.model_providers import ProfileSelectionRequest, require_local
 from apps.api.services import agent_run_service
-from apps.api.services import search_provider_service as service
+from apps.api.services.configuration_binding_service import (
+    configuration_bindings,
+    configuration_http_error,
+)
 
 
 class PrivateSearchValidationRoute(APIRoute):
@@ -31,6 +35,8 @@ class PrivateSearchValidationRoute(APIRoute):
                     422,
                     "Check the profile name, provider, model profile, and Brave key length.",
                 ) from None
+            except ConfigurationStoreError as error:
+                raise configuration_http_error(error) from None
 
         return private_handler
 
@@ -52,24 +58,30 @@ class SearchProviderRequest(BaseModel):
     brave_api_key: str = Field(default="", max_length=8192, repr=False)
     activate: bool = True
     clear_brave_api_key: bool = False
+    expected_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
 
 @router.get("")
-def read_search_providers() -> dict:
+def read_search_providers(binding=Depends(configuration_bindings)) -> dict:
     try:
-        return service.public_settings()
+        return binding.search.public_settings()
     except (OSError, ValueError):
         raise HTTPException(503, "Search settings could not be read.") from None
 
 
 @router.put("")
-def save_search_provider(request: SearchProviderRequest) -> dict:
+def save_search_provider(
+    request: SearchProviderRequest, binding=Depends(configuration_bindings)
+) -> dict:
     require_local()
     try:
-        return service.save_profile(
-            request.model_dump(exclude={"activate", "clear_brave_api_key"}, exclude_unset=True),
+        return binding.search.save_profile(
+            request.model_dump(
+                exclude={"activate", "clear_brave_api_key", "expected_revision"}, exclude_unset=True
+            ),
             activate=request.activate,
             clear_brave_api_key=request.clear_brave_api_key,
+            expected_revision=request.expected_revision,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
@@ -78,11 +90,16 @@ def save_search_provider(request: SearchProviderRequest) -> dict:
 
 
 @router.post("/test")
-async def test_search_provider(request: SearchProviderRequest) -> dict:
+async def test_search_provider(
+    request: SearchProviderRequest, binding=Depends(configuration_bindings)
+) -> dict:
     require_local()
+    binding.require_search_agent(provider=request.provider)
     try:
-        settings = service.resolve_settings(
-            request.model_dump(exclude={"activate", "clear_brave_api_key"}, exclude_unset=True),
+        settings = binding.search.resolve_test_profile(
+            request.model_dump(
+                exclude={"activate", "clear_brave_api_key", "expected_revision"}, exclude_unset=True
+            ),
             clear_brave_api_key=request.clear_brave_api_key,
         )
     except ValueError as exc:
@@ -142,3 +159,14 @@ async def test_search_provider(request: SearchProviderRequest) -> dict:
             "ok": False,
             "message": "Search test failed or timed out. Check the provider and network settings.",
         }
+
+
+@router.put("/selection")
+def select_search_profile(
+    request: ProfileSelectionRequest, binding=Depends(configuration_bindings)
+):
+    require_local()
+    return binding.search.select(
+        request.model_dump(exclude={"expected_revision"}, exclude_none=True),
+        expected_revision=request.expected_revision,
+    )

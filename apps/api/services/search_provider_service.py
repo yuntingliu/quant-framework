@@ -74,6 +74,7 @@ def default_settings() -> dict[str, Any]:
     return {"version": 2, "active_id": None, "profiles": []}
 
 
+@legacy_settings_operation(lambda: settings_path())
 def read_settings() -> dict[str, Any]:
     with _LOCK:
         return read_json_settings(
