@@ -21,6 +21,7 @@ from pathlib import Path
 
 from alphalab.dataio import rq_profiles
 from alphalab.utils import configuration_store as storage
+from alphalab.utils.configuration_deployment import OfflineInstallation
 from alphalab.utils.configuration_maintenance import checked_root, configuration_access
 from apps.api.services import configuration_schema as schema
 from apps.api.services import search_provider_service as search
@@ -322,11 +323,30 @@ def verify_legacy_migration(
     if not os.path.lexists(root / _DESTINATION):
         raise storage.ConfigurationStoreError("STORE_MISSING")
     with configuration_access(root, exclusive=True):
-        _check_offline(root, acknowledge_offline)
-        sources = _read_sources(root)
-        documents, choices = _prepare(sources, unselected_intents)
-        _require_node(node_executable)
-        report = _verify(root, documents, choices, node_executable)
-        if _read_sources(root) != sources:
-            raise storage.ConfigurationStoreError("UPDATE_FAILED")
-        return report
+        return _verify_locked(root, node_executable, unselected_intents)
+
+
+def _verify_locked(root, node_executable, unselected_intents):
+    _check_offline(root, True)
+    sources = _read_sources(root)
+    documents, choices = _prepare(sources, unselected_intents)
+    _require_node(node_executable)
+    report = _verify(root, documents, choices, node_executable)
+    if _read_sources(root) != sources:
+        raise storage.ConfigurationStoreError("UPDATE_FAILED")
+    return report
+
+
+@_guard
+def verify_offline_migration(offline, *, node_executable, unselected_intents=None):
+    """Reuse verification inside the stronger deployment/offline fence.
+
+    Only a live thread-bound OfflineInstallation can avoid lease reacquisition.
+    No arbitrary identity dictionary, closed backend or environment can do so.
+    """
+    if type(offline) is not OfflineInstallation:
+        raise storage.ConfigurationStoreError("INVALID_ARGUMENT")
+    offline._check()
+    if offline.backend != "json":
+        raise storage.ConfigurationStoreError("INVALID_CONFIGURATION")
+    return _verify_locked(offline.root, node_executable, unselected_intents)
