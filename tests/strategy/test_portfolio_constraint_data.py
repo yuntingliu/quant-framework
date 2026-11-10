@@ -4,6 +4,7 @@ import datetime as dt
 import json
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from alphalab.sdk.v1 import (
@@ -103,6 +104,12 @@ def test_constraint_set_hash_ignores_numeric_spelling_but_not_values() -> None:
 
     assert build(1).constraint_set_sha256 == build(1.0).constraint_set_sha256
     assert build(0.3).constraint_set_sha256 != build(0.31).constraint_set_sha256
+
+
+def test_schema_version_must_be_an_integer_for_canonical_identity() -> None:
+    with pytest.raises(PortfolioConstraintError) as excinfo:
+        PortfolioConstraintSet(schema_version=1.0)
+    assert _code(excinfo) == "CONSTRAINT_SPEC_INVALID"
 
 
 def test_security_level_subjects_use_symbol_casing() -> None:
@@ -215,6 +222,14 @@ def test_constraint_data_rejects_a_mismatched_version() -> None:
     assert _code(excinfo) == "CONSTRAINT_DATA_VERSION_INVALID"
 
 
+def test_constraint_data_from_dict_rejects_unknown_fields() -> None:
+    payload = _data().to_dict()
+    payload["data_verison"] = "misspelled"
+    with pytest.raises(PortfolioConstraintError) as excinfo:
+        PortfolioConstraintData.from_dict(payload)
+    assert _code(excinfo) == "CONSTRAINT_DATA_INVALID"
+
+
 @pytest.mark.parametrize(
     ("build", "code"),
     [
@@ -258,6 +273,30 @@ def test_invalid_constraint_data_fails_with_stable_code(build, code) -> None:
     with pytest.raises(PortfolioConstraintError) as excinfo:
         build()
     assert _code(excinfo) == code
+
+
+@pytest.mark.parametrize("missing_date", [pd.NaT, None])
+def test_constraint_data_rejects_missing_dates(missing_date) -> None:
+    for build in (
+        lambda: PortfolioConstraintData(as_of=missing_date, classifications={}, benchmarks={}),
+        lambda: _classification(effective_date=missing_date),
+        lambda: _benchmark(effective_date=missing_date),
+    ):
+        with pytest.raises(PortfolioConstraintError) as excinfo:
+            build()
+        assert _code(excinfo) == "CONSTRAINT_DATA_INVALID"
+
+
+@pytest.mark.parametrize("bad_symbol", [None, float("nan"), True, 123])
+def test_constraint_data_rejects_non_string_symbols(bad_symbol) -> None:
+    for build in (
+        lambda: _classification(groups={bad_symbol: "TECH"}),
+        lambda: _benchmark(weights={bad_symbol: 1.0}),
+        lambda: validate_constraint_data(PortfolioConstraintSet(), _data(), [bad_symbol]),
+    ):
+        with pytest.raises(PortfolioConstraintError) as excinfo:
+            build()
+        assert _code(excinfo) == "CONSTRAINT_DATA_INVALID"
 
 
 def test_benchmark_sum_band_accepts_vendor_rounding() -> None:
@@ -407,3 +446,17 @@ def test_constraint_check_improved_and_not_evaluated_records() -> None:
         )
     )
     assert skipped.reason_code == "RISK_UNDEFINED"
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        _check(stage="optimizer", upper=0.30, actual=0.36, slack=-0.06, reference=0.40, status="improved"),
+        _check(stage="planned", upper=0.30, actual=0.41, slack=-0.11, reference=0.40, status="improved"),
+        _check(stage="planned", upper=0.30, actual=0.40, slack=-0.10, reference=0.40, status="improved"),
+        _check(stage="planned", upper=0.30, actual=0.36, slack=-0.06, reference=0.20, status="improved"),
+    ],
+)
+def test_constraint_check_improved_requires_a_planned_genuine_improvement(fields) -> None:
+    with pytest.raises(ValueError, match="improved"):
+        ConstraintCheck(**fields)

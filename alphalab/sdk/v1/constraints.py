@@ -81,10 +81,9 @@ def _sha256(value: Any) -> str:
 
 
 def _symbol(value: Any) -> str:
-    symbol = str(value).strip().upper()
-    if not symbol:
-        raise ValueError("symbol must be non-empty")
-    return symbol
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("symbol must be a non-empty string")
+    return value.strip().upper()
 
 
 def _public_id(value: Any, label: str) -> str:
@@ -387,7 +386,11 @@ class PortfolioConstraintSet:
     tolerance: float = DEFAULT_TOLERANCE
 
     def __post_init__(self) -> None:
-        if isinstance(self.schema_version, bool) or self.schema_version != SCHEMA_VERSION:
+        if (
+            isinstance(self.schema_version, bool)
+            or not isinstance(self.schema_version, int)
+            or self.schema_version != SCHEMA_VERSION
+        ):
             raise _spec_error(f"schema_version must be {SCHEMA_VERSION}")
         tolerance = _number(self.tolerance, "tolerance", None)
         if tolerance <= 0 or tolerance > MAX_TOLERANCE:
@@ -455,15 +458,21 @@ class PortfolioConstraintSet:
 
 def _date(value: Any, label: str) -> dt.date:
     # datetime and pandas.Timestamp are date subclasses; keep only the calendar day.
+    result: Any = None
     if isinstance(value, dt.datetime):
-        return value.date()
-    if isinstance(value, dt.date):
-        return value
-    if isinstance(value, str):
+        result = value.date()
+    elif isinstance(value, dt.date):
+        result = value
+    elif isinstance(value, str):
         try:
-            return dt.date.fromisoformat(value)
+            result = dt.date.fromisoformat(value)
         except ValueError:
             pass
+    # pandas.NaT is a datetime-like object, but is not a calendar day.  The
+    # self-inequality check is deliberate: NaT is the only supported date-like
+    # value with this behaviour.
+    if isinstance(result, dt.date) and result == result:
+        return result
     raise PortfolioConstraintError("CONSTRAINT_DATA_INVALID", f"{label} must be an ISO date")
 
 
@@ -669,6 +678,11 @@ class PortfolioConstraintData:
             raise PortfolioConstraintError(
                 "CONSTRAINT_DATA_INVALID", "constraint data must be an object"
             )
+        unknown = sorted(set(payload) - {"as_of", "classifications", "benchmarks", "data_version"})
+        if unknown:
+            raise PortfolioConstraintError(
+                "CONSTRAINT_DATA_INVALID", f"constraint data has unknown fields: {unknown}"
+            )
         try:
             return cls(
                 as_of=payload["as_of"],
@@ -706,7 +720,12 @@ class PortfolioConstraintData:
             )
         result: dict[str, str] = {}
         for raw_symbol in symbols:
-            symbol = _symbol(raw_symbol)
+            try:
+                symbol = _symbol(raw_symbol)
+            except (TypeError, ValueError) as exc:
+                raise PortfolioConstraintError(
+                    "CONSTRAINT_DATA_INVALID", "requested symbols must be non-empty strings"
+                ) from exc
             group = snapshot.groups.get(symbol)
             if group is None:
                 if missing_policy != "unclassified_group":
@@ -734,7 +753,12 @@ def validate_constraint_data(
     weight also needs a group.  The first problem raises ``PortfolioConstraintError``.
     """
 
-    held = sorted({_symbol(symbol) for symbol in symbols})
+    try:
+        held = sorted({_symbol(symbol) for symbol in symbols})
+    except (TypeError, ValueError) as exc:
+        raise PortfolioConstraintError(
+            "CONSTRAINT_DATA_INVALID", "requested symbols must be non-empty strings"
+        ) from exc
     for constraint in constraint_set.constraints:
         members = list(held)
         if isinstance(constraint, BenchmarkDeviationConstraint):
@@ -838,6 +862,14 @@ class ConstraintCheck:
             raise ValueError(f"a {self.status} check must have slack < -tolerance")
         if self.status == "improved" and self.reference is None:
             raise ValueError("an improved check requires the pre-trade reference value")
+        if self.status == "improved":
+            if self.stage != "planned":
+                raise ValueError("an improved check is valid only at the planned stage")
+            reference_slack = bound_slack(self.reference, self.lower, self.upper)
+            if reference_slack >= -self.tolerance:
+                raise ValueError("an improved check requires a previously violated bound")
+            if self.slack <= reference_slack + self.tolerance:
+                raise ValueError("an improved check must move closer to feasibility")
 
     @classmethod
     def from_bounds(

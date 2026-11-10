@@ -127,6 +127,19 @@ def test_risk_contributions_return_none_for_zero_variance() -> None:
     assert risk_contributions({"A": 0.5, "B": 0.5}, covariance) is None
 
 
+@pytest.mark.parametrize("scale", [1.0, 1e-12, 1e12])
+def test_covariance_validation_is_invariant_to_positive_rescaling(scale) -> None:
+    valid = pd.DataFrame([[2.0, 1.0], [1.0, 2.0]], index=["A", "B"], columns=["A", "B"])
+    assert risk_contributions({"A": 0.5, "B": 0.5}, valid * scale) is not None
+
+    indefinite = pd.DataFrame(
+        [[1.0, 2.0], [2.0, 1.0]], index=["A", "B"], columns=["A", "B"]
+    )
+    with pytest.raises(PortfolioConstraintError) as excinfo:
+        risk_contributions({"A": 0.5, "B": 0.5}, indefinite * scale)
+    assert excinfo.value.code == "CONSTRAINT_DATA_INVALID"
+
+
 @pytest.mark.parametrize(
     "covariance",
     [
@@ -174,6 +187,71 @@ def test_explicit_constraints_check_absent_subjects_at_zero(
         -0.1,
         "fail",
     )
+
+
+def test_implicit_group_floor_uses_the_snapshot_subject_universe() -> None:
+    as_of = dt.date(2026, 6, 30)
+    data = PortfolioConstraintData(
+        as_of=as_of,
+        classifications={
+            "scheme:1": ClassificationSnapshot(
+                classification="scheme:1",
+                effective_date=as_of,
+                groups={"AAA": "TECH", "BBB": "FIN"},
+                source_version="v1",
+            )
+        },
+        benchmarks={},
+    )
+    constraint_set = PortfolioConstraintSet(
+        constraints=(
+            GroupWeightConstraint(id="floor", classification="scheme:1", lower=0.10),
+        )
+    )
+    checks = evaluate_constraints(constraint_set, data, {"AAA": 1.0, "BBB": 0.0})
+    assert [(check.subject, check.actual, check.status) for check in checks] == [
+        ("FIN", 0.0, "fail"),
+        ("TECH", 1.0, "pass"),
+    ]
+
+
+def test_all_cash_implicit_constraints_remain_visible() -> None:
+    as_of = dt.date(2026, 6, 30)
+    data = PortfolioConstraintData(
+        as_of=as_of,
+        classifications={
+            "scheme:1": ClassificationSnapshot(
+                classification="scheme:1",
+                effective_date=as_of,
+                groups={"AAA": "TECH", "BBB": "FIN"},
+                source_version="v1",
+            )
+        },
+        benchmarks={},
+    )
+    model = RiskModelSpec(lookback=20, minimum_observations=10)
+    constraint_set = PortfolioConstraintSet(
+        constraints=(
+            GroupWeightConstraint(id="floor", classification="scheme:1", lower=0.10),
+            RiskBudgetConstraint(
+                id="risk", classification=None, upper=0.80, risk_model=model
+            ),
+        )
+    )
+    covariance = pd.DataFrame(np.eye(2), index=["AAA", "BBB"], columns=["AAA", "BBB"])
+    checks = evaluate_constraints(
+        constraint_set,
+        data,
+        {"AAA": 0.0, "BBB": 0.0},
+        covariance_by_model={model: covariance},
+    )
+    assert [(check.constraint_id, check.subject, check.status) for check in checks] == [
+        ("floor", "FIN", "fail"),
+        ("floor", "TECH", "fail"),
+        ("risk", "AAA", "not_evaluated"),
+        ("risk", "BBB", "not_evaluated"),
+    ]
+    assert all(check.reason_code == "RISK_UNDEFINED" for check in checks[2:])
 
 
 def test_security_level_constraints_normalize_symbols(three_asset_constraint_case) -> None:

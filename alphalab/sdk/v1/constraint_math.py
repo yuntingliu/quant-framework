@@ -168,6 +168,7 @@ def evaluate_constraints(
         raise ValueError(f"stage must be one of {sorted(CHECK_STAGES)}")
 
     portfolio = _weights(weights)
+    portfolio_symbols = sorted(portfolio)
     nonzero_symbols = [symbol for symbol, weight in portfolio.items() if weight != 0.0]
     validate_constraint_data(constraint_set, data, nonzero_symbols)
     covariances = covariance_by_model or {}
@@ -188,7 +189,11 @@ def evaluate_constraints(
                 missing_policy=constraint.missing_policy,
                 constraint_id=constraint.id,
             )
-            actuals = group_weights(portfolio, group_map, subjects=constraint.groups)
+            actuals = group_weights(
+                portfolio,
+                group_map,
+                subjects=_group_subjects(constraint, data),
+            )
             checks.extend(
                 _bounded_checks(
                     actuals,
@@ -242,7 +247,9 @@ def evaluate_constraints(
                     constraint_id=constraint.id,
                 )
             security_contributions = risk_contributions(portfolio, covariance)
-            subjects, group_map = _risk_subjects(constraint, data, nonzero_symbols)
+            subjects, group_map = _risk_subjects(
+                constraint, data, portfolio_symbols, nonzero_symbols
+            )
             if security_contributions is None:
                 checks.extend(
                     _undefined_risk_checks(
@@ -276,23 +283,42 @@ def evaluate_constraints(
 def _risk_subjects(
     constraint: RiskBudgetConstraint,
     data: PortfolioConstraintData,
-    symbols: Sequence[str],
+    portfolio_symbols: Sequence[str],
+    nonzero_symbols: Sequence[str],
 ) -> tuple[list[str], dict[str, str] | None]:
     if constraint.classification is None:
-        subjects = list(constraint.groups) if constraint.groups is not None else list(symbols)
+        subjects = (
+            list(constraint.groups)
+            if constraint.groups is not None
+            else list(portfolio_symbols)
+        )
         return sorted(subjects), None
     group_map = data.group_map(
         constraint.classification,
-        symbols,
+        nonzero_symbols,
         missing_policy=constraint.missing_policy,
         constraint_id=constraint.id,
     )
-    subjects = (
-        list(constraint.groups)
-        if constraint.groups is not None
-        else sorted(set(group_map.values()))
-    )
+    subjects = _group_subjects(constraint, data)
     return sorted(subjects), group_map
+
+
+def _group_subjects(
+    constraint: GroupWeightConstraint | RiskBudgetConstraint,
+    data: PortfolioConstraintData,
+) -> Sequence[str] | None:
+    """Return declared subjects, or every group in the dated snapshot.
+
+    ``groups=None`` means every group separately.  That universe belongs to
+    the classification snapshot, not merely to the holdings whose weights are
+    non-zero today; otherwise a lower bound could disappear when a group is
+    sold to zero or the portfolio is all cash.
+    """
+
+    if constraint.groups is not None:
+        return constraint.groups
+    snapshot = data.classifications[constraint.classification]
+    return tuple(sorted(set(snapshot.groups.values())))
 
 
 def _bounded_checks(
@@ -421,13 +447,14 @@ def _covariance_frame(value: pd.DataFrame) -> pd.DataFrame:
         raise PortfolioConstraintError(
             "CONSTRAINT_DATA_INVALID", "covariance contains non-finite values"
         )
-    if not np.allclose(matrix, matrix.T, rtol=1e-10, atol=1e-12):
+    scale = float(np.linalg.norm(matrix, ord=np.inf))
+    symmetry_tolerance = scale * 1e-10
+    if not np.allclose(matrix, matrix.T, rtol=1e-10, atol=symmetry_tolerance):
         raise PortfolioConstraintError(
             "CONSTRAINT_DATA_INVALID", "covariance must be symmetric"
         )
-    scale = max(float(np.max(np.abs(matrix))), 1.0)
     minimum_eigenvalue = float(np.linalg.eigvalsh(matrix).min())
-    if minimum_eigenvalue < -max(scale * 1e-10, 1e-12):
+    if minimum_eigenvalue < -(scale * 1e-10):
         raise PortfolioConstraintError(
             "CONSTRAINT_DATA_INVALID",
             "covariance must be positive semidefinite or repaired before evaluation",
