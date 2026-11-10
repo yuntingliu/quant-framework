@@ -12,7 +12,11 @@ import pandas as pd
 
 from alphalab.analytics.factor_evidence import factor_research_report
 from alphalab.dataio import DataEngine, MissingDataError
+from alphalab.sdk.v1.constraint_math import CovarianceByModel
+from alphalab.sdk.v1.constraints import PortfolioConstraintData
+from alphalab.sdk.v1.model import PortfolioDecision
 from alphalab.strategy.config import ExecutionSpec
+from alphalab.strategy.portfolio_constraints import verify_planned_portfolio_constraints
 from alphalab.strategy.repository import StrategyRepository
 from alphalab.strategy.sdk_runtime import SdkExecutionSession
 
@@ -1254,6 +1258,8 @@ def _execute_target(
     as_of: pd.Timestamp,
     event: str,
     execution_data_fill: bool,
+    constraint_data: PortfolioConstraintData | Mapping[str, Any] | None = None,
+    constraint_covariances: CovarianceByModel | None = None,
 ) -> tuple[dict[str, float], float, dict[str, float], dict[str, Any]]:
     decision = pending["decision"]
     policy = pending["policy"]
@@ -1390,6 +1396,22 @@ def _execute_target(
     next_cash = nav - sum(next_values.values()) - total_cost
     if next_cash < -1e-8:
         raise ValueError("execution costs exceeded available cash")
+    planned_nav = nav - total_cost
+    if planned_nav <= 0:
+        raise ValueError("execution costs exhausted portfolio NAV")
+    verify_planned_portfolio_constraints(
+        PortfolioDecision(
+            target_weights=requested_target,
+            constraints=decision.get("constraints"),
+            constraint_data_version=decision.get("constraint_data_version"),
+        ),
+        {symbol: value / planned_nav for symbol, value in next_values.items()},
+        current,
+        project_constraints=project.get("settings", {}).get("portfolio_constraints"),
+        constraint_data=constraint_data,
+        covariance_by_model=constraint_covariances,
+        as_of=as_of,
+    )
     next_entries = dict(entry_prices)
     price_map = _prices(rows, field)
     for symbol in set(current) | set(executed):
