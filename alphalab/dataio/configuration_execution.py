@@ -210,7 +210,15 @@ def _recipe(source, mode, root, client, password):
 
 
 def _worker(pipe, root, installation_id, revision, operation, job_id, source, sdk_factory):
-    hold_worker_execution(root)
+    from alphalab.utils.configuration_decision import check_backend_authority
+
+    try:
+        hold_worker_execution(root)
+        check_backend_authority(root, backend="inactive_sqlite")
+    except BaseException:
+        # No ready acknowledgement means no captured credentials may be sent.
+        pipe.close()
+        return
     return _admitted_worker(
         pipe, root, installation_id, revision, operation, job_id, source, sdk_factory
     )

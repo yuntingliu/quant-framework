@@ -66,16 +66,22 @@ class ConfigurationBackend:
 
     @classmethod
     def sqlite(cls, root, *, installation_id):
+        """Explicit inactive composition; never bypass committed authority."""
         if type(installation_id) is not str or not _ID.fullmatch(installation_id):
             raise ConfigurationStoreError("INVALID_ARGUMENT")
         return cls._open(root, "sqlite", installation_id)
 
     @classmethod
     def _open(cls, root, mode, installation_id):
+        from alphalab.utils.configuration_decision import check_backend_authority
+
         location = _safe_call(lambda: checked_root(root))
         lease = configuration_access(location, exclusive=mode == "sqlite")
         lease.__enter__()
         try:
+            check_backend_authority(
+                location, backend="json" if mode == "json" else "inactive_sqlite"
+            )
             store = None
             if mode == "sqlite":
                 store = ConfigurationStore.open_existing(location)
@@ -108,8 +114,11 @@ class ConfigurationBackend:
 
     @property
     def store(self):
+        from alphalab.utils.configuration_decision import check_backend_authority
+
         if self._mode != "sqlite" or self._closed:
             raise ConfigurationStoreError("INVALID_CONFIGURATION")
+        check_backend_authority(self._root, backend="inactive_sqlite")
         return self._store
 
     def public_identity(self):
@@ -136,11 +145,16 @@ class ConfigurationBackend:
 
     @contextmanager
     def borrow(self):
+        from alphalab.utils.configuration_decision import check_backend_authority
+
         with self._mutex:
             if self._closed:
                 raise ConfigurationStoreError("STORE_UNAVAILABLE")
             self._users += 1
         try:
+            check_backend_authority(
+                self._root, backend="json" if self._mode == "json" else "inactive_sqlite"
+            )
             yield self
         finally:
             with self._mutex:

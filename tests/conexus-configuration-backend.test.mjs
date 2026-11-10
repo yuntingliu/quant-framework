@@ -185,6 +185,7 @@ test('production JSON entry advertises the exact Python decision using substitut
         addHook(name, handler) { hooks[name] = handler },
         async listen() {
           console.log(JSON.stringify(await hooks.preSerialization({ routeOptions: { url: '/health' } }, {}, { ok: true })));
+          await hooks.onClose(); // The real entry retains admission until actual host shutdown.
         }
       } };
     };

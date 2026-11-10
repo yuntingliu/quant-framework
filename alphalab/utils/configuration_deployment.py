@@ -29,6 +29,7 @@ from alphalab.dataio.runtime import runtime_execution_lock
 from alphalab.utils import configuration_store as storage
 from alphalab.utils.configuration_backend import ConfigurationBackend
 from alphalab.utils.configuration_maintenance import (
+    agent_access,
     checked_root,
     configuration_access,
     execution_access,
@@ -177,9 +178,12 @@ class OfflineInstallation:
 
     @protected
     def require_json_writer(self):
+        from alphalab.utils.configuration_decision import check_backend_authority
+
         self._check()
         if self.backend != "json":
             raise DeploymentPreparationError("BACKEND_MISMATCH")
+        check_backend_authority(self.root, backend="json")
 
 
 @contextmanager
@@ -210,9 +214,20 @@ def coordinated_offline(decision, *, stop_services, timeout=5.0):
                 return max(0, deadline - time.monotonic())
 
             stack.enter_context(execution_access(root, exclusive=True, timeout=remaining()))
+            from alphalab.utils.configuration_decision import check_backend_authority
+
+            check_backend_authority(
+                root, backend="json" if decision.mode == "json" else "inactive_sqlite"
+            )
             require_idle(root)
             stop_services()
+            # Idle Agents do not hold execution admission. Their independent
+            # lifetime fence must nevertheless be gone before any mutation.
+            stack.enter_context(agent_access(root, exclusive=True, timeout=remaining()))
             stack.enter_context(configuration_access(root, exclusive=True, timeout=remaining()))
+            check_backend_authority(
+                root, backend="json" if decision.mode == "json" else "inactive_sqlite"
+            )
             # Old 2A children also retain these locks after API/owner death.
             for name in ("sync-job-queue", "captured-rq-execution"):
                 stack.enter_context(runtime_execution_lock(root, name, timeout_seconds=remaining()))

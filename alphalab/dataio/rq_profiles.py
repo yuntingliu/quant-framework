@@ -112,6 +112,7 @@ def public_profile(row: Mapping[str, object]) -> dict[str, Any]:
     }
 
 
+@legacy_settings_operation(lambda: settings_path())
 def public_settings() -> dict[str, Any]:
     settings = read_settings()
     resolved = active_profile()
@@ -146,6 +147,7 @@ def save_profile(
     return public_settings()
 
 
+@legacy_settings_operation(lambda: settings_path())
 def active_profile() -> SavedRQProfile | None:
     settings = read_settings()
     saved = _saved_active_profile(settings)
@@ -174,6 +176,7 @@ def active_profile() -> SavedRQProfile | None:
     )
 
 
+@legacy_settings_operation(lambda: settings_path())
 def active_config() -> dict[str, str]:
     settings = read_settings()
     saved = _saved_active_profile(settings)
@@ -201,6 +204,7 @@ def active_config() -> dict[str, str]:
     }
 
 
+@legacy_settings_operation(lambda: settings_path())
 def resolve_connection_profile(profile: Mapping[str, object]) -> SavedRQProfile:
     normalized = prepare_profile(profile, read_settings())
     return SavedRQProfile(**normalized)

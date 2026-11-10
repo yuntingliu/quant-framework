@@ -29,6 +29,8 @@ from urllib.parse import urlsplit
 from alphalab.utils.configuration_backend import ConfigurationBackend
 from alphalab.utils.configuration_store import (
     ConfigurationStoreError,
+    _exception_field,
+    _interruption_family,
     _raise_redacted,
     _redacted_interruption,
     _safe_call,
@@ -45,6 +47,31 @@ _MAX_SEQUENCE = 2**53 - 1
 
 def _unavailable():
     raise ConfigurationStoreError("STORE_UNAVAILABLE")
+
+
+def _owned_call(action):
+    """Redact owner operations without pretending a socket exchange is a store callback.
+
+    Authority reads use their own storage boundaries. Actual store callbacks
+    still reject nested reads; no store reentrancy flag is cleared or bypassed.
+    """
+    code, interruption = "STORE_UNAVAILABLE", None
+    try:
+        return action()
+    except BaseException as error:
+        family = _interruption_family(type(error))
+        fallback = (
+            None
+            if family is None
+            else family(1 if family is SystemExit else "Agent operation interrupted.")
+        )
+        try:
+            interruption = _redacted_interruption(error)
+            if issubclass(type(error), ConfigurationStoreError):
+                code = _exception_field(error, "code")
+        except BaseException:
+            interruption = fallback
+    _raise_redacted(interruption if interruption is not None else ConfigurationStoreError(code))
 
 
 def _auth_json(data):
@@ -133,7 +160,7 @@ class OwnedAgentConnection:
         raise TypeError("Private Agent connections cannot be serialized implicitly.")
 
     def require_owner(self, owner):
-        return _safe_call(lambda: self._check(owner))
+        return _owned_call(lambda: self._check(owner))
 
     def _check(self, owner):
         if type(owner) is not ConfigurationBackend:
@@ -265,7 +292,7 @@ class OwnedAgentConnection:
 
         # Never expose network/parser exceptions or the private request body in
         # accessible exception chains. Preserve redacted interruption families.
-        return _safe_call(action)
+        return _owned_call(action)
 
     def test_search(self, owner, settings):
         self.require_owner(owner)
@@ -420,6 +447,7 @@ def managed_configuration_agent(backend, *, node=None, startup_timeout=15, reque
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
+                    env={**os.environ, "ALPHALAB_AUTHORITY_PYTHON": sys.executable},
                     bufsize=0,
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 )

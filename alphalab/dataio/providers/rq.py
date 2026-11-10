@@ -21,7 +21,8 @@ from alphalab.dataio.rq_frames import (
     normalize_rq_suspension,
     require_same_keys,
 )
-from alphalab.dataio.rq_profiles import active_config
+from alphalab.dataio.rq_profiles import active_config, settings_path
+from alphalab.utils.configuration_maintenance import json_configuration_access
 from alphalab.utils.env import load_env_files
 
 _BAR_FIELDS = ("open", "high", "low", "close", "volume", "amount")
@@ -40,8 +41,9 @@ class RQDataConfig:
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "RQDataConfig":
         if env is None:
-            load_env_files()
-            env = os.environ
+            with json_configuration_access(settings_path().parents[2]):
+                load_env_files()
+                return cls.from_env(os.environ)
         values = {key: str(env.get(key, "")).strip() for key in _ENV_KEYS}
         missing = [key for key, value in values.items() if not value]
         if missing:

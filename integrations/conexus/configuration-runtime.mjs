@@ -5,6 +5,7 @@
 import { addAbortListener } from 'node:events'
 import { inspect, types } from 'node:util'
 import { ConfigurationStoreReader } from './configuration-store.mjs'
+import { withConfigurationAuthority } from './configuration-authority.mjs'
 import { configuredCompletion, readActiveProvider, providerFromSnapshot, containsProviderCredential } from './model-providers.mjs'
 import { configuredWebSearch, searchExecutionFromSnapshot } from './web-search.mjs'
 
@@ -63,6 +64,7 @@ export function createSqliteAgentConfiguration(root, createModelCompletion, opti
     reader = new ConfigurationStoreReader(root, options.readerOptions)
   } catch { throw new ConfigurationRuntimeError('INVALID_ARGUMENT') }
   const shutdown = new AbortController(), signals = new WeakMap()
+  const authorityReads = new Set()
   let closing, closed = false
   function signalFor(signal) {
     if (signal === undefined) return AbortSignal.any([shutdown.signal])
@@ -97,7 +99,10 @@ export function createSqliteAgentConfiguration(root, createModelCompletion, opti
     }
   }
   const read = async signal => {
-    const snapshot = await reader.readSnapshot({ signal })
+    const pending = withConfigurationAuthority(root, 'inactive_sqlite', () => reader.readSnapshot({ signal }), signal)
+    authorityReads.add(pending)
+    let snapshot
+    try { snapshot = await pending } finally { authorityReads.delete(pending) }
     if (expectedInstallationId !== undefined && snapshot.installation_id !== expectedInstallationId) throw 0
     return snapshot
   }
@@ -144,7 +149,8 @@ export function createSqliteAgentConfiguration(root, createModelCompletion, opti
       if (!closing) {
         closed = true
         shutdown.abort()
-        closing = reader.close().catch(() => { throw new ConfigurationRuntimeError('RUNTIME_CLOSED') })
+        closing = Promise.all([reader.close(), Promise.allSettled([...authorityReads])])
+          .then(() => {}).catch(() => { throw new ConfigurationRuntimeError('RUNTIME_CLOSED') })
       }
       return closing
     },

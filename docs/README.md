@@ -44,6 +44,7 @@ logic. These describe the pinned core snapshot and are validated by
 - [Offline deployment and private backups](guides/configuration-deployment.md): cooperative worker draining, recursive SQLite backups, guarded JSON deployment writes and disabled historical restore.
 - [Authenticated managed Agent connection](guides/configuration-agent-connection.md): private owner/process agreement, pinned credential dispatch, fail-closed SQLite search tests and deferred production activation.
 - [Inactive durable backend decision](guides/configuration-durable-decision.md): strict record states, offline first-generation preflight, write-once candidate publication and remaining cutover prerequisites.
+- [Durable authority enforcement](guides/configuration-authority-enforcement.md): checked startup and legacy access, actual Node admission leases and fail-closed production SQLite prerequisites.
 - [Deployment acceptance](08_LOCAL_DEPLOYMENT_VALIDATION.md): verification before promotion.
 
 - [Deployment](05_DEPLOYMENT.md): building, configuration, persistence, updates, and operational checks.

@@ -137,6 +137,7 @@ def public_profile(row: Mapping[str, object]) -> dict[str, Any]:
     }
 
 
+@legacy_settings_operation(lambda: settings_path())
 def public_settings() -> dict[str, Any]:
     settings = read_settings()
     saved = _saved_active_profile(settings)
@@ -180,6 +181,7 @@ def save_profile(
         return public_settings()
 
 
+@legacy_settings_operation(lambda: settings_path())
 def save_settings(settings: Mapping[str, object]) -> dict[str, Any]:
     activate = bool(settings.get("activate", True))
     clear_brave_api_key = bool(settings.get("clear_brave_api_key", False))
@@ -191,6 +193,7 @@ def save_settings(settings: Mapping[str, object]) -> dict[str, Any]:
     return save_profile(payload, activate=activate, clear_brave_api_key=clear_brave_api_key)
 
 
+@legacy_settings_operation(lambda: settings_path())
 def resolve_settings(
     settings: Mapping[str, object],
     *,

@@ -204,6 +204,10 @@ def _check_offline(root, acknowledge_offline):
     if acknowledge_offline is not True:
         raise storage.ConfigurationStoreError("INVALID_ARGUMENT")
     root = checked_root(root)
+    from alphalab.utils.configuration_decision import check_backend_authority
+
+    if root.is_dir():
+        check_backend_authority(root, backend="json")
     if os.path.lexists(root / "conexus/project/host.lock"):
         raise storage.ConfigurationStoreError("STORE_BUSY")
     return root

@@ -894,6 +894,9 @@ def _run_recipe_job(root: Path, job_id: str) -> dict:
         execution_access(root),
         RuntimeStore(root).dataset_lock("sync-job-queue", timeout_seconds=1800.0),
     ):
+        from alphalab.utils.configuration_decision import check_backend_authority
+
+        check_backend_authority(root, backend="json")
         return _run_recipe_job_exclusive(root, job_id)
 
 

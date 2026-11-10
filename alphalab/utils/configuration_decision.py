@@ -14,12 +14,16 @@ import json
 import os
 import re
 import stat
+import time
 from pathlib import Path
 
 from alphalab.utils.configuration_agent import _auth_json
-from alphalab.utils.configuration_deployment import OfflineInstallation
 from alphalab.utils.configuration_maintenance import checked_root
-from alphalab.utils.configuration_store import ConfigurationStoreError, _safe_call
+from alphalab.utils.configuration_store import (
+    ConfigurationStore,
+    ConfigurationStoreError,
+    _safe_call,
+)
 
 PROTOCOL_VERSION = 1
 NAMESPACE = Path("app/secrets/configuration-decision")
@@ -193,6 +197,70 @@ def read_decision_record(root):
     return _safe_call(lambda: _read_unlocked(_root(root)))
 
 
+def validate_committed_authority(root, *, installation_id=None, decision_id=None):
+    """Observe an unchanged activation anchor, without granting backend ownership.
+
+    Callers hold maintenance or execution admission through the protected use.
+    Descendants are deliberately refused until ancestry admission is implemented.
+    This validates storage, not backup provenance or historical revocation.
+    """
+    if any(
+        expected is not None and (type(expected) is not str or not _ID.fullmatch(expected))
+        for expected in (installation_id, decision_id)
+    ):
+        _fail("INVALID_ARGUMENT")
+    record = read_decision_record(root)
+    if record is None or record.as_dict()["state"] != "committed":
+        _fail("INVALID_CONFIGURATION")
+    value = record.as_dict()
+    if installation_id is not None and value["installation_id"] != installation_id:
+        _fail("INSTALLATION_MISMATCH")
+    if decision_id is not None and value["decision_id"] != decision_id:
+        _fail("REVISION_CONFLICT")
+
+    def unchanged_anchor():
+        store = ConfigurationStore._handle(root, 5)
+        with store._session(time.monotonic() + 5) as session:
+            session.execute("BEGIN")
+            snapshot = store._current(session)
+            if session.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+                _fail("STORE_CORRUPT")
+            if session.execute(
+                "SELECT revision, parent_revision FROM generations LIMIT 2"
+            ).fetchall() != [(value["revision"], None)]:
+                _fail("REVISION_CONFLICT")
+            return snapshot
+
+    snapshot = _safe_call(unchanged_anchor, read_only=True)
+    if snapshot.protocol_version != value["evidence"]["store_protocol_version"]:
+        _fail("UNSUPPORTED_PROTOCOL")
+    if snapshot.installation_id != value["installation_id"]:
+        _fail("INSTALLATION_MISMATCH")
+    if snapshot.revision != value["revision"]:
+        _fail("REVISION_CONFLICT")
+    if {key: choice["kind"] for key, choice in snapshot.selections.items()} != value["evidence"][
+        "selection_kinds"
+    ]:
+        _fail("INVALID_CONFIGURATION")
+    return value
+
+
+def check_backend_authority(root, *, backend):
+    """Fence JSON and explicitly inactive SQLite use under a caller-owned lease.
+
+    A prepared record only preserves JSON authority; it is not a freshness
+    receipt and legitimate JSON edits remain allowed. Every committed record
+    blocks these compositions, including a matching inactive SQLite owner.
+    Durable production composition is intentionally unavailable in this phase.
+    """
+    if type(backend) is not str or backend not in {"json", "inactive_sqlite"}:
+        _fail("INVALID_ARGUMENT")
+    record = read_decision_record(root)
+    if record is not None and record.as_dict()["state"] == "committed":
+        validate_committed_authority(root)
+        _fail("UNSUPPORTED_STORAGE")
+
+
 def _sync_directory(path):
     # Windows file fsync is supported; portable directory fsync is not. NTFS
     # atomic visibility is tested, physical power-loss durability is not claimed.
@@ -215,6 +283,8 @@ def _publish_prepared(offline, record, *, expected_decision_id=None):
     No effective activation primitive exists. Temporary remnants are retained
     as fail-closed evidence, never deleted/recovered automatically on failure.
     """
+
+    from alphalab.utils.configuration_deployment import OfflineInstallation
 
     def publish():
         if type(offline) is not OfflineInstallation or type(record) is not DecisionRecord:

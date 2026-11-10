@@ -125,9 +125,10 @@ test('JSON composition remains the default and ignores unrelated SQLite/backend 
 })
 
 test('the actual Agent entry point keeps JSON startup, readiness and shutdown wiring', async t => {
-  const f = await fixture(t), path = join(f.root, 'model-providers.json')
+  const f = await fixture(t), secrets = join(f.root, 'conexus/secrets'), path = join(secrets, 'model-providers.json')
+  await mkdir(secrets, { recursive: true })
   await writeFile(f.database, 'synthetic unavailable SQLite store')
-  await writeFile(join(f.root, 'search-providers.json'), JSON.stringify({ version: 1, provider: 'off' }))
+  await writeFile(join(secrets, 'search-providers.json'), JSON.stringify({ version: 1, provider: 'off' }))
   // Substitute only the optional bundled core and research workspace. Execute
   // the real entry point and real JSON composition without a server/provider.
   const core = `
@@ -179,7 +180,8 @@ test('the actual Agent entry point keeps JSON startup, readiness and shutdown wi
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(CONEXUS_|ALPHALAB_|BRAVE_|RQ_)/i.test(key)))
     const child = spawn(process.execPath, ['--input-type=module', '-e', script], { windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'], env: { ...env,
-        ALPHALAB_MODEL_PROVIDERS_FILE: path, CONEXUS_LOCAL_ROOT: f.root,
+        ALPHALAB_MODEL_PROVIDERS_FILE: path, CONEXUS_LOCAL_ROOT: join(f.root, 'conexus/project'),
+        ALPHALAB_AUTHORITY_PYTHON: python,
         CONEXUS_LOCAL_TOKEN: 'synthetic-entry-token', CONEXUS_LOCAL_PORT: '18555',
         ALPHALAB_CONFIGURATION_BACKEND: 'sqlite',
         ALPHALAB_AGENT_CONNECTION_FILE: join(f.root, 'connection.json'),

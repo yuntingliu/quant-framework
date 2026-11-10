@@ -137,6 +137,13 @@ def prepare_sqlite_candidate(
         type(expected_decision_id) is not str or not protocol._ID.fullmatch(expected_decision_id)
     ):
         raise ConfigurationStoreError("INVALID_ARGUMENT")
+    # Preserve an explicit conflict result for a completed decision before the
+    # stronger offline fence rejects this incompatible administrative caller.
+    # The actual publication still rereads authority under both exclusive gates.
+    with configuration_access(decision.root):
+        observed = protocol.read_decision_record(decision.root)
+        if observed is not None and observed.as_dict()["state"] == "committed":
+            raise ConfigurationStoreError("REVISION_CONFLICT")
     # Existing order: execution admission -> maintenance -> legacy child locks.
     # No upgrades, owner bypass, second SQLite owner or claim of Node OS leases.
     with _offline(decision) as offline:

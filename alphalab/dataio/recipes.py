@@ -25,7 +25,7 @@ from alphalab.dataio.rq_templates import (
     get_rq_sync_template,
     list_rq_sync_templates,
 )
-from alphalab.utils.configuration_maintenance import hold_worker_execution
+from alphalab.utils.configuration_maintenance import execution_access, hold_worker_execution
 
 RQDATA_PYTHON_DOCS_URL = "https://www.ricequant.com/doc/rqdata/python/index-rqdatac"
 MAX_RECIPE_SOURCE_BYTES = 300_000
@@ -918,6 +918,23 @@ def execute_data_recipe(
     cancelled: Callable[[], bool] | None = None,
     execution=None,
 ) -> dict[str, Any]:
+    from alphalab.utils.configuration_decision import check_backend_authority
+    from alphalab.utils.paths import RUNTIME_DIR
+
+    location = Path(root) if root is not None else RUNTIME_DIR
+    with execution_access(location):
+        check_backend_authority(location, backend="json")
+        return _execute_data_recipe(
+            source,
+            mode=mode,
+            root=root,
+            timeout_seconds=timeout_seconds,
+            cancelled=cancelled,
+            execution=execution,
+        )
+
+
+def _execute_data_recipe(source, *, mode, root, timeout_seconds, cancelled, execution):
     if execution is not None:
         return execution(
             source, mode=mode, root=root, timeout_seconds=timeout_seconds, cancelled=cancelled
@@ -1040,9 +1057,12 @@ def _execute_loaded_recipe(
 
 
 def _recipe_worker(connection: Connection, source: str, mode: str, root: str | None) -> None:
+    from alphalab.utils.configuration_decision import check_backend_authority
     from alphalab.utils.paths import RUNTIME_DIR
 
-    hold_worker_execution(Path(root) if root is not None else RUNTIME_DIR)
+    location = Path(root) if root is not None else RUNTIME_DIR
+    hold_worker_execution(location)
+    check_backend_authority(location, backend="json")
     _admitted_recipe_worker(connection, source, mode, root)
 
 

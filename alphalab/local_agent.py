@@ -8,6 +8,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -33,6 +34,9 @@ def _local_agent(
 
     import httpx
 
+    # Refuse authority conflicts before runtime checks, token reads or npm work.
+    with configuration_backend.borrow():
+        pass
     load_env_files()
     node = shutil.which("node")
     npm = shutil.which("npm")
@@ -87,6 +91,7 @@ def _local_agent(
         "ALPHALAB_AGENT_MODE": "local",
         "ALPHALAB_AGENT_PARENT_PIPE": "1",
         "ALPHALAB_AGENT_CONFIGURATION_DECISION": json.dumps(configuration_backend.node_contract()),
+        "ALPHALAB_AUTHORITY_PYTHON": sys.executable,
     }
     log_path = state / "host.log"
     # Windows helpers are hidden; stdout/stderr stay in the local diagnostic log.

@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { withJsonProfileAuthority } from './configuration-authority.mjs'
 
 /** Guard SQLite-backed provider results, including URL-encoded reflected keys. */
 export function containsProviderCredential(payload, credentials) {
@@ -25,7 +26,11 @@ export function containsProviderCredential(payload, credentials) {
   return false
 }
 
-export async function readActiveProvider(path, env = process.env) {
+export async function readActiveProvider(path, env = process.env, signal) {
+  return withJsonProfileAuthority(path, location => readActiveProviderUnderLease(location, env), signal)
+}
+
+async function readActiveProviderUnderLease(path, env) {
   let settings = { profiles: [], active_id: null }
   try { settings = JSON.parse(await readFile(path, 'utf8')) } catch (error) {
     if (error.code !== 'ENOENT') throw new Error('Local model settings could not be read.')
@@ -82,7 +87,7 @@ export function configuredCompletion(path, createModelCompletion, env = process.
       // calls on one run cannot capture different database generations.
       completion = resolveProvider
         ? Promise.resolve().then(() => resolveProvider(request.signal)).then(create)
-        : create(await readActiveProvider(path, env))
+        : create(await readActiveProvider(path, env, request.signal))
       completions.set(request.signal, completion)
     }
     return (await completion)(request)

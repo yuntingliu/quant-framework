@@ -120,6 +120,16 @@ def configuration_access(root, *, exclusive=False, timeout=0.0):
     return _access(root, _RELATIVE_LOCK, exclusive=exclusive, timeout=timeout)
 
 
+@contextmanager
+def json_configuration_access(root):
+    """Read authority and use JSON within the same actual maintenance lease."""
+    from alphalab.utils.configuration_decision import check_backend_authority
+
+    with configuration_access(root):
+        check_backend_authority(root, backend="json")
+        yield
+
+
 def execution_access(root, *, exclusive=False, timeout=0.0):
     """Cooperative job/child admission, independent of the backend owner's lease.
 
@@ -137,12 +147,29 @@ def execution_access(root, *, exclusive=False, timeout=0.0):
     )
 
 
+def agent_access(root, *, exclusive=False, timeout=0.0):
+    """Independent idle Agent lifetime, distinct from active-work admission.
+
+    Offline coordination gates execution first, stops only owned listeners, then
+    requires this exclusive lease to prove their helper processes have exited.
+    """
+    return _access(
+        root,
+        Path("app/secrets/configuration-agent.lock"),
+        exclusive=exclusive,
+        timeout=timeout,
+    )
+
+
 def execution_operation(function):
     """Fence scheduler admission and direct sync operations with an explicit root."""
 
     @wraps(function)
     def guarded(self, *args, **kwargs):
+        from alphalab.utils.configuration_decision import check_backend_authority
+
         with execution_access(self.root):
+            check_backend_authority(self.root, backend="json")
             return function(self, *args, **kwargs)
 
     return guarded
@@ -242,7 +269,7 @@ def legacy_settings_operation(path_factory):
     def decorate(function):
         @wraps(function)
         def guarded(*args, **kwargs):
-            with configuration_access(path_factory().parents[2]):
+            with json_configuration_access(path_factory().parents[2]):
                 return function(*args, **kwargs)
 
         return guarded

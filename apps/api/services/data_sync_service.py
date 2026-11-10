@@ -30,6 +30,7 @@ from alphalab.dataio.rq_profiles import (
 from alphalab.dataio.rq_profiles import (
     public_settings as public_rq_settings,
 )
+from alphalab.dataio.rq_profiles import settings_path as rq_settings_path
 from alphalab.dataio.rq_templates import (
     DEFAULT_RQ_SYNC_TEMPLATE_ID,
     get_rq_sync_template,
@@ -38,6 +39,7 @@ from alphalab.dataio.rq_templates import (
 from alphalab.dataio.sync import SyncJobManager, SyncRequest, build_sync_plan
 from alphalab.strategy.repository import normalize_project_id
 from alphalab.tools import create_data_tool_registry
+from alphalab.utils.configuration_maintenance import legacy_settings_operation
 from alphalab.utils.env import load_env_files
 from apps.api.services import strategy_service
 
@@ -114,6 +116,7 @@ def get_job_manager() -> SyncJobManager:
     return SyncJobManager()
 
 
+@legacy_settings_operation(lambda: rq_settings_path())
 def get_health(*, runtime_summary: dict | None = None) -> dict:
     load_env_files()
     saved_settings = public_rq_settings()

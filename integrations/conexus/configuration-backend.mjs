@@ -6,7 +6,8 @@ import { realpath, lstat } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import { isMainThread } from 'node:worker_threads'
 import { types } from 'node:util'
-import { createJsonAgentConfiguration, createSqliteAgentConfiguration } from './configuration-runtime.mjs'
+import { openConfigurationAuthority } from './configuration-authority.mjs'
+import { createJsonAgentConfiguration, createSqliteAgentConfiguration, ConfigurationRuntimeError } from './configuration-runtime.mjs'
 
 export class ConfigurationBackendError extends Error {
   constructor() {
@@ -47,21 +48,53 @@ export async function validateBackendContract(input, { production = false } = {}
 }
 
 export async function createCoordinatedAgentConfiguration(contract, createModelCompletion, options = {}) {
-  let runtime, value, ready = false
+  let runtime, value, authority, closing, ready = false
   try {
     value = await validateBackendContract(contract, { production: options.production === true })
-    runtime = value.backend === 'json'
-      ? createJsonAgentConfiguration(resolve(value.root, 'conexus/secrets/model-providers.json'), createModelCompletion, options)
-      : createSqliteAgentConfiguration(value.root, createModelCompletion,
-        { ...options, expectedInstallationId: value.installation_id })
-    // An incomplete saved profile is valid but not ready; unavailable storage is
-    // a startup failure. Do not construct a partial model/search composition.
-    await runtime.modelConfigured()
+    authority = await openConfigurationAuthority(value.root, value.backend === 'json' ? 'json' : 'inactive_sqlite')
+    await authority.run(async () => {
+      runtime = value.backend === 'json'
+        ? createJsonAgentConfiguration(resolve(value.root, 'conexus/secrets/model-providers.json'), createModelCompletion, options)
+        : createSqliteAgentConfiguration(value.root, createModelCompletion,
+          { ...options, expectedInstallationId: value.installation_id })
+      // An incomplete saved profile is valid but not ready; unavailable storage is
+      // a startup failure. Do not construct a partial model/search composition.
+      await runtime.modelConfigured()
+    })
     ready = true
   } catch {
     try { await runtime?.close() } catch { /* Sanitized below. */ }
+    try { await authority?.close() } catch { /* Sanitized below. */ }
   }
   if (!ready) throw new ConfigurationBackendError()
-  return Object.freeze({ ...runtime, identity: Object.freeze({ backend: value.backend,
+  const invoke = async (name, ...args) => {
+    if (closing) throw new ConfigurationRuntimeError('RUNTIME_CLOSED')
+    const packet = await authority.run(async () => {
+      try { return { value: await runtime[name](...args) } }
+      catch (error) {
+        // Keep only a checked enum from our standard runtime error, never
+        // callback messages, causes, getters or Proxy-controlled diagnostics.
+        if (!types.isProxy(error) && error !== null && typeof error === 'object'
+          && Object.getPrototypeOf(error) === ConfigurationRuntimeError.prototype) {
+          const field = Object.getOwnPropertyDescriptor(error, 'code')
+          if (field && Object.hasOwn(field, 'value') && typeof field.value === 'string'
+            && ['INVALID_ARGUMENT', 'CONFIGURATION_UNAVAILABLE', 'MODEL_UNAVAILABLE', 'RUNTIME_CANCELLED', 'RUNTIME_CLOSED'].includes(field.value)) {
+            return { failure: field.value }
+          }
+        }
+        throw error // The authority boundary replaces all other failures.
+      }
+    })
+    if (packet.failure) throw new ConfigurationRuntimeError(packet.failure)
+    return packet.value
+  }
+  return Object.freeze({ ...runtime,
+    complete: request => invoke('complete', request),
+    modelConfigured: () => invoke('modelConfigured'),
+    webSearch: params => invoke('webSearch', params).catch(() => ({ result: { success: false,
+      code: 'search_request_failed', retryable: false, error: 'Web search is unavailable.' } })),
+    testSearch: (override, params) => invoke('testSearch', override, params),
+    close: () => closing ??= runtime.close().finally(() => authority.close()),
+    identity: Object.freeze({ backend: value.backend,
     decision_id: value.decision_id, installation_id: value.installation_id }) })
 }

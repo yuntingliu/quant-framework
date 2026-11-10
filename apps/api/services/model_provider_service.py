@@ -46,6 +46,7 @@ def validate_profile(profile: dict) -> dict:
     return result
 
 
+@legacy_settings_operation(lambda: settings_path())
 def active_profile() -> dict | None:
     settings = read_settings()
     for row in settings["profiles"]:
@@ -61,6 +62,7 @@ def active_profile() -> dict | None:
     return None
 
 
+@legacy_settings_operation(lambda: settings_path())
 def public_settings() -> dict:
     settings = read_settings()
     profile = active_profile()
@@ -96,6 +98,7 @@ def save_profile(profile: dict, *, activate: bool) -> dict:
     return public_settings()
 
 
+@legacy_settings_operation(lambda: settings_path())
 def resolve_test_profile(profile: dict) -> dict:
     return prepare_profile(profile, read_settings())
 

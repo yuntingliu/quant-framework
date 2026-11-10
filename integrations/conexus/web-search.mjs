@@ -1,5 +1,6 @@
 import { readActiveProvider, providerFromSnapshot, containsProviderCredential } from './model-providers.mjs'
 import { readFile } from 'node:fs/promises'
+import { withJsonProfileAuthority } from './configuration-authority.mjs'
 import { dirname, join } from 'node:path'
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
@@ -158,14 +159,18 @@ function isOpenRouterProfile(profile) {
   return baseUrl === OPENROUTER_BASE_URL && Boolean(model) && Boolean(apiKey)
 }
 
-async function resolveSearchExecution(providerPath, env, settingsOverride) {
+async function resolveSearchExecution(providerPath, env, settingsOverride, signal) {
+  return withJsonProfileAuthority(providerPath, location => resolveSearchExecutionUnderLease(location, env, settingsOverride, signal), signal)
+}
+
+async function resolveSearchExecutionUnderLease(providerPath, env, settingsOverride, signal) {
   const profile = settingsOverride
     ? overrideProfile(settingsOverride)
     : savedActiveProfile(await readSearchSettings(join(dirname(providerPath), 'search-providers.json')))
       ?? environmentProfile(env)
   return searchExecution(profile, () => profile.model_profile_id
     ? readModelProfileById(providerPath, profile.model_profile_id)
-    : readActiveProvider(providerPath, env))
+    : readActiveProvider(providerPath, env, signal))
 }
 
 /** One read supplies both the selected search and its referenced model. */
@@ -225,7 +230,7 @@ export function configuredWebSearch(providerPath, { env = process.env, fetchImpl
       if (params.signal) {
         execution = executions.get(params.signal)
         if (!execution) {
-          execution = resolveExecution ? resolveExecution(params.signal, settingsOverride) : resolveSearchExecution(providerPath, env, settingsOverride)
+          execution = resolveExecution ? resolveExecution(params.signal, settingsOverride) : resolveSearchExecution(providerPath, env, settingsOverride, params.signal)
           executions.set(params.signal, execution)
         }
         execution = await execution
