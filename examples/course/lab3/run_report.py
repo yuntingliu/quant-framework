@@ -9,6 +9,7 @@ from urllib.request import Request, urlopen
 from alphalab.tools import ToolRegistry
 
 from .options_homework.models import ReportRequest
+from .options_homework.position_comparison import two_pair_case, write_comparison_report
 from .options_homework.report_figures import write_figures
 from .options_homework.tools import register_lab_tools
 
@@ -108,24 +109,38 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("case", type=Path, nargs="?", default=DEFAULT_CASE)
     parser.add_argument("--api", help="URL of your local AlphaLab API, for example http://127.0.0.1:8765")
-    parser.add_argument("--inputs-only", action="store_true", help="Run the completed starter tool")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--inputs-only", action="store_true", help="Run the completed starter tool")
+    mode.add_argument("--compare-sizes", action="store_true",
+                      help="Collect ten pairs locally and two via --api, then write one report")
     parser.add_argument("--out", type=Path, default=Path("runs/strangle"))
     parser.add_argument("--interpretation", type=Path, help="Your written interpretation in Markdown")
     args = parser.parse_args()
     request = ReportRequest.model_validate_json(args.case.read_text(encoding="utf-8"))
     registry = ToolRegistry()
     register_lab_tools(registry)
+    if args.compare_sizes and not args.api:
+        parser.error("--compare-sizes requires --api for the two-pair run")
+    if not (args.inputs_only or args.compare_sizes or args.interpretation):
+        parser.error("Provide --interpretation with your financial interpretation")
+
     try:
-        results = collect(request, registry, args.api, inputs_only=args.inputs_only)
+        if args.inputs_only:
+            print(json.dumps(collect(request, registry, args.api, inputs_only=True), indent=2))
+            return
+        interpretation = (
+            args.interpretation.read_text(encoding="utf-8") if args.interpretation
+            else "Draft. Add the verified interpretation and position-size decision before submitting."
+        )
+        if args.compare_sizes:
+            two = two_pair_case(request)
+            ten_results = collect(request, registry)
+            two_results = collect(two, registry, args.api)
+            write_comparison_report(request, ten_results, two, two_results, interpretation, args.out)
+        else:
+            write_report(request, collect(request, registry, args.api), interpretation, args.out)
     except ValueError as exc:
         parser.error(str(exc))
-    if args.inputs_only:
-        print(json.dumps(results, indent=2))
-        return
-    if args.interpretation is None:
-        parser.error("Provide --interpretation with your financial interpretation")
-    try:
-        write_report(request, results, args.interpretation.read_text(encoding="utf-8"), args.out)
     except ModuleNotFoundError as exc:
         if exc.name != "matplotlib":
             raise

@@ -20,7 +20,7 @@ The first command validates the bundled strangle and invokes the registered `opt
 
 - Fit and compare pricing models on held-out option strikes for Question 1.
 - Fill in `options_homework/calculations.py` and register the expiry, Greeks and stress functions in `options_homework/tools.py`. Run `python -m examples.course.lab3.verify_submission` after implementing them.
-- Connect the lab registry to AlphaLab and pass a schema-driven Monte Carlo call through an agent. Generate both strangle position reports.
+- Connect the lab registry to AlphaLab and pass a schema-driven Monte Carlo call through an agent. Generate one strangle position comparison and write a reusable report skill.
 - Build `options_homework/backtest.py`, `options_homework/backtest_report.py` and `run_backtest.py`. Choose a structure, define its entry and exit rules, and freeze the design before the historical holdout. An ETF share leg and a timed-versus-untimed comparison are optional.
 - Submit the required ledgers, figures, decisions and [AI audit log](ai-audit-log.md).
 
@@ -44,6 +44,7 @@ quant-framework/
       models.py, tools.py         # typed requests and tool registration
       history.py                  # supplied option, ETF and signal input readers
       report_figures.py           # supplied payoff and stress charts
+      position_comparison.py     # supplied comparison report writer
       backtest.py                 # write strategy, timing, fills, cash and margin
       backtest_report.py          # write summaries and figures
     run_backtest.py               # write the historical report runner
@@ -95,17 +96,22 @@ python -m examples.course.lab3.agent_tool --call examples/course/lab3/mc_call_ex
 
 Give an agent the exported `name`, `description` and `input_schema` together with a fitted model and held-out quote from Question 1. Ask it to produce one JSON object with `name` and `arguments`, using only the fields in the schema. Save that call. Pass it through `agent_tool --call` or use `agent_tool.invoke` as the agent's callable adapter. The adapter places `arguments` under the API's `input` key and records the response. Give the response body back to the agent and ask it to interpret `result.price`, `standard_error`, `positive_payoffs` and `warning`. Submit the prompt, tool call, request and response, plus your own verification. Repeat once with `paths: 1` and record the `422`. This workflow works with a local AlphaLab backend and the coding agent you already use.
 
-In a second terminal at the checkout root, run the checker and the two reports. Use the supplied case for ten pairs. Copy `examples/course/lab3/strangle.json` to `strangle-two.json` in the checkout root and set both quantities to `-2`. Copy the [report template](report_template.md) to `ten.md` and `two.md`. Use draft text for the first run, then add your interpretation and regenerate the reports. Install Matplotlib with `python -m pip install matplotlib` if the course environment lacks it.
+Run the checker after implementing and registering the three strangle functions. Generate one draft report using the supplied case. The comparison mode computes ten pairs locally and resizes only the signed quantities to two pairs for the API run. Install Matplotlib with `python -m pip install matplotlib` if the course environment lacks it.
 
 ~~~powershell
 python -m examples.course.lab3.verify_submission
-python -m examples.course.lab3.run_report `
-  --interpretation ten.md --out runs/ten-pairs
-python -m examples.course.lab3.run_report strangle-two.json `
-  --interpretation two.md --out runs/two-pairs --api http://127.0.0.1:8765
+python -m examples.course.lab3.run_report --compare-sizes --api http://127.0.0.1:8765 --out runs/strangle
 ~~~
 
-Each run writes `report.md`, `report.json`, `expiry_payoff.png` and `stress_comparison.png`. The Markdown includes the leg inputs, expiry payoff, Greeks with units, scenario errors and a loss-budget table. The JSON holds the inputs and tool outputs for reproduction. Submit the two folders with their figures, the test evidence and your size decision. Use the [AI audit skill](skills/options-risk-report-audit/SKILL.md) by asking your assistant to read it and audit the two folders. Record what you checked in the AI audit log.
+The runner writes `runs/strangle/report.json` with `ten_pairs` and `two_pairs`. Each contains `inputs` and `results`. The same folder contains one `report.md` with side-by-side positions, stress results and budget checks. Keep the linked figures with the report.
+
+Write your report skill at `skills/strangle-position-report/SKILL.md` within the Lab 3 example. Give it a name, a short description, the JSON fields it should read, the checks to run, and the output it should draft. Use the [report template](report_template.md) for the sections and the supplied [audit skill](skills/options-risk-report-audit/SKILL.md) for independent checks. Ask your agent to apply your skill to `report.json` and draft `interpretation.md`. Verify the calculations and make the final size decision yourself.
+
+~~~powershell
+python -m examples.course.lab3.run_report --compare-sizes --api http://127.0.0.1:8765 --interpretation interpretation.md --out runs/strangle
+~~~
+
+Submit the single report folder and your skill with a brief record in the AI audit log of what you checked or corrected.
 
 ## Question 3 · Historical backtest
 

@@ -6,7 +6,7 @@
 ### Stress and position size
 
 - State the spot and IV shocks at the largest full-repricing loss and at the largest absolute approximation error. Explain why the local approximation differs from full repricing.
-- In the two-pair report, compare the two runs against CNY 10,000 under the price-only decline and the worst joint shock. Give a position-size decision and identify a material risk outside the tested grid.
+- Compare the ten-pair and two-pair cases against CNY 10,000 under the price-only decline and the worst joint shock. Give a position-size decision and identify a material risk outside the tested grid.
 
 ### Evidence
 
