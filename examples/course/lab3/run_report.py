@@ -9,6 +9,7 @@ from urllib.request import Request, urlopen
 from alphalab.tools import ToolRegistry
 
 from .options_homework.models import ReportRequest
+from .options_homework.report_figures import write_figures
 from .options_homework.tools import register_lab_tools
 
 
@@ -64,7 +65,8 @@ def render_markdown(request, results, interpretation):
               "| ETF at expiry (CNY) | P&L (CNY) |", "|---:|---:|"]
     for row in results["expiry"]["rows"]:
         lines.append(f"| {row['terminal_spot']:.4f} | {row['pnl_cny']:+,.2f} |")
-    lines += ["", "## Portfolio sensitivities", "",
+    lines += ["", "![Expiry P&L with strikes and zero-payoff grid points](expiry_payoff.png)", "",
+              "## Portfolio sensitivities", "",
               "| Position | Delta (ETF units) | Gamma (ETF units/CNY) | Vega (CNY/vol point) | Theta (CNY/day) |",
               "|---|---:|---:|---:|---:|"]
     greeks = results["greeks"]
@@ -75,16 +77,30 @@ def render_markdown(request, results, interpretation):
               f"Each strike's IV shifts by the specified amount. Time to expiry stays fixed. "
               f"Annual rate {request.rate:.4%}, continuous yield {request.dividend_yield:.4%}. "
               "Model-to-model P&L before transaction costs.", "",
-              "| ETF shock | IV shift (vol points) | Full reprice (CNY) | Local estimate (CNY) |",
-              "|---:|---:|---:|---:|"]
+              "| ETF shock | IV shift (vol points) | Full reprice (CNY) | Local estimate (CNY) | Absolute error (CNY) |",
+              "|---:|---:|---:|---:|---:|"]
     rows = results["stress"]["rows"]
     for row in rows:
-        lines.append(f"| {row['spot_shock']:+.0%} | {100*row['iv_shift']:+.1f} | "
-                     f"{row['full_pnl_cny']:+,.2f} | {row['local_pnl_cny']:+,.2f} |")
+        error = abs(row["full_pnl_cny"] - row["local_pnl_cny"])
+        lines.append(f"| {row['spot_shock']:+.0%} | {100 * row['iv_shift']:+.1f} | "
+                     f"{row['full_pnl_cny']:+,.2f} | {row['local_pnl_cny']:+,.2f} | {error:,.2f} |")
     worst = min(rows, key=lambda row: row["full_pnl_cny"])
-    lines += ["", f"Largest modeled loss on this grid **{max(0, -worst['full_pnl_cny']):,.2f} CNY**. "
-              f"Scenario budget **{request.scenario_budget_cny:,.2f} CNY**.", "",
-              "## Interpretation and decision", "", interpretation.strip(), ""]
+    largest_error = max(rows, key=lambda row: abs(row["full_pnl_cny"] - row["local_pnl_cny"]))
+    lines += ["", "![Full repricing and local estimate by IV shock](stress_comparison.png)", "",
+              f"Largest absolute approximation error **{abs(largest_error['full_pnl_cny'] - largest_error['local_pnl_cny']):,.2f} CNY** "
+              f"at a {largest_error['spot_shock']:+.0%} spot shock and {100 * largest_error['iv_shift']:+g} vol points.", "",
+              f"## Checks against the CNY {request.scenario_budget_cny:,.0f} loss budget", "",
+              "| Scenario | Spot shock | IV shift (points) | Full P&L (CNY) | Budget |",
+              "|---|---:|---:|---:|---|"]
+    price_only = next((row for row in rows if row["spot_shock"] == -0.2 and row["iv_shift"] == 0), None)
+    checks = [("Largest loss on grid", worst)]
+    if price_only is not None:
+        checks.insert(0, ("Price-only decline", price_only))
+    for label, row in checks:
+        verdict = "Within budget" if -row["full_pnl_cny"] <= request.scenario_budget_cny else "Over budget"
+        lines.append(f"| {label} | {row['spot_shock']:+.0%} | {100 * row['iv_shift']:+g} | "
+                     f"{row['full_pnl_cny']:+,.2f} | {verdict} |")
+    lines += ["", "## Interpretation and decision", "", interpretation.strip(), ""]
     return "\n".join(lines)
 
 
@@ -108,13 +124,23 @@ def main():
         return
     if args.interpretation is None:
         parser.error("Provide --interpretation with your financial interpretation")
-    markdown = render_markdown(request, results, args.interpretation.read_text(encoding="utf-8"))
+    try:
+        write_report(request, results, args.interpretation.read_text(encoding="utf-8"), args.out)
+    except ModuleNotFoundError as exc:
+        if exc.name != "matplotlib":
+            raise
+        parser.error("Install Matplotlib to write report figures: python -m pip install matplotlib")
+    print(args.out.resolve())
+
+
+def write_report(request, results, interpretation, out):
+    markdown = render_markdown(request, results, interpretation)
     payload = {"inputs": request.model_dump(mode="json"), "results": results}
     raw = json.dumps(payload, indent=2, allow_nan=False)
-    args.out.mkdir(parents=True, exist_ok=True)
-    (args.out / "report.json").write_text(raw + "\n", encoding="utf-8")
-    (args.out / "report.md").write_text(markdown, encoding="utf-8")
-    print(args.out.resolve())
+    out.mkdir(parents=True, exist_ok=True)
+    write_figures(request, results, out)
+    (out / "report.json").write_text(raw + "\n", encoding="utf-8")
+    (out / "report.md").write_text(markdown, encoding="utf-8")
 
 
 if __name__ == "__main__":

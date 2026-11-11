@@ -92,3 +92,41 @@ def load_signal_inputs(start: str, end: str, root: Path | None = None) -> pd.Dat
         result["lagged_yield_10y"] = aligned.shift(1)
         result["yield_observation_date"] = dates.shift(1)
     return result
+
+
+
+def load_etf_execution_prices(start: str, end: str, root: Path | None = None) -> pd.DataFrame:
+    """Read raw SSE 50 ETF opening and closing price proxies for share legs.
+
+    Keep sessions with missing boundary bars visible as NaNs. The 09:35 bar
+    provides the opening price of the first five-minute interval. A caller
+    must still check coverage against its complete ETF session calendar.
+    """
+    catalog = DataCatalog(root)
+    frames = []
+    for month in pd.period_range(start, end, freq="M"):
+        path = (
+            catalog.path("rq.option_etf_5m") / f"year={month.year}"
+            / f"month={month.month:02d}" / "part.parquet"
+        )
+        if path.is_file():
+            frame = ParquetFile(path).read(
+                columns=["symbol", "date", "timestamp", "open", "close"]
+            ).to_pandas()
+            frames.append(frame.loc[frame.symbol.eq(UNDERLYING)])
+    if not frames:
+        raise FileNotFoundError("No local five-minute ETF partitions in the requested period")
+
+    bars = pd.concat(frames, ignore_index=True)
+    bars = bars.loc[bars.date.between(pd.Timestamp(start), pd.Timestamp(end))]
+    if bars.empty:
+        raise ValueError("No SSE 50 ETF bars in the requested period")
+    minute = bars.timestamp.dt.hour * 60 + bars.timestamp.dt.minute
+    prices = pd.DataFrame(index=pd.DatetimeIndex(bars.date.unique(), name="date").sort_values())
+    prices["raw_open"] = bars.loc[minute.eq(9 * 60 + 35)].set_index(
+        "date", verify_integrity=True
+    ).open
+    prices["raw_close"] = bars.loc[minute.eq(15 * 60)].set_index(
+        "date", verify_integrity=True
+    ).close
+    return prices.where(prices.gt(0))
