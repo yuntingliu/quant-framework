@@ -1,0 +1,50 @@
+{
+  "underlying": "510050.XSHG",
+  "as_of": "2026-10-23",
+  "expiry": "2026-12-23",
+  "spot": 2.869,
+  "rate": 0.011433316011850936,
+  "dividend_yield": 0.06645688062725504,
+  "legs": [
+    {
+      "contract": "10012640",
+      "kind": "P",
+      "strike": 2.65,
+      "quantity": -10,
+      "multiplier": 10000,
+      "entry_price": 0.0177,
+      "iv": 0.17784453940317957
+    },
+    {
+      "contract": "10011431",
+      "kind": "C",
+      "strike": 3.2,
+      "quantity": -10,
+      "multiplier": 10000,
+      "entry_price": 0.0058,
+      "iv": 0.18543727470585084
+    }
+  ],
+  "terminal_spots": [
+    2.5,
+    2.6265,
+    2.65,
+    2.869,
+    3.2,
+    3.2235,
+    3.5
+  ],
+  "spot_shocks": [
+    -0.2,
+    -0.1,
+    0,
+    0.1,
+    0.2
+  ],
+  "iv_shifts": [
+    0,
+    0.05,
+    0.1
+  ],
+  "scenario_budget_cny": 10000
+}

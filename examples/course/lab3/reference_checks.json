@@ -1,0 +1,14 @@
+{
+  "entry_credit_cny": 2350.0,
+  "break_evens": [
+    2.6265,
+    3.2235
+  ],
+  "net_greeks": {
+    "delta": 9333.35665,
+    "gamma": -171309.54199,
+    "vega_1pct": -425.03696,
+    "theta_day": 66.82453
+  },
+  "drop_20_model_to_model_cny": -35273.25
+}

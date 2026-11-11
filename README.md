@@ -64,6 +64,10 @@ Open the [AlphaLab workstation](http://127.0.0.1:8000/app/). The [health endpoin
 
 See [data operations](docs/04_DATA_OPERATIONS.md) for permissions, synchronization scope, financial definitions, and historical constituent limitations. The [SDK guide](docs/06_ALPHALAB_SDK_GUIDE.md) contains source layouts, runnable examples, and research commands. The workstation's documentation panel reads that same guide.
 
+## Course lab
+
+[Lab 3: Build and backtest an options strategy](examples/course/lab3/README.md) uses the option tool registry and historical ETF option contracts.
+
 ## Deployment and optional services
 
 Runtime data defaults to the Git-ignored `data/runtime/` directory. For persistent deployments, use a separate writable directory for databases, caches, and editor mirrors by setting `ALPHALAB_RUNTIME_DIR` in the process environment. See [deployment](docs/05_DEPLOYMENT.md) for authentication, configuration, backups, and updates, and [Linux deployment](docs/guides/linux-deployment.md) for the release script and service management.
