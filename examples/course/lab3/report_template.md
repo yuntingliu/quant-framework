@@ -10,5 +10,4 @@
 
 ### Evidence
 
-- Record how you ran the report and which independent check passed. Summarize the sign or multiplier mutation that made it fail.
 - State what fill, cost, margin or backtest evidence you would need before trading.

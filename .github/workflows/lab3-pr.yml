@@ -1,0 +1,30 @@
+name: Lab 3 PR checks
+
+on:
+  pull_request:
+    branches: [option]
+    paths:
+      - "examples/course/lab3/**"
+      - "alphalab/tools/data.py"
+      - ".github/workflows/lab3-pr.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  lab3:
+    name: Lab 3 checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install the course Python tools
+        run: python -m pip install -e ".[dev,app]" matplotlib
+      - name: Check the strangle acceptance case
+        run: python -m examples.course.lab3.verify_submission
+      - name: Run student regression tests
+        run: python -m pytest examples/course/lab3/tests -q
