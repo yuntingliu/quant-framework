@@ -126,11 +126,14 @@ export class ConfigurationStoreReader {
   #closed = false
   #installation = null
   #closing = null
+  #activation
 
   constructor(root, options = {}) {
     let settings
     try {
-      settings = fields(options, ['timeoutMs', 'maxConcurrency', 'maxPending'])
+      settings = fields(options, ['timeoutMs', 'maxConcurrency', 'maxPending', 'activation'])
+      if (settings.activation !== undefined && (typeof settings.activation !== 'string' || Buffer.byteLength(settings.activation) > 16384)) throw 0
+      this.#activation = settings.activation
       if (typeof root !== 'string' || !root.trim() || root.length > 32768 || root.includes('\0')) throw 0
       this.#timeout = settings.timeoutMs ?? 5000
       this.#concurrency = settings.maxConcurrency ?? 2
@@ -194,7 +197,7 @@ export class ConfigurationStoreReader {
       request.starting = true
       try {
         request.worker = new Worker(workerEntry, {
-          workerData: { root: this.#root, deadline: request.deadline, duration: request.duration, installation: this.#installation },
+          workerData: { root: this.#root, deadline: request.deadline, duration: request.duration, installation: this.#installation, activation: this.#activation },
           stdout: true,
           stderr: true,
           resourceLimits: { maxOldGenerationSizeMb: 64, maxYoungGenerationSizeMb: 16, stackSizeMb: 4 },

@@ -1,5 +1,12 @@
 # Inactive durable backend decision foundation
 
+This guide records the preparation-stage contract. The subsequent
+[durable activation implementation](configuration-durable-activation.md)
+supersedes the startup/publication limitations below: explicit offline
+prepared-to-committed publication and audited descendants now exist. Preparation
+itself still never activates SQLite, and its first-generation checks remain.
+The tables describing JSON-only production below describe the historical baseline.
+
 Phase 4B.5B.3B.1 supplies metadata validation and explicit offline preparation.
 It does **not** activate SQLite, connect authority to startup, or provide an
 active-record publication primitive. No production cutover has been authorized

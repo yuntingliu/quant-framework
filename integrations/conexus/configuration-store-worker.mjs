@@ -195,7 +195,7 @@ function header(fd) {
   if (bytes[18] !== 1 || bytes[19] !== 1) fail('UNSUPPORTED_STORAGE')
 }
 
-function read(DatabaseSync) {
+function read(DatabaseSync, activation) {
   const { root, deadline, duration, installation } = workerData
   const location = checkedLocation(root)
   const before = location.check()
@@ -230,6 +230,7 @@ function read(DatabaseSync) {
     if (typeof meta.installation_id !== 'string' || meta.installation_id.length !== 32 || !OPAQUE.test(meta.installation_id)
       || typeof meta.current_revision !== 'string' || meta.current_revision.length !== 32 || !OPAQUE.test(meta.current_revision)) fail('STORE_CORRUPT')
     if (meta.root_key !== location.key || (installation !== null && installation !== meta.installation_id)) fail('INSTALLATION_MISMATCH')
+    if (activation !== undefined) auditAncestry(execute, activation, meta, location.key)
     // Never select rqdata: no RQData credentials cross the SQLite/JS boundary.
     const rows = execute('SELECT models, search, selections FROM generations WHERE revision=? AND ordinal=(SELECT max(ordinal) FROM generations) '
       + `AND length(CAST(models AS BLOB))<=${MAX_BYTES} AND length(CAST(search AS BLOB))<=${MAX_BYTES} AND length(CAST(selections AS BLOB))<=${MAX_BYTES} LIMIT 2`, [meta.current_revision])
@@ -243,6 +244,7 @@ function read(DatabaseSync) {
     validate(models, selections.models, 'models')
     validate(search, selections.search, 'search')
     const rq = selections.rqdata
+    if (activation !== undefined && Object.values(selections).some(choice => choice.kind === 'environment')) fail('STORE_CORRUPT')
     if (!record(rq) || (rq.kind === 'profile' ? Object.keys(rq).sort().join(',') !== 'id,kind' || !identifier(rq.id)
       : !['environment', 'none'].includes(rq.kind) || Object.keys(rq).length !== 1)) fail('STORE_CORRUPT')
     execute('COMMIT')
@@ -254,6 +256,47 @@ function read(DatabaseSync) {
   } finally {
     try { database?.close() } finally { if (fd !== undefined) fs.closeSync(fd) }
   }
+}
+
+function auditAncestry(execute, activation, meta, rootKey) {
+  const exact = (value, keys) => record(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key))
+  const opaque = value => typeof value === 'string' && value.length === 32 && OPAQUE.test(value)
+  if (!exact(activation, ['protocol_version', 'state', 'backend', 'root_key', 'installation_id', 'decision_id', 'revision', 'evidence'])
+    || activation.protocol_version !== 1 || activation.state !== 'committed' || activation.backend !== 'sqlite'
+    || activation.root_key !== rootKey || activation.installation_id !== meta.installation_id
+    || !opaque(activation.decision_id) || !opaque(activation.revision)
+    || !exact(activation.evidence, ['kind', 'verification_id', 'migration_revision', 'store_protocol_version', 'selection_kinds'])
+    || activation.evidence.kind !== 'legacy-exact-v1' || !opaque(activation.evidence.verification_id)
+    || activation.evidence.migration_revision !== activation.revision || activation.evidence.store_protocol_version !== 1
+    || !exact(activation.evidence.selection_kinds, ['models', 'search', 'rqdata'])
+    || Object.values(activation.evidence.selection_kinds).some(kind => !['profile', 'none'].includes(kind))) fail('STORE_CORRUPT')
+  const chain = execute('SELECT ordinal, revision, parent_revision, length(CAST(models AS BLOB)) AS m, '
+    + 'length(CAST(search AS BLOB)) AS s, length(CAST(rqdata AS BLOB)) AS r, length(CAST(selections AS BLOB)) AS c '
+    + 'FROM generations ORDER BY ordinal LIMIT 4097')
+  if (!chain.length || chain.length > 4096) fail('STORE_CORRUPT')
+  let previous = null, total = 0n
+  for (let index = 0; index < chain.length; index++) {
+    const row = chain[index], lengths = [row.m, row.s, row.r, row.c]
+    if (row.ordinal !== BigInt(index + 1) || !opaque(row.revision) || row.parent_revision !== previous
+      || lengths.some(value => typeof value !== 'bigint' || value < 1n)) fail('STORE_CORRUPT')
+    const size = lengths.reduce((sum, value) => sum + value, 0n)
+    total += size
+    if (size > BigInt(MAX_BYTES) || total > 64n * 1024n * 1024n) fail('STORE_CORRUPT')
+    if (index === 0 && row.revision !== activation.revision) fail('STORE_CORRUPT')
+    // RQData is validated privately inside this worker only. It is never added
+    // to the Worker response, snapshot projection or Agent configuration.
+    const [historical] = execute('SELECT models, search, rqdata, selections FROM generations WHERE revision=?', [row.revision])
+    const budget = { nodes: 5 }
+    const [models, search, rqdata, choices] = [historical.models, historical.search, historical.rqdata, historical.selections]
+      .map((text, offset) => parseNative(text, budget, offset === 3 ? 1 : 2))
+    if (!exact(choices, ['models', 'search', 'rqdata'])) fail('STORE_CORRUPT')
+    validate(models, choices.models, 'models'); validate(search, choices.search, 'search')
+    validate(rqdata, choices.rqdata, 'rqdata')
+    if (Object.values(choices).some(choice => choice.kind === 'environment')) fail('STORE_CORRUPT')
+    if (index === 0 && Object.keys(choices).some(key => choices[key].kind !== activation.evidence.selection_kinds[key])) fail('STORE_CORRUPT')
+    previous = row.revision
+  }
+  if (previous !== meta.current_revision) fail('STORE_CORRUPT')
 }
 
 function errorCode(error) {
@@ -276,7 +319,12 @@ if (parentPort) {
     const [major, minor] = process.versions.node.split('.').map(Number)
     if (major !== 22 || minor < 18) fail('UNSUPPORTED_RUNTIME')
     const { DatabaseSync } = await import('node:sqlite')
-    response = { ok: true, snapshot: read(DatabaseSync) }
+    let activation
+    if (workerData.activation !== undefined) {
+      const { parseAgentMessage } = await import('./configuration-agent-auth.mjs')
+      activation = parseAgentMessage(workerData.activation)
+    }
+    response = { ok: true, snapshot: read(DatabaseSync, activation) }
   } catch (error) { response = { ok: false, code: errorCode(error) } }
   try { parentPort.postMessage(response) }
   finally { parentPort.close() }

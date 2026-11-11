@@ -26,7 +26,10 @@ function signed(sequence, nonce = 'f'.repeat(64)) {
 }
 async function endpoint(t, install = installAgentAuthentication) {
   const { pending, contract } = await fixture(t), handoff = await pending, routes = new Map()
-  let parser, calls = 0
+  let parser, calls = 0, healthCalls = 0
+  const hooks = []
+  routes.set('/api/public/fixture', async () => ({ ok: true }))
+  routes.set('/health', async () => { healthCalls++; return { ok: true, modelConfigured: true } })
   const server = createServer(async (request, response) => {
     try {
       const parts = []; let size = 0
@@ -34,12 +37,17 @@ async function endpoint(t, install = installAgentAuthentication) {
       const body = await new Promise((resolve, reject) => parser(request, Buffer.concat(parts), (error, value) => error ? reject(error) : resolve(value)))
       let status = 200
       const reply = { code(value) { status = value; return this }, send(value) { return value } }
-      const result = await routes.get(request.url)({ body, headers: request.headers, raw: request }, reply)
+      const route = new URL(request.url, 'http://fixture').pathname
+      const incoming = { method: request.method, body, headers: request.headers, raw: request, routeOptions: { url: route } }
+      let result
+      for (const hook of hooks) { result = await hook(incoming, reply); if (result !== undefined) break }
+      if (result === undefined) result = await routes.get(route)(incoming, reply)
       response.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(result))
     } catch { response.writeHead(401).end('{}') }
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const app = { listeningOrigin: `http://127.0.0.1:${server.address().port}`,
+    addHook(name, hook) { if (name === 'preHandler') hooks.push(hook) },
     post(path, handler) { routes.set(path, handler) },
     addContentTypeParser(type, options, handler) {
       assert.equal(type, AGENT_CONTENT_TYPE); assert.equal(options.bodyLimit, 65536); assert.equal(options.parseAs, 'buffer'); parser = handler
@@ -51,10 +59,10 @@ async function endpoint(t, install = installAgentAuthentication) {
   function client() {
     const agent = new Agent({ keepAlive: true, maxSockets: 1 })
     t.after(() => agent.destroy())
-    async function send(path, body, headers = {}) {
+    async function send(path, body, headers = {}, method = 'POST') {
       const wire = typeof body === 'string' ? body : JSON.stringify(body)
       return new Promise((resolve, reject) => {
-        const request = httpRequest(app.listeningOrigin + path, { method: 'POST', agent, timeout: 2000,
+        const request = httpRequest(app.listeningOrigin + path, { method, agent, timeout: 2000,
           headers: { 'Content-Type': AGENT_CONTENT_TYPE, 'Content-Length': Buffer.byteLength(wire), ...headers } }, response => {
           let text = ''; response.on('data', part => { text += part }); response.on('end', () => resolve({ status: response.statusCode, body: JSON.parse(text) }))
         })
@@ -66,7 +74,7 @@ async function endpoint(t, install = installAgentAuthentication) {
         Authorization: `Bearer ${TOKEN}`, 'X-AlphaLab-Proof-Sequence': String(sequence),
       }) }
   }
-  return { contract, client, close: authentication.close, calls: () => calls }
+  return { contract, client, close: authentication.close, calls: () => calls, healthCalls: () => healthCalls }
 }
 function noSecrets(value) {
   const text = JSON.stringify(value) + inspect(value) + (value?.stack || '')
@@ -229,4 +237,35 @@ test('auth cannot describe a different runtime composition', async t => {
   assert.throws(() => installAgentAuthentication({}, value, { identity: { backend: 'json' } }, 'alphalab-research-agent'), error => {
     noSecrets(error); assert.equal(error.code, 'BACKEND_UNAVAILABLE'); return true
   })
+})
+
+test('public proxy grants are authenticated, single-use and bound to the proof socket', async t => {
+  const f = await endpoint(t), first = f.client(), second = f.client()
+  assert.equal((await first.send('/api/public/fixture', {})).status, 401)
+  const proof = signed(1)
+  assert.equal((await first.proof(proof)).status, 200)
+  assert.equal((await second.send('/api/public/fixture', {}, { 'X-AlphaLab-Proof-Sequence': '1' })).status, 401)
+  assert.equal((await first.send('/api/public/fixture', {}, { 'X-AlphaLab-Proof-Sequence': '1' })).status, 200)
+  assert.equal((await first.send('/api/public/fixture', {}, { 'X-AlphaLab-Proof-Sequence': '1' })).status, 401)
+})
+
+test('exact GET health consumes a socket-bound proof; replay, other sockets and query/method tricks fail', async t => {
+  const f = await endpoint(t), first = f.client(), other = f.client()
+  const headers = sequence => ({ 'X-AlphaLab-Proof-Sequence': String(sequence) })
+  assert.equal((await first.send('/health', {}, {}, 'GET')).status, 401)
+  assert.equal(f.healthCalls(), 0)
+  assert.equal((await first.proof(signed(1))).status, 200)
+  assert.equal((await other.send('/health', {}, headers(1), 'GET')).status, 401)
+  const result = await first.send('/health', {}, headers(1), 'GET')
+  assert.equal(result.status, 200); assert.equal(result.body.modelConfigured, true); noSecrets(result)
+  assert.equal(f.healthCalls(), 1)
+  assert.equal((await first.send('/health', {}, headers(1), 'GET')).status, 401)
+  assert.equal((await first.proof(signed(1))).status, 401)
+  for (const [offset, [path, method]] of [['/health?x=1', 'GET'], ['/health', 'POST']].entries()) {
+    const sequence = offset + 2
+    assert.equal((await first.proof(signed(sequence))).status, 200)
+    assert.equal((await first.send(path, {}, headers(sequence), method)).status, 401)
+    assert.equal(f.healthCalls(), 1, 'Rejected request must never reach the health handler')
+    assert.equal((await first.send('/health', {}, headers(sequence), 'GET')).status, 401)
+  }
 })

@@ -658,8 +658,9 @@ def test_production_api_reuses_launcher_json_choice_and_refuses_sqlite(configure
     with ConfigurationBackend.sqlite(
         root, installation_id=store.read_snapshot().installation_id
     ) as owner:
-        with pytest.raises(RuntimeError, match="coordinated JSON"):
+        with pytest.raises(ConfigurationStoreError) as caught:
             asyncio.run(start(owner))
+        assert caught.value.code == "INVALID_CONFIGURATION"
 
 
 def test_model_probe_uses_sqlite_secret_without_public_or_persistent_leakage(

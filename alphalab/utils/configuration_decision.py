@@ -17,7 +17,7 @@ import stat
 import time
 from pathlib import Path
 
-from alphalab.utils.configuration_agent import _auth_json
+from alphalab.utils.configuration_agent import _auth_json, _owned_call
 from alphalab.utils.configuration_maintenance import checked_root
 from alphalab.utils.configuration_store import (
     ConfigurationStore,
@@ -198,11 +198,10 @@ def read_decision_record(root):
 
 
 def validate_committed_authority(root, *, installation_id=None, decision_id=None):
-    """Observe an unchanged activation anchor, without granting backend ownership.
+    """Audit the immutable anchor and its complete latest chain in one snapshot.
 
-    Callers hold maintenance or execution admission through the protected use.
-    Descendants are deliberately refused until ancestry admission is implemented.
-    This validates storage, not backup provenance or historical revocation.
+    Callers retain their actual leases through use. This does not authorize a
+    restored database or attest provider-side revocation/whole-root provenance.
     """
     if any(
         expected is not None and (type(expected) is not str or not _ID.fullmatch(expected))
@@ -220,15 +219,13 @@ def validate_committed_authority(root, *, installation_id=None, decision_id=None
 
     def unchanged_anchor():
         store = ConfigurationStore._handle(root, 5)
+        store._anchor = value["revision"]
+        store._anchor_kinds = value["evidence"]["selection_kinds"]
         with store._session(time.monotonic() + 5) as session:
             session.execute("BEGIN")
             snapshot = store._current(session)
             if session.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
                 _fail("STORE_CORRUPT")
-            if session.execute(
-                "SELECT revision, parent_revision FROM generations LIMIT 2"
-            ).fetchall() != [(value["revision"], None)]:
-                _fail("REVISION_CONFLICT")
             return snapshot
 
     snapshot = _safe_call(unchanged_anchor, read_only=True)
@@ -236,12 +233,15 @@ def validate_committed_authority(root, *, installation_id=None, decision_id=None
         _fail("UNSUPPORTED_PROTOCOL")
     if snapshot.installation_id != value["installation_id"]:
         _fail("INSTALLATION_MISMATCH")
-    if snapshot.revision != value["revision"]:
-        _fail("REVISION_CONFLICT")
-    if {key: choice["kind"] for key, choice in snapshot.selections.items()} != value["evidence"][
-        "selection_kinds"
-    ]:
-        _fail("INVALID_CONFIGURATION")
+
+    def validate_native():
+        # Integration validation over the SAME detached three-document snapshot,
+        # not independent service reads. The storage protocol remains API-free.
+        from apps.api.services.configuration_profile_service import ProfileSnapshot
+
+        ProfileSnapshot(snapshot, {})
+
+    _owned_call(validate_native)
     return value
 
 
@@ -251,14 +251,17 @@ def check_backend_authority(root, *, backend):
     A prepared record only preserves JSON authority; it is not a freshness
     receipt and legitimate JSON edits remain allowed. Every committed record
     blocks these compositions, including a matching inactive SQLite owner.
-    Durable production composition is intentionally unavailable in this phase.
+    Durable production composition is admitted separately by the actual owner.
     """
-    if type(backend) is not str or backend not in {"json", "inactive_sqlite"}:
+    if type(backend) is not str or backend not in {"json", "inactive_sqlite", "sqlite"}:
         _fail("INVALID_ARGUMENT")
     record = read_decision_record(root)
     if record is not None and record.as_dict()["state"] == "committed":
         validate_committed_authority(root)
-        _fail("UNSUPPORTED_STORAGE")
+        if backend != "sqlite":
+            _fail("UNSUPPORTED_STORAGE")
+    elif backend == "sqlite":
+        _fail("INVALID_CONFIGURATION")
 
 
 def _sync_directory(path):
@@ -323,6 +326,55 @@ def _publish_prepared(offline, record, *, expected_decision_id=None):
         _sync_directory(directory)
         observed = _read_unlocked(root)
         if observed.as_dict() != value:
+            _fail("UPDATE_FAILED")
+        return observed
+
+    return _safe_call(publish)
+
+
+def _publish_committed(offline, expected):
+    """Atomic CAS under exclusive offline leases; never erase the namespace.
+
+    A pending file is fail-closed evidence. Do not automatically retry, remove
+    remnants, or roll back if fsync/readback fails after the atomic replacement.
+    """
+    from alphalab.utils.configuration_deployment import OfflineInstallation
+
+    def publish():
+        if type(offline) is not OfflineInstallation or type(expected) is not DecisionRecord:
+            _fail("INVALID_ARGUMENT")
+        offline._check()
+        root = _root(offline.root)
+        current = _read_unlocked(root)
+        if (
+            current is None
+            or current._wire != expected._wire
+            or current.as_dict()["state"] != "prepared"
+            or offline.backend != "json"
+        ):
+            _fail("REVISION_CONFLICT")
+        original = _file(root / NAMESPACE / _RECORD)
+        if _parse(original, _root_key(root))._wire != current._wire:
+            _fail("REVISION_CONFLICT")
+        value = current.as_dict()
+        value["state"] = "committed"
+        record = _parse(json.dumps(value), _root_key(root))
+        directory = root / NAMESPACE
+        pending, target = directory / _PENDING, directory / _RECORD
+        descriptor = os.open(
+            pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600
+        )
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(record._wire.encode("utf-8"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        _sync_directory(directory)
+        if _file(target) != original or _file(pending) != record._wire.encode("utf-8"):
+            _fail("REVISION_CONFLICT")
+        os.replace(pending, target)
+        _sync_directory(directory)
+        observed = _read_unlocked(root)
+        if observed is None or observed._wire != record._wire:
             _fail("UPDATE_FAILED")
         return observed
 

@@ -917,13 +917,34 @@ def execute_data_recipe(
     timeout_seconds: float = 1800.0,
     cancelled: Callable[[], bool] | None = None,
     execution=None,
+    configuration_backend=None,
 ) -> dict[str, Any]:
     from alphalab.utils.configuration_decision import check_backend_authority
     from alphalab.utils.paths import RUNTIME_DIR
 
     location = Path(root) if root is not None else RUNTIME_DIR
     with execution_access(location):
-        check_backend_authority(location, backend="json")
+        if configuration_backend is None:
+            check_backend_authority(location, backend="json")
+        else:
+            from alphalab.utils.configuration_backend import ConfigurationBackend
+            from alphalab.utils.configuration_store import ConfigurationStoreError
+
+            if (
+                type(configuration_backend) is not ConfigurationBackend
+                or configuration_backend.root != location
+                or execution is None
+            ):
+                raise ConfigurationStoreError("INVALID_ARGUMENT")
+            with configuration_backend.borrow():
+                return _execute_data_recipe(
+                    source,
+                    mode=mode,
+                    root=root,
+                    timeout_seconds=timeout_seconds,
+                    cancelled=cancelled,
+                    execution=execution,
+                )
         return _execute_data_recipe(
             source,
             mode=mode,

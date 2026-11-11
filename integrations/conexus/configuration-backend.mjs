@@ -6,7 +6,7 @@ import { realpath, lstat } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import { isMainThread } from 'node:worker_threads'
 import { types } from 'node:util'
-import { openConfigurationAuthority } from './configuration-authority.mjs'
+import { openConfigurationAuthority, readAuthorityRecord } from './configuration-authority.mjs'
 import { createJsonAgentConfiguration, createSqliteAgentConfiguration, ConfigurationRuntimeError } from './configuration-runtime.mjs'
 
 export class ConfigurationBackendError extends Error {
@@ -50,13 +50,19 @@ export async function validateBackendContract(input, { production = false } = {}
 export async function createCoordinatedAgentConfiguration(contract, createModelCompletion, options = {}) {
   let runtime, value, authority, closing, ready = false
   try {
-    value = await validateBackendContract(contract, { production: options.production === true })
-    authority = await openConfigurationAuthority(value.root, value.backend === 'json' ? 'json' : 'inactive_sqlite')
+    value = await validateBackendContract(contract)
+    const record = await readAuthorityRecord(value.root)
+    const durable = value.backend === 'sqlite' && record?.state === 'committed'
+    if (options.production === true && value.backend === 'sqlite' && !durable) throw 0
+    if (durable && (record.installation_id !== value.installation_id || record.decision_id !== value.decision_id)) throw 0
+    authority = await openConfigurationAuthority(value.root,
+      value.backend === 'json' ? 'json' : durable ? 'sqlite' : 'inactive_sqlite',
+      durable ? { proof: options.ownerProof } : {})
     await authority.run(async () => {
       runtime = value.backend === 'json'
         ? createJsonAgentConfiguration(resolve(value.root, 'conexus/secrets/model-providers.json'), createModelCompletion, options)
         : createSqliteAgentConfiguration(value.root, createModelCompletion,
-          { ...options, expectedInstallationId: value.installation_id })
+          { ...options, ...(durable ? { env: {}, readerOptions: { ...options.readerOptions, activation: JSON.stringify(record) } } : {}), expectedInstallationId: value.installation_id })
       // An incomplete saved profile is valid but not ready; unavailable storage is
       // a startup failure. Do not construct a partial model/search composition.
       await runtime.modelConfigured()

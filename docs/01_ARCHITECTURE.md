@@ -46,6 +46,17 @@ direct search adapter. Reports and Run state persist under the local runtime dat
 directory. The included core has no Canvas UI or enterprise application dependency.
 The existing remote service mode is selected explicitly with `--agent remote`.
 
+Configuration authority is installation-scoped. Absent or prepared durable
+authority keeps the JSON services; committed authority requires the complete
+SQLite owner composition. The production launcher and full API borrow one
+actual owner, with a privately authenticated owned Node child and per-job SDK
+execution leases. Native profile updates append audited SQLite generations
+without rewriting the immutable activation anchor. Invalid authority never
+falls back to JSON. See [durable activation](guides/configuration-durable-activation.md)
+for the offline administrative transition and remaining bundle, platform and
+credential-history certification requirements. A database's presence alone
+never activates it.
+
 ```text
 Data recipe ── execute/sync ── canonical research store
                                       │

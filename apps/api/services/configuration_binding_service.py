@@ -1,7 +1,7 @@
 """Coherent model/search bindings over one explicit backend owner.
 
-Default router dependencies construct JSON only. The explicit SQLite API factory
-mounts only these prepared routes; full-workbench/RQData cutover is deferred.
+Uncomposed router dependencies construct JSON only. The production lifespan
+lends its verified owner to every model, search and RQData binding.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from contextlib import contextmanager
 
 from fastapi import HTTPException, Request
 
+from alphalab.dataio import rq_profiles
 from alphalab.utils.configuration_agent import OwnedAgentConnection
 from alphalab.utils.configuration_backend import ConfigurationBackend
 from alphalab.utils.configuration_store import ConfigurationStoreError
@@ -76,6 +77,8 @@ class _BoundService:
     def select(self, choice, *, expected_revision=None):
         if self._binding.backend.mode != "sqlite":
             raise ConfigurationStoreError("INVALID_CONFIGURATION")
+        if self._binding.backend.durable and choice.get("kind") == "environment":
+            raise ConfigurationStoreError("INVALID_CONFIGURATION")
         with self._service() as source:
             return source.select(choice, expected_revision=expected_revision)
 
@@ -86,7 +89,7 @@ class _BoundService:
 class ModelSearchBindings:
     """One backend for every GET, Save, Test and selection route in this scope."""
 
-    __slots__ = ("backend", "_sql", "models", "search", "_agent")
+    __slots__ = ("backend", "_sql", "models", "search", "rqdata", "_agent")
 
     @_guard
     def __init__(
@@ -120,6 +123,7 @@ class ModelSearchBindings:
                 snapshot.public_settings("search")
         self.models = _BoundService(self, "models", models)
         self.search = _BoundService(self, "search", search)
+        self.rqdata = _BoundService(self, "rqdata", rq_profiles)
 
     def __repr__(self):
         return "ModelSearchBindings(<private>)"

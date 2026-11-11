@@ -314,11 +314,13 @@ class RQSyncService:
         root: str | Path | None = None,
         *,
         acquirer: RQAcquirer | None = None,
+        captured_execution=None,
     ):
         self.root = Path(root) if root is not None else RUNTIME_DIR
         self.store = RuntimeStore(self.root)
         self.operations = self.store.operations
         self.acquirer = acquirer
+        self._captured_execution = captured_execution
 
     @execution_operation
     def run(self, job_id: str) -> dict:
@@ -761,10 +763,12 @@ class SyncJobManager:
         job_runner=None,
         request_validator=None,
         recover_pending=True,
+        configuration_backend=None,
     ):
         self.root = Path(root) if root is not None else RUNTIME_DIR
         self._job_runner = job_runner
         self._request_validator = request_validator
+        self._configuration_backend = configuration_backend
         self.operations = OperationsStore(self.root)
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rq-sync")
         self._futures: dict[str, Future] = {}

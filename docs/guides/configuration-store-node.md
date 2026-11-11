@@ -1,5 +1,12 @@
 # Isolated Node configuration reader
 
+The isolation described below is the original reader boundary. The current
+[durable runtime](configuration-durable-activation.md) supplies an immutable
+activation record for bounded ancestry auditing within the read transaction.
+That audit privately validates all three documents; RQData is never returned
+in a Worker message or snapshot. The unbound isolated reader remains available
+to trusted tests and does not itself grant runtime authority.
+
 Phase 4B.2 supplies an internal read-only client of the Python
 `alphalab.utils.configuration_store` protocol 1. It is not connected to the
 live Conexus model/search adapters, API services, or frontend. There is no

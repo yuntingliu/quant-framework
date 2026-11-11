@@ -121,8 +121,7 @@ def check_jobs():
 def offline_operation():
     # JSON is the current production contract, not a guess based on file presence.
     # A live SQLite owner conflicts before we stop services or touch configuration.
-    with ConfigurationBackend.json(RUNTIME) as decision:
-        pass
+    decision = ConfigurationBackend.offline_decision(RUNTIME)
     return coordinated_offline(decision, stop_services=stop_services)
 
 

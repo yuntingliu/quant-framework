@@ -34,28 +34,11 @@ PRIVATE_VALUES = ("13" * 32, "24" * 32, "35" * 32)
 
 # Substitute only the optional core. The actual fixed managed entry point,
 # auth module, research workspace and coordinated SQLite runtime still execute.
-FAKE_CORE = """
-import { createServer } from 'node:http';
-export const createLocalRuntime = () => ({ adapter: {}, close() {} });
-export const createModelCompletion = () => async () => ({ content: 'Synthetic' });
-export const compileHarnessWorkspace = () => ({});
-export const createLocalHost = async () => {
-  const routes = new Map(); let parser;
-  const server = createServer(async (request, response) => {
-    let body = ''; for await (const part of request) body += part;
-    let status = 200;
-    const reply = { code(value) { status = value; return this }, send(value) { return value } };
-    const parsed = await new Promise((resolve, reject) => parser(request, Buffer.from(body), (error, value) => error ? reject(error) : resolve(value)));
-    const value = await routes.get(request.url)({ body: parsed, headers: request.headers, raw:request }, reply);
-    response.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(value));
-  });
-  const app = { post(path, handler) { routes.set(path, handler) }, addContentTypeParser(_type, _options, callback) { parser = callback }, async listen(options) {
-    await new Promise(resolve => server.listen(options.port, options.host, resolve));
-    this.listeningOrigin = `http://127.0.0.1:${server.address().port}`;
-  } };
-  return { app, close: async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) } };
-};
-"""
+FAKE_CORE = (
+    "export { createLocalRuntime, createModelCompletion, compileHarnessWorkspace, createLocalHost } from "
+    + json.dumps((REPO / "tests/fixtures/configuration_agent.mjs").as_uri())
+    + ";"
+)
 
 
 def no_secrets(value):

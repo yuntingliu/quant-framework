@@ -97,8 +97,10 @@ def inspect_configuration_decision(root):
             return {"state": "legacy", "backend": "json"}
         snapshot = ConfigurationStore.open_existing(root).read_snapshot()
         ProfileSnapshot(snapshot, {})
-        _identity(record, snapshot)
-        if record.as_dict()["state"] == "prepared":
+        if record.as_dict()["state"] == "committed":
+            protocol.validate_committed_authority(root)
+        else:
+            _identity(record, snapshot)
             _legacy_equivalent(root, snapshot)
         return record.as_dict()
 

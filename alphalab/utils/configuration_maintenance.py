@@ -169,8 +169,22 @@ def execution_operation(function):
         from alphalab.utils.configuration_decision import check_backend_authority
 
         with execution_access(self.root):
-            check_backend_authority(self.root, backend="json")
-            return function(self, *args, **kwargs)
+            owner = getattr(self, "_configuration_backend", None)
+            if owner is None:
+                captured = getattr(self, "_captured_execution", None)
+                if captured is not None:
+                    if type(captured) is not _CapturedExecution:
+                        raise ConfigurationStoreError("INVALID_ARGUMENT")
+                    captured.require(self.root)
+                    return function(self, *args, **kwargs)
+                check_backend_authority(self.root, backend="json")
+                return function(self, *args, **kwargs)
+            from alphalab.utils.configuration_backend import ConfigurationBackend
+
+            if type(owner) is not ConfigurationBackend or owner.root != checked_root(self.root):
+                raise ConfigurationStoreError("INSTALLATION_MISMATCH")
+            with owner.borrow():
+                return function(self, *args, **kwargs)
 
     return guarded
 
@@ -189,6 +203,85 @@ def hold_worker_execution(root):
     lease = execution_access(root)
     lease.__enter__()
     _WORKER_LEASES.append(lease)
+
+
+class _CapturedExecution:
+    """Private process-bound capability; a dictionary or flag cannot replace it."""
+
+    __slots__ = ("root", "installation_id", "revision", "_pid", "_descriptor")
+
+    def __init__(self):
+        raise TypeError("Use validated captured worker admission.")
+
+    def __repr__(self):
+        return "CapturedExecution(<private>)"
+
+    def __reduce_ex__(self, _protocol):
+        raise TypeError("Captured execution cannot be serialized.")
+
+    def require(self, root):
+        location = checked_root(root)
+        key = os.path.normcase(str(location / "app/secrets/configuration-execution.lock"))
+        held = getattr(_LOCAL, "held", {}).get(key)
+        if (
+            location != self.root
+            or self._pid != os.getpid()
+            or held is None
+            or held.pid != os.getpid()
+            or held.exclusive
+            or held.descriptor != self._descriptor
+        ):
+            raise ConfigurationStoreError("INSTALLATION_MISMATCH")
+        os.fstat(self._descriptor)
+        from alphalab.utils.configuration_decision import (
+            read_decision_record,
+            validate_committed_authority,
+        )
+
+        record = read_decision_record(location)
+        if record is not None and record.as_dict()["state"] == "committed":
+            from alphalab.utils.configuration_owner import verify_worker_owner
+
+            identity = validate_committed_authority(location, installation_id=self.installation_id)
+            verify_worker_owner(location, identity)
+
+
+def captured_worker_admission(root, installation_id, revision):
+    """Only after private-pipe validation, with a real retained child OS lease."""
+    import multiprocessing
+
+    from alphalab.utils.configuration_decision import read_decision_record
+    from alphalab.utils.configuration_store import ConfigurationStore
+
+    location = checked_root(root)
+    key = os.path.normcase(str(location / "app/secrets/configuration-execution.lock"))
+    held = getattr(_LOCAL, "held", {}).get(key)
+    if multiprocessing.parent_process() is None or not _WORKER_LEASES or held is None:
+        raise ConfigurationStoreError("INVALID_ARGUMENT")
+    value = object.__new__(_CapturedExecution)
+    value.root, value.installation_id, value.revision = location, installation_id, revision
+    value._pid, value._descriptor = os.getpid(), held.descriptor
+    value.require(location)
+    record = read_decision_record(location)
+
+    def validate():
+        store = ConfigurationStore._handle(location, 5)
+        if record is not None and record.as_dict()["state"] == "committed":
+            data = record.as_dict()
+            store._anchor, store._anchor_kinds = (
+                data["revision"],
+                data["evidence"]["selection_kinds"],
+            )
+        with store._session(time.monotonic() + 5) as session:
+            session.execute("BEGIN")
+            snapshot = store._current(session)
+            if snapshot.installation_id != installation_id or session.execute(
+                "SELECT 1 FROM generations WHERE revision=?", (revision,)
+            ).fetchall() != [(1,)]:
+                raise ConfigurationStoreError("INSTALLATION_MISMATCH")
+
+    _safe_call(validate, read_only=True)
+    return value
 
 
 @contextmanager

@@ -90,11 +90,18 @@ export async function readAgentHandoff(input = process.stdin) {
   let result
   try {
     const value = parseAgentMessage(line)
-    if (Object.keys(value).sort().join(',') !== 'contract,launch,secret,token'
+    const keys = Object.keys(value), allowed = ['contract', 'launch', 'secret', 'token', 'api_origin']
+    if (![4, 5].includes(keys.length) || ['contract', 'launch', 'secret', 'token'].some(key => !Object.hasOwn(value, key))
+      || keys.some(key => !allowed.includes(key))
       || ['secret', 'token', 'launch'].some(key => typeof value[key] !== 'string' || !/^[0-9a-f]{64}$/.test(value[key]))) throw 0
+    if (value.api_origin !== undefined) {
+      const origin = new URL(value.api_origin)
+      if (origin.protocol !== 'http:' || origin.hostname !== '127.0.0.1' || !origin.port || origin.username || origin.password
+        || origin.pathname !== '/' || origin.search || origin.hash || origin.origin !== value.api_origin) throw 0
+    }
     const contract = await validateBackendContract(value.contract)
     if (contract.backend !== 'sqlite') throw 0
-    result = Object.freeze({ contract, secret: value.secret, token: value.token, launch: value.launch,
+    result = Object.freeze({ contract, secret: value.secret, token: value.token, launch: value.launch, apiOrigin: value.api_origin,
       toJSON() { throw new ConfigurationBackendError() }, [inspect.custom]: () => 'AgentHandoff(<private>)' })
   } catch { /* Never retain private parser/validation exceptions. */ }
   if (!result) throw new ConfigurationBackendError()
@@ -110,6 +117,20 @@ export function installAgentAuthentication(app, handoff, configuration, slug) {
   // A monotonic high-water mark is constant-size replay state. Only an
   // authenticated request can advance it; no unauthenticated allocation.
   let lastSequence = 0, closed = false, sessions = new WeakMap()
+  app.addHook('preHandler', async (request, reply) => {
+    const route = request.routeOptions?.url || request.raw?.url || ''
+    const health = route === '/health'
+    if (!health && !route.startsWith('/api/public/')) return
+    const socket = request.raw?.socket, sequence = sessions.get(socket)
+    if (closed || !socket || socket.destroyed || sequence === undefined
+      || request.headers['x-alphalab-proof-sequence'] !== String(sequence)) {
+      return reply.code(401).send({ error: 'Authentication required.' })
+    }
+    sessions.delete(socket) // A generic proxy grant is also socket-bound and single-use.
+    if (health && ((request.method ?? request.raw?.method) !== 'GET' || request.raw?.url !== '/health')) {
+      return reply.code(401).send({ error: 'Authentication required.' })
+    }
+  })
   app.addContentTypeParser(AGENT_CONTENT_TYPE, { parseAs: 'buffer', bodyLimit: LIMIT }, (_request, raw, done) => {
     try { done(null, parseAgentMessage(raw)) } catch {
       const error = new ConfigurationBackendError()

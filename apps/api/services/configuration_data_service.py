@@ -70,6 +70,7 @@ class ConfigurationDataServices:
                 job_runner=self._run,
                 request_validator=self._validate_submission,
                 recover_pending=False,
+                configuration_backend=backend,
             )
             with RuntimeStore(backend.root).dataset_lock(
                 "captured-rq-execution", timeout_seconds=5
@@ -253,6 +254,7 @@ class ConfigurationDataServices:
                 root=self.backend.root,
                 timeout_seconds=self._timeout,
                 execution=self._recipe_execution,
+                configuration_backend=self.backend,
             )
 
     def _recipe_execution(self, source, *, mode, root, timeout_seconds, cancelled):
@@ -321,6 +323,8 @@ class ConfigurationDataServices:
             if self._closed:
                 raise ValueError
             if selection is not None:
+                if self.backend.durable and selection.get("kind") == "environment":
+                    raise ConfigurationStoreError("INVALID_CONFIGURATION")
                 return self._profiles.rqdata.select(selection, expected_revision=expected_revision)
             if profile is not None:
                 return self._profiles.rqdata.save_profile(

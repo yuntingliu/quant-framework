@@ -112,12 +112,54 @@ def _public_job(value: dict) -> dict:
 
 
 @lru_cache(maxsize=1)
-def get_job_manager() -> SyncJobManager:
+def _legacy_job_manager() -> SyncJobManager:
     return SyncJobManager()
 
 
+def _owned_data():
+    from apps.api.services.configuration_production_service import current_data
+
+    return current_data()
+
+
+def get_job_manager() -> SyncJobManager:
+    data = _owned_data()
+    return data.manager if data is not None else _legacy_job_manager()
+
+
+get_job_manager.cache_clear = _legacy_job_manager.cache_clear
+
+
+def get_health(*, runtime_summary=None):
+    data = _owned_data()
+    if data is None:
+        return _json_health(runtime_summary=runtime_summary)
+    saved = data.rq_settings()
+    installed = find_spec("rqdatac") is not None
+    configured = saved["configured"]
+    return {
+        "status": "ok",
+        "runtime": runtime_summary if runtime_summary is not None else DataCatalog().summary(),
+        "rq": {
+            "status": "configured" if installed and configured else "not_configured",
+            "installed": installed,
+            "configured": configured,
+            "ready": installed and configured,
+            "missing": [] if configured else ["RQ_USER", "RQ_PASSWORD", "RQ_HOST"],
+            "connected": False,
+            "connection_test_required": installed and configured,
+            "source": saved["source"],
+            "active_id": saved["active_id"],
+            "last_error": None,
+        },
+        "realtime": {"status": "not_configured"},
+        "tools": {"status": "ready", "count": len(create_data_tool_registry().describe())},
+        "planner": {"status": "not_configured"},
+    }
+
+
 @legacy_settings_operation(lambda: rq_settings_path())
-def get_health(*, runtime_summary: dict | None = None) -> dict:
+def _json_health(*, runtime_summary: dict | None = None) -> dict:
     load_env_files()
     saved_settings = public_rq_settings()
     missing = [] if saved_settings["configured"] else missing_environment_keys()
@@ -266,6 +308,11 @@ def save_recipe_source(
     expected_source_sha256: str | None,
 ) -> dict:
     project = _project_id(project_id)
+    data = _owned_data()
+    if data is not None:
+        return _recipe_draft(
+            data.save_recipe(project, source, expected_source_sha256=expected_source_sha256)
+        )
     inspect_data_recipe_source(source)
     draft = get_job_manager().operations.save_recipe_draft(
         project,
@@ -420,7 +467,12 @@ def plan_recipe(project_id: str) -> dict:
         raise KeyError(project)
     inspection = inspect_data_recipe_source(draft["source"])
     parameters = {item.name: item.default for item in inspection.parameters if item.editable}
-    execution = execute_data_recipe(draft["source"], mode="plan")
+    data = _owned_data()
+    execution = (
+        data.plan_recipe(draft["source"])
+        if data is not None
+        else execute_data_recipe(draft["source"], mode="plan")
+    )
     sync_request = execution.get("sync_request")
     base = {
         "kind": "python_recipe",
@@ -462,6 +514,9 @@ def submit_recipe(project_id: str) -> dict:
 
 
 def test_connection(template_id: str) -> dict:
+    data = _owned_data()
+    if data is not None:
+        return data.connection_test(template_id)
     template = get_rq_sync_template(template_id)
     client = RQDataClient.from_env()
     rq = client.connect()
@@ -491,6 +546,9 @@ def catalog() -> dict:
 
 
 def plan(request: SyncRequest) -> dict:
+    data = _owned_data()
+    if data is not None:
+        return data.plan(request)
     return build_sync_plan(request)
 
 
@@ -499,15 +557,30 @@ def submit(request: SyncRequest) -> dict:
 
 
 def jobs(limit: int = 50) -> list[dict]:
+    data = _owned_data()
+    if data is not None:
+        return [
+            result
+            for item in data.manager.operations.list_jobs(limit=limit)
+            if (result := data.public_job(item)) is not None
+        ]
     return [_public_job(item) for item in get_job_manager().operations.list_jobs(limit=limit)]
 
 
 def job(job_id: str) -> dict | None:
+    data = _owned_data()
+    if data is not None:
+        return data.public_job(data.manager.operations.get_job(job_id))
     item = get_job_manager().operations.get_job(job_id)
     return _public_job(item) if item is not None else None
 
 
 def cancel(job_id: str) -> dict | None:
+    data = _owned_data()
+    if data is not None:
+        if data.public_job(data.manager.operations.get_job(job_id)) is None:
+            return None
+        return data.public_job(data.manager.cancel(job_id))
     item = get_job_manager().cancel(job_id)
     return _public_job(item) if item is not None else None
 

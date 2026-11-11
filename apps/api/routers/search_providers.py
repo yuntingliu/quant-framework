@@ -74,7 +74,7 @@ def read_search_providers(binding=Depends(configuration_bindings)) -> dict:
 def save_search_provider(
     request: SearchProviderRequest, binding=Depends(configuration_bindings)
 ) -> dict:
-    require_local()
+    require_local(binding)
     try:
         return binding.search.save_profile(
             request.model_dump(
@@ -94,7 +94,7 @@ def save_search_provider(
 async def test_search_provider(
     request: SearchProviderRequest, binding=Depends(configuration_bindings)
 ) -> dict:
-    require_local()
+    require_local(binding)
     binding.require_search_agent(provider=request.provider)
     if binding.backend.mode == "sqlite" and request.provider != "off":
         # Authenticate before extracting a private profile, then authenticate
@@ -174,7 +174,7 @@ async def test_search_provider(
 def select_search_profile(
     request: ProfileSelectionRequest, binding=Depends(configuration_bindings)
 ):
-    require_local()
+    require_local(binding)
     return binding.search.select(
         request.model_dump(exclude={"expected_revision"}, exclude_none=True),
         expected_revision=request.expected_revision,

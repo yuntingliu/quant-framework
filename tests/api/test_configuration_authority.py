@@ -198,7 +198,7 @@ def test_committed_requires_valid_existing_anchor_and_store(installation, fault)
 
 def test_descendant_and_rollback_never_select_history(installation):
     root, store, report, docs, record = installation
-    record()
+    committed = record()
 
     def edit(current):
         documents = current.documents
@@ -206,10 +206,15 @@ def test_descendant_and_rollback_never_select_history(installation):
         return documents, current.selections
 
     latest = store.update(edit, expected_revision=report.revision)
-    rejects(lambda: authority.validate_committed_authority(root), "REVISION_CONFLICT")
+    assert authority.validate_committed_authority(root) == committed
     assert store.read_snapshot().revision == latest.revision
-    # An anchor from an invented later revision cannot authorize the old store.
-    rejects(lambda: ConfigurationBackend.json(root), "REVISION_CONFLICT")
+    # A legitimate descendant changes current settings, never JSON authority.
+    rejects(lambda: ConfigurationBackend.json(root), "UNSUPPORTED_STORAGE")
+    import sqlite3
+
+    with sqlite3.connect(root / "app/secrets/configuration-store.sqlite3") as db:
+        db.execute("UPDATE store_metadata SET current_revision=?", (report.revision,))
+    rejects(lambda: authority.validate_committed_authority(root), "STORE_CORRUPT")
 
 
 def test_api_and_local_launcher_block_before_starting_work(installation, monkeypatch):
@@ -392,9 +397,12 @@ def test_implicit_sdk_and_health_environment_loading_is_fenced(installation, mon
     rejects(data_sync_service.get_health, "UNSUPPORTED_STORAGE")
 
 
-def test_api_process_configuration_checks_authority_before_dotenv_import(installation):
+@pytest.mark.parametrize("valid", [True, False])
+def test_api_process_configuration_checks_authority_before_dotenv_import(installation, valid):
     root, store, report, docs, record = installation
     record()
+    if not valid:
+        (root / authority.NAMESPACE / "decision.json").write_bytes(b"invalid authority")
     script = """
 import json
 from alphalab.utils import env
@@ -409,7 +417,7 @@ try:
 except ConfigurationStoreError as error:
     print(json.dumps({'code': error.code, 'loaded': bool(called)}))
 else:
-    raise AssertionError('API process configuration bypassed authority')
+    print(json.dumps({'code': 'valid', 'loaded': bool(called)}))
 """
     result = subprocess.run(
         [sys.executable, "-B", "-c", script],
@@ -418,7 +426,9 @@ else:
         timeout=15,
     )
     assert result.returncode == 0
-    assert json.loads(result.stdout) == {"code": "UNSUPPORTED_STORAGE", "loaded": False}
+    output = json.loads(result.stdout)
+    assert output["loaded"] is valid
+    assert (output["code"] == "valid") is valid
     assert all(secret not in result.stdout + result.stderr for secret in CANARIES)
 
 

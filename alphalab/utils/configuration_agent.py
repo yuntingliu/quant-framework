@@ -148,6 +148,7 @@ class OwnedAgentConnection:
         "__active",
         "__timeout",
         "__sequence",
+        "__streams",
     )
 
     def __init__(self):
@@ -186,6 +187,7 @@ class OwnedAgentConnection:
                 _unavailable()
             connection = None
             timer = None
+            transferred = False
             try:
                 self._check(self.__owner)
                 connection = http.client.HTTPConnection(
@@ -251,6 +253,29 @@ class OwnedAgentConnection:
                 self._check(self.__owner)
                 if settings is None:
                     return None
+                from alphalab.utils.configuration_agent_http import _HttpRequest, _HttpStream
+
+                if type(settings) is _HttpRequest:
+                    headers = {**settings.headers, "X-AlphaLab-Proof-Sequence": str(sequence)}
+                    connection.request(settings.method, settings.path, settings.body, headers)
+                    response = connection.getresponse()
+                    if connection.sock is None or 300 <= response.status < 400:
+                        _unavailable()  # Never reconnect or follow a redirect.
+                    connection.sock.settimeout(settings.read_timeout)
+
+                    def release(stream):
+                        with self.__mutex:
+                            self.__streams.discard(stream)
+
+                    stream = _HttpStream(connection, response, self.__owner, release)
+                    with self.__mutex:
+                        self.__streams.add(stream)
+                        closed = self.__closed
+                    if closed:
+                        stream.close()
+                        _unavailable()
+                    transferred = True
+                    return stream
                 connection.request(
                     "POST",
                     _TEST,
@@ -286,7 +311,7 @@ class OwnedAgentConnection:
                     timer.join()
                 with self.__mutex:
                     self.__active = None
-                if connection is not None:
+                if connection is not None and not transferred:
                     connection.close()
                 self.__operation.release()
 
@@ -302,10 +327,41 @@ class OwnedAgentConnection:
         self.require_owner(owner)
         return self._exchange()
 
+    def http_request(self, owner, method, path, headers, body, read_timeout):
+        from alphalab.utils.configuration_agent_http import _HttpRequest
+
+        def action():
+            self.require_owner(owner)
+            request = _HttpRequest(method, path, headers, body, read_timeout)
+            return self._exchange(request)
+
+        return _owned_call(action)
+
+    def extract_http_private(self, owner):
+        self.require_owner(owner)
+        # Deliberate trusted extraction only; never serialize this connection.
+        return self.__origin, self.__identity["slug"], self.__token
+
+    @property
+    def pid(self):
+        return self.__child.pid
+
+    def poll(self):
+        return self.__child.poll()
+
     def close(self):
         with self.__mutex:
             self.__closed = True
+            streams = tuple(self.__streams)
         self._interrupt()
+        failed = False
+        for stream in streams:
+            try:
+                _owned_call(stream.close)
+            except ConfigurationStoreError:
+                failed = True
+        if failed:
+            _unavailable()
 
 
 class _ChildLease:
@@ -397,7 +453,9 @@ def _cleanup_child(child, connection, helpers, started, lifetime, *, admitted):
 
 
 @contextmanager
-def managed_configuration_agent(backend, *, node=None, startup_timeout=15, request_timeout=5):
+def managed_configuration_agent(
+    backend, *, node=None, startup_timeout=15, request_timeout=5, api_origin=None
+):
     """Launch the fixed inactive host through private stdin, holding its owner.
 
     This is trusted Python composition only, not an API or deployment launcher.
@@ -405,6 +463,10 @@ def managed_configuration_agent(backend, *, node=None, startup_timeout=15, reque
     occurs. Child EOF initiates graceful shutdown; only our child may be stopped.
     """
     if type(backend) is not ConfigurationBackend or backend.mode != "sqlite":
+        _unavailable()
+    if api_origin is not None:
+        _owned_call(lambda: _origin(api_origin))
+    if backend.durable and api_origin is None:
         _unavailable()
     if any(
         type(v) not in {int, float} or not 0.1 <= v <= 60
@@ -415,6 +477,7 @@ def managed_configuration_agent(backend, *, node=None, startup_timeout=15, reque
         child = None
         connection = None
         helpers, started, lifetime, admitted = {}, set(), None, False
+        owner_registered = False
 
         def start(name, action):
             thread = _safe_call(
@@ -434,6 +497,8 @@ def managed_configuration_agent(backend, *, node=None, startup_timeout=15, reque
                 secrets.token_hex(32),
             )
             handoff = {"contract": contract, "secret": secret, "token": token, "launch": launch}
+            if api_origin is not None:
+                handoff["api_origin"] = api_origin
             wire_handoff = json.dumps(handoff).encode("utf-8") + b"\n"
             if len(wire_handoff) > _LIMIT:
                 _unavailable()
@@ -454,6 +519,8 @@ def managed_configuration_agent(backend, *, node=None, startup_timeout=15, reque
             )
             ready = queue.Queue(maxsize=1)
             lifetime = _safe_call(lambda: _ChildLease(backend))
+            backend.authorize_agent(child.pid, secret)
+            owner_registered = backend.durable
 
             def consume():
                 try:
@@ -519,12 +586,18 @@ def managed_configuration_agent(backend, *, node=None, startup_timeout=15, reque
             connection._OwnedAgentConnection__active = None
             connection._OwnedAgentConnection__timeout = request_timeout
             connection._OwnedAgentConnection__sequence = 0
+            connection._OwnedAgentConnection__streams = set()
             connection._exchange()  # Descriptor/health is never authorization.
             admitted = True
             yield connection
         finally:
             pending = sys.exc_info()[1]
             error = _cleanup_child(child, connection, helpers, started, lifetime, admitted=admitted)
+            if owner_registered and child is not None and child.poll() is not None:
+                try:
+                    backend.revoke_agent(child.pid)
+                except BaseException:
+                    error = error or ConfigurationStoreError("STORE_UNAVAILABLE")
             if error is not None:
                 interruption = (
                     _safe_call(lambda: _redacted_interruption(pending))

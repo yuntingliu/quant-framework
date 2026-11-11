@@ -1,10 +1,10 @@
-"""Explicit, installation-scoped runtime choice; no persistent activation API.
+"""Installation-scoped ownership over explicit or durable backend decisions.
 
 JSON owns a shared maintenance lease. An explicitly constructed SQLite choice
 owns an exclusive lease for its entire lifetime, excluding JSON users and any
 second owner. Components borrow the same choice instead of selecting a backend.
-This conservative single-owner SQLite composition is preparation only, not the
-future multi-process production activation protocol. All owners close on their
+Production selection additionally requires verified committed authority and a
+private, process-bound owned Agent. All owners close on their
 creating thread, after borrowed API/Agent lifetimes and operations have ended.
 """
 
@@ -18,7 +18,12 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from uuid import uuid4
 
-from alphalab.utils.configuration_maintenance import checked_root, configuration_access
+from alphalab.utils.configuration_maintenance import (
+    agent_access,
+    checked_root,
+    configuration_access,
+    execution_access,
+)
 from alphalab.utils.configuration_store import (
     ConfigurationStore,
     ConfigurationStoreError,
@@ -26,12 +31,17 @@ from alphalab.utils.configuration_store import (
 )
 
 _JSON_ROOT = ContextVar("explicit_json_configuration_root", default=None)
+_OWNER = ContextVar("explicit_configuration_owner", default=None)
 _ID = re.compile(r"[0-9a-f]{32}")
 
 
 def scoped_json_root():
     """Internal JSON binding scope; never an environment/backend switch."""
     return _JSON_ROOT.get()
+
+
+def scoped_backend():
+    return _OWNER.get()
 
 
 class ConfigurationBackend:
@@ -55,6 +65,7 @@ class ConfigurationBackend:
         "_mutex",
         "_users",
         "_closed",
+        "_durable",
     )
 
     def __init__(self):
@@ -72,7 +83,61 @@ class ConfigurationBackend:
         return cls._open(root, "sqlite", installation_id)
 
     @classmethod
-    def _open(cls, root, mode, installation_id):
+    def production(cls, root):
+        """Select once under OS leases; invalid authority never falls back.
+
+        Preliminary observation grants no use. Construction rereads authority
+        under the final lease, avoiding any shared-to-exclusive lock upgrade.
+        """
+        from alphalab.utils.configuration_decision import read_decision_record
+
+        location = _safe_call(lambda: checked_root(root))
+        with configuration_access(location):
+            record = read_decision_record(location)
+        if record is None or record.as_dict()["state"] == "prepared":
+            return cls.json(location)
+        value = record.as_dict()
+        # Orphaned SDK children and Agent helpers must actually exit before a
+        # replacement owner may mint fresh launch credentials or recover jobs.
+        with execution_access(location, exclusive=True), agent_access(location, exclusive=True):
+            return cls._open(location, "sqlite", value["installation_id"], authority=value)
+
+    @classmethod
+    def offline_decision(cls, root):
+        """Closed administrative request, explicitly NOT a runtime owner/lease.
+
+        Coordinated shutdown revalidates it under its own exclusive OS fences.
+        Observation can coexist with an idle API; no owner is stolen or closed.
+        """
+        from alphalab.utils.configuration_decision import (
+            read_decision_record,
+            validate_committed_authority,
+        )
+
+        location = _safe_call(lambda: checked_root(root))
+        with execution_access(location):
+            record = read_decision_record(location)
+            durable = record is not None and record.as_dict()["state"] == "committed"
+            if durable:
+                data = validate_committed_authority(location)
+            else:
+                with configuration_access(location):
+                    cls_check = read_decision_record(location)
+                    if cls_check is not None and cls_check.as_dict()["state"] != "prepared":
+                        raise ConfigurationStoreError("REVISION_CONFLICT")
+                data = None
+        value = object.__new__(cls)
+        value._root, value._mode = location, "sqlite" if durable else "json"
+        value._durable = durable
+        value._decision = data["decision_id"] if durable else uuid4().hex
+        value._installation = data["installation_id"] if durable else None
+        value._store, value._lease = None, None
+        value._thread, value._mutex = threading.get_ident(), threading.Lock()
+        value._users, value._closed = 0, True
+        return value
+
+    @classmethod
+    def _open(cls, root, mode, installation_id, *, authority=None):
         from alphalab.utils.configuration_decision import check_backend_authority
 
         location = _safe_call(lambda: checked_root(root))
@@ -80,19 +145,45 @@ class ConfigurationBackend:
         lease.__enter__()
         try:
             check_backend_authority(
-                location, backend="json" if mode == "json" else "inactive_sqlite"
+                location,
+                backend="sqlite"
+                if authority is not None
+                else ("json" if mode == "json" else "inactive_sqlite"),
             )
+            if authority is not None:
+                from alphalab.utils.configuration_decision import validate_committed_authority
+
+                if (
+                    validate_committed_authority(
+                        location,
+                        installation_id=installation_id,
+                        decision_id=authority["decision_id"],
+                    )
+                    != authority
+                ):
+                    raise ConfigurationStoreError("REVISION_CONFLICT")
             store = None
             if mode == "sqlite":
                 store = ConfigurationStore.open_existing(location)
                 if store.read_snapshot().installation_id != installation_id:
                     raise ConfigurationStoreError("INSTALLATION_MISMATCH")
+                if authority is not None:
+                    store = store.bind_activation(
+                        authority["revision"], authority["evidence"]["selection_kinds"]
+                    )
             value = object.__new__(cls)
             value._root, value._mode = location, mode
             value._decision, value._installation = uuid4().hex, installation_id
+            value._durable = authority is not None
+            if authority is not None:
+                value._decision = authority["decision_id"]
             value._store, value._lease = store, lease
             value._thread, value._mutex = threading.get_ident(), threading.Lock()
             value._users, value._closed = 0, False
+            if value._durable:
+                from alphalab.utils.configuration_owner import publish_owner
+
+                _safe_call(lambda: publish_owner(location, value.public_identity()))
             return value
         except BaseException:
             lease.__exit__(None, None, None)
@@ -113,13 +204,65 @@ class ConfigurationBackend:
         return self._root
 
     @property
+    def durable(self):
+        return self._durable
+
+    def _check_authority(self):
+        from alphalab.utils.configuration_decision import (
+            check_backend_authority,
+            validate_committed_authority,
+        )
+
+        if self._durable:
+            validate_committed_authority(
+                self._root, installation_id=self._installation, decision_id=self._decision
+            )
+        else:
+            check_backend_authority(
+                self._root, backend="json" if self._mode == "json" else "inactive_sqlite"
+            )
+
+    @property
     def store(self):
-        from alphalab.utils.configuration_decision import check_backend_authority
 
         if self._mode != "sqlite" or self._closed:
             raise ConfigurationStoreError("INVALID_CONFIGURATION")
-        check_backend_authority(self._root, backend="inactive_sqlite")
+        self._check_authority()
         return self._store
+
+    def authorize_agent(self, pid, secret):
+        """Bind launch proof only to the actual privately spawned child PID."""
+        from alphalab.utils.configuration_owner import publish_owner, read_owner
+
+        if not self._durable:
+            return
+        with self.borrow():
+
+            def action():
+                current = read_owner(self._root)
+                if current["owner_pid"] != os.getpid() or current["child_pid"] is not None:
+                    raise ConfigurationStoreError("STORE_BUSY")
+                if type(pid) is not int or pid <= 0:
+                    raise ConfigurationStoreError("INVALID_ARGUMENT")
+                publish_owner(self._root, self.public_identity(), child_pid=pid, secret=secret)
+
+            with self._mutex:
+                _safe_call(action)
+
+    def revoke_agent(self, pid):
+        from alphalab.utils.configuration_owner import publish_owner, read_owner
+
+        if not self._durable:
+            return
+
+        def action():
+            current = read_owner(self._root)
+            if current["owner_pid"] != os.getpid() or current["child_pid"] != pid:
+                raise ConfigurationStoreError("INSTALLATION_MISMATCH")
+            publish_owner(self._root, self.public_identity())
+
+        with self._mutex:
+            _safe_call(action)
 
     def public_identity(self):
         return {
@@ -145,16 +288,13 @@ class ConfigurationBackend:
 
     @contextmanager
     def borrow(self):
-        from alphalab.utils.configuration_decision import check_backend_authority
 
         with self._mutex:
             if self._closed:
                 raise ConfigurationStoreError("STORE_UNAVAILABLE")
             self._users += 1
         try:
-            check_backend_authority(
-                self._root, backend="json" if self._mode == "json" else "inactive_sqlite"
-            )
+            self._check_authority()
             yield self
         finally:
             with self._mutex:
@@ -170,6 +310,17 @@ class ConfigurationBackend:
                 yield
             finally:
                 _JSON_ROOT.reset(token)
+
+    @contextmanager
+    def scope(self):
+        """Carry this actual owner across launcher imports, never a mode toggle."""
+        with self.borrow():
+            owner_token, root_token = _OWNER.set(self), _JSON_ROOT.set(self._root)
+            try:
+                yield self
+            finally:
+                _JSON_ROOT.reset(root_token)
+                _OWNER.reset(owner_token)
 
     def close(self):
         with self._mutex:

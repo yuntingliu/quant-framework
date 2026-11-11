@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
 from typing import Any, Literal
 from urllib.parse import quote
@@ -19,6 +18,7 @@ from apps.api.services.agent_conversation_service import (
 from apps.api.services.agent_run_service import conversation_store as _conversation_store
 from apps.api.services.agent_run_service import publication_slug as _publication_slug
 from apps.api.services.agent_run_service import web_origin as _web_origin
+from apps.api.services.configuration_agent_transport import agent_http_client
 from apps.api.services.workspace_output_service import (
     prepare_workspace_outputs,
     validate_workspace_delivery,
@@ -93,7 +93,7 @@ class AgentConversationRequest(BaseModel):
 
 
 def _workspace_token() -> str:
-    return os.getenv("CONEXUS_PUBLICATION_WORKSPACE_TOKEN", "").strip()
+    return agent_run_service.workspace_token()
 
 
 def _path_segment(value: str) -> str:
@@ -146,7 +146,7 @@ def _unavailable_response() -> JSONResponse:
 
 
 async def _fetch_manifest(slug: str) -> dict:
-    async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+    async with agent_http_client(timeout=5.0, trust_env=False) as client:
         response = await client.get(
             f"{_web_origin()}/api/public/harnesses/{_path_segment(slug)}",
             headers={
@@ -167,7 +167,7 @@ def _has_supported_agent(manifest: dict) -> bool:
     default = manifest.get("defaultExposureId")
     return (
         (manifest.get("identityPolicy") == "enterprise"
-         or (os.getenv("ALPHALAB_AGENT_MODE") == "local" and manifest.get("schema") == "conexus.local-harness.v1"))
+         or (agent_run_service.agent_mode() == "local" and manifest.get("schema") == "conexus.local-harness.v1"))
         and isinstance(default, str)
         and bool(default.strip())
         and isinstance(exposures, list)
@@ -183,7 +183,7 @@ def _has_supported_agent(manifest: dict) -> bool:
 
 
 async def _fetch_json(path: str) -> dict:
-    async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+    async with agent_http_client(timeout=5.0, trust_env=False) as client:
         response = await client.get(f"{_web_origin()}{path}", headers={"Accept": "application/json"})
         response.raise_for_status()
         value = response.json()
@@ -198,7 +198,7 @@ async def _forward(
     authorization: Literal["request", "workspace"] = "request",
     body_override: bytes | None = None,
 ) -> Response:
-    if os.getenv("ALPHALAB_AGENT_MODE") == "off":
+    if agent_run_service.agent_mode() == "off":
         return _unavailable_response()
     if authorization == "workspace" and not _workspace_token():
         return JSONResponse(
@@ -212,7 +212,7 @@ async def _forward(
         await request.body() if method not in {"GET", "HEAD"} else None
     )
     try:
-        async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
+        async with agent_http_client(timeout=120.0, trust_env=False) as client:
             upstream = await client.request(
                 method,
                 f"{_web_origin()}{path}",
@@ -230,7 +230,7 @@ async def _forward(
 
 @router.get("/status")
 async def conexus_status() -> dict:
-    if os.getenv("ALPHALAB_AGENT_MODE") == "off":
+    if agent_run_service.agent_mode() == "off":
         return {"available": False, "mode": "not_configured", "error": "agent_disabled"}
     slug = _publication_slug()
     if not _workspace_token():
@@ -244,7 +244,7 @@ async def conexus_status() -> dict:
         manifest = await _fetch_manifest(slug)
         if not _has_supported_agent(manifest):
             raise ValueError("Unsupported hosted Agent contract")
-        if os.getenv("ALPHALAB_AGENT_MODE") == "local":
+        if agent_run_service.agent_mode() == "local":
             health = await _fetch_json("/health")
             ready = bool(health.get("modelConfigured"))
             return {"available": ready, "mode": "local_harness", "publication": slug,
@@ -394,9 +394,9 @@ async def _record_run_response(response: Response) -> Response:
 
 @router.get("/runs/{run_id}/events")
 async def run_events(run_id: str, request: Request) -> Response:
-    if os.getenv("ALPHALAB_AGENT_MODE") == "off":
+    if agent_run_service.agent_mode() == "off":
         return _unavailable_response()
-    client = httpx.AsyncClient(timeout=None, trust_env=False)
+    client = agent_http_client(timeout=None, trust_env=False)
     headers = _upstream_headers(request, accept="text/event-stream")
     last_event_id = request.headers.get("last-event-id", "")
     if last_event_id.isascii() and last_event_id.isdigit() and len(last_event_id) <= 16:

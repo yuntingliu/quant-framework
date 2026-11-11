@@ -17,27 +17,66 @@ from apps.api.services.agent_conversation_service import (
     TERMINAL_RUN_STATES,
     AgentConversationStore,
 )
+from apps.api.services.configuration_agent_transport import agent_http_client
 from apps.api.services.workspace_output_service import validate_workspace_delivery
 
 logger = logging.getLogger(__name__)
 
 
 def web_origin() -> str:
+    value = _owned_configuration()
+    if value is not None:
+        return value.agent.extract_http_private(value.backend)[0]
+    from alphalab.utils.configuration_maintenance import json_configuration_access
+    from alphalab.utils.private_settings import runtime_root
+    with json_configuration_access(runtime_root()):
+        pass
     return os.getenv("CONEXUS_WEB_ORIGIN", "http://127.0.0.1:3000").rstrip("/")
 
 
+def _owned_configuration():
+    from apps.api.services.configuration_production_service import current_configuration
+
+    value = current_configuration()
+    if value is not None and value.backend.mode == "sqlite":
+        if value.agent is None:
+            raise RuntimeError("The owned Agent is unavailable.")
+        return value
+    return None
+
+
 def publication_slug() -> str:
+    value = _owned_configuration()
+    if value is not None:
+        return value.agent.extract_http_private(value.backend)[1]
     value = os.getenv("CONEXUS_PUBLICATION_SLUG", "alphalab-research-agent").strip().lower()
     return value if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", value) else "alphalab-research-agent"
 
 
+def agent_mode() -> str | None:
+    return "local" if _owned_configuration() is not None else os.getenv("ALPHALAB_AGENT_MODE")
+
+
+def workspace_token() -> str:
+    value = _owned_configuration()
+    if value is not None:
+        return value.agent.extract_http_private(value.backend)[2]
+    return os.getenv("CONEXUS_PUBLICATION_WORKSPACE_TOKEN", "").strip()
+
+
 def run_scope() -> str:
+    value = _owned_configuration()
+    if value is not None:
+        return f"sqlite/{value.backend.public_identity()['installation_id']}/{publication_slug()}"
     # A local Host chooses a new port on restart, but owns the same durable workspace.
     origin = "local" if os.getenv("ALPHALAB_AGENT_MODE") == "local" else web_origin()
     return f"{origin}/{publication_slug()}"
 
 
 def conversation_store() -> AgentConversationStore:
+    value = _owned_configuration()
+    if value is not None:
+        return AgentConversationStore(value.backend.root / "app/agent-conversations.sqlite3")
     configured = os.getenv("ALPHALAB_RUNTIME_DIR", "").strip()
     root = Path(configured).expanduser() if configured else RUNTIME_DIR
     return AgentConversationStore(root / "app" / "agent-conversations.sqlite3")
@@ -101,13 +140,13 @@ async def record_snapshot(run: dict, client: httpx.AsyncClient | None = None) ->
     if not terminal or row["delivered"] or not has_artifacts:
         return
     if client is None:
-        async with httpx.AsyncClient(timeout=5, trust_env=False) as owned:
+        async with agent_http_client(timeout=5, trust_env=False) as owned:
             await record_snapshot(run, owned)
         return
     try:
         response = await client.get(
             f"{web_origin()}/api/public/harnesses/{quote(publication_slug(), safe='')}/workspace",
-            headers={"Authorization": f"Bearer {os.getenv('CONEXUS_PUBLICATION_WORKSPACE_TOKEN', '').strip()}"},
+            headers={"Authorization": f"Bearer {workspace_token()}"},
         )
         response.raise_for_status()
         workspace = validate_workspace_delivery(response.json()["workspace"])
@@ -119,13 +158,13 @@ async def record_snapshot(run: dict, client: httpx.AsyncClient | None = None) ->
 
 
 async def reconcile_runs() -> None:
-    if os.getenv("ALPHALAB_AGENT_MODE") == "off":
+    if agent_mode() == "off":
         return
     rows = conversation_store().pending_runs(run_scope())
     if not rows:
         return
     semaphore = asyncio.Semaphore(4)
-    async with httpx.AsyncClient(timeout=5, trust_env=False) as client:
+    async with agent_http_client(timeout=5, trust_env=False) as client:
         async def reconcile(row):
             async with semaphore:
                 try:

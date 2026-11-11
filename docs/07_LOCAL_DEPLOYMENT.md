@@ -5,6 +5,14 @@ and a pinned Conexus Core snapshot. One launcher starts the Python service and
 the local Node Agent. No Conexus cloud account, enterprise publication, or
 Canvas editor is needed for this mode.
 
+Legacy and prepared installations remain JSON-backed. Durable SQLite startup
+requires an explicitly reviewed [offline activation](guides/configuration-durable-activation.md),
+the supported Node 22 reader and the pinned built Conexus runtime. The launcher
+composes the full API with its actual authenticated child; it does not discover
+an ambient SQLite Agent. Missing prerequisites or invalid committed authority
+fail closed. The activation implementation does not certify a real deployment
+or authorize migration of an operator's existing settings.
+
 ## Requirements and installation
 
 Use Python 3.12 for the tested installation path, Git, and Node.js 22.18 or later

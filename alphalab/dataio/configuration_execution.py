@@ -214,7 +214,19 @@ def _worker(pipe, root, installation_id, revision, operation, job_id, source, sd
 
     try:
         hold_worker_execution(root)
-        check_backend_authority(root, backend="inactive_sqlite")
+        from alphalab.utils.configuration_decision import (
+            read_decision_record,
+            validate_committed_authority,
+        )
+
+        record = read_decision_record(root)
+        if record is not None and record.as_dict()["state"] == "committed":
+            from alphalab.utils.configuration_owner import verify_worker_owner
+
+            identity = validate_committed_authority(root, installation_id=installation_id)
+            verify_worker_owner(Path(root), identity)
+        else:
+            check_backend_authority(root, backend="inactive_sqlite")
     except BaseException:
         # No ready acknowledgement means no captured credentials may be sent.
         pipe.close()
@@ -292,6 +304,9 @@ def _worker_exclusive(
                             os._exit(72)  # Stop this owned child if parent disappears.
 
             threading.Thread(target=watch_parent, daemon=True, name="rq-owner-pipe").start()
+            from alphalab.utils.configuration_maintenance import captured_worker_admission
+
+            admission = captured_worker_admission(root, installation_id, revision)
             from alphalab.dataio import rq_profiles
             from alphalab.dataio.providers.rq import RQDataClient, RQDataConfig
             from alphalab.dataio.rq_sync import RQAcquirer
@@ -413,10 +428,12 @@ def _worker_exclusive(
                         )
                         value = {"completed": True}
                     else:
-                        RQSyncService(root, acquirer=acquirer).run(job_id)
+                        RQSyncService(root, acquirer=acquirer, captured_execution=admission).run(
+                            job_id
+                        )
                         value = {"completed": True}
                 else:
-                    RQSyncService(root, acquirer=acquirer).run(job_id)
+                    RQSyncService(root, acquirer=acquirer, captured_execution=admission).run(job_id)
                     value = {"completed": True}
             else:
                 raise ValueError

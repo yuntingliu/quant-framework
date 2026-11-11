@@ -1,5 +1,11 @@
 # Authenticated managed SQLite Agent (inactive)
 
+This describes the original inactive connection contract. The
+[durable activation runtime](configuration-durable-activation.md) now reuses it
+for the complete production API and actual owned Node child, adds live owner/PID
+proof, and authenticates public proxy operations on the same socket. The
+standalone JSON Agent still cannot activate itself from a handoff or flag.
+
 Phase 4B.5B.3A adds an explicit private Python composition, not a cutover or
 production launcher. Normal `local_agent`, `local-host.mjs`, `apps.api.main` and
 deployment startup remain JSON-backed. There is no environment toggle,

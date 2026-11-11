@@ -1,5 +1,12 @@
 # Durable authority read-side enforcement
 
+The details below document the read-side enforcement baseline. See
+[coordinated durable activation](configuration-durable-activation.md) for the
+current production selector, owned Node launch proof and audited descendants.
+Statements below that all committed startup/descendants are rejected describe
+the pre-activation baseline; JSON and inactive entry points still reject them,
+while the verified durable composition now accepts a valid committed chain.
+
 Phase 4B.5B.3B.2A fences supported operations. It does not activate SQLite,
 publish committed records, add a backend switch, migrate settings, restore a
 backup, or turn the limited configuration app into the full workbench.

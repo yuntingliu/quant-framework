@@ -57,7 +57,10 @@ class ProfileSelectionRequest(BaseModel):
     expected_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
 
-def require_local() -> None:
+def require_local(binding=None) -> None:
+    if binding is not None and binding.backend.durable:
+        binding.require_search_agent(provider="brave")
+        return
     if os.getenv("ALPHALAB_AGENT_MODE") != "local":
         raise HTTPException(409, "Provider settings apply to the bundled local Agent. Start with --agent local.")
 
@@ -72,7 +75,7 @@ def read_model_providers(binding=Depends(configuration_bindings)) -> dict:
 
 @router.put("")
 def save_model_provider(request: ProviderRequest, binding=Depends(configuration_bindings)) -> dict:
-    require_local()
+    require_local(binding)
     try:
         return binding.models.save_profile(
             request.model_dump(exclude={"activate", "expected_revision", "clear_api_key"}),
@@ -88,7 +91,7 @@ def save_model_provider(request: ProviderRequest, binding=Depends(configuration_
 
 @router.post("/test")
 async def test_model_provider(request: ProviderRequest, binding=Depends(configuration_bindings)) -> dict:
-    require_local()
+    require_local(binding)
     try:
         profile = binding.models.resolve_test_profile(
             request.model_dump(exclude={"activate", "expected_revision", "clear_api_key"}),
@@ -123,7 +126,7 @@ async def test_model_provider(request: ProviderRequest, binding=Depends(configur
 
 @router.put("/selection")
 def select_model_profile(request: ProfileSelectionRequest, binding=Depends(configuration_bindings)):
-    require_local()
+    require_local(binding)
     return binding.models.select(
         request.model_dump(exclude={"expected_revision"}, exclude_none=True),
         expected_revision=request.expected_revision,

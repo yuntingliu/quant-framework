@@ -15,11 +15,11 @@ import { isMainThread } from 'node:worker_threads'
 const aborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted').get
 const held = new AsyncLocalStorage()
 
-async function checkAuthorityRecord(root) {
+async function checkAuthorityRecord(root, backend = 'json') {
   const directory = resolve(root, 'app/secrets/configuration-decision')
   let info
   try { info = await lstat(directory) } catch (error) {
-    if (error.code === 'ENOENT') return
+    if (error.code === 'ENOENT' && backend !== 'sqlite') return
     throw 0
   }
   const { configurationRootKey } = await import('./configuration-store-worker.mjs')
@@ -45,7 +45,13 @@ async function checkAuthorityRecord(root) {
   } finally { await handle.close() }
   const { parseDecisionRecord } = await import('./configuration-decision.mjs')
   const record = parseDecisionRecord(wire, { rootKey: configurationRootKey(root) })
-  if (record.state !== 'prepared') throw 0 // No durable composition is admitted.
+  if (backend !== 'observe' && (backend === 'sqlite' ? record.state !== 'committed' : record.state !== 'prepared')) throw 0
+  return record
+}
+
+export async function readAuthorityRecord(root) {
+  try { return await checkAuthorityRecord(canonicalPath(root), 'observe') }
+  catch { throw new ConfigurationAuthorityError() }
 }
 
 export class ConfigurationAuthorityError extends Error {
@@ -70,7 +76,7 @@ function bounded(promise, milliseconds) {
     .finally(() => clearTimeout(timer))
 }
 
-async function startLease(root, backend, signal) {
+async function startLease(root, backend, signal, proof) {
   let child, expected, buffered = '', ready = false, failed = false, closing, retirement, serial = Promise.resolve()
   const pending = new Set(), watchers = new Set(), shutdown = new AbortController()
   let exited, rejectReady, readyDone
@@ -166,6 +172,7 @@ async function startLease(root, backend, signal) {
       }
       if (buffered.length > 16) lose()
     })
+    if (backend === 'sqlite') child.stdin.write('auth ' + proof + '\n')
     const cancellation = new Promise((_, reject) => {
       if (signal !== undefined) subscription = addAbortListener(signal, () => reject(unavailable()))
     })
@@ -193,15 +200,15 @@ async function runCall(owner, action, supplied) {
       if (aborted.call(signal) || owner.closing || !owner.alive()) throw 0
       // Observe invalid evidence before requesting a credit. A rejected read
       // must not destroy another callback's otherwise live shared owner.
-      await checkAuthorityRecord(owner.root)
+      await checkAuthorityRecord(owner.root, owner.backend)
       if (aborted.call(signal) || owner.closing || !owner.alive()) throw 0
       await owner.command('enter', 'admitted')
       admitted = true
       if (aborted.call(signal) || owner.closing || !owner.alive()) throw 0
-      await checkAuthorityRecord(owner.root)
+      await checkAuthorityRecord(owner.root, owner.backend)
       if (aborted.call(signal) || owner.closing || !owner.alive()) throw 0
       const value = await held.run(owner, () => action(signal))
-      await checkAuthorityRecord(owner.root)
+      await checkAuthorityRecord(owner.root, owner.backend)
       if (aborted.call(signal) || !owner.alive()) throw 0
       return value
     } finally {
@@ -223,12 +230,14 @@ async function runCall(owner, action, supplied) {
 export async function withConfigurationAuthority(root, backend, action, signal) {
   let owner, owned = false, value, failed = false
   try {
-    if (!isMainThread || typeof root !== 'string' || !['json', 'inactive_sqlite'].includes(backend) || typeof action !== 'function') throw 0
+    if (!isMainThread || typeof root !== 'string' || !['json', 'inactive_sqlite', 'sqlite'].includes(backend) || typeof action !== 'function') throw 0
     checkedSignal(signal)
     root = canonicalPath(root)
     const previous = held.getStore()
+    if (previous?.root === root && previous.backend === 'sqlite' && backend === 'inactive_sqlite') backend = 'sqlite'
     if (previous?.root === root && previous.backend === backend) owner = previous
     else {
+      if (backend === 'sqlite') throw 0 // An actual authenticated scope is required.
       // Rejection may be decided early. Accepted use still revalidates under
       // the real lease; this observation never grants configuration access.
       await checkAuthorityRecord(root)
@@ -284,22 +293,32 @@ export function nativeProfileRoot(path) {
 }
 
 /** Idle lifetime owns OS protection; each operation separately admits actual work. */
-export async function openConfigurationAuthority(root, backend) {
+export async function openConfigurationAuthority(root, backend, options = {}) {
   let owner, borrowed = false, closed = false, closing
   const shutdown = new AbortController()
   try {
-    if (!isMainThread || typeof root !== 'string' || !['json', 'inactive_sqlite'].includes(backend)) throw 0
+    if (!isMainThread || typeof root !== 'string' || !['json', 'inactive_sqlite', 'sqlite'].includes(backend)
+      || types.isProxy(options) || options === null || typeof options !== 'object') throw 0
+    const fields = Object.getOwnPropertyDescriptors(options)
+    if (Reflect.ownKeys(fields).some(key => key !== 'proof' || !Object.hasOwn(fields[key], 'value'))) throw 0
+    const proof = fields.proof?.value
+    if (proof !== undefined && (typeof proof !== 'string' || !/^[0-9a-f]{64}$/.test(proof))) throw 0
     root = canonicalPath(root)
     const previous = held.getStore()
     if (previous?.root === root && previous.backend === backend) { owner = previous; borrowed = true }
-    else { await checkAuthorityRecord(root); owner = await startLease(root, backend) }
+    else {
+      await checkAuthorityRecord(root, backend)
+      if (backend === 'sqlite' && proof === undefined) throw 0
+      owner = await startLease(root, backend, undefined, proof)
+    }
     if (owner.closing || !owner.alive()) throw 0
-    await checkAuthorityRecord(root)
+    owner.activation = await checkAuthorityRecord(root, backend)
   } catch {
     if (owner && !borrowed) try { await owner.close() } catch { /* Static error below. */ }
     throw unavailable()
   }
   return Object.freeze({
+    activation: owner.activation,
     async run(action, signal) {
       if (closed) throw unavailable()
       try {

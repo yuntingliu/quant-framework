@@ -164,8 +164,15 @@ def _local_agent(
 @contextmanager
 def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[subprocess.Popen]:
     """Hold a shared installation lease throughout the existing Host lifecycle."""
-    with ConfigurationBackend.json(RUNTIME_DIR.resolve()) as backend:
-        with backend.borrow():
+    with ConfigurationBackend.production(RUNTIME_DIR.resolve()) as backend:
+        with backend.scope():
+            if backend.mode == "sqlite":
+                from alphalab.utils.configuration_agent import managed_configuration_agent
+                with managed_configuration_agent(
+                    backend, api_origin=f"http://127.0.0.1:{api_port}"
+                ) as connection:
+                    yield connection
+                return
             with _local_agent(
                 root, api_port=api_port, agent_port=agent_port, configuration_backend=backend
             ) as child:
@@ -173,19 +180,36 @@ def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[s
 
 
 def serve_with_local_agent(root: Path, *, host: str, port: int, agent_port: int = 0) -> None:
+    from contextlib import ExitStack
+
     import uvicorn
 
-    with ConfigurationBackend.json(RUNTIME_DIR.resolve()) as backend, backend.borrow(), _local_agent(
-        root, api_port=port, agent_port=agent_port, configuration_backend=backend
-    ) as child:
+    from alphalab.utils.configuration_agent import managed_configuration_agent
+
+    with ExitStack() as lifetime:
+        backend = lifetime.enter_context(ConfigurationBackend.production(RUNTIME_DIR.resolve()))
+        lifetime.enter_context(backend.scope())
+        if backend.mode == "sqlite":
+            if host not in {"127.0.0.1", "0.0.0.0"}:
+                raise RuntimeError("The owned SQLite Agent requires an IPv4 loopback-accessible API.")
+            child = lifetime.enter_context(managed_configuration_agent(
+                backend, api_origin=f"http://127.0.0.1:{port}"
+            ))
+        else:
+            child = lifetime.enter_context(_local_agent(
+                root, api_port=port, agent_port=agent_port, configuration_backend=backend
+            ))
         from apps.api.main import app
 
         app.state.configuration_backend = backend
+        app.state.configuration_api_origin = f"http://127.0.0.1:{port}"
+        if backend.mode == "sqlite":
+            app.state.configuration_agent = child
         stopped = threading.Event()
         watcher = None
 
         try:
-            server = uvicorn.Server(uvicorn.Config(app, host=host, port=port))
+            server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, timeout_graceful_shutdown=10))
 
             def monitor() -> None:
                 while not stopped.wait(0.5):
@@ -203,3 +227,6 @@ def serve_with_local_agent(root: Path, *, host: str, port: int, agent_port: int 
             if watcher is not None and watcher.ident is not None:
                 watcher.join(timeout=2)
             del app.state.configuration_backend
+            del app.state.configuration_api_origin
+            if hasattr(app.state, "configuration_agent"):
+                del app.state.configuration_agent

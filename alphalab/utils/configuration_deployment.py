@@ -214,20 +214,15 @@ def coordinated_offline(decision, *, stop_services, timeout=5.0):
                 return max(0, deadline - time.monotonic())
 
             stack.enter_context(execution_access(root, exclusive=True, timeout=remaining()))
-            from alphalab.utils.configuration_decision import check_backend_authority
 
-            check_backend_authority(
-                root, backend="json" if decision.mode == "json" else "inactive_sqlite"
-            )
+            decision._check_authority()
             require_idle(root)
             stop_services()
             # Idle Agents do not hold execution admission. Their independent
             # lifetime fence must nevertheless be gone before any mutation.
             stack.enter_context(agent_access(root, exclusive=True, timeout=remaining()))
             stack.enter_context(configuration_access(root, exclusive=True, timeout=remaining()))
-            check_backend_authority(
-                root, backend="json" if decision.mode == "json" else "inactive_sqlite"
-            )
+            decision._check_authority()
             # Old 2A children also retain these locks after API/owner death.
             for name in ("sync-job-queue", "captured-rq-execution"):
                 stack.enter_context(runtime_execution_lock(root, name, timeout_seconds=remaining()))

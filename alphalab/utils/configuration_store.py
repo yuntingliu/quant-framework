@@ -460,7 +460,15 @@ class ConfigurationStore:
     updates use mode=rw, which also refuses a missing database.
     """
 
-    __slots__ = ("_root", "_path", "_root_key", "_timeout", "_installation_id")
+    __slots__ = (
+        "_root",
+        "_path",
+        "_root_key",
+        "_timeout",
+        "_installation_id",
+        "_anchor",
+        "_anchor_kinds",
+    )
 
     def __init__(self):
         raise TypeError("Use explicit configuration-store initialization or opening.")
@@ -484,7 +492,31 @@ class ConfigurationStore:
         key = os.path.normcase(str(store._root))
         store._root_key = hashlib.sha256(key.encode("utf-8")).hexdigest()
         store._timeout, store._installation_id = float(timeout), None
+        store._anchor, store._anchor_kinds = None, None
         return store
+
+    def bind_activation(self, revision, selection_kinds):
+        """Return a detached handle that audits protocol-1 ancestry on every use.
+
+        The immutable activation anchor is external authority, not a request to
+        select history. No database/schema change or recovery is performed.
+        """
+        if (
+            type(revision) is not str
+            or not _OPAQUE_ID.fullmatch(revision)
+            or type(selection_kinds) is not dict
+            or set(selection_kinds) != set(_SERVICES)
+            or any(
+                type(kind) is not str or kind not in {"profile", "environment", "none"}
+                for kind in selection_kinds.values()
+            )
+        ):
+            _fail("INVALID_ARGUMENT")
+        bound = self._handle(self._root, self._timeout)
+        bound._installation_id = self._installation_id
+        bound._anchor, bound._anchor_kinds = revision, dict(selection_kinds)
+        bound.read_snapshot()
+        return bound
 
     @classmethod
     def initialize(cls, root, *, documents, selections, timeout: float = 5.0):
@@ -595,6 +627,10 @@ class ConfigurationStore:
                     texts = _encode(*candidate)
                     revision = uuid4().hex
                     self._insert(session, revision, current.revision, texts)
+                    if self._anchor is not None:
+                        self._ancestry(
+                            session, ConfigurationSnapshot(current.installation_id, revision, texts)
+                        )
                     published = session.execute(
                         "UPDATE store_metadata SET current_revision=? "
                         "WHERE singleton=1 AND current_revision=?",
@@ -605,6 +641,11 @@ class ConfigurationStore:
                     session.execute("COMMIT")
                     return ConfigurationSnapshot(current.installation_id, revision, texts)
 
+        if self._anchor is not None:
+            from alphalab.utils.configuration_maintenance import execution_access
+
+            with execution_access(self._root):
+                return _safe_call(action)
         return _safe_call(action)
 
     @contextmanager
@@ -754,7 +795,58 @@ class ConfigurationStore:
             texts = _encode(documents, _decode(row[3]))
         except Exception:
             _fail("STORE_CORRUPT")
-        return ConfigurationSnapshot(installation_id, revision, texts)
+        snapshot = ConfigurationSnapshot(installation_id, revision, texts)
+        if self._anchor is not None:
+            self._ancestry(session, snapshot)
+        return snapshot
+
+    def _ancestry(self, session, current):
+        if any(choice["kind"] == "environment" for choice in current.selections.values()):
+            _fail("INVALID_CONFIGURATION")
+        # Protocol 1 never deletes generations. Requiring the complete ordinal
+        # sequence and one linear chain rejects missing parents, cycles, forks,
+        # disconnected records and metadata rollback without choosing history.
+        rows = session.execute(
+            "SELECT ordinal, revision, parent_revision, length(CAST(models AS BLOB)), "
+            "length(CAST(search AS BLOB)), length(CAST(rqdata AS BLOB)), "
+            "length(CAST(selections AS BLOB)) FROM generations ORDER BY ordinal LIMIT 4097"
+        ).fetchall()
+        if not rows or len(rows) > 4096:
+            _fail("STORE_CORRUPT")
+        previous, total = None, 0
+        for ordinal, row in enumerate(rows, 1):
+            index, revision, parent, *lengths = row
+            if (
+                type(index) is not int
+                or index != ordinal
+                or type(revision) is not str
+                or not _OPAQUE_ID.fullmatch(revision)
+                or parent != previous
+                or any(type(length) is not int or length < 1 for length in lengths)
+            ):
+                _fail("STORE_CORRUPT")
+            total += sum(lengths)
+            if total > 64 * 1024 * 1024 or sum(lengths) > _MAX_BYTES:
+                _fail("STORE_CORRUPT")
+            if ordinal == 1 and revision != self._anchor:
+                _fail("REVISION_CONFLICT")
+            fields = session.execute(
+                "SELECT models, search, rqdata, selections FROM generations WHERE revision=?",
+                (revision,),
+            ).fetchone()
+            documents = {name: _decode(text) for name, text in zip(_SERVICES, fields)}
+            choices = _decode(fields[3])
+            _encode(documents, choices)
+            if any(choice["kind"] == "environment" for choice in choices.values()):
+                _fail("INVALID_CONFIGURATION")
+            if (
+                ordinal == 1
+                and {name: choice["kind"] for name, choice in choices.items()} != self._anchor_kinds
+            ):
+                _fail("INVALID_CONFIGURATION")
+            previous = revision
+        if previous != current.revision:
+            _fail("REVISION_CONFLICT")
 
 
 __all__ = [

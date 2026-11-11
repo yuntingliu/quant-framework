@@ -1,5 +1,11 @@
 # Coordinated configuration backend selection
 
+This guide preserves the explicit inactive-composition baseline. The current
+[durable activation guide](configuration-durable-activation.md) supersedes the
+JSON-only production and deferred-publication statements below. Explicit
+inactive factories still cannot bypass committed authority; only the verified
+production owner and its privately authorized child consume it.
+
 Phase 4B.5B.1 prepares explicit model/search compositions. Production remains
 JSON-backed. This code never migrates settings, initializes a store, publishes
 an activation marker, or selects SQLite from an environment flag.

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -15,8 +15,11 @@ from fastapi.staticfiles import StaticFiles
 from alphalab import ResultStore
 from alphalab.dataio.catalog import DataCatalog
 from alphalab.utils.build_info import build_info
+from alphalab.utils.configuration_agent import managed_configuration_agent
 from alphalab.utils.configuration_backend import ConfigurationBackend
 from alphalab.utils.configuration_maintenance import checked_root
+from alphalab.utils.configuration_store import ConfigurationStoreError
+from alphalab.utils.paths import RUNTIME_DIR
 from alphalab.utils.private_settings import runtime_root
 from apps.api.auth import HttpBasicAuthMiddleware
 from apps.api.config import LOADED_ENV_FILES
@@ -39,34 +42,56 @@ from apps.api.routers import (
     system,
     validation,
 )
-from apps.api.services.configuration_binding_service import ModelSearchBindings
+from apps.api.services.configuration_production_service import (
+    ProductionConfiguration,
+    ProductionConfigurationMiddleware,
+    production_scope,
+)
 
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "build" / "web"
 
 
 @asynccontextmanager
 async def configuration_lifespan(_app):
-    # A live API excludes offline migration; JSON remains the only active backend.
     supplied = getattr(_app.state, "configuration_backend", None)
-    if supplied is not None:
-        if (
-            type(supplied) is not ConfigurationBackend
-            or supplied.mode != "json"
-            or supplied.root != checked_root(runtime_root())
-        ):
-            raise RuntimeError("The production API requires the coordinated JSON backend.")
-        with supplied.borrow():
-            _app.state.configuration_bindings = ModelSearchBindings(supplied)
-            try:
-                yield
-            finally:
-                del _app.state.configuration_bindings
-        return
-    with ConfigurationBackend.json(runtime_root()) as owner:
-        _app.state.configuration_bindings = ModelSearchBindings(owner)
+    with ExitStack() as lifetime:
+        if supplied is None:
+            owner = lifetime.enter_context(ConfigurationBackend.production(runtime_root()))
+        else:
+            if (type(supplied) is not ConfigurationBackend
+                or supplied.root != checked_root(runtime_root())
+                or (supplied.mode == "sqlite" and not supplied.durable)):
+                raise ConfigurationStoreError("INVALID_CONFIGURATION")
+            owner = supplied
+        lifetime.enter_context(owner.borrow())
+        agent = getattr(_app.state, "configuration_agent", None)
+        if owner.mode == "sqlite":
+            if owner.root != RUNTIME_DIR.resolve():
+                raise ConfigurationStoreError("INSTALLATION_MISMATCH")
+            if agent is None:
+                agent = lifetime.enter_context(managed_configuration_agent(
+                    owner, api_origin=getattr(_app.state, "configuration_api_origin", None)
+                ))
+            agent.require_owner(owner)
+        runtime = ProductionConfiguration(
+            owner, agent=agent, data_options=getattr(_app.state, "configuration_data_options", None)
+        )
+        _app.state.configuration_bindings = runtime.bindings
+        _app.state.configuration_runtime = runtime
         try:
-            yield
+            with production_scope(runtime, admit=False):
+                if owner.mode == "sqlite":
+                    from apps.api.services.agent_run_service import run_recovery_lifespan
+                    async with run_recovery_lifespan(_app):
+                        yield
+                else:
+                    yield
         finally:
+            import anyio
+            # Stop admission and wait for every owned SDK child before the
+            # Agent connection and finally the backend lease may be released.
+            await anyio.to_thread.run_sync(runtime.close)
+            del _app.state.configuration_runtime
             del _app.state.configuration_bindings
 
 
@@ -91,6 +116,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(HttpBasicAuthMiddleware)
+app.add_middleware(ProductionConfigurationMiddleware)
+
+
+@app.exception_handler(ConfigurationStoreError)
+async def configuration_unavailable(_request, error):
+    from apps.api.services.configuration_binding_service import configuration_http_error
+
+    public = configuration_http_error(error)
+    return JSONResponse(status_code=public.status_code, content={"detail": public.detail})
 
 
 _PRIVATE_ERROR_KEYS = {
@@ -191,7 +225,7 @@ def health() -> dict:
         stats = store.stats()
     finally:
         store.close()
-    return {
+    value = {
         "status": "ok",
         "name": "AlphaLab Barebone API",
         **build_info(),
@@ -206,6 +240,11 @@ def health() -> dict:
             "strategies": stats["strategies"],
         },
     }
+    runtime = getattr(app.state, "configuration_runtime", None)
+    if runtime is not None:
+        with runtime.backend.borrow():
+            value["configuration"] = runtime.backend.public_identity()
+    return value
 
 
 @app.post("/api/cache/clear")

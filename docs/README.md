@@ -45,6 +45,7 @@ logic. These describe the pinned core snapshot and are validated by
 - [Authenticated managed Agent connection](guides/configuration-agent-connection.md): private owner/process agreement, pinned credential dispatch, fail-closed SQLite search tests and deferred production activation.
 - [Inactive durable backend decision](guides/configuration-durable-decision.md): strict record states, offline first-generation preflight, write-once candidate publication and remaining cutover prerequisites.
 - [Durable authority enforcement](guides/configuration-authority-enforcement.md): checked startup and legacy access, actual Node admission leases and fail-closed production SQLite prerequisites.
+- [Coordinated durable activation](guides/configuration-durable-activation.md): explicit offline publication, immutable ancestry, complete owned API/Agent runtime, restart and recovery limitations.
 - [Deployment acceptance](08_LOCAL_DEPLOYMENT_VALIDATION.md): verification before promotion.
 
 - [Deployment](05_DEPLOYMENT.md): building, configuration, persistence, updates, and operational checks.
