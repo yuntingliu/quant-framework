@@ -8,6 +8,6 @@
 
 Provide commands for the model comparison, the position report and the backtest. State which ETF symbols and date ranges the commands need.
 
-## Report bundle
+## Local review
 
-Link one bundle the grader can open. Include the Monte Carlo results, valid JSON tool-call trace, single position report with figures and JSON, backtest report and ledgers, and AI audit log. The code, registry change, automated tests and report skill belong in the PR diff.
+Use this optional template if you review your work in GitHub. Upload the graded ZIP through the [course portal](https://submission.acetoken.net).

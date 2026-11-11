@@ -1,9 +1,9 @@
 # Lab 3 — Build and backtest an options strategy
 
-[Open the assignment](assignment.md) for the financial questions, strategy rules and marking. Fork the course repository with its `option` branch or use your assigned course copy. Replace `YOUR-GITHUB-USER` below with the owner of your fork.
+[Open the assignment](assignment.md) for the financial questions, strategy rules and marking. Clone the course repository on its `option` branch or use your assigned course copy.
 
 ~~~powershell
-git clone -b option https://github.com/YOUR-GITHUB-USER/quant-framework.git
+git clone -b option https://github.com/yuntingliu/quant-framework.git
 cd quant-framework
 git switch -c lab3
 ~~~
@@ -23,7 +23,7 @@ The first command validates the bundled strangle and invokes the registered `opt
 - Fill in `options_homework/calculations.py` and register the expiry, Greeks and stress functions in `options_homework/tools.py`. Run `python -m examples.course.lab3.verify_submission` after implementing them.
 - Connect the lab registry to AlphaLab and pass a schema-driven Monte Carlo call through an agent. Generate one strangle position comparison and write a reusable report skill.
 - Build `options_homework/backtest.py`, `options_homework/backtest_report.py` and `run_backtest.py`. Choose a structure, define its entry and exit rules, and freeze the design before the historical holdout. An ETF share leg and a timed-versus-untimed comparison are optional.
-- Link the reports, ledgers, figures and [AI audit log](ai-audit-log.md) from your pull request.
+- Include the reports, ledgers, figures and [AI audit log](ai-audit-log.md) in the ZIP you upload to the course portal.
 
 The input registration, fixture validation, report and figure writer, acceptance checker and daily data reader are supplied. The finance calculations, historical simulator and analysis are the assignment.
 
@@ -113,7 +113,7 @@ Write your report skill at `skills/strangle-position-report/SKILL.md` within the
 python -m examples.course.lab3.run_report --compare-sizes --api http://127.0.0.1:8765 --interpretation interpretation.md --out runs/strangle
 ~~~
 
-Include the single position report folder in the report bundle and commit your skill in the PR. Record what you checked or corrected in the AI audit log.
+Include the single position report folder and your skill in the submission ZIP. Record what you checked or corrected in the AI audit log.
 
 ## Question 3 · Historical backtest
 
@@ -135,15 +135,19 @@ Use one command to generate the historical report after implementing the runner.
 python -m examples.course.lab3.run_backtest --out runs/history
 ~~~
 
-## Submit a GitHub pull request
+## Submit through the course portal
 
-Create a lab branch from `option` in your own fork or course copy and open a PR back into that copy's `option` branch. Use the [Lab 3 PR template](pull_request_template.md) as the description. Commit the lab source, registry change, report skill and tests under `examples/course/lab3/tests/`. Add at least one independent check for a sign or multiplier error and one check for the invalid Monte Carlo input. Keep checks runnable with the bundled inputs or synthetic fixtures.
+Upload one ZIP to [submission.acetoken.net](https://submission.acetoken.net). Include:
 
-The **Lab 3 PR checks** workflow runs the supplied checker and the student tests. Enable GitHub Actions in your copy if needed. Run the same commands from the checkout root before opening the PR.
+- Lab source files, your AlphaLab registry change, the report skill, automated test code, and run instructions.
+- The Monte Carlo comparison, one short-strangle position comparison with its JSON and figures, and the valid agent tool-call trace.
+- The backtest report, ledgers, charts, and AI audit log.
+
+Run the checks locally before uploading. Keep your independent checks under `examples/course/lab3/tests/` and use bundled inputs or synthetic fixtures.
 
 ~~~powershell
 python -m examples.course.lab3.verify_submission
 python -m pytest examples/course/lab3/tests -q
 ~~~
 
-Link one report bundle in the PR description where the grader can access it. Include the Monte Carlo comparison, one position comparison with its JSON and charts, the valid agent tool-call trace, the backtest report and ledgers, and your AI audit log. Keep raw Ricequant data, credentials and generated run folders out of Git. Submit the PR URL at [submission.acetoken.net](https://submission.acetoken.net).
+Package the source and requested outputs. Keep credentials, raw Ricequant data, virtual environments, caches, and unrelated generated files out of the ZIP.
