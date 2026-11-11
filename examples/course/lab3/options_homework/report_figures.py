@@ -1,4 +1,4 @@
-"""Render Question 1 figures from the registered tools' results."""
+"""Render Question 2 figures from the registered tools' results."""
 
 from math import isclose
 from pathlib import Path

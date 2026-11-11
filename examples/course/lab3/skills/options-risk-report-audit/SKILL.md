@@ -1,6 +1,6 @@
 ---
 name: options-risk-report-audit
-description: Audit the generated AlphaLab Lab 3 Question 1 option risk reports against tool inputs, signed cash flows, Greek units, and stress scenarios. Use when reviewing the ten-pair and two-pair position report bundles.
+description: Audit the generated AlphaLab Lab 3 Question 2 option risk reports against tool inputs, signed cash flows, Greek units, and stress scenarios. Use when reviewing the ten-pair and two-pair position report bundles.
 ---
 
 # Audit the Lab 3 option risk reports

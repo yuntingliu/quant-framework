@@ -1,8 +1,9 @@
-"""Register the worked example, then connect the three student functions here."""
+"""Register the pricing examples and connect the three position-report tools."""
 
 from alphalab.tools import ToolRegistry, ToolSpec
 
-from .models import ReportRequest
+from .mc_pricing import price_monte_carlo
+from .models import MonteCarloRequest, ReportRequest
 
 
 def case_inputs(request: ReportRequest) -> dict:
@@ -23,6 +24,14 @@ def register_lab_tools(registry: ToolRegistry) -> None:
             description="Read validated option report inputs and counts",
             input_model=ReportRequest,
             handler=case_inputs,
+        )
+    )
+    registry.register(
+        ToolSpec(
+            name="options_lab.monte_carlo",
+            description="Price a European ETF option under GBM or Merton in CNY per ETF unit.",
+            input_model=MonteCarloRequest,
+            handler=price_monte_carlo,
         )
     )
     # Register options_lab.expiry, options_lab.greeks and options_lab.stress here.

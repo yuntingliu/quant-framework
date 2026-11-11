@@ -1,4 +1,4 @@
-"""Check local SSE 50 ETF option history before writing a backtest."""
+"""Check local ETF option history before writing a backtest."""
 
 import argparse
 from datetime import date, timedelta
@@ -10,19 +10,23 @@ from .options_homework.history import load_history, load_signal_inputs
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--underlying", default="510050.XSHG")
     parser.add_argument("--start", default="2026-10-19")
     parser.add_argument("--end", default="2026-10-23")
     parser.add_argument("--data-root", type=Path, help="AlphaLab runtime directory")
     args = parser.parse_args()
 
     try:
-        spot, chains = load_history(args.start, args.end, args.data_root)
+        spot, chains = load_history(args.start, args.end, args.data_root, underlying=args.underlying)
         prior = date.fromisoformat(args.start) - timedelta(days=7)
-        signal_inputs = load_signal_inputs(prior.isoformat(), args.end, args.data_root).reindex(spot.index)
+        signal_inputs = load_signal_inputs(
+            prior.isoformat(), args.end, args.data_root, underlying=args.underlying
+        ).reindex(spot.index)
     except (OSError, ValueError) as exc:
         parser.error(f"Could not read the local options store: {exc}")
 
     result = {
+        "underlying": args.underlying,
         "first_session": spot.index[0].date().isoformat(),
         "last_session": spot.index[-1].date().isoformat(),
         "sessions": len(spot),

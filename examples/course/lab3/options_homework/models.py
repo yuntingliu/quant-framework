@@ -51,3 +51,25 @@ class ReportRequest(LabModel):
         if any(leg.iv + min(self.iv_shifts) <= 0 for leg in self.legs):
             raise PydanticCustomError("nonpositive_shocked_iv", "each shocked leg IV must be positive")
         return self
+
+
+class MonteCarloRequest(LabModel):
+    spot: float = Field(gt=0)
+    strike: float = Field(gt=0)
+    maturity: float = Field(gt=0, le=5, description="ACT/365F years to expiry")
+    rate: float = Field(ge=-1, le=1, description="Continuous annual risk-free rate as a decimal")
+    dividend_yield: float = Field(ge=-1, le=1, description="Continuous annual yield as a decimal")
+    volatility: float = Field(gt=0, le=3, description="Annual diffusion volatility as a decimal")
+    kind: Literal["P", "C"]
+    model: Literal["gbm", "merton"]
+    paths: int = Field(default=100_000, ge=2, le=1_000_000, strict=True)
+    seed: int = Field(default=42, ge=0, le=2**32 - 1, strict=True)
+    jump_intensity: float = Field(default=0, ge=0, le=10, description="Expected jumps per year")
+    jump_mean: float = Field(default=-0.10, ge=-1, le=1, description="Mean log jump")
+    jump_volatility: float = Field(default=0.10, ge=0, le=1, description="Standard deviation of log jump")
+
+    @model_validator(mode="after")
+    def check_gbm(self):
+        if self.model == "gbm" and self.jump_intensity != 0:
+            raise ValueError("GBM requires zero jump intensity")
+        return self

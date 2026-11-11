@@ -1,0 +1,15 @@
+{
+  "name": "options_lab.monte_carlo",
+  "arguments": {
+    "spot": 4.2,
+    "strike": 4,
+    "maturity": 0.16712328767123288,
+    "rate": 0.014,
+    "dividend_yield": 0.02,
+    "volatility": 0.2,
+    "kind": "P",
+    "model": "gbm",
+    "paths": 100000,
+    "seed": 42
+  }
+}
