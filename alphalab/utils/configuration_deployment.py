@@ -347,7 +347,26 @@ def _configuration(path, original_root):
     # different path. This never opens it as an activated, relocated installation.
     handle = storage.ConfigurationStore._handle(original_root, 5)
     handle._path = path
+    handle = handle.with_history_checks()
+    from alphalab.utils import configuration_decision as authority
+
+    namespace = path.parents[2] / authority.NAMESPACE
+    namespace_present = os.path.lexists(namespace)
+    if namespace_present:
+        authority._directory(namespace)
+        if {entry.name for entry in namespace.iterdir()} != {"decision.json"}:
+            raise DeploymentPreparationError("INVALID_BACKUP")
+        record = authority._parse(
+            authority._file(namespace / "decision.json"), handle._root_key
+        ).as_dict()
+        if record["state"] == "committed":
+            handle._anchor, handle._anchor_kinds = (
+                record["revision"],
+                record["evidence"]["selection_kinds"],
+            )
     snapshot = handle.read_snapshot()
+    if namespace_present and record["installation_id"] != snapshot.installation_id:
+        raise DeploymentPreparationError("INVALID_BACKUP")
     return {
         "protocol_version": storage.PROTOCOL_VERSION,
         "installation_id": snapshot.installation_id,
@@ -400,16 +419,10 @@ def _saved_credentials(root, config, original_root):
     if path.exists():
         handle = storage.ConfigurationStore._handle(original_root, 5)
         handle._path = path
-        deadline = time.monotonic() + 5
-        with handle._session(deadline) as session:
-            session.execute("BEGIN")
-            handle._current(session)  # Validate protocol, current generation and root binding.
-            for row in session.execute("SELECT models, search, rqdata FROM generations"):
-                if time.monotonic() >= deadline:
-                    raise DeploymentPreparationError("BUSY")
-                for service, raw in zip(_PROFILE_CREDENTIALS, row):
-                    document(service, storage._decode(raw))
-            session.execute("COMMIT")
+        snapshot = handle.with_history_checks().read_snapshot()
+        for documents in snapshot.extract_history_private():
+            for service, value in documents.items():
+                document(service, value)
     if config is not None:
         path = config / "alphalab.env"
         if path.exists():
@@ -563,6 +576,27 @@ def create_backup(offline, destination, *, config=None, plists=(), metadata=None
     copied = _configuration(destination / "runtime" / _CONFIG, offline.root) if identity else None
     if copied != identity:
         raise DeploymentPreparationError("SOURCE_CHANGED")
+    if identity is not None:
+        from alphalab.utils.configuration_decision import BACKUP_FENCE
+
+        marker = destination / "runtime" / BACKUP_FENCE
+        _mkdir(marker.parent)
+        descriptor = os.open(
+            marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666 if os.name == "nt" else 0o600
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            json.dump(
+                {"version": 1, "purpose": "private-backup-only", "configuration": identity}, output
+            )
+            output.flush()
+            os.fsync(output.fileno())
+        entries.append(
+            {
+                "path": marker.relative_to(destination).as_posix(),
+                "sha256": _digest(marker),
+                "sqlite": False,
+            }
+        )
     value = {
         "version": 1,
         "backend": offline.backend,
@@ -606,11 +640,15 @@ def verify_backup(offline, destination):
         raise ValueError
     offline._check()
     destination = checked_root(destination)
+    original = _digest(destination / _MANIFEST)
     manifest = _json(destination / _MANIFEST)
     if type(manifest) is not dict or manifest.get("complete") is not True:
         raise DeploymentPreparationError("INVALID_BACKUP")
     manifest.pop("complete")
-    return _verify_contents(offline, destination, manifest, published=True)
+    result = _verify_contents(offline, destination, manifest, published=True)
+    if _digest(destination / _MANIFEST) != original:
+        raise DeploymentPreparationError("SOURCE_CHANGED")
+    return result
 
 
 def _verify_contents(offline, destination, manifest, *, published):
@@ -634,6 +672,11 @@ def _verify_contents(offline, destination, manifest, *, published):
             or set(entry) != {"path", "sha256", "sqlite"}
             or type(entry["path"]) is not str
             or type(entry["sqlite"]) is not bool
+            or type(entry["sha256"]) is not str
+            or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])
+            or "\\" in entry["path"]
+            or ":" in entry["path"]
+            or any(part in {"", ".", ".."} for part in entry["path"].split("/"))
         ):
             raise DeploymentPreparationError("INVALID_BACKUP")
         path = destination / entry["path"]
@@ -652,8 +695,11 @@ def _verify_contents(offline, destination, manifest, *, published):
                     or connection.execute("PRAGMA foreign_key_check").fetchone()
                 ):
                     raise DeploymentPreparationError("INVALID_BACKUP")
-    if set(_inventory(destination)) != named | ({_MANIFEST} if published else set()):
+    inventory = _inventory(destination)
+    if set(inventory) != named | ({_MANIFEST} if published else set()):
         raise DeploymentPreparationError("INVALID_BACKUP")
+    if any(inventory[entry["path"]][-1] != entry["sha256"] for entry in entries):
+        raise DeploymentPreparationError("SOURCE_CHANGED")
     if "snapshot.json" in named:
         _prepare_metadata(
             _json(destination / "snapshot.json"),
@@ -672,13 +718,66 @@ def _verify_contents(offline, destination, manifest, *, published):
         and (actual is None or actual["installation_id"] != offline.installation_id)
     ):
         raise DeploymentPreparationError("INVALID_BACKUP")
+    from alphalab.utils.configuration_decision import BACKUP_FENCE
+
+    fence = destination / "runtime" / BACKUP_FENCE
+    if fence.exists():
+        value = _json(fence)
+        if (
+            value != {"version": 1, "purpose": "private-backup-only", "configuration": identity}
+            or type(value["version"]) is not int
+        ):
+            raise DeploymentPreparationError("INVALID_BACKUP")
+    _reject_metadata_credentials(
+        {str(index): entry["path"] for index, entry in enumerate(entries)},
+        _saved_credentials(
+            destination / "runtime",
+            destination / "config" if (destination / "config").exists() else None,
+            offline.root,
+        ),
+    )
     return {
         "verified": True,
         "file_count": len(named),
         "backend": offline.backend,
         "configuration": identity,
         "restorable": False,
+        "freshness_verified": False,
+        "credential_revocation_verified": False,
+        "rollback_provenance_verified": False,
     }
+
+
+@protected
+def inspect_configuration_backup(root, destination, *, installation_id):
+    """Read-only integrity/identity check, independent of active backend choice.
+
+    Matching IDs/hashes never authorize restore or prove freshness. An explicit
+    expected installation ID is required even when live authority is missing.
+    """
+    from types import SimpleNamespace
+
+    if type(installation_id) is not str or not re.fullmatch(r"[0-9a-f]{32}", installation_id):
+        raise DeploymentPreparationError("INVALID_BACKUP")
+    root, destination = checked_root(root), checked_root(destination)
+    original = _digest(destination / _MANIFEST)
+    manifest = _json(destination / _MANIFEST)
+    if (
+        type(manifest) is not dict
+        or manifest.pop("complete", None) is not True
+        or manifest.get("backend") not in {"json", "sqlite"}
+    ):
+        raise DeploymentPreparationError("INVALID_BACKUP")
+    claim = SimpleNamespace(root=root, backend=manifest["backend"], installation_id=installation_id)
+    result = _verify_contents(claim, destination, manifest, published=True)
+    if (
+        result["configuration"] is None
+        or result["configuration"]["installation_id"] != installation_id
+    ):
+        raise DeploymentPreparationError("INVALID_BACKUP")
+    if _digest(destination / _MANIFEST) != original:
+        raise DeploymentPreparationError("SOURCE_CHANGED")
+    return result
 
 
 @protected

@@ -851,7 +851,7 @@ def test_bound_update_history_limit_rejects_before_commit(candidate):
     bound = raw.bind_activation(anchor, record.as_dict()["evidence"]["selection_kinds"])
     with pytest.raises(ConfigurationStoreError) as caught:
         bound.update(lambda old: (old.documents, old.selections), expected_revision=previous)
-    assert caught.value.code == "STORE_CORRUPT"
+    assert caught.value.code == "HISTORY_CAPACITY"
     assert raw.read_snapshot().revision == previous
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT count(*) FROM generations").fetchone() == (4096,)

@@ -27,6 +27,9 @@ from alphalab.utils.configuration_store import (
 
 PROTOCOL_VERSION = 1
 NAMESPACE = Path("app/secrets/configuration-decision")
+RECOVERY_NAMESPACE = Path("app/secrets/configuration-recovery")
+BACKUP_FENCE = Path("app/secrets/configuration-backup-only.json")
+OWNER_WITNESS = Path("app/secrets/configuration-owner.json")
 _RECORD = "decision.json"
 _PENDING = "decision.pending"
 _LIMIT = 16384
@@ -176,10 +179,16 @@ def _file(path):
 
 
 def _read_unlocked(root):
+    # Deny-only witnesses: neither file presence nor a pending recovery selects
+    # a backend. Never turn damaged/backup authority into JSON compatibility.
+    if any(os.path.lexists(root / path) for path in (RECOVERY_NAMESPACE, BACKUP_FENCE)):
+        _fail("RECOVERY_REQUIRED")
     directory = root / NAMESPACE
     try:
         directory.lstat()
     except FileNotFoundError:
+        if os.path.lexists(root / OWNER_WITNESS):
+            _fail("RECOVERY_REQUIRED")
         return None
     _directory(directory)
     if {path.name for path in directory.iterdir()} != {_RECORD}:

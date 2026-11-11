@@ -139,6 +139,14 @@ def _credential_values(documents, environment=None):
     return result
 
 
+def _snapshot_credential_values(snapshot, environment=None):
+    """Retained secrets are redaction canaries only, never fallback values."""
+    values = _credential_values(snapshot.documents, environment)
+    for documents in snapshot.extract_history_private():
+        values.update(_credential_values(documents))
+    return values
+
+
 def _scan_metadata(value, credentials):
     """Reject known secrets in original/decoded public values, never echo them."""
     if not credentials:
@@ -194,7 +202,7 @@ def _documents(snapshot, *, extra_credentials=frozenset()):
     documents = snapshot.documents
     # Collect before normalizing: otherwise search/RQData validation loses the
     # original password/key spelling, including surrounding whitespace.
-    credentials = _credential_values(documents) | extra_credentials
+    credentials = _snapshot_credential_values(snapshot) | extra_credentials
     _scan_profile_metadata(documents, credentials)
     # Views normalize legacy search in memory only. Untouched native documents
     # are preserved byte-for-byte by service updates below.
@@ -393,7 +401,7 @@ class ProfileSnapshot:
         # Public metadata must not accidentally repeat supplied credentials,
         # including credentials belonging to another service/inactive profile.
         _scan_public_metadata(
-            result, _credential_values(self._snapshot.documents, self._environment)
+            result, _snapshot_credential_values(self._snapshot, self._environment)
         )
         return result
 
@@ -495,7 +503,7 @@ class ConfigurationProfileServices:
             type(key) is not str or type(value) is not str for key, value in values.items()
         ):
             raise ValueError
-        self._store = store
+        self._store = store.with_history_checks()
         # Keep raw credentials available to the scanner. Runtime views normalize
         # explicit environment inputs outside storage transactions.
         self._environment = {key: value for key, value in values.items() if key in _ENV_KEYS}
@@ -600,7 +608,7 @@ class ConfigurationProfileServices:
         return self._publish(current, documents, selections)
 
     def _check_publication(self, current, proposed):
-        old_secrets = _credential_values(current._snapshot.documents, self._environment)
+        old_secrets = _snapshot_credential_values(current._snapshot, self._environment)
         _documents(proposed._snapshot, extra_credentials=old_secrets)
         for service in _SERVICES:
             _scan_public_metadata(proposed.public_settings(service), old_secrets)
@@ -633,3 +641,38 @@ class ConfigurationProfileServices:
         )
         self._check_publication(current, proposed)
         return self._publish(current, documents, selections)
+
+    @_guard
+    def delete_profile(self, service, profile_id, *, expected_revision=None):
+        """Logical deletion only. History is private, retained and never resolved.
+
+        Selected deletion means explicit none. Model references must be removed
+        explicitly first, including references in inactive search profiles.
+        """
+        if service not in _SERVICES or not storage._identifier(profile_id):
+            raise ValueError
+        current = self.read_snapshot()
+        if expected_revision is not None and expected_revision != current.revision:
+            raise ConfigurationStoreError("REVISION_CONFLICT")
+        documents, choices = current._snapshot.documents, current.selections
+        validated = _documents(current._snapshot)
+        document = validated[service]
+        if not any(row["id"] == profile_id for row in document["profiles"]):
+            raise ValueError
+        if service == "models" and any(
+            row.get("model_profile_id") == profile_id for row in validated["search"]["profiles"]
+        ):
+            raise ValueError
+        document["profiles"] = [row for row in document["profiles"] if row["id"] != profile_id]
+        if document["active_id"] == profile_id:
+            document["active_id"] = None
+            choices[service] = {"kind": "none"}
+        documents[service] = document
+        proposed = ProfileSnapshot(
+            ConfigurationSnapshot(
+                current.installation_id, current.revision, storage._encode(documents, choices)
+            ),
+            self._environment,
+        )
+        self._check_publication(current, proposed)
+        return self._publish(current, documents, choices)

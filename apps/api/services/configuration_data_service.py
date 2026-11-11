@@ -22,9 +22,9 @@ from alphalab.utils.configuration_maintenance import execution_access
 from alphalab.utils.configuration_store import ConfigurationStoreError
 from apps.api.services.configuration_profile_service import (
     ConfigurationProfileServices,
-    _credential_values,
     _guard,
     _scan_metadata,
+    _snapshot_credential_values,
 )
 from apps.api.services.configuration_runtime_service import RQJobConfiguration
 from apps.api.services.data_sync_service import _public_job
@@ -98,9 +98,7 @@ class ConfigurationDataServices:
             snapshot = self._profiles.read_snapshot()
             _scan_metadata(
                 request_metadata(value, snapshot.installation_id),
-                _credential_values(
-                    snapshot.documents.extract_private(), self._profiles._environment
-                ),
+                _snapshot_credential_values(snapshot._snapshot, self._profiles._environment),
             )
             value.update(
                 configuration_backend="sqlite",
@@ -189,8 +187,8 @@ class ConfigurationDataServices:
                     request.pop("configuration_capture", None)
                     _scan_metadata(
                         request_metadata(request, snapshot.installation_id),
-                        _credential_values(
-                            snapshot.documents.extract_private(), self._profiles._environment
+                        _snapshot_credential_values(
+                            snapshot._snapshot, self._profiles._environment
                         ),
                     )
                     operations.replace_job_request(job_id, request)

@@ -16,10 +16,20 @@ const aborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted'
 const held = new AsyncLocalStorage()
 
 async function checkAuthorityRecord(root, backend = 'json') {
+  for (const relative of ['app/secrets/configuration-recovery', 'app/secrets/configuration-backup-only.json']) {
+    try { await lstat(resolve(root, relative)) } catch (error) {
+      if (error.code === 'ENOENT') continue
+      throw 0
+    }
+    throw 0 // Deny-only fence; never reconstruct or activate from a witness.
+  }
   const directory = resolve(root, 'app/secrets/configuration-decision')
   let info
   try { info = await lstat(directory) } catch (error) {
-    if (error.code === 'ENOENT' && backend !== 'sqlite') return
+    if (error.code === 'ENOENT' && backend !== 'sqlite') {
+      try { await lstat(resolve(root, 'app/secrets/configuration-owner.json')) }
+      catch (ownerError) { if (ownerError.code === 'ENOENT') return; throw 0 }
+    }
     throw 0
   }
   const { configurationRootKey } = await import('./configuration-store-worker.mjs')

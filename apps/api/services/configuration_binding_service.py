@@ -24,7 +24,7 @@ def configuration_http_error(error):
     code = error.code
     status = (
         409
-        if code in {"REVISION_CONFLICT", "STORE_BUSY"}
+        if code in {"REVISION_CONFLICT", "STORE_BUSY", "HISTORY_CAPACITY"}
         else (422 if code in {"INVALID_CONFIGURATION", "INVALID_ARGUMENT"} else 503)
     )
     return HTTPException(status, str(ConfigurationStoreError(code)))

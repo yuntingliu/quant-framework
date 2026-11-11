@@ -46,6 +46,7 @@ logic. These describe the pinned core snapshot and are validated by
 - [Inactive durable backend decision](guides/configuration-durable-decision.md): strict record states, offline first-generation preflight, write-once candidate publication and remaining cutover prerequisites.
 - [Durable authority enforcement](guides/configuration-authority-enforcement.md): checked startup and legacy access, actual Node admission leases and fail-closed production SQLite prerequisites.
 - [Coordinated durable activation](guides/configuration-durable-activation.md): explicit offline publication, immutable ancestry, complete owned API/Agent runtime, restart and recovery limitations.
+- [Configuration recovery and credential history](guides/configuration-recovery-security.md): read-only state inspection, explicit same-installation journal recovery, private history redaction, backup provenance and disabled historical restore.
 - [Deployment acceptance](08_LOCAL_DEPLOYMENT_VALIDATION.md): verification before promotion.
 
 - [Deployment](05_DEPLOYMENT.md): building, configuration, persistence, updates, and operational checks.

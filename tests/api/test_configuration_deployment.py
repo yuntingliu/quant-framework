@@ -386,7 +386,10 @@ def test_backup_contains_all_three_documents_history_and_bound_identity(tmp_path
             )
             assert json.loads(rows[-1][3]) == current.selections
         assert deploy.verify_backup(token, target) == result
-        assert list(target.rglob("*.json")) == [target / "configuration-backup.json"]
+        assert set(target.rglob("*.json")) == {
+            target / "configuration-backup.json",
+            target / "runtime/app/secrets/configuration-backup-only.json",
+        }
 
 
 def test_nested_wal_application_database_uses_sqlite_backup(tmp_path):
@@ -986,7 +989,16 @@ def test_supported_tags_keep_public_backup_contract(tmp_path, tag):
     with offline(decision(root, store)) as token:
         report = deploy.create_backup(token, target, metadata=metadata)
         assert json.loads((target / "snapshot.json").read_text()) == metadata
-        assert set(report) == {"verified", "file_count", "backend", "configuration", "restorable"}
+        assert set(report) == {
+            "verified",
+            "file_count",
+            "backend",
+            "configuration",
+            "restorable",
+            "freshness_verified",
+            "credential_revocation_verified",
+            "rollback_provenance_verified",
+        }
         assert report["verified"] is True and report["restorable"] is False
         assert deploy.verify_backup(token, target) == report
         private((target / "snapshot.json").read_text())

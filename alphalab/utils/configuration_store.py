@@ -33,9 +33,10 @@ POSIX private-directory/file permissions are checked; Windows inherits existing
 directory protection without ACL or chmod changes. Windows/POSIX power-loss
 durability still depends on the OS, filesystem, and storage hardware.
 
-All generations contain secrets. Retention, cleanup, backups, relocation,
-credential revocation across history, and logical rollback require a separately
-reviewed cutover policy. There is no history/rollback API or automatic pruning.
+All generations contain secrets. Bound/service snapshots retain bounded history
+only for explicit private redaction checks, never runtime credential resolution.
+No historical selection, restore or pruning API is provided. Retention/erasure,
+relocation and future logical rollback require a separately reviewed policy.
 Callbacks must not reenter any store, resolve live settings, or perform I/O.
 Lock timeouts bound waiting, not arbitrary callback execution or filesystem I/O.
 After an uncertain commit acknowledgement, read the current revision rather
@@ -89,6 +90,8 @@ _SERVICES = ("models", "search", "rqdata")
 _PROFILE_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 _OPAQUE_ID = re.compile(r"[0-9a-f]{32}")
 _MAX_BYTES = 4 * 1024 * 1024
+_MAX_GENERATIONS = 4096
+_MAX_HISTORY_BYTES = 64 * 1024 * 1024
 _MAX_NODES = 32768
 _MAX_DEPTH = 32
 _INTERRUPTED = "Configuration-store operation interrupted."
@@ -111,6 +114,8 @@ _MESSAGES = {
     "INSTALLATION_MISMATCH": "The configuration store belongs to another installation.",
     "UPDATE_FAILED": "The configuration update was rejected.",
     "REENTRANT_ACCESS": "Configuration-store callbacks must not reenter storage.",
+    "HISTORY_CAPACITY": "Configuration history capacity is exhausted. The current generation was preserved.",
+    "RECOVERY_PUBLICATION_UNCERTAIN": "Recovery publication was not confirmed. Inspect the installation before further action; do not retry automatically.",
 }
 
 
@@ -387,12 +392,13 @@ def _decode(text):
 class ConfigurationSnapshot:
     """Immutable private snapshot; document/selection properties return fresh copies."""
 
-    __slots__ = ("_installation_id", "_revision", "_texts")
+    __slots__ = ("_installation_id", "_revision", "_texts", "_history")
 
     def __init__(self, installation_id: str, revision: str, texts: tuple[str, ...]):
         object.__setattr__(self, "_installation_id", installation_id)
         object.__setattr__(self, "_revision", revision)
         object.__setattr__(self, "_texts", tuple(texts))
+        object.__setattr__(self, "_history", ())
 
     def __setattr__(self, name, value):
         raise AttributeError("Configuration snapshots are immutable.")
@@ -422,6 +428,17 @@ class ConfigurationSnapshot:
     @property
     def selections(self) -> dict:
         return json.loads(self._texts[3])
+
+    def extract_history_private(self):
+        """Explicit trusted extraction, never a runtime credential resolver.
+
+        The bounded retained documents share this snapshot's read transaction.
+        Empty means history was not requested by an unbound foundation caller.
+        """
+        return [
+            {service: json.loads(text) for service, text in zip(_SERVICES, row)}
+            for row in self._history
+        ]
 
 
 class _Session:
@@ -468,6 +485,7 @@ class ConfigurationStore:
         "_installation_id",
         "_anchor",
         "_anchor_kinds",
+        "_history_checked",
     )
 
     def __init__(self):
@@ -493,6 +511,19 @@ class ConfigurationStore:
         store._root_key = hashlib.sha256(key.encode("utf-8")).hexdigest()
         store._timeout, store._installation_id = float(timeout), None
         store._anchor, store._anchor_kinds = None, None
+        store._history_checked = False
+        return store
+
+    def with_history_checks(self):
+        """Private service view: audit history and retain it only for redaction.
+
+        Does not select a generation, change protocol or grant ownership.
+        """
+        store = self._handle(self._root, self._timeout)
+        store._path = self._path
+        store._installation_id = self._installation_id
+        store._anchor, store._anchor_kinds = self._anchor, self._anchor_kinds
+        store._history_checked = True
         return store
 
     def bind_activation(self, revision, selection_kinds):
@@ -573,18 +604,27 @@ class ConfigurationStore:
 
         def action():
             store = cls._handle(root, timeout)
-            with store._writer() as deadline:
-                with store._session(deadline, write=True, recovering=True) as session:
-                    session.execute("BEGIN IMMEDIATE")
-                    store._check_file()
-                    if session.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
-                        _fail("STORE_CORRUPT")
-                    snapshot = store._current(session)
-                    session.execute("COMMIT")
-                store._installation_id = snapshot.installation_id
+            store._recover()
             return store
 
         return _safe_call(action)
+
+    def _recover(self):
+        """Native physical transaction recovery; trusted offline coordinator only.
+
+        A caller may bind installation/anchor before this primitive; it never
+        restores a historical row or reconstructs external authority.
+        """
+        with self._writer() as deadline:
+            with self._session(deadline, write=True, recovering=True) as session:
+                session.execute("BEGIN IMMEDIATE")
+                self._check_file()
+                if session.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+                    _fail("STORE_CORRUPT")
+                snapshot = self._current(session)
+                session.execute("COMMIT")
+            self._installation_id = snapshot.installation_id
+        return snapshot
 
     def read_snapshot(self) -> ConfigurationSnapshot:
         """Read all documents and selection intents from one read transaction."""
@@ -627,10 +667,11 @@ class ConfigurationStore:
                     texts = _encode(*candidate)
                     revision = uuid4().hex
                     self._insert(session, revision, current.revision, texts)
-                    if self._anchor is not None:
-                        self._ancestry(
-                            session, ConfigurationSnapshot(current.installation_id, revision, texts)
-                        )
+                    candidate_snapshot = ConfigurationSnapshot(
+                        current.installation_id, revision, texts
+                    )
+                    if self._anchor is not None or self._history_checked:
+                        self._ancestry(session, candidate_snapshot, publishing=True)
                     published = session.execute(
                         "UPDATE store_metadata SET current_revision=? "
                         "WHERE singleton=1 AND current_revision=?",
@@ -639,7 +680,7 @@ class ConfigurationStore:
                     if published.rowcount != 1:
                         _fail("STORE_CORRUPT")
                     session.execute("COMMIT")
-                    return ConfigurationSnapshot(current.installation_id, revision, texts)
+                    return candidate_snapshot
 
         if self._anchor is not None:
             from alphalab.utils.configuration_maintenance import execution_access
@@ -694,6 +735,13 @@ class ConfigurationStore:
 
     def _check_file(self, *, initializing=False, recovering=False):
         self._check_parent()
+        if any(
+            os.path.lexists(self._path.with_name(self._path.name + suffix))
+            for suffix in ("-wal", "-shm")
+        ):
+            # Match the Node protocol reader, even if the main header still
+            # claims DELETE mode. Never adopt an orphan WAL/SHM sidecar.
+            _fail("UNSUPPORTED_STORAGE")
         try:
             info = self._path.lstat()
         except FileNotFoundError:
@@ -796,12 +844,14 @@ class ConfigurationStore:
         except Exception:
             _fail("STORE_CORRUPT")
         snapshot = ConfigurationSnapshot(installation_id, revision, texts)
-        if self._anchor is not None:
+        if self._anchor is not None or self._history_checked:
             self._ancestry(session, snapshot)
         return snapshot
 
-    def _ancestry(self, session, current):
-        if any(choice["kind"] == "environment" for choice in current.selections.values()):
+    def _ancestry(self, session, current, *, publishing=False):
+        if self._anchor is not None and any(
+            choice["kind"] == "environment" for choice in current.selections.values()
+        ):
             _fail("INVALID_CONFIGURATION")
         # Protocol 1 never deletes generations. Requiring the complete ordinal
         # sequence and one linear chain rejects missing parents, cycles, forks,
@@ -809,11 +859,14 @@ class ConfigurationStore:
         rows = session.execute(
             "SELECT ordinal, revision, parent_revision, length(CAST(models AS BLOB)), "
             "length(CAST(search AS BLOB)), length(CAST(rqdata AS BLOB)), "
-            "length(CAST(selections AS BLOB)) FROM generations ORDER BY ordinal LIMIT 4097"
+            f"length(CAST(selections AS BLOB)) FROM generations ORDER BY ordinal LIMIT {_MAX_GENERATIONS + 1}"
         ).fetchall()
-        if not rows or len(rows) > 4096:
+        capacity = "HISTORY_CAPACITY" if publishing else "STORE_CORRUPT"
+        if len(rows) > _MAX_GENERATIONS:
+            _fail(capacity)
+        if not rows:
             _fail("STORE_CORRUPT")
-        previous, total = None, 0
+        previous, total, history = None, 0, []
         for ordinal, row in enumerate(rows, 1):
             index, revision, parent, *lengths = row
             if (
@@ -826,9 +879,11 @@ class ConfigurationStore:
             ):
                 _fail("STORE_CORRUPT")
             total += sum(lengths)
-            if total > 64 * 1024 * 1024 or sum(lengths) > _MAX_BYTES:
+            if total > _MAX_HISTORY_BYTES:
+                _fail(capacity)
+            if sum(lengths) > _MAX_BYTES:
                 _fail("STORE_CORRUPT")
-            if ordinal == 1 and revision != self._anchor:
+            if self._anchor is not None and ordinal == 1 and revision != self._anchor:
                 _fail("REVISION_CONFLICT")
             fields = session.execute(
                 "SELECT models, search, rqdata, selections FROM generations WHERE revision=?",
@@ -837,16 +892,21 @@ class ConfigurationStore:
             documents = {name: _decode(text) for name, text in zip(_SERVICES, fields)}
             choices = _decode(fields[3])
             _encode(documents, choices)
-            if any(choice["kind"] == "environment" for choice in choices.values()):
+            history.append(tuple(fields))
+            if self._anchor is not None and any(
+                choice["kind"] == "environment" for choice in choices.values()
+            ):
                 _fail("INVALID_CONFIGURATION")
             if (
                 ordinal == 1
+                and self._anchor is not None
                 and {name: choice["kind"] for name, choice in choices.items()} != self._anchor_kinds
             ):
                 _fail("INVALID_CONFIGURATION")
             previous = revision
         if previous != current.revision:
             _fail("REVISION_CONFLICT")
+        object.__setattr__(current, "_history", tuple(history))
 
 
 __all__ = [

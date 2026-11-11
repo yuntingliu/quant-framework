@@ -165,9 +165,12 @@ Mocked tests do not establish real macOS/POSIX or Conexus bundle compatibility.
 Filesystem I/O and native SDK code cannot be given a universal wall-clock bound.
 Manifest publication is not a physical power-loss or crash-safe restore protocol.
 
-Phase 4B.5B.3 must still prove explicit offline durable activation; one backend
-authority for every process and deployment tool; authenticated SQLite Agent
-connection; credential-history retention/revocation; complete shutdown/admission
-coverage; real Conexus bundle integration; real macOS/POSIX deployment behavior;
-and interrupted restore/power-loss recovery. Historical restore remains disabled
-until those semantics are reviewed. No production cutover is authorized here.
+Durable activation and authenticated owner binding are described in the
+[activation guide](configuration-durable-activation.md). The combined
+[recovery and security policy](configuration-recovery-security.md) adds private
+history redaction, backup-only admission fences and independent backup inspection.
+Integrity and identity never establish freshness or revocation; verification
+reports explicitly leave those claims false. Historical restore and automatic
+rollback remain disabled. Real Conexus, macOS/POSIX deployment and physical
+power-loss/interrupted restore certification remain unavailable. No real cutover
+is authorized by these preparation operations.

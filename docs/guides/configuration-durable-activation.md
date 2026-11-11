@@ -131,7 +131,9 @@ provider revocation or independent credential provenance. Do not restore a
 historical store, reset an installation identity or delete witness files to force
 startup. Existing historical restore and automatic rollback guards remain closed.
 
-Phase 4B.5B.3C must resolve credential-history retention, revocation/freshness
-evidence, whole-installation rollback/provenance, reviewed interrupted-publication
-recovery, capacity handling, power-loss behavior, real-bundle integration and
-real macOS/POSIX deployment verification. No automatic recovery is supplied here.
+The combined [recovery and security policy](configuration-recovery-security.md)
+defines private history retention/redaction, capacity errors, interrupted-state
+inspection and explicit same-installation journal recovery. Historical restore,
+pending-record promotion and automatic recovery remain disabled. Independent
+freshness/revocation evidence, whole-root rollback provenance, physical power-loss,
+real-bundle and real macOS/POSIX certification remain unavailable.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { spawn } from 'node:child_process'
-import { mkdtemp, realpath, rm, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, basename } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -458,3 +458,29 @@ test('closing a borrowed handle cancels only its outward calls and retains the s
   await assert.rejects(borrowed.run(async () => 'closed'), { code: 'AUTHORITY_UNAVAILABLE' })
   assert.equal(await parent.run(async () => 'healthy'), 'healthy')
 })
+
+// New deny-only witnesses must agree with Python before ANY native credential
+// read. File presence blocks admission; it never manufactures SQLite authority.
+for (const fence of ['configuration-recovery', 'configuration-backup-only.json', 'configuration-owner.json']) {
+  test(`recovery/backup authority fence agrees across Python and Node: ${fence}`, async t => {
+    const f = await fixture(t, 'absent')
+    const filename = join(f.root, 'app/secrets', fence)
+    if (fence === 'configuration-recovery') await mkdir(filename, { mode: process.platform === 'win32' ? 0o777 : 0o700 })
+    else await writeFile(filename, 'deny-only test witness', { mode: 0o600 })
+    const result = await run(python, ['-B', '-c', `
+import sys
+from alphalab.utils.configuration_backend import ConfigurationBackend
+from alphalab.utils.configuration_store import ConfigurationStoreError
+try:
+    owner=ConfigurationBackend.production(sys.argv[1])
+except ConfigurationStoreError:
+    print('rejected')
+else:
+    owner.close()
+    raise AssertionError('Witness bypassed authority')
+`, f.root])
+    assert.equal(result.code, 0); assert.equal(result.stdout.trim(), 'rejected'); noSecrets(result)
+    await assert.rejects(readActiveProvider(f.path, {}), error => { noSecrets(error); return true })
+    await assert.rejects(openConfigurationAuthority(f.root, 'json'), error => { noSecrets(error); return true })
+  })
+}
