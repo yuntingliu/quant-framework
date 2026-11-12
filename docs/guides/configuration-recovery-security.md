@@ -194,10 +194,12 @@ native SDK calls and arbitrary callback execution have no universal time bound.
 Forced Worker termination retains the documented Node/V8 runtime limitation;
 normal successful workers retire gracefully.
 
-Phase 4C rollback must be a validated logical update from sanitized metadata,
-not an old private database, history row or credential snapshot. It needs reviewed
-credential retention/deletion identity rules, missing/revoked credential re-entry,
-process-safe preview receipts, expected-revision conflicts, complete snapshot
-coordination and crash handling. Independent provenance, retention/erasure,
-power-loss behavior, actual POSIX deployment and real Conexus execution remain
-prerequisites for any broader recovery claim. No 4C import/rollback is implemented.
+[Phase 4C transfer](configuration-transfer.md) implements validated logical
+updates from sanitized metadata, with explicit credential decisions, private
+one-use receipts, expected-revision conflicts and atomic new SQLite generations.
+It never restores old private databases, rows, backups or credential snapshots.
+Unconfirmed operations cannot authorize rollback. JSON multi-file application
+and recursive rollback remain unavailable. Independent provenance, physical
+retention/erasure, power-loss behavior, actual POSIX deployment and real Conexus
+execution remain prerequisites for broader recovery claims. No Phase 4D frontend
+or historical restore is supplied.

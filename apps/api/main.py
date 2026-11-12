@@ -29,6 +29,7 @@ from apps.api.routers import (
     backtests,
     compat,
     conexus,
+    configuration_transfer,
     data,
     data_source_profiles,
     data_sync,
@@ -209,6 +210,7 @@ app.include_router(compat.router)
 app.include_router(conexus.router)
 app.include_router(model_providers.router)
 app.include_router(search_providers.router)
+app.include_router(configuration_transfer.router)
 
 
 @app.get("/", response_model=None)

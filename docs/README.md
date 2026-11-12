@@ -34,7 +34,7 @@ logic. These describe the pinned core snapshot and are validated by
 
 - [Deployment branches and dev3](09_DEPLOYMENT_BRANCHES.md): exact deployed revision, legacy branch mapping, local architecture, private configuration and management.
 - [Local deployment](07_LOCAL_DEPLOYMENT.md): bundled Conexus runtime and model-provider settings.
-- [Configuration transfer format](guides/configuration-transfer.md): pure sanitized metadata schema, selection intent, migrations, and deferred storage/security decisions.
+- [Configuration transfer](guides/configuration-transfer.md): portable schema, coherent export, private previews, atomic SQLite import and safe logical rollback APIs.
 - [Isolated Node configuration reader](guides/configuration-store-node.md): read-only Python-store interoperability, Worker lifecycle, private snapshots, and runtime limitations.
 - [Inactive Python configuration services](guides/configuration-store-python-services.md): explicitly injected SQLite services, consistent profile edits, credential rules, and deferred runtime cutover.
 - [Inactive runtime configuration bindings](guides/configuration-runtime.md): explicit Agent composition, separate model/search capture timing, RQData job bindings, and coordinated cutover prerequisites.

@@ -120,12 +120,23 @@ def configuration_access(root, *, exclusive=False, timeout=0.0):
     return _access(root, _RELATIVE_LOCK, exclusive=exclusive, timeout=timeout)
 
 
+def configuration_snapshot_access(root, *, exclusive=False):
+    """JSON writer use or coherent three-file export, after maintenance use.
+
+    Shared nesting is supported; no lock upgrades. Offline maintenance already
+    excludes every participant through its outer exclusive maintenance lease.
+    """
+    return _access(
+        root, Path("app/secrets/configuration-snapshot.lock"), exclusive=exclusive, timeout=0.0
+    )
+
+
 @contextmanager
 def json_configuration_access(root):
     """Read authority and use JSON within the same actual maintenance lease."""
     from alphalab.utils.configuration_decision import check_backend_authority
 
-    with configuration_access(root):
+    with configuration_access(root), configuration_snapshot_access(root):
         check_backend_authority(root, backend="json")
         yield
 

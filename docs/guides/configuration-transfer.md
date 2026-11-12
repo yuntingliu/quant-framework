@@ -1,11 +1,11 @@
-# Configuration transfer format (Phase 4A)
+# Configuration transfer: portable format and local API
 
-Phase 4A implements pure schema validation, sanitized metadata projection,
-serialization, and in-memory migration in
-`apps/api/services/configuration_schema.py`. It does not provide API endpoints,
-file collection, import application, preview receipts, rollback, transaction
-storage, or a frontend. Existing runtime selection and credential behavior are
-unchanged.
+Phase 4A's pure schema, projection, serializer and in-memory migration in
+`apps/api/services/configuration_schema.py` remain the format authority. Phase 4C
+adds coherent export, persisted previews, atomic SQLite application and sanitized
+logical rollback through the full production API. It does not activate a backend.
+Phase 4D's frontend is not included. Historical private restore remains disabled;
+see the [recovery policy](configuration-recovery-security.md).
 
 ## Portable format
 
@@ -84,8 +84,8 @@ It is distinct from an unselected search configuration.
 
 These markers survive parse/serialize round trips. They do not change runtime
 behavior or authorize a future importer to use destination environment
-credentials. The apply-time policy and confirmation for environment intent are
-deliberately unresolved in Phase 4A.
+credentials. Phase 4C refuses environment intent for durable SQLite application;
+legacy JSON environment behavior outside the import workflow remains unchanged.
 
 ## Pure functions and snapshot provenance
 
@@ -131,8 +131,8 @@ A supplied saved-profile selection must agree with the native active ID.
 The functions never inspect files, environment variables, providers, or live
 service objects. Their inputs cannot prove their own provenance. In particular,
 three independently read live files must not be presented as an atomic export.
-Phase 4B must establish the consistent snapshot and trusted provenance before
-calling this module.
+The live transfer layer establishes snapshot coordination and provenance before
+calling these pure functions, as described below.
 
 ## Supported legacy forms
 
@@ -203,26 +203,159 @@ base64 encoding. Approved metadata still needs review before sharing.
 schema-owned `path`. Unknown property names, values, and raw JSON decoder
 exceptions are not included in diagnostics. There are no logs or provider calls.
 
-## Decisions reserved for subsequent phases
+## Coherent export and supported backends
 
-1. **Retention versus deletion:** omitted credentials say nothing about retaining,
-   clearing, or replacing destination secrets. Existing writer behavior must not
-   become the import policy implicitly. Eligibility, explicit consent, and
-   cleared-secret state require a separate reviewed contract.
-2. **Rollback secrets:** private generations may contain old credentials. Storage,
-   retention, revocation precedence, and preventing secret resurrection remain
-   unresolved. This format contains no rollback data.
-3. **Preview receipts:** choose a stateless signed receipt or process-safe plan
-   storage, with installation binding, expiration, idempotency, and stale-state
-   detection. No receipts exist in Phase 4A.
-4. **Snapshot locking:** coordinate every process and reader, including Node and
-   RQData, before claiming a coherent live snapshot or cross-file atomicity.
-5. **Incomplete model profiles:** sanitized metadata contains no keys. Existing
-   remote-model runtime validation may require them; applying this metadata needs
-   an explicit unconfigured state and safe environment-fallback policy.
-6. **Crash recovery:** Windows/POSIX locking, durability, publication, interrupted
-   imports, and rollback need separate fault-injection and platform tests. Phase
-   4A makes no storage, permission, ACL, atomicity, or crash-recovery changes.
+SQLite export uses one verified current snapshot of all documents/selections;
+retained history contributes only credential rejection canaries. JSON export
+takes an exclusive snapshot lease across three raw reads. Cooperative JSON
+writers hold its shared counterpart for the whole read-modify-write operation,
+inside existing maintenance use. Offline writers already require exclusive
+maintenance. Busy acquisition fails; no lock upgrades or mixed-file atomicity
+claims are made. Older releases and unmanaged editors remain outside this contract.
 
-The existing model/search/RQData APIs, settings files, normal credential
-retention/deletion rules, and Conexus behavior remain authoritative and unchanged.
+Exports use Phase 4A's batch projection and canonical serializer. Unknown native
+fields cause rejection, not silent omission. A staged store never selects SQLite;
+if present, its verified history is used only for credential rejection. No
+environment values are resolved. Downloads have a fixed filename, JSON content
+type, `no-store` and `nosniff`.
+
+JSON supports coherent export and non-mutating previews. Multi-file JSON apply
+and rollback return `UNSUPPORTED_JSON_APPLY` with no applicable receipt: existing
+files cannot atomically publish three settings documents. Import never activates
+SQLite to work around this restriction.
+
+## Preview and credential decisions
+
+Preview takes a complete portable object/JSON string, `services`, `mode` (`merge`
+or `replace`), `apply_selections` and `credential_policy`. Merge keeps other
+destination IDs; replace removes IDs absent from selected sections. Selections
+change only when requested. All input/prospective references must validate,
+including references from untouched services.
+
+Responses show added/changed/unchanged/removed IDs, before/after selections and
+explanations, canonical prospective metadata, credential actions, missing-key
+diagnostics, legacy migrations and required consents. Profile differences compare
+metadata; credential actions are separate. Preview never writes settings or
+generations, probes providers or starts jobs.
+
+Every imported profile in a selected section needs one action:
+
+| Action | Behavior |
+| --- | --- |
+| `retain` | Keep only the current same-ID secret with exactly matching destination identity. |
+| `clear` | Store an empty secret, including explicitly unconfigured selected profiles. |
+| `replace` | Require a fresh value through the separate private apply input. |
+
+Identity means model base URL/model ID; search provider/model reference; or
+RQData provider/user/host. Display names are excluded. Different spellings do not
+qualify for retention. New/deleted/reappearing IDs never inherit historical or
+neighboring secrets. Missing policy returns `CREDENTIAL_DECISION_REQUIRED` with
+no receipt, never implied retention or clearing.
+
+Fresh values are bounded nonempty strings without control characters. Known
+current/historical values are rejected unless still authorized for that exact
+same profile/destination. Moving destinations can require a new key. No revocation
+probe occurs. Fresh input is checked against prospective and undo metadata before
+mutation. No secrets, masked prefixes or credential fingerprints enter plans.
+
+Incomplete selected profiles remain unconfigured. `none` never enables fallback.
+Durable SQLite import rejects environment intent, including `active_id=null`
+migrations, without silently converting it. Untouched raw documents retain
+versions, structure, extensions, credentials and selections, including search v1.
+Internal comparison views are not exports. Selecting a service with unsupported
+native extensions returns `UNSUPPORTED_NATIVE_FIELDS`; no lossy edit is offered.
+
+## One-use receipts and application
+
+Applicable previews persist private metadata-only plans under
+`app/secrets/configuration-transfers`. Random receipts bind installation/root,
+backend decision, revision, canonical input, operations, policy and consents.
+They expire after 600 seconds using the trusted local clock. Plans do not grant
+backend authority or activate SQLite.
+
+An installation OS lease serializes transitions; private atomic file publication
+persists the claim before SQLite mutation. Claimed/rejected/committed/uncertain
+receipts cannot replay. A crash spends the claim even if no settings write occurred.
+Interrupted `.pending` artifacts and corrupt records block further plan operations
+without automatic cleanup. The limit is 256 retained plans; cleanup needs review.
+
+Apply requires receipt, expected revision, `confirm=true`, exact preview consents
+and private inputs matching replacement actions. Authority, state, expiration,
+revision, policy and the entire prospective native generation are rechecked.
+Changed settings cause `STALE_PREVIEW`. One `ConfigurationStore.update()` publishes
+all intended changes under `BEGIN IMMEDIATE` and expected-revision protection.
+Callbacks perform no I/O or network calls. Capacity is checked before commit;
+ordinary rejection preserves the generation and spends an attempted receipt.
+Running jobs retain their captures; no jobs are started or reinterpreted.
+
+Plans and settings are separate durable publications: there is no distributed
+transaction or exactly-once acknowledgement claim. Write errors trigger revision
+inspection, never callback replay. `claimed`/`uncertain` may survive process death.
+Failure recording success reports `APPLICATION_UNCERTAIN`, not success/rollback.
+Inspect operation/current revision explicitly. Unconfirmed operations cannot
+authorize rollback. Existing runtime/recovery fences remain authoritative.
+If the revision is demonstrably unchanged after an ordinary publication failure,
+`APPLICATION_REJECTED` reports that observation. The receipt is still spent;
+another attempt requires a new preview. This does not undo any concurrent writer.
+
+## Logical rollback
+
+Rollback reads only a committed import's sanitized pre-change description. Its
+installation/decision and exact resulting revision must still be current. Any
+intervening write, including a clear/rotation, causes `ROLLBACK_CONFLICT`.
+
+Request a preview with an empty policy list to inspect restored metadata, then
+choose explicit actions to obtain a receipt. Reappearing profiles have no keys;
+retention uses only current same-ID/same-identity values. Missing/revoked values
+require fresh input. Apply creates a new audited generation; no historical row,
+database or backup is restored. Only confirmed imports are supported origins;
+recursive rollback and undo of uncertain operations are unavailable. There is no
+automatic rollback on failure, restart or expiration.
+
+## Full production API
+
+Routes require loopback peer and Host, a local Origin when supplied, and
+`X-AlphaLab-Configuration-Consent: local-configuration-transfer`. Existing
+workstation Basic authentication still applies when enabled. Remote/proxied
+administration and `null` origins are unavailable. This header is a local/CSRF
+requirement, not an authentication substitute.
+
+| Method/path | Contract |
+| --- | --- |
+| `GET /api/configuration-transfer/export` | Canonical attachment `alphalab-configuration.json`. |
+| `POST /api/configuration-transfer/preview` | `configuration`, `services`, `mode`, `apply_selections`, `credential_policy`. |
+| `POST /api/configuration-transfer/apply` | `receipt`, `expected_revision`, `confirm`, `consents`, `credentials`. |
+| `POST /api/configuration-transfer/rollback/preview` | `operation`, `credential_policy`. |
+| `POST /api/configuration-transfer/rollback/apply` | Same confirmation/private-input fields as apply. |
+| `POST /api/configuration-transfer/operation` | `operation`; returns safe state, confirmed and observed current revisions. |
+
+For example (include policy for every imported model row):
+
+```json
+{
+  "configuration": "<complete portable JSON file contents>",
+  "services": ["models"],
+  "mode": "merge",
+  "apply_selections": false,
+  "credential_policy": [{"service":"models","id":"research","action":"retain"}]
+}
+```
+
+Confirm using the returned receipt/revision and exact `required_consents`.
+`credentials` is `[]` unless replacement was chosen; private entries contain only
+`service`, `id`, `value`. Keep these inputs out of portable files, receipts and
+diagnostics; accepted values are saved only in the private native store. Apply returns
+`operation`, `state`, `revision`, `kind`; preview returns an optional receipt.
+
+Envelopes allow 1 MiB, ten levels and 8,192 values; portable limits remain as above.
+Duplicate keys, nonfinite values, unknown options, arbitrary paths and request
+backend switches fail closed. Errors contain static codes/messages. HTTP codes:
+conflict/replay/capacity/uncertain 409, expiry 410, validation 422, authorization
+403 (existing Basic 401), unavailable/corrupt records 503. Responses use `no-store`.
+
+Phase 4D still needs file selection/download, previews, per-profile decisions,
+private entry, consent and conflict/uncertain-state UX. Real Conexus, macOS/POSIX,
+physical power loss, whole-root rollback provenance and physical erasure remain
+uncertified or unavailable. Tests use disposable roots, real SQLite/OS leases,
+test-owned processes, synthetic secrets, fake SDK/provider entry points and
+substituted managed cores; these do not certify the real bundle.
