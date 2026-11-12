@@ -39,6 +39,26 @@ def test_profiles_preserve_key_without_returning_it_and_do_not_reuse_it_at_a_new
     assert json.loads(service.settings_path().read_text())["version"] == 1
 
 
+def test_model_selection_provenance_distinguishes_saved_environment_id(monkeypatch, tmp_path):
+    api = client(monkeypatch, tmp_path)
+    response = api.put("/api/model-providers", json=profile(id="environment"))
+    assert response.status_code == 200 and response.json()["source"] == "saved"
+    document = json.loads(service.settings_path().read_text())
+    document["active_id"] = None
+    service.settings_path().write_text(json.dumps(document), encoding="utf-8")
+    monkeypatch.setenv("CONEXUS_MODEL_BASE_URL", "https://environment.example/v1")
+    monkeypatch.setenv("CONEXUS_MODEL_ID", "environment-model")
+    monkeypatch.setenv("CONEXUS_MODEL_API_KEY", "ui-environment-private-canary-3491")
+    response = api.get("/api/model-providers")
+    assert response.status_code == 200
+    assert response.json()["source"] == "environment"
+    assert response.json()["active_id"] == "environment"
+    assert response.json()["profiles"][0]["id"] == "environment"
+    for private in ("private-test-key", "ui-environment-private-canary-3491", "environment.example"):
+        assert private not in response.text
+    assert json.loads(service.settings_path().read_text()) == document
+
+
 def test_provider_settings_are_local_only_and_reject_unsafe_urls(monkeypatch, tmp_path):
     api = client(monkeypatch, tmp_path)
     response = api.put("/api/model-providers", json=profile(api_key="private-test-key" * 1000))

@@ -353,8 +353,14 @@ backend switches fail closed. Errors contain static codes/messages. HTTP codes:
 conflict/replay/capacity/uncertain 409, expiry 410, validation 422, authorization
 403 (existing Basic 401), unavailable/corrupt records 503. Responses use `no-store`.
 
-Phase 4D still needs file selection/download, previews, per-profile decisions,
-private entry, consent and conflict/uncertain-state UX. Real Conexus, macOS/POSIX,
+The [personal configuration dialog](personal-configuration.md) provides file
+selection/download, previews, per-profile decisions, transient private entry,
+consent and conflict/uncertain-state UX. Preview additionally returns
+`credential_options: [{service, id, retain_eligible}]`: strict existing identity
+eligibility, never credential presence. Operation inspection returns
+`rollback_available`, true only for a committed import whose exact result is
+still current in this bound SQLite installation. Apply and rollback revalidate
+these conditions; neither hint authorizes a stale operation. macOS/POSIX,
 physical power loss, whole-root rollback provenance and physical erasure remain
 uncertified or unavailable. Tests use disposable roots, real SQLite/OS leases,
 test-owned processes, synthetic secrets, fake SDK/provider entry points and

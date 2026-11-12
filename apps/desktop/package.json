@@ -15,7 +15,8 @@
     "build:desktop": "tsc -b && tsc -p tsconfig.electron.json && cross-env WEB_ONLY=0 vite build",
     "pack": "npm run build:desktop && electron-builder --config electron-builder.yml --publish never",
     "lint": "eslint .",
-    "test": "node --test tests/*.test.ts ../../tests/conexus-*.test.mjs",
+    "test": "node --test tests/*.test.ts ../../tests/conexus-*.test.mjs && npm run test:configuration",
+    "test:configuration": "node --import ./tests/configuration-dom.mjs --test tests/configuration-ui.test.mjs",
     "preview": "vite preview",
     "build:web": "npm run build"
   },
@@ -77,6 +78,7 @@
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.16",
     "globals": "^15.14.0",
+    "jsdom": "^26.1.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.6.2",

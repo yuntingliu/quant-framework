@@ -1687,3 +1687,81 @@ def test_correction_full_api_rejects_public_collision_then_accepts_corrected_inp
         public(response.text)
     assert _history_size(runtime.backend) == len(before._history) + 1
     assert client.post(prefix + "/apply", json=body).status_code == 409
+
+
+@pytest.mark.parametrize("service_name", transfer.SERVICES)
+def test_ui_retention_eligibility_is_strict_identity_not_presence(inactive_owned, service_name):
+    owner, service = inactive_owned
+    document = exported(service)
+    before = owner.store.read_snapshot()
+    request = options(document, services=[service_name])
+    request["credential_policy"] = []
+    preview = service.preview(**request)
+    eligible = {row["id"]: row["retain_eligible"] for row in preview["credential_options"]}
+    assert all(eligible.values())
+    # Canonical exports sort IDs: the first search row is already Off. Pick
+    # the selected row so this edit actually changes its destination identity.
+    row = next(
+        item
+        for item in document[service_name]["profiles"]
+        if item["id"] == before.documents[service_name]["active_id"]
+    )
+    changed = copy.deepcopy(row)
+    changed["id"] = "new-profile"
+    document[service_name]["profiles"].append(changed)
+    identity_field = {"models": "model", "search": "provider", "rqdata": "user"}[service_name]
+    row[identity_field] = {
+        "models": "different-model",
+        "search": "off",
+        "rqdata": "different-user",
+    }[service_name]
+    if service_name == "search":
+        row["model_profile_id"] = None
+    preview = service.preview(**request)
+    eligible = {row["id"]: row["retain_eligible"] for row in preview["credential_options"]}
+    assert eligible["new-profile"] is False
+    assert eligible[row["id"]] is False
+    public(preview)
+    unchanged(before, owner.store.read_snapshot())
+
+
+def test_ui_operation_reports_exact_current_import_rollback_eligibility(inactive_owned):
+    owner, service = inactive_owned
+    document = exported(service)
+    preview = service.preview(**options(document))
+    assert service.operation(preview["receipt"])["rollback_available"] is False
+    result = apply(service, preview)
+    status = service.operation(result["operation"])
+    assert status["rollback_available"] is True
+    public(status)
+    later = service.preview(**options(document))
+    apply(service, later)
+    assert service.operation(result["operation"])["rollback_available"] is False
+    undo = service.rollback_preview(
+        later["receipt"], credential_policy=options(document)["credential_policy"]
+    )
+    undone = apply(service, undo, kind="rollback")
+    assert service.operation(undone["operation"])["rollback_available"] is False
+    assert owner.store.read_snapshot().revision == undone["revision"]
+
+
+@pytest.mark.parametrize("activated_agent", ["managed"], indirect=True)
+def test_unified_ui_actual_api_retention_and_operation_contract(api_client):
+    client, runtime = api_client
+    prefix = "/api/configuration-transfer"
+    document = client.get(prefix + "/export").json()
+    request = options(document)
+    request["credential_policy"] = []
+    response = client.post(prefix + "/preview", json=request)
+    assert response.status_code == 200
+    assert response.json()["credential_options"]
+    assert all(row["retain_eligible"] for row in response.json()["credential_options"])
+    assert response.json()["can_apply"] is False
+    request["credential_policy"] = options(document, action="retain")["credential_policy"]
+    preview = client.post(prefix + "/preview", json=request).json()
+    result = client.post(prefix + "/apply", json=apply_body(preview))
+    assert result.status_code == 200
+    status = client.post(prefix + "/operation", json={"operation": preview["receipt"]})
+    assert status.status_code == 200 and status.json()["rollback_available"] is True
+    assert status.json()["current_revision"] == runtime.backend.store.read_snapshot().revision
+    public(response.text + status.text)

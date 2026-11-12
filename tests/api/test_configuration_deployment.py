@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 import importlib.util
+import inspect
 import json
 import multiprocessing
 import os
@@ -15,6 +16,7 @@ from asyncio import CancelledError
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from test_configuration_backend import KEYS, initialize
@@ -51,6 +53,96 @@ def offline(choice, **kwargs):
 def private(value):
     for key in KEYS:
         assert key not in str(value) + repr(value)
+
+
+def _offline_clock_probe(tmp_path, monkeypatch, *, budget, first, later, coordinator=None):
+    """Exercise real native leases with only the caller's clock replaced."""
+    root = tmp_path / "clock-installation"
+    choice = decision(root)
+    observed = []
+    ticks = iter([first])
+    monkeypatch.setattr(deploy, "time", SimpleNamespace(monotonic=lambda: next(ticks, later)))
+    for name, keyword in (
+        ("execution_access", "timeout"),
+        ("agent_access", "timeout"),
+        ("configuration_access", "timeout"),
+        ("runtime_execution_lock", "timeout_seconds"),
+    ):
+        original = getattr(deploy, name)
+
+        def acquire(*args, _original=original, _keyword=keyword, **kwargs):
+            observed.append(kwargs[_keyword])
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(deploy, name, acquire)
+    failure = None
+    try:
+        with (coordinator or deploy.coordinated_offline)(
+            choice, stop_services=lambda: None, timeout=budget
+        ) as capability:
+            assert capability.root == root
+    except deploy.DeploymentPreparationError as error:
+        failure = error.code
+    assert observed and all(0 <= value <= budget for value in observed), "TIMEOUT_BUDGET_GUARD"
+    assert failure is None, f"Valid offline entry failed: {failure}"
+    assert len(observed) == 5
+    # The actual OS descriptors must be released, not just the clock mocks.
+    with execution_access(root, exclusive=True, timeout=0):
+        pass
+    return observed
+
+
+@pytest.mark.parametrize(
+    "budget,clock", [(5.0, 3.14159), (5.0, 3.018), (2.5, 3.14159), (0, 3.14159)]
+)
+def test_offline_same_tick_never_exceeds_original_timeout(tmp_path, monkeypatch, budget, clock):
+    values = _offline_clock_probe(tmp_path, monkeypatch, budget=budget, first=clock, later=clock)
+    assert all(value <= budget for value in values)
+    if budget == 5.0:
+        assert (clock + budget) - clock > budget
+        assert values == [budget] * 5
+
+
+def test_offline_expired_deadline_passes_zero_to_all_native_leases(tmp_path, monkeypatch):
+    assert (
+        _offline_clock_probe(tmp_path, monkeypatch, budget=5, first=3.14159, later=100) == [0] * 5
+    )
+
+
+@pytest.mark.parametrize(
+    "budget", [-1, 5.000000000000001, float("nan"), float("inf"), True, "5", None]
+)
+def test_offline_invalid_original_timeout_remains_rejected(tmp_path, monkeypatch, budget):
+    choice = decision(tmp_path / "invalid-budget")
+    called = []
+    monkeypatch.setattr(deploy, "execution_access", lambda *a, **kw: called.append(True))
+    with pytest.raises(deploy.DeploymentPreparationError) as caught:
+        with offline(choice, timeout=budget):
+            pytest.fail("Invalid original timeout admitted offline work")
+    assert caught.value.code == "UNAVAILABLE" and called == []
+
+
+def test_negative_control_unclamped_remaining_timeout_detects_rounding_overflow(
+    tmp_path, monkeypatch
+):
+    source = inspect.getsource(deploy.coordinated_offline)
+    fixed = "return min(timeout, max(0, deadline - time.monotonic()))"
+    assert source.count(fixed) == 1
+    source = source.replace(fixed, "return max(0, deadline - time.monotonic())")
+    # The copy shares the fixture's real lease wrappers, not production globals.
+    namespace = dict(vars(deploy))
+    exec(compile(source, "<test-only-unclamped-deadline>", "exec"), namespace)
+    vulnerable = namespace["coordinated_offline"]
+    with pytest.raises(AssertionError, match="TIMEOUT_BUDGET_GUARD"):
+        # Install the wrappers/clock first, then refresh the isolated function's
+        # globals at invocation so the copied function uses those exact seams.
+        def run(*args, **kwargs):
+            namespace.update(vars(deploy))
+            return vulnerable(*args, **kwargs)
+
+        _offline_clock_probe(
+            tmp_path, monkeypatch, budget=5, first=3.14159, later=3.14159, coordinator=run
+        )
 
 
 def backup_metadata(tag="manual", **changes):

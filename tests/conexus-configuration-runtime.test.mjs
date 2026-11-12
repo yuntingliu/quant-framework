@@ -10,6 +10,7 @@ import { channel } from 'node:diagnostics_channel'
 import { getEventListeners } from 'node:events'
 import { setTimeout as delay } from 'node:timers/promises'
 import { ConfigurationStoreReader } from '../integrations/conexus/configuration-store.mjs'
+import { withConfigurationAuthority } from '../integrations/conexus/configuration-authority.mjs'
 import { createJsonAgentConfiguration, createSqliteAgentConfiguration, ConfigurationRuntimeError } from '../integrations/conexus/configuration-runtime.mjs'
 
 const python = process.env.ALPHALAB_TEST_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
@@ -262,16 +263,22 @@ test('search and its inactive referenced model use exactly one generation despit
 test('concurrent Python publications produce complete SQLite search/model generations', async t => {
   const f = await fixture(t), d = fakeDependencies(), runtime = f.runtime(d)
   await f.run('edit', { profiles: { search: search({ provider: 'openrouter', model_profile_id: 'model' }) } })
-  const writer = f.launch('loop', { count: 6 })
-  await writer.ready()
-  const responses = await Promise.all(Array.from({ length: 8 }, () => runtime.webSearch(params(new AbortController().signal))))
-  assert.equal(await writer.closed, 0)
-  assert.ok(responses.every(response => response.result.success))
-  for (const call of d.fetches) {
-    const generation = Number(JSON.parse(call.body).model.split('-v').at(-1))
-    assert.equal(call.headers.Authorization, 'Bearer ' + (generation ? `runtime-model-key-${generation}` : KEYS[0]))
-  }
-  for (const response of responses) noSecrets(response)
+  // Match the production composition's shared authority lifetime. Eight
+  // independent Python-owner startups test the startup deadline, not snapshot
+  // consistency. The real lease remains enforced for all eight concurrent reads.
+  await withConfigurationAuthority(f.root, 'inactive_sqlite', async () => {
+    const writer = f.launch('loop', { count: 30 })
+    await writer.ready()
+    const responses = await Promise.all(Array.from({ length: 8 }, () => runtime.webSearch(params(new AbortController().signal))))
+    assert.equal(await writer.closed, 0)
+    assert.ok(responses.every(response => response.result.success))
+    assert.equal(d.fetches.length, 8)
+    for (const call of d.fetches) {
+      const generation = Number(JSON.parse(call.body).model.split('-v').at(-1))
+      assert.equal(call.headers.Authorization, 'Bearer ' + (generation ? `runtime-model-key-${generation}` : KEYS[0]))
+    }
+    for (const response of responses) noSecrets(response)
+  })
 })
 
 for (const kind of ['none', 'environment', 'cleared', 'local', 'saved-environment-id']) {

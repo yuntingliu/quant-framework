@@ -69,6 +69,9 @@ def public_settings() -> dict:
     return {
         "mode": os.getenv("ALPHALAB_AGENT_MODE", "remote"),
         "active_id": profile["id"] if profile else None,
+        # The legacy environment profile also uses the label "environment".
+        # Report provenance from the native selection, never infer it from ID.
+        "source": "saved" if settings["active_id"] is not None else "environment",
         "profiles": [{key: value for key, value in row.items() if key != "api_key"}
                      | {"has_api_key": bool(row.get("api_key"))} for row in settings["profiles"]],
         "environment_configured": bool(os.getenv("CONEXUS_MODEL_BASE_URL") and os.getenv("CONEXUS_MODEL_ID")),

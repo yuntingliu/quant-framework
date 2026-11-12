@@ -440,6 +440,21 @@ class ConfigurationTransferService:
             "configuration": after,
             "missing_credentials": missing,
             "credential_actions": copy.deepcopy(policy),
+            # Identity eligibility only, not credential presence or a secret.
+            # The UI must not infer retention from a matching display name.
+            "credential_options": [
+                {
+                    "service": service,
+                    "id": row["id"],
+                    "retain_eligible": (
+                        row["id"] in _rows(current["documents"], service)
+                        and _identity(service, _rows(current["documents"], service)[row["id"]])
+                        == _identity(service, row)
+                    ),
+                }
+                for service in services
+                for row in document[service]["profiles"]
+            ],
             "selection_explanations": {
                 key: {
                     "kind": selections[key]["kind"],
@@ -677,10 +692,17 @@ class ConfigurationTransferService:
             value = plans.read(identifier)
             if value["binding"] != self._binding():
                 _fail("WRONG_INSTALLATION")
+            current_revision = self._current()["revision"]
             return {
                 "operation": value["id"],
                 "state": value["state"],
                 "kind": value["kind"],
                 "revision": value["result_revision"],
-                "current_revision": self._current()["revision"],
+                "current_revision": current_revision,
+                "rollback_available": (
+                    self.backend.mode == "sqlite"
+                    and value["state"] == "committed"
+                    and value["kind"] == "import"
+                    and value["result_revision"] == current_revision
+                ),
             }

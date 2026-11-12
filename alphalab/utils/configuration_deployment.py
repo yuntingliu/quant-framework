@@ -211,7 +211,8 @@ def coordinated_offline(decision, *, stop_services, timeout=5.0):
             deadline = time.monotonic() + timeout
 
             def remaining():
-                return max(0, deadline - time.monotonic())
+                # Same-tick floating-point subtraction may round above timeout.
+                return min(timeout, max(0, deadline - time.monotonic()))
 
             stack.enter_context(execution_access(root, exclusive=True, timeout=remaining()))
 
