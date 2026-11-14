@@ -1,5 +1,43 @@
 # Agent benchmark v1 — baseline (issue #22)
 
+## Reference: isolated baseline (use this for comparisons)
+
+The first baseline below leaked state between tasks (synchronized data, report
+Documents, background jobs, sync history). It was rerun with every task isolated
+(`scripts/benchmark_isolation.py`): snapshot restored and a fresh workstation
+started before each task. T08 was not rerun.
+
+| | |
+|---|---|
+| Date | 2026-11-04 to 2026-11-12, DeepSeek off-peak |
+| Model / benchmark | `deepseek-flash`, `alphalab-agent-v1` frozen |
+| Code | commit `adb7ab8` |
+| Runs | 11 tasks (T08 excluded) × 3 = 33, all isolated |
+
+| Measure | Isolated | Leaky run, same 11 tasks |
+|---|---|---|
+| Outcomes | 27 completed, 1 blocked, 4 budget exhausted, 1 failed | 29 completed, 1 blocked, 3 budget exhausted |
+| Automatic checks | 26 / 33 | 28 / 33 |
+| Permission violations | 0 | 0 |
+| Wall time | 154 min | 156 min |
+| Cost (off-peak) | $0.52 | $0.59 |
+| Model calls | 609 | 625 |
+| Waiting share of time | 51.9% | — |
+| Calls only to poll | 158 (35.4% of input tokens) | — |
+| Rejected outputs.prepare | 22 | 23 |
+
+Per task (median of 3): T01 48 s / 9 calls, T02 30 s / 8, T03 71 s / 8, T04 299 s / 20
+(6 waits), T05 690 s / 37 (18 waits), T06 146 s / 16, T07 1179 s / 58 (23 waits),
+T09 86 s / 14, T10 28 s / 6, T11 39 s / 7, T12 431 s / 26.
+
+Failures: T12 3/3 (two budget cut-offs, one `fetch failed` provider/network error
+counted as a failure); T01 and T03 once each exceeded their call budget (14 > 12,
+17 > 15); T04 once read results with `backtest.analysis`; T07 once ran 4 backtests.
+
+---
+
+## First run (leaky, superseded)
+
 Published before any optimization, as the issue requires. All 36 runs are
 included; failed, blocked and budget-exhausted runs are not filtered.
 
