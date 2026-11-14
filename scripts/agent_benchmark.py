@@ -234,12 +234,12 @@ def main() -> int:
                         help="use an already running alphalab dev serve and the in-place reset (pre-isolation behaviour)")
     args = parser.parse_args()
 
-    trace_dir = Path(args.trace_dir or os.environ.get("ALPHALAB_AGENT_TRACE_DIR") or "")
-    if args.shared_server and (not str(trace_dir) or not trace_dir.is_dir()):
+    # Path("") means the current folder, so test the option text, not the Path.
+    given = args.trace_dir or os.environ.get("ALPHALAB_AGENT_TRACE_DIR")
+    if args.shared_server and (not given or not Path(given).is_dir()):
         raise SystemExit("Pass --trace-dir (the folder alphalab dev serve was started with) or set ALPHALAB_AGENT_TRACE_DIR.")
+    trace_dir = Path(given) if given else ROOT / "build/traces" / args.label
     if not args.shared_server:
-        if not str(trace_dir):
-            trace_dir = ROOT / "build/traces" / args.label
         trace_dir = trace_dir.resolve()
         trace_dir.mkdir(parents=True, exist_ok=True)
     spec = json.loads(TASKS.read_text(encoding="utf-8"))

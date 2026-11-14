@@ -187,6 +187,18 @@ def test_resume_skips_recorded_runs_and_sets_aside_interrupted_traces(tmp_path):
     assert (traces / "interrupted" / "b.jsonl").exists()
 
 
+def test_default_trace_folder_is_per_label_not_the_working_directory(tmp_path, monkeypatch):
+    monkeypatch.delenv("ALPHALAB_AGENT_TRACE_DIR", raising=False)
+    monkeypatch.setattr(bench, "ROOT", tmp_path)
+    monkeypatch.setattr(bench, "TASKS", ROOT / "benchmarks/agent/v1/tasks.json")
+    monkeypatch.setattr(sys, "argv", ["agent_benchmark.py", "--label", "probe", "--tasks", "NONE"])
+    try:
+        bench.main()
+    except SystemExit as stop:
+        assert "No matching tasks" in str(stop)
+    assert (tmp_path / "build/traces/probe").is_dir()
+
+
 def test_checks_catch_forbidden_confirmations_and_counts():
     rows = [
         {"type": "tool", "label": "use:backtest.run", "confirms": ["confirm_python_execution"]},
