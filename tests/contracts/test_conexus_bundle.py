@@ -164,6 +164,34 @@ assert.equal(calls.at(-1).body, null);
     assert completed.returncode == 0, completed.stderr
 
 
+def test_wait_commands_block_server_side_instead_of_polling():
+    run = _load(TOOLS / "Project-Run.tool.json")
+    assert "sync.wait" in run["inputSchema"]["properties"]["command"]["enum"]
+    # The tool process must outlive the longest server-side wait.
+    assert run["timeoutMs"] >= 300_000 + 15_000
+    script = r"""
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const tool = JSON.parse(readFileSync(process.argv[1], 'utf8'));
+const calls = [];
+globalThis.fetch = async (url) => { calls.push(url); return {ok: true, json: async () => ({id: 'j1', status: 'succeeded'})}; };
+const execute = new Function('input', tool.code + '\nreturn run(input);');
+await execute({command: 'backtest.wait', args: {job_id: 'b1'}});
+await execute({command: 'backtest.wait', args: {job_id: 'b1', wait_seconds: 999}});
+await execute({command: 'sync.wait', args: {job_id: 's1'}});
+assert.ok(calls[0].endsWith('/api/backtests/jobs/b1/wait?timeout_seconds=240'), calls[0]);
+assert.ok(calls[1].endsWith('/api/backtests/jobs/b1/wait?timeout_seconds=300'), calls[1]);
+assert.ok(calls[2].endsWith('/api/data-sync/jobs/s1/wait?timeout_seconds=240'), calls[2]);
+"""
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script, str(TOOLS / "Project-Run.tool.json")],
+        cwd=ROOT, capture_output=True, text=True, timeout=20,
+    )
+    assert completed.returncode == 0, completed.stderr
+    skill = SKILL.read_text(encoding="utf-8")
+    assert "`sync.wait`" in skill and "from 1 to 300" in skill
+
+
 def test_sdk_skill_is_a_single_injected_command_guide():
     skill = SKILL.read_text(encoding="utf-8")
     assert skill.startswith("---\nname: alphalab-sdk-v1\n")

@@ -179,8 +179,11 @@ navigation with an explicit error, and derives current display content.
 
 Backtests are asynchronous at the Agent boundary: `backtest.run` validates and
 pins the current strategy/validation packages, submits one job, and returns its
-ID immediately. The Agent queries `backtest.status` once and then uses
-`backtest.wait` until a terminal state before reading compact analysis. A long
+ID immediately. The Agent then uses `backtest.wait` until a terminal state
+before reading compact analysis; one wait blocks server-side for up to 300 s
+and returns early at the next status change, so a typical backtest needs one
+or two model turns of waiting instead of one per 30 s. Data-sync jobs have the
+equivalent `sync.wait` command. A long
 research run therefore cannot be mistaken for a failed tool call merely because
 it exceeds the orchestration request window.
 

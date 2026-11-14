@@ -240,6 +240,14 @@ def job(job_id: str) -> dict:
     return item
 
 
+@router.get("/jobs/{job_id}/wait")
+def wait(job_id: str, timeout_seconds: float = Query(default=240.0, ge=0)) -> dict:
+    item = data_sync_service.wait_job(job_id, timeout_seconds=timeout_seconds)
+    if item is None:
+        raise HTTPException(status_code=404, detail="sync job not found")
+    return item
+
+
 @router.post("/jobs/{job_id}/cancel")
 def cancel(job_id: str) -> dict:
     item = data_sync_service.cancel(job_id)

@@ -27,6 +27,9 @@ from apps.api.services.result_service import (
 
 BacktestRunner = Callable[..., dict]
 logger = logging.getLogger(__name__)
+# One Agent wait call may cover a whole typical backtest; each shorter poll
+# costs a full model call that resends the Agent's context.
+MAX_JOB_WAIT_SECONDS = 300.0
 
 
 def _safe_error_summary(error: Exception) -> str:
@@ -203,7 +206,7 @@ class BacktestJobManager:
     def wait(self, job_id: str, timeout_seconds: float = 25.0) -> dict | None:
         """Wait for one persisted status transition without tying up an Agent turn loop."""
 
-        timeout = max(0.0, min(float(timeout_seconds), 30.0))
+        timeout = max(0.0, min(float(timeout_seconds), MAX_JOB_WAIT_SECONDS))
         first = self.get(job_id)
         if first is None or first["status"] in {"succeeded", "failed", "interrupted"}:
             return first
@@ -388,6 +391,7 @@ def list_backtest_jobs(limit: int = 50) -> list[dict]:
 
 
 __all__ = [
+    "MAX_JOB_WAIT_SECONDS",
     "BacktestJobManager",
     "get_backtest_job",
     "list_backtest_jobs",

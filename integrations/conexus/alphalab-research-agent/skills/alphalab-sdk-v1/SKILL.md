@@ -110,6 +110,9 @@ individual project file.
   `confirm_python_execution=true`. `recipe.sync` returns a job ID.
 - `sync.list`: optional `project_id`, `limit`.
 - `sync.status`: `job_id`.
+- `sync.wait`: `job_id`; optional `wait_seconds` from 1 to 300, default 240.
+  Blocks until the sync job ends or the wait passes. Use it instead of repeated
+  `sync.status` calls; each poll costs a full model turn.
 - `sync.cancel`: `job_id`, plus top-level `confirm_cancel=true` after an
   explicit cancellation request.
 - `data.catalog`, `data.status`: no args.
@@ -139,8 +142,10 @@ individual project file.
   Source snapshots, validation and common project settings are pinned at
   submission. Use `backtest.compare` with the successful result IDs.
 - `backtest.status`: `job_id`.
-- `backtest.wait`: `job_id`; optional `wait_seconds` from 1 to 30, default 25.
-  Prefer this while a job is active instead of rapid status polling.
+- `backtest.wait`: `job_id`; optional `wait_seconds` from 1 to 300, default 240.
+  Returns at the next status change (queued to running, or finished) or when the
+  wait passes. Use it while a job is active instead of status polling; a typical
+  backtest needs one or two waits.
 - `backtest.summary`: `backtest_id`.
 - `backtest.events`: `backtest_id`; optional `kind` (`events` or
   `executions`), `offset`, `limit` up to 20. Only page details when the user or a
@@ -167,14 +172,14 @@ sector, ETF, or other scoped universe. A fixed recipe-owned pool intersects its
 symbols with `context.universe` on every date.
 
 Use bounded data evidence. When a requested run identifies a concrete missing
-dataset or field, plan and run the current project's saved `recipe.py`, track
-the sync job to a terminal state, verify the missing field with a bounded query,
+dataset or field, plan and run the current project's saved `recipe.py`, wait
+for the sync job with `sync.wait` until it is terminal, verify the missing field with a bounded query,
 then retry the original backtest at most once. Do not treat catalog `ready` as
 proof that a specific field exists. Do not report zero trades or 0% return as
 performance when execution failed because data was missing.
 
-Backtests have no separate full-range preflight. Submit once, query once, then
-use `backtest.wait` until terminal. Read the compact summary before analysis.
+Backtests have no separate full-range preflight. Submit once, then use
+`backtest.wait` until terminal; do not call `backtest.status` in between. Read the compact summary before analysis.
 Warnings, `execution_reliable`, `execution_invalid_reasons`, `research_valid`,
 `research_invalid_reasons`, `research_assessment`, attempted and successful trade
 counts, fill counts, synthetic-state counts, and rejection classes are

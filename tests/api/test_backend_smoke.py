@@ -344,11 +344,34 @@ def test_backtest_wait_endpoint_uses_a_bounded_server_wait(monkeypatch):
         }
 
     monkeypatch.setattr(backtests_router, "wait_backtest_job", wait)
-    response = TestClient(app).get("/api/backtests/jobs/job-1/wait?timeout_seconds=120")
+    client = TestClient(app)
+    response = client.get("/api/backtests/jobs/job-1/wait?timeout_seconds=120")
+    client.get("/api/backtests/jobs/job-1/wait?timeout_seconds=900")
 
     assert response.status_code == 200
     assert response.json()["status"] == "running"
-    assert observed == [("job-1", 30.0)]
+    assert observed == [("job-1", 120.0), ("job-1", 300.0)]
+
+
+def test_sync_wait_blocks_until_the_job_ends(monkeypatch):
+    from apps.api.services import data_sync_service
+
+    states = iter(["running", "running", "succeeded"])
+    monkeypatch.setattr(data_sync_service, "job", lambda job_id: {"id": job_id, "status": next(states)})
+    monkeypatch.setattr(data_sync_service.time, "sleep", lambda _seconds: None)
+    response = TestClient(app).get("/api/data-sync/jobs/sync-1/wait?timeout_seconds=60")
+    assert response.status_code == 200
+    assert response.json()["status"] == "succeeded"
+
+    monkeypatch.setattr(data_sync_service, "job", lambda job_id: None)
+    assert TestClient(app).get("/api/data-sync/jobs/missing/wait").status_code == 404
+
+
+def test_sync_wait_returns_the_running_job_when_the_wait_passes(monkeypatch):
+    from apps.api.services import data_sync_service
+
+    monkeypatch.setattr(data_sync_service, "job", lambda job_id: {"id": job_id, "status": "running"})
+    assert data_sync_service.wait_job("sync-1", timeout_seconds=0)["status"] == "running"
 
 
 def test_public_http_errors_remove_runtime_internals():

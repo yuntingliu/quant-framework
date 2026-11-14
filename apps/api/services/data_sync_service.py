@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 import uuid
 from datetime import date
 from functools import lru_cache
@@ -495,6 +496,21 @@ def jobs(limit: int = 50) -> list[dict]:
 def job(job_id: str) -> dict | None:
     item = get_job_manager().operations.get_job(job_id)
     return _public_job(item) if item is not None else None
+
+
+SYNC_TERMINAL_STATUSES = frozenset({"succeeded", "failed", "cancelled", "interrupted"})
+MAX_SYNC_WAIT_SECONDS = 300.0
+
+
+def wait_job(job_id: str, timeout_seconds: float = 240.0, poll_seconds: float = 1.0) -> dict | None:
+    """Block until a sync job ends or the bounded wait passes; one Agent call instead of many polls."""
+
+    deadline = time.monotonic() + max(0.0, min(float(timeout_seconds), MAX_SYNC_WAIT_SECONDS))
+    item = job(job_id)
+    while item is not None and item["status"] not in SYNC_TERMINAL_STATUSES and time.monotonic() < deadline:
+        time.sleep(min(poll_seconds, max(0.0, deadline - time.monotonic())))
+        item = job(job_id)
+    return item
 
 
 def cancel(job_id: str) -> dict | None:
