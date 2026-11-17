@@ -19,6 +19,10 @@
 - [Contributing](../CONTRIBUTING.md): branches and review workflow.
 - [Multifactor research notes](guides/multifactor-research.md): conceptual factor evaluation and monthly portfolio construction; illustrative rules, not SDK defaults.
 
+## Proposed development plans
+
+- [Issue #17: research asset version and change management](plans/issue-17-research-assets.md): proposed single-contributor Steps, integration boundaries, and acceptance checks; not shipped behavior.
+
 ## Conexus framework reference
 
 For working on the Agent framework itself rather than on AlphaLab's research
