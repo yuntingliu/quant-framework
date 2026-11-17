@@ -170,6 +170,30 @@ def test_snapshot_cleaning_keeps_only_fixture_state(tmp_path):
         assert conn.execute("SELECT id FROM backtest_jobs").fetchall() == [("j1",)]
 
 
+def test_restore_removes_the_write_ahead_log_of_a_killed_workstation(tmp_path, monkeypatch):
+    import benchmark_isolation as isolation
+
+    runtime, snapshot = tmp_path / "runtime", tmp_path / "snapshot"
+    monkeypatch.setattr(isolation, "RUNTIME", runtime)
+    monkeypatch.setattr(isolation, "SNAPSHOT", snapshot)
+    monkeypatch.setattr(isolation, "F0_DIRS", ())
+    monkeypatch.setattr(isolation, "_port_open", lambda port=8000: False)
+    (snapshot / "app").mkdir(parents=True)
+    (runtime / "app").mkdir(parents=True)
+    (snapshot / "snapshot.json").write_text("{}", encoding="utf-8")
+    for relative in isolation.DATABASES:
+        (snapshot / relative).write_text("clean", encoding="utf-8")
+        (runtime / relative).write_text("used", encoding="utf-8")
+        for suffix in isolation.SQLITE_SIDECARS:
+            (runtime / f"{relative}{suffix}").write_text("stale", encoding="utf-8")
+
+    isolation.restore_snapshot()
+
+    for relative in isolation.DATABASES:
+        assert (runtime / relative).read_text(encoding="utf-8") == "clean"
+        assert not any((runtime / f"{relative}{suffix}").exists() for suffix in isolation.SQLITE_SIDECARS)
+
+
 def test_resume_skips_recorded_runs_and_sets_aside_interrupted_traces(tmp_path):
     results = tmp_path / "results.jsonl"
     results.write_text(json.dumps({"task_id": "T01", "repetition": 1}) + "\n"

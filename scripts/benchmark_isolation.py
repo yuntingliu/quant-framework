@@ -42,6 +42,9 @@ F0_DATASETS = ("rq.instruments", "rq.bars", "rq.paused", "rq.is_st", "rq.daily_f
 F0_DIRS = ("rq/instruments", "rq/bars", "rq/market_state/paused", "rq/market_state/is_st",
            "rq/market_state/daily_factors")
 DATABASES = ("app/alphalab.db", "app/dataio.db")
+# A write-ahead log left by a killed workstation is replayed onto the restored
+# database and corrupts it ("database disk image is malformed").
+SQLITE_SIDECARS = ("-wal", "-shm", "-journal")
 # Rebuilt from the snapshot on every restore; conexus/project holds the Agent
 # workspace (report Documents, runs), conexus/secrets is kept.
 VOLATILE = ("rq", "canonical", "cache", "conexus/project")
@@ -178,6 +181,8 @@ def restore_snapshot() -> None:
         _remove(RUNTIME / relative)
     for relative in DATABASES:
         _remove(RUNTIME / relative)
+        for suffix in SQLITE_SIDECARS:
+            _remove(RUNTIME / f"{relative}{suffix}")
     for relative in F0_DIRS:
         shutil.copytree(SNAPSHOT / relative, RUNTIME / relative)
     for relative in DATABASES:
