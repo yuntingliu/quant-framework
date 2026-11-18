@@ -85,8 +85,8 @@ createLocalRuntime({ projectRoot, toolEnvironment: { ALPHALAB_API_ORIGIN: origin
 
 Nothing else leaks in. Do not read ambient configuration inside tool code.
 
-**One Tool node can carry many commands.** AlphaLab exposes 44 commands through
-two nodes using a `command` + `args` contract, rather than 44 nodes, so the
+**One Tool node can carry many commands.** AlphaLab exposes 45 commands through
+two nodes using a `command` + `args` contract, rather than 45 nodes, so the
 model's tool list stays small. Dispatch validates required arguments per command
 and returns a stable, correction-oriented error.
 

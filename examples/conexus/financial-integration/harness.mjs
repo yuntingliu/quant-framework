@@ -14,7 +14,7 @@
 //      application owns.
 //
 // The real bundle is integrations/conexus/alphalab-research-agent/. It carries
-// 44 commands and an injected SDK skill; this one carries five commands and no
+// 45 commands and an injected SDK skill; this one carries five commands and no
 // skill, because the point here is the contract, not the command surface.
 
 export const HARNESS_NODE_ID = 'research-harness-v1'

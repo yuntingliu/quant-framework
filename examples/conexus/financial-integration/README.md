@@ -66,7 +66,7 @@ responsibility.
 ## Differences from the real bundle
 
 [`integrations/conexus/alphalab-research-agent/`](../../../integrations/conexus/alphalab-research-agent/)
-is the production graph. It carries 44 commands across two Tool nodes, an
+is the production graph. It carries 45 commands across two Tool nodes, an
 injected SDK skill, three Harness output nodes written as one atomic batch, a
 `web.search` host capability, and the data-acquisition retry loop described in
 [Conexus Research Agent](../../../docs/04_CONEXUS_AGENT.md). This example carries
