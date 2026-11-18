@@ -1,4 +1,4 @@
-"""Host-only serial delegation ledger; never a business-output publisher.
+﻿"""Host-only serial delegation ledger; never a business-output publisher.
 
 One SQLite transaction owns each transition. Python entry points are trusted Host
 APIs, not model tools or an OS sandbox. Evidence remains in its immutable store.
@@ -11,6 +11,7 @@ import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from . import budget as budgets
 from .contracts import (
@@ -25,10 +26,24 @@ from .evidence import EvidenceStore
 
 REVIEW_SCOPES = {"model.invoke", "evidence.read", "review.submit"}
 MAX_STATE_BYTES = 8 * 1024 * 1024
+MAX_PUBLICATION_HISTORY = 100
 
 
 def _time(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+
+def _publication_state(state):
+    """Fingerprint fields that affect finalization eligibility."""
+    return encode_json({
+        "status": state.get("status"),
+        "reason": state.get("reason"),
+        "candidate": state.get("candidate"),
+        "manifest": state.get("manifest"),
+        "children": state.get("children", []),
+        "corrections": state.get("corrections", []),
+        "correction": state.get("correction"),
+        "deadline": state.get("deadline"),
+    })
 
 
 class ControlStore:
@@ -78,9 +93,10 @@ class ControlStore:
         fingerprint = sha256(encode_json({"task": task, "policy": policy,
                                          "budget": ledger["limits"], "model": ledger["model"]}))
         state = {"task": task, "policy": policy, "fingerprint": fingerprint,
-                 "candidate": candidate, "manifest": context["manifest_ref"],
-                 "status": "registered", "reason": None, "children": [], "receipts": {},
-                 "deadline": _time(task["deadline"]), "ledger": ledger}
+            "candidate": candidate, "manifest": context["manifest_ref"],
+            "status": "registered", "reason": None, "children": [], "receipts": {},
+            "version": 0,
+            "deadline": _time(task["deadline"]), "ledger": ledger}
         with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             previous = db.execute("SELECT payload FROM controls WHERE task_id=?", (task_id,)).fetchone()
@@ -93,6 +109,294 @@ class ControlStore:
             db.commit()
         return context
 
+    def _publication_context(self, state, task_id, destination):
+        """Build trusted finalization context from the current approved task."""
+        require(state.get("status") == "completed", "FINALIZATION_BLOCKED")
+        require(self._approved(state), "FINALIZATION_BLOCKED")
+
+        latest = state["children"][-1]
+        context = self.context(task_id, state["candidate"])
+        require(context["manifest_ref"] == state["manifest"], "STALE_CANDIDATE")
+        context.update(
+            delegation=latest["delegation"],
+            review=latest["review"],
+            correction=state.get("correction"),
+            task_state={
+                "status": "ready",
+                "version": state.get("version", 0),
+            },
+            destination=destination,
+        )
+        return context
+
+    def prepare_publication(self, task_id, request, *, destination):
+        """Persist one immutable, idempotent publication intent.
+
+        ``destination`` must be obtained by the trusted coordinator from the
+        authoritative Local Host workspace snapshot. The Local Host must still
+        re-check its expected versions inside its own protected commit.
+        """
+        require(isinstance(request, dict), "INVALID_CONTRACT")
+        require(request.get("task_id") == task_id, "TASK_MISMATCH")
+        idempotency_key = request.get("idempotency_key")
+        require(
+            isinstance(idempotency_key, str)
+            and 1 <= len(idempotency_key) <= 200
+            and bool(idempotency_key.strip()),
+            "INVALID_CONTRACT",
+        )
+        request_bytes = encode_json(request, maximum=MAX_STATE_BYTES)
+        request_digest = sha256(request_bytes)
+
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute(
+                    "SELECT payload FROM controls WHERE task_id=?", (task_id,)
+                ).fetchone()
+                require(row is not None, "TASK_MISMATCH")
+                state = decode_json(row[0])
+
+                history = state.setdefault("publication_history", [])
+                require(isinstance(history, list), "INTEGRITY_ERROR")
+                current = state.get("publication")
+                records = [*history, *([current] if current else [])]
+
+                # Idempotency lookup precedes fresh preflight. A replay of a
+                # committed request must return its receipt even if the live
+                # workspace has subsequently advanced to a newer revision.
+                for previous in records:
+                    if previous.get("idempotency_key") == idempotency_key:
+                        require(
+                            previous.get("request_sha256") == request_digest,
+                            "DUPLICATE_CONFLICT",
+                        )
+                        db.commit()
+                        return decode_json(encode_json(previous))
+
+                if current is not None:
+                    require(current.get("status") == "rejected", "INVALID_STATE")
+
+                require(
+                    not any(item.get("status") == "committed" for item in history),
+                    "FINALIZATION_BLOCKED",
+                )
+                if current is not None:
+                    require(len(history) < MAX_PUBLICATION_HISTORY, "EVIDENCE_LIMIT")
+                    history.append(current)
+
+                context = self._publication_context(state, task_id, destination)
+                validate_contract("final_output_request", request, context)
+
+                intent = {
+                    "intent_id": str(uuid4()),
+                    "status": "pending",
+                    "task_id": task_id,
+                    "request_id": request["request_id"],
+                    "idempotency_key": idempotency_key,
+                    "request_sha256": request_digest,
+                    "request": decode_json(request_bytes),
+                    "created_at": budgets.stamp(),
+                    "receipt": None,
+                    "failure": None,
+                }
+                state["publication"] = intent
+                budgets.append_event(
+                    db,
+                    state,
+                    {
+                        "kind": "publication_intent_prepared",
+                        "outcome": "pending",
+                        "intent_id": intent["intent_id"],
+                        "idempotency_key": idempotency_key,
+                        "request_sha256": request_digest,
+                    },
+                )
+                db.execute(
+                    "UPDATE controls SET payload=? WHERE task_id=?",
+                    (encode_json(state, maximum=MAX_STATE_BYTES), task_id),
+                )
+                db.commit()
+                return decode_json(encode_json(intent))
+            except BaseException:
+                if db.in_transaction:
+                    db.rollback()
+                raise
+
+    def get_publication(self, task_id, *, intent_id=None, idempotency_key=None):
+        """Return a publication intent/receipt to trusted Host code only."""
+        require((intent_id is None) != (idempotency_key is None), "INVALID_CONTRACT")
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "SELECT payload FROM controls WHERE task_id=?", (task_id,)
+            ).fetchone()
+            require(row is not None, "TASK_MISMATCH")
+            state = decode_json(row[0])
+
+        records = [
+            *state.get("publication_history", []),
+            *([state["publication"]] if state.get("publication") else []),
+        ]
+        field, expected = (
+            ("intent_id", intent_id)
+            if intent_id is not None
+            else ("idempotency_key", idempotency_key)
+        )
+        matches = [item for item in records if item.get(field) == expected]
+        require(len(matches) == 1, "TASK_MISMATCH")
+        return decode_json(encode_json(matches[0]))
+
+    def record_publication_receipt(self, task_id, intent_id, receipt):
+        """Durably reconcile a Local Host commit receipt into ControlStore."""
+        required = {
+            "task_id", "intent_id", "request_id", "idempotency_key",
+            "request_sha256", "payload_sha256", "candidate", "manifest",
+            "review_submission_id", "destination", "workspace_revision",
+            "report_revision", "committed_at",
+        }
+        require(isinstance(receipt, dict) and set(receipt) == required, "INVALID_CONTRACT")
+
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute(
+                    "SELECT payload FROM controls WHERE task_id=?", (task_id,)
+                ).fetchone()
+                require(row is not None, "TASK_MISMATCH")
+                state = decode_json(row[0])
+                intent = state.get("publication")
+                require(intent is not None and intent.get("intent_id") == intent_id, "TASK_MISMATCH")
+
+                if intent.get("status") == "committed":
+                    require(intent.get("receipt") == receipt, "DUPLICATE_CONFLICT")
+                    db.commit()
+                    return decode_json(encode_json(intent["receipt"]))
+
+                require(intent.get("status") == "pending", "INVALID_STATE")
+                request = intent["request"]
+                require(state.get("status") == "completed" and self._approved(state), "FINALIZATION_BLOCKED")
+                require(state.get("version", 0) == request["expected_task_version"], "FINALIZATION_BLOCKED")
+                require(state["candidate"] == request["candidate"], "STALE_CANDIDATE")
+                require(state["manifest"] == request["manifest"], "STALE_CANDIDATE")
+
+                destination = request["destination"]
+                expected_workspace_revision = destination["expected_workspace_revision"] + 1
+                expected_report_revision = (
+                    1 if destination["mode"] == "create"
+                    else destination["expected_report_revision"] + 1
+                )
+                require(
+                    receipt["task_id"] == task_id
+                    and receipt["intent_id"] == intent_id
+                    and receipt["request_id"] == request["request_id"]
+                    and receipt["idempotency_key"] == intent["idempotency_key"]
+                    and receipt["request_sha256"] == intent["request_sha256"]
+                    and receipt["payload_sha256"] == request["payload_sha256"]
+                    and receipt["candidate"] == request["candidate"]
+                    and receipt["manifest"] == request["manifest"]
+                    and receipt["review_submission_id"] == request["review_submission_id"]
+                    and receipt["destination"] == destination,
+                    "TASK_MISMATCH",
+                )
+                require(
+                    type(receipt["workspace_revision"]) is int
+                    and receipt["workspace_revision"] == expected_workspace_revision
+                    and type(receipt["report_revision"]) is int
+                    and receipt["report_revision"] == expected_report_revision,
+                    "VERSION_CONFLICT",
+                )
+                require(isinstance(receipt["committed_at"], str), "INVALID_CONTRACT")
+                try:
+                    committed_at = datetime.fromisoformat(
+                        receipt["committed_at"].replace("Z", "+00:00")
+                    )
+                except ValueError as exc:
+                    raise CollaborationError("INVALID_CONTRACT") from exc
+                require(committed_at.tzinfo is not None, "INVALID_CONTRACT")
+
+                intent["status"] = "committed"
+                intent["receipt"] = decode_json(encode_json(receipt))
+                intent["committed_at"] = receipt["committed_at"]
+                budgets.append_event(
+                    db,
+                    state,
+                    {
+                        "kind": "publication_receipt_recorded",
+                        "outcome": "committed",
+                        "intent_id": intent_id,
+                        "idempotency_key": intent["idempotency_key"],
+                        "request_sha256": intent["request_sha256"],
+                        "workspace_revision": receipt["workspace_revision"],
+                        "report_revision": receipt["report_revision"],
+                    },
+                )
+                db.execute(
+                    "UPDATE controls SET payload=? WHERE task_id=?",
+                    (encode_json(state, maximum=MAX_STATE_BYTES), task_id),
+                )
+                db.commit()
+                return decode_json(encode_json(receipt))
+            except BaseException:
+                if db.in_transaction:
+                    db.rollback()
+                raise
+
+    def abort_publication(
+        self, task_id, intent_id, *, error_code, reason, confirmed_not_committed=False
+    ):
+        """Record a definite pre-commit rejection; never use for an unknown outcome.
+
+        A timeout or lost HTTP response is not proof that the Local Host failed
+        to commit. In that case, query the Local Host by idempotency key instead.
+        """
+        require(confirmed_not_committed is True, "INVALID_CONTRACT")
+        require(isinstance(error_code, str) and re.fullmatch(r"[A-Z_]{1,80}", error_code), "INVALID_CONTRACT")
+        require(isinstance(reason, str) and 1 <= len(reason.strip()) <= 4000, "INVALID_CONTRACT")
+
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute(
+                    "SELECT payload FROM controls WHERE task_id=?", (task_id,)
+                ).fetchone()
+                require(row is not None, "TASK_MISMATCH")
+                state = decode_json(row[0])
+                intent = state.get("publication")
+                require(intent is not None and intent.get("intent_id") == intent_id, "TASK_MISMATCH")
+                failure = {
+                    "error_code": error_code,
+                    "reason": reason.strip(),
+                }
+                if intent.get("status") == "rejected":
+                    require(intent.get("failure") == failure, "DUPLICATE_CONFLICT")
+                    db.commit()
+                    return decode_json(encode_json(intent))
+                require(intent.get("status") == "pending", "INVALID_STATE")
+                intent["status"] = "rejected"
+                intent["failure"] = failure
+                intent["rejected_at"] = budgets.stamp()
+                budgets.append_event(
+                    db,
+                    state,
+                    {
+                        "kind": "publication_intent_rejected",
+                        "outcome": "rejected",
+                        "intent_id": intent_id,
+                        "idempotency_key": intent["idempotency_key"],
+                        "error_code": error_code,
+                    },
+                )
+                db.execute(
+                    "UPDATE controls SET payload=? WHERE task_id=?",
+                    (encode_json(state, maximum=MAX_STATE_BYTES), task_id),
+                )
+                db.commit()
+                return decode_json(encode_json(intent))
+            except BaseException:
+                if db.in_transaction:
+                    db.rollback()
+                raise
+
     def request(self, task_id, operation, **args):
         """Host-only operations. Model-facing routing lives in the Node Host."""
         context = None
@@ -104,14 +408,25 @@ class ControlStore:
             require(row is not None, "TASK_MISMATCH")
             state = decode_json(row[0])
             now = datetime.now(timezone.utc).timestamp()
-            before_expiry = (state["status"], [c["status"] for c in state["children"]])
+            before_expiry = _publication_state(state)
+
             self._expire(state, now)
-            if before_expiry != (state["status"], [c["status"] for c in state["children"]]):
-                budgets.append_event(db, state, {"kind": "deadline_expired", "outcome": state["status"]})
+
+            if _publication_state(state) != before_expiry:
+                state["version"] = state.get("version", 0) + 1
+                budgets.append_event(
+                    db,
+                    state,
+                    {
+                        "kind": "deadline_expired",
+                        "outcome": state["status"],
+                    },
+                )
             # Preserve expiry even if the following transition is rejected,
             # without releasing the writer lock between budget decisions.
             db.execute("UPDATE controls SET payload=? WHERE task_id=?", (encode_json(state, maximum=MAX_STATE_BYTES), task_id))
             db.execute("SAVEPOINT transition")
+            before_transition = _publication_state(state)
             try:
                 if operation in {"reserve", "dispatch", "settle", "reconcile", "accounting", "requests", "human"}:
                     require("ledger" in state, "BUDGET_UNVERIFIABLE")
@@ -134,15 +449,21 @@ class ControlStore:
                                 all(limits[limit] is None or count[charged] < limits[limit] for limit, charged in
                                     (("max_total_tokens", "charged_tokens"), ("max_cost_micros", "charged_cost_micros"))), "BUDGET_EXHAUSTED")
                     result = self._transition(state, operation, args, context)
+
                     if operation != "view":
                         child = args.get("delegation") or next((c["delegation"] for c in state["children"] if c["delegation"]["child_task_id"] == args.get("child_task_id")), None)
                         identity = {"task_id": task_id, "role": "researcher", "node_id": state["task"]["researcher_node_id"]} if child is None else {
                             "task_id": task_id, "role": "reviewer", "node_id": child["node_id"], "child_task_id": child["child_task_id"], "attempt_id": child["attempt_id"]}
                         budgets.append_event(db, state, {**budgets.owner(state, identity), "kind": operation, "outcome": state["status"],
                                                          "previous_status": before})
+
+                    if _publication_state(state) != before_transition:
+                        state["version"] = state.get("version", 0) + 1
             except CollaborationError as error:
                 if error.code in budgets.LIMIT_ERRORS:
                     budgets.block(state, error.code)
+                    if _publication_state(state) != before_transition:
+                        state["version"] = state.get("version", 0) + 1
                     budgets.append_event(db, state, {"kind": "budget_denied", "error_code": error.code,
                                                      "call_id": args.get("call_id"),
                                                      **budgets.owner(state, args.get("identity", {"task_id": task_id, "role": "researcher", "node_id": state["task"]["researcher_node_id"]}))})
@@ -170,7 +491,21 @@ class ControlStore:
         children = state["children"]
         task = state["task"]
         if operation == "view":
-            return {key: state[key] for key in ("status", "reason", "candidate", "manifest", "children", "deadline")}
+            return {
+                key: state[key]
+                for key in (
+                    "status",
+                    "reason",
+                    "candidate",
+                    "manifest",
+                    "children",
+                    "deadline",
+                )
+            } | {
+                "version": state.get("version", 0),
+                "corrections": state.get("corrections", []),
+                "correction": state.get("correction"),
+            }
         if operation == "event":
             event = args["event"]
             require(set(event) <= {"event_id", "kind", "role", "root_run_id", "node_id", "child_task_id", "attempt_id", "usage", "late", "error_code"})
@@ -229,12 +564,88 @@ class ControlStore:
                 return {"submission_id": args["submission_id"], "sha256": args["sha256"]}
         require(state["status"] == "running", "INVALID_STATE")
         if operation == "candidate":
-            require(not any(c["status"] == "running" for c in children), "CHILD_LIMIT")
+            require(
+                not any(c["status"] == "running" for c in children),
+                "CHILD_LIMIT",
+            )
             require(context["task"] == task, "TASK_MISMATCH")
-            require(args["candidate"]["candidate_id"] == state["candidate"]["candidate_id"] and
-                    args["candidate"]["revision"] > state["candidate"]["revision"], "STALE_CANDIDATE")
-            state.update(candidate=args["candidate"], manifest=context["manifest_ref"])
-            return {"candidate": state["candidate"], "manifest": state["manifest"]}
+
+            previous_candidate = state["candidate"]
+            new_candidate = args["candidate"]
+
+            require(
+                new_candidate["candidate_id"]
+                == previous_candidate["candidate_id"]
+                and new_candidate["revision"]
+                > previous_candidate["revision"],
+                "STALE_CANDIDATE",
+            )
+
+            correction = args.get("correction")
+            previous_child = children[-1] if children else None
+            previous_review = (
+                previous_child.get("review")
+                if previous_child else None
+            )
+
+            if previous_child is not None:
+                require(
+                    previous_child["status"] == "completed"
+                    and previous_review is not None
+                    and previous_review["status"] == "findings",
+                    "INVALID_STATE",
+                )
+
+                require(
+                    correction is not None,
+                    "INVALID_CORRECTION",
+                )
+
+                previous_context = self.context(
+                    task["task_id"],
+                    previous_candidate,
+                )
+
+                correction_context = {
+                    **context,
+                    "review": previous_review,
+                    "next_candidate": new_candidate,
+                    "previous_manifest": previous_context["manifest"],
+                }
+
+                validate_contract(
+                    "correction_response",
+                    correction,
+                    correction_context,
+                )
+
+                require(
+                    not correction["remaining_disagreements"],
+                    "INVALID_CORRECTION",
+                )
+
+                # Preserve every validated correction response.
+                state.setdefault("corrections", []).append(correction)
+
+                # Retain the latest correction for compatibility with
+                # downstream consumers.
+                state["correction"] = correction
+
+            else:
+                require(
+                    correction is None,
+                    "INVALID_CORRECTION",
+                )
+
+            state.update(
+                candidate=new_candidate,
+                manifest=context["manifest_ref"],
+            )
+
+            return {
+                "candidate": state["candidate"],
+                "manifest": state["manifest"],
+            }
         if operation == "start":
             delegation = args["delegation"]
             require(not any(c["delegation"]["child_task_id"] == delegation.get("child_task_id") or

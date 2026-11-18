@@ -84,7 +84,7 @@ def test_examples_do_not_import_the_verified_vendor_snapshot():
             code = line.split("//", 1)[0]
             if "vendor/conexus" in code:
                 offenders.append(f"{path.relative_to(ROOT)}:{number}")
-    assert not offenders, f"examples must import build/conexus, not vendor/conexus: {offenders}"
+    assert not offenders, f"examples must import build/member-2/conexus-runtime, not vendor/conexus: {offenders}"
 
 
 def test_lifecycle_suite_covers_every_required_situation():

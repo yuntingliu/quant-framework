@@ -31,6 +31,7 @@ DOCS = [
     "docs/10_CONEXUS_FRAMEWORK.md",
     "docs/11_CONEXUS_EXECUTION_LIFECYCLE.md",
     "docs/12_CONEXUS_EXTENSION_GUIDE.md",
+    "docs/12_MEMBER_2_COLLABORATION.md",
     "examples/conexus/README.md",
     "examples/conexus/minimal-agent/README.md",
     "examples/conexus/financial-integration/README.md",
@@ -144,12 +145,33 @@ def check_complete_sets(failures: list[str]) -> None:
         )
 
     host = (ROOT / "vendor/conexus/apps/local-host/src/index.mjs").read_text(encoding="utf-8")
-    # Routes are template literals interpolating the Harness slug; the document
-    # writes `:slug` for it, as the run-id and interaction-id placeholders do.
+    # The upstream tree stays pristine. Member 2's two publication routes live
+    # in the hash-pinned local patch and are part of the built Host surface.
     declared = {
         route.replace("${slug}", ":slug")
         for route in re.findall(r"app\.(?:get|post)\(\s*[`'\"]([^`'\"]+)", host)
     }
+    patch = ROOT / "integrations/conexus/patches/member-2-publication.patch"
+    if patch.is_file():
+        patch_text = patch.read_text(encoding="utf-8")
+        declared.update(
+            route.replace("${slug}", ":slug")
+            for route in re.findall(
+                r"^\+\s*app\.(?:get|post)\(\s*['`\"]([^'`\"]+)",
+                patch_text,
+                re.MULTILINE,
+            )
+        )
+    built_host = ROOT / "build/member-2/conexus-source/apps/local-host/src/index.mjs"
+    if built_host.is_file():
+        built_routes = {
+            route.replace("${slug}", ":slug")
+            for route in re.findall(
+                r"app\.(?:get|post)\(\s*[`'\"]([^`'\"]+)",
+                built_host.read_text(encoding="utf-8"),
+            )
+        }
+        declared = built_routes
     architecture = (ROOT / "docs/10_CONEXUS_FRAMEWORK.md").read_text(encoding="utf-8")
     documented = set(ROUTE_ROW.findall(architecture))
     if missing := declared - documented - UNDOCUMENTED_ROUTES_ALLOWED:

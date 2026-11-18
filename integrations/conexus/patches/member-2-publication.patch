@@ -1,0 +1,784 @@
+diff --git a/vendor/conexus/apps/local-host/src/index.mjs b/vendor/conexus/apps/local-host/src/index.mjs
+index d14ac7a..b1cee98 100644
+--- a/vendor/conexus/apps/local-host/src/index.mjs
++++ b/vendor/conexus/apps/local-host/src/index.mjs
+@@ -1,5 +1,5 @@
+ import Fastify from 'fastify'
+-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
++import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
+ import {
+   AgentRunController, bindHarnessReleaseExposure, executeHostedRelease, harnessReleaseChecksum,
+   inspectHostedRelease, instantiateHarnessWorkspace, redactPortableGraphData, validateHostedExposureInvocation,
+@@ -44,7 +44,7 @@ function mergeRelease(state, release) {
+ }
+ 
+ /** Single-user HTTP composition. This package has no account, billing, Canvas UI or enterprise imports. */
+-export async function createLocalHost({ projectRoot, slug, release, token, complete, model, runtimeAdapter }) {
++export async function createLocalHost({ projectRoot, slug, release, token, complete, model, runtimeAdapter, publicationSecret = process.env.ALPHALAB_PUBLICATION_HMAC_SECRET }) {
+   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) throw new Error('Invalid local Harness slug.')
+   if (typeof token !== 'string' || token.length < 24) throw new Error('The local Host requires a token of at least 24 characters.')
+   const inspected = inspectHostedRelease(release, undefined, runtimeAdapter?.profile)
+@@ -76,10 +76,29 @@ export async function createLocalHost({ projectRoot, slug, release, token, compl
+   } catch (problem) { await store.close(); throw problem }
+ 
+   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 })
++  // Preserve the exact signed bytes. Re-serializing parsed JSON can change number
++  // formatting and would make an otherwise valid HMAC ambiguous.
++  app.addContentTypeParser('application/vnd.alphalab.publication+json', { parseAs: 'buffer' }, (request, body, done) => {
++    request.rawBody = body
++    try { done(null, JSON.parse(body.toString('utf8'))) }
++    catch { done(Object.assign(new Error('Invalid publication JSON.'), { statusCode: 400 })) }
++  })
+   const controllers = new Map()
+   const listeners = new Map()
+   let queue = Promise.resolve()
+   let closing = false
++  let publicationInProgress = false
++
++  // Serialize workspace mutations and publication commits.
++  function enqueueMutation(operation) {
++    const result = queue.then(operation)
++
++    queue = result.catch(problem => {
++      app.log.error(problem)
++    })
++
++    return result
++  }
+   const descriptor = {
+     slug, title: release.manifest.name, summary: release.manifest.summary,
+     exposures: release.manifest.exposures.map(({ nodeId, ...item }) => item), defaultExposureId: exposure.id,
+@@ -94,6 +113,105 @@ export async function createLocalHost({ projectRoot, slug, release, token, compl
+     if (!run || !equal(hash(supplied), run.tokenHash)) throw error('Run not found or access denied.', 404)
+     return run
+   }
++  const publicationError = (code, message, statusCode = 409) =>
++    Object.assign(new Error(message), { code, statusCode })
++
++  function verifyPublicationSignature(request) {
++    if (typeof publicationSecret !== 'string' || publicationSecret.length < 32) {
++      throw publicationError('PUBLICATION_NOT_CONFIGURED', 'Trusted publication is not configured.', 503)
++    }
++    const timestamp = request.headers['x-alphalab-publication-timestamp']
++    const signature = request.headers['x-alphalab-publication-signature']
++    if (typeof timestamp !== 'string' || !/^\d{10}$/.test(timestamp) ||
++        Math.abs(Math.floor(Date.now() / 1000) - Number(timestamp)) > 300 ||
++        typeof signature !== 'string' || !/^[a-f0-9]{64}$/.test(signature)) {
++      throw publicationError('ACCESS_DENIED', 'Publication authentication failed.', 401)
++    }
++    const body = request.rawBody ?? Buffer.alloc(0)
++    const message = `${request.method}\n${request.url}\n${timestamp}\n`
++    const expected = createHmac('sha256', publicationSecret).update(message).update(body).digest()
++    const supplied = Buffer.from(signature, 'hex')
++    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
++      throw publicationError('ACCESS_DENIED', 'Publication authentication failed.', 401)
++    }
++  }
++
++  const publicationRecords = () => Array.isArray(state.publicationReceipts) ? state.publicationReceipts : []
++  const findPublicationReceipt = key => publicationRecords().find(item => item?.receipt?.idempotency_key === key)
++
++  function validatePublicationEnvelope(body) {
++    if (!body || typeof body !== 'object' || Array.isArray(body) || body.schema_version !== 1 ||
++        !body.intent || typeof body.intent !== 'object' || !body.request || typeof body.request !== 'object' ||
++        typeof body.report_markdown !== 'string' || typeof body.report_sha256 !== 'string' ||
++        !body.prepared_outputs || body.prepared_outputs.status !== 'succeeded' ||
++        !Array.isArray(body.prepared_outputs.operations)) {
++      throw publicationError('INVALID_CONTRACT', 'The publication envelope is invalid.', 400)
++    }
++    const { intent, request } = body
++    for (const key of ['intent_id', 'task_id', 'request_id', 'idempotency_key', 'request_sha256']) {
++      if (typeof intent[key] !== 'string' || !intent[key]) {
++        throw publicationError('INVALID_CONTRACT', `Publication intent is missing ${key}.`, 400)
++      }
++    }
++    if (intent.status !== 'pending' || intent.request_id !== request.request_id ||
++        intent.task_id !== request.task_id || intent.idempotency_key !== request.idempotency_key ||
++        intent.request_sha256.length !== 64 || !/^[a-f0-9]{64}$/.test(intent.request_sha256) ||
++        !(/^[a-f0-9]{64}$/.test(request.payload_sha256)) ||
++        request.draft_report?.sha256 !== body.report_sha256 ||
++        request.candidate == null || request.manifest == null || !request.destination || !request.outputs ||
++        typeof request.destination?.report_id !== 'string' || !request.destination.report_id ||
++        !['create', 'update'].includes(request.destination.mode) ||
++        !Number.isSafeInteger(request.destination.expected_workspace_revision) ||
++        (request.destination.mode === 'create' && request.destination.expected_report_revision !== null) ||
++        (request.destination.mode === 'update' && (!Number.isSafeInteger(request.destination.expected_report_revision) || request.destination.expected_report_revision < 1)) ||
++        typeof request.review_submission_id !== 'string' || !request.review_submission_id ||
++        request.outputs.workspaceResult?.kind !== 'document' ||
++        request.outputs.workspaceResult.reportId !== request.destination.report_id ||
++        request.outputs.workspaceResult.requestId !== request.request_id ||
++        request.outputs.workspaceCommands?.requestId !== request.request_id) {
++      throw publicationError('INVALID_CONTRACT', 'Publication references do not match the approved request.', 400)
++    }
++    const digest = createHash('sha256').update(body.report_markdown, 'utf8').digest('hex')
++    if (digest !== body.report_sha256) {
++      throw publicationError('INTEGRITY_ERROR', 'The frozen report bytes do not match their digest.', 409)
++    }
++    const required = new Set([
++      'alphalab-decision-notebook-v1',
++      'alphalab-workspace-result-v1',
++      'alphalab-workspace-commands-v1',
++    ])
++    const operations = body.prepared_outputs.operations
++    if (operations.length !== required.size || new Set(operations.map(item => item?.node_id)).size !== required.size ||
++        operations.some(item => item?.kind !== 'patch' || !required.has(item.node_id) ||
++          typeof item.set?.content !== 'string' || !item.set?.data || typeof item.set.data !== 'object')) {
++      throw publicationError('INVALID_WORKSPACE_OUTPUTS', 'The complete three-node output bundle is required.', 400)
++    }
++    const expectedData = {
++      'alphalab-decision-notebook-v1': request.outputs.decisionNotebook,
++      'alphalab-workspace-result-v1': request.outputs.workspaceResult,
++      'alphalab-workspace-commands-v1': request.outputs.workspaceCommands,
++    }
++    if (operations.some(item => JSON.stringify(item.set.data) !== JSON.stringify(expectedData[item.node_id]))) {
++      throw publicationError('INVALID_WORKSPACE_OUTPUTS', 'Prepared output data does not match the reviewed payload.', 400)
++    }
++  }
++
++  async function auditPublicationFailure(body, problem) {
++    try {
++      await store.commitState(next => {
++        const failures = Array.isArray(next.publicationFailures) ? next.publicationFailures : []
++        failures.push({
++          at: now(), intent_id: body?.intent?.intent_id ?? null,
++          task_id: body?.intent?.task_id ?? null,
++          idempotency_key: body?.intent?.idempotency_key ?? null,
++          error_code: problem.code ?? 'PUBLICATION_FAILED',
++        })
++        next.publicationFailures = failures.slice(-100)
++      })
++    } catch (auditError) {
++      app.log.error(auditError)
++    }
++  }
+   async function append(run, type, payload = {}) {
+     const event = { sequence: ++run.sequence, runId: run.id, at: now(), type, status: run.status, ...payload }
+     run.events.push(event)
+@@ -188,9 +306,188 @@ export async function createLocalHost({ projectRoot, slug, release, token, compl
+     authorizeWorkspace(request)
+     return { workspace: snapshot() }
+   })
++  // This endpoint is intentionally separate from ordinary workspace bearer
++  // authentication. Only the trusted Python publication coordinator possesses
++  // the dedicated HMAC secret.
++  app.post('/api/alphalab/publications', { bodyLimit: 10 * 1024 * 1024 }, async request => {
++    verifyPublicationSignature(request)
++    const body = request.body
++    validatePublicationEnvelope(body)
++    const { intent, request: finalRequest } = body
++
++    const prior = findPublicationReceipt(intent.idempotency_key)
++    if (prior) {
++      if (prior.intent_id !== intent.intent_id || prior.request_sha256 !== intent.request_sha256) {
++        throw publicationError('DUPLICATE_CONFLICT', 'The idempotency key belongs to another publication.', 409)
++      }
++      return { receipt: structuredClone(prior.receipt), replayed: true }
++    }
++    if (publicationInProgress) {
++      throw publicationError('INVALID_STATE', 'Another publication is already in progress.', 409)
++    }
++    if (state.runs.some(run => !terminal(run.status))) {
++      throw publicationError('INVALID_STATE', 'A research run is active; publication must wait.', 409)
++    }
++
++    publicationInProgress = true
++    try {
++      return await enqueueMutation(async () => {
++        const replay = findPublicationReceipt(intent.idempotency_key)
++        if (replay) {
++          if (replay.intent_id !== intent.intent_id || replay.request_sha256 !== intent.request_sha256) {
++            throw publicationError('DUPLICATE_CONFLICT', 'The idempotency key belongs to another publication.', 409)
++          }
++          return { receipt: structuredClone(replay.receipt), replayed: true }
++        }
++        if (state.runs.some(run => !terminal(run.status))) {
++          throw publicationError('INVALID_STATE', 'A research run is active; publication must wait.', 409)
++        }
++
++        const destination = finalRequest.destination
++        if (!Number.isSafeInteger(destination.expected_workspace_revision) ||
++            state.revision !== destination.expected_workspace_revision) {
++          throw publicationError('VERSION_CONFLICT', 'The workspace revision has changed.', 409)
++        }
++        const reportId = destination.report_id
++        const existingIndex = state.nodes.findIndex(node => node.id === reportId)
++        let reportRevision
++        if (destination.mode === 'create') {
++          if (destination.expected_report_revision !== null || existingIndex !== -1) {
++            throw publicationError('VERSION_CONFLICT', 'The report already exists or its create version is stale.', 409)
++          }
++          reportRevision = 1
++        } else if (destination.mode === 'update') {
++          if (existingIndex === -1) throw publicationError('VERSION_CONFLICT', 'The report to update does not exist.', 409)
++          const current = state.nodes[existingIndex]
++          const currentRevision = current.values?.revision ?? 1
++          if (!Number.isSafeInteger(destination.expected_report_revision) ||
++              currentRevision !== destination.expected_report_revision ||
++              !['note', 'document'].includes(current.type) ||
++              current.description !== 'AlphaLab quantitative report') {
++            throw publicationError('VERSION_CONFLICT', 'The report revision or destination identity has changed.', 409)
++          }
++          reportRevision = currentRevision + 1
++        } else {
++          throw publicationError('INVALID_CONTRACT', 'Unknown report destination mode.', 400)
++        }
++
++        const timestamp = now()
++        const receipt = {
++          task_id: intent.task_id,
++          intent_id: intent.intent_id,
++          request_id: intent.request_id,
++          idempotency_key: intent.idempotency_key,
++          request_sha256: intent.request_sha256,
++          payload_sha256: finalRequest.payload_sha256,
++          candidate: structuredClone(finalRequest.candidate),
++          manifest: structuredClone(finalRequest.manifest),
++          review_submission_id: finalRequest.review_submission_id,
++          destination: structuredClone(destination),
++          workspace_revision: destination.expected_workspace_revision + 1,
++          report_revision: reportRevision,
++          committed_at: timestamp,
++        }
++
++        await store.commitState(next => {
++          // Recheck inside the staged transaction; no live state is changed until
++          // the complete snapshot and receipt have been persisted successfully.
++          if (next.revision !== destination.expected_workspace_revision) {
++            throw publicationError('VERSION_CONFLICT', 'The workspace revision changed before commit.', 409)
++          }
++          const targetIndex = next.nodes.findIndex(node => node.id === reportId)
++          if (destination.mode === 'create' ? targetIndex !== -1 : targetIndex === -1) {
++            throw publicationError('VERSION_CONFLICT', 'The report destination changed before commit.', 409)
++          }
++          const reportHistory = Array.isArray(next.reportHistory) ? next.reportHistory : []
++          if (destination.mode === 'update') {
++            const previous = next.nodes[targetIndex]
++            const previousRevision = previous.values?.revision ?? 1
++            if (previousRevision !== destination.expected_report_revision) {
++              throw publicationError('VERSION_CONFLICT', 'The report revision changed before commit.', 409)
++            }
++            reportHistory.push({
++              report_id: reportId, revision: previousRevision,
++              title: previous.label ?? reportId,
++              content: previous.values?.content ?? '',
++              sha256: createHash('sha256').update(previous.values?.content ?? '', 'utf8').digest('hex'),
++              candidate: structuredClone(previous.values?.candidate ?? null),
++              manifest: structuredClone(previous.values?.manifest ?? null),
++              review_submission_id: previous.values?.reviewSubmissionId ?? null,
++              payload_sha256: previous.values?.payloadSha256 ?? null,
++              created_at: previous.createdAt ?? null,
++              updated_at: previous.updatedAt ?? null,
++              archived_at: timestamp,
++            })
++          }
++          next.reportHistory = reportHistory
++          const reportNode = {
++            ...(targetIndex === -1 ? {} : next.nodes[targetIndex]),
++            id: reportId,
++            type: 'document',
++            label: finalRequest.outputs.workspaceResult.title,
++            description: 'AlphaLab quantitative report',
++            values: {
++              ...(targetIndex === -1 ? {} : next.nodes[targetIndex].values),
++              content: body.report_markdown,
++              revision: reportRevision,
++              candidate: structuredClone(finalRequest.candidate),
++              manifest: structuredClone(finalRequest.manifest),
++              reviewSubmissionId: finalRequest.review_submission_id,
++              payloadSha256: finalRequest.payload_sha256,
++            },
++            createdAt: targetIndex === -1 ? timestamp : next.nodes[targetIndex].createdAt,
++            updatedAt: timestamp,
++            createdByRunId: targetIndex === -1 ? `publication:${intent.intent_id}` : next.nodes[targetIndex].createdByRunId,
++            updatedByRunId: `publication:${intent.intent_id}`,
++          }
++          if (targetIndex === -1) next.nodes.push(reportNode)
++          else next.nodes[targetIndex] = reportNode
++
++          for (const operation of body.prepared_outputs.operations) {
++            const node = next.nodes.find(item => item.id === operation.node_id)
++            if (!node || !node.values || typeof node.values !== 'object') {
++              throw publicationError('INVALID_WORKSPACE_OUTPUTS', `Required output node ${operation.node_id} is missing.`, 409)
++            }
++            node.values.content = operation.set.content
++            node.values.data = structuredClone(operation.set.data)
++            node.updatedAt = timestamp
++            node.updatedByRunId = `publication:${intent.intent_id}`
++            const graphNode = next.workspace?.nodes?.find(item => item.id === operation.node_id)
++            if (graphNode?.data && typeof graphNode.data === 'object') {
++              graphNode.data.content = operation.set.content
++              graphNode.data.data = structuredClone(operation.set.data)
++            }
++          }
++          next.revision = receipt.workspace_revision
++          next.updatedAt = timestamp
++          const receipts = Array.isArray(next.publicationReceipts) ? next.publicationReceipts : []
++          if (receipts.length >= 10000) {
++            throw publicationError('EVIDENCE_LIMIT', 'Publication receipt history is full.', 409)
++          }
++          receipts.push({ intent_id: intent.intent_id, request_sha256: intent.request_sha256, receipt })
++          next.publicationReceipts = receipts
++          return receipt
++        })
++        return { receipt, replayed: false }
++      })
++    } catch (problem) {
++      await auditPublicationFailure(body, problem)
++      throw problem
++    } finally {
++      publicationInProgress = false
++    }
++  })
++
++  app.get('/api/alphalab/publications/:idempotencyKey', async request => {
++    verifyPublicationSignature(request)
++    const record = findPublicationReceipt(request.params.idempotencyKey)
++    if (!record) throw publicationError('PUBLICATION_NOT_FOUND', 'No committed publication receipt exists.', 404)
++    return { receipt: structuredClone(record.receipt) }
++  })
+   app.post(`/api/public/harnesses/${slug}/runs`, async (request, reply) => {
+     authorizeWorkspace(request)
+     if (closing) throw error('Local Host is stopping.', 503)
++    if (publicationInProgress) throw publicationError('INVALID_STATE', 'Publication is in progress; new research runs are temporarily unavailable.', 409)
+     if (!complete) throw error('Configure a model endpoint and model identifier.', 503)
+     if (state.runs.filter(run => !terminal(run.status)).length >= 32) throw error('Local run queue is full.', 429)
+     const bound = bindHarnessReleaseExposure(release, request.body?.exposureId)
+@@ -202,7 +499,7 @@ export async function createLocalHost({ projectRoot, slug, release, token, compl
+     state.runs.push(run)
+     while (state.runs.length > 500 && terminal(state.runs[0].status)) state.runs.shift()
+     await append(run, 'run.queued')
+-    queue = queue.then(() => execute(run)).catch(problem => { app.log.error(problem) })
++    void enqueueMutation(() => execute(run))
+     return reply.code(202).send({ run: publicRun(run), accessToken })
+   })
+   app.get('/api/public/runs/:id', async request => ({ run: publicRun(authorizeRun(request)) }))
+diff --git a/vendor/conexus/apps/local-host/src/state.mjs b/vendor/conexus/apps/local-host/src/state.mjs
+index d74c66e..c3b5a8a 100644
+--- a/vendor/conexus/apps/local-host/src/state.mjs
++++ b/vendor/conexus/apps/local-host/src/state.mjs
+@@ -1,13 +1,29 @@
+-import { mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+-import { resolve } from 'node:path'
++import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises'
++import { dirname, resolve } from 'node:path'
+ import { randomUUID } from 'node:crypto'
+ 
+ export async function writeJson(path, value) {
+   const temporary = `${path}.${randomUUID()}.tmp`
++  let handle
+   try {
+-    await writeFile(temporary, JSON.stringify(value), { mode: 0o600 })
++    handle = await open(temporary, 'wx', 0o600)
++    await handle.writeFile(JSON.stringify(value), 'utf8')
++    await handle.sync()
++    await handle.close()
++    handle = undefined
+     await rename(temporary, path)
+-  } finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error }) }
++    // Directory fsync is supported on POSIX. Windows may reject opening a
++    // directory handle; the file itself has already been flushed before rename.
++    try {
++      const directory = await open(dirname(path), 'r')
++      try { await directory.sync() } finally { await directory.close() }
++    } catch (error) {
++      if (process.platform !== 'win32' && !['EINVAL', 'ENOTSUP', 'EISDIR', 'EPERM'].includes(error.code)) throw error
++    }
++  } finally {
++    await handle?.close().catch(() => {})
++    await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error })
++  }
+ }
+ 
+ export async function openState(directory, initial) {
+@@ -40,12 +56,55 @@ export async function openState(directory, initial) {
+     if (state.schema !== 'conexus.local-host.v1' || !Array.isArray(state.runs) || !Array.isArray(state.nodes)) {
+       throw new Error('Unrecognized local Host state. Existing data has been preserved.')
+     }
+-    // All mutations are serialized by the Host. Capture each snapshot before awaiting I/O.
++
++    // All mutations are serialized by the Host.
+     let saving = Promise.resolve()
+-    return { state, save: () => {
+-      const snapshot = structuredClone(state)
+-      saving = saving.then(() => writeJson(path, snapshot))
+-      return saving
+-    }, close: async () => { try { await saving } finally { await close() } } }
++
++    const save = () => {
++      const operation = saving.then(() =>
++        writeJson(path, structuredClone(state))
++      )
++
++      saving = operation.catch(() => {})
++      return operation
++    }
++
++    // Stage a complete state update. The live state is only replaced after
++    // the new snapshot has been persisted successfully.
++    const commitState = async transform => {
++      if (typeof transform !== 'function') {
++        throw new TypeError('A state transformation function is required.')
++      }
++
++      const operation = saving.then(async () => {
++        const next = structuredClone(state)
++
++        const result = await transform(next)
++
++        await writeJson(path, next)
++
++        for (const key of Object.keys(state)) delete state[key]
++        Object.assign(state, next)
++
++        return result
++      })
++
++      saving = operation.catch(() => {})
++      return operation
++    }
++
++    return {
++      state,
++      save,
++      commitState,
++      close: async () => {
++        try {
++          await saving
++        } finally {
++          await close()
++        }
++      },
++    }
++
+   } catch (error) { await close(); throw error }
+ }
+diff --git a/vendor/conexus/apps/local-host/test/local-host.test.mjs b/vendor/conexus/apps/local-host/test/local-host.test.mjs
+index 80aae55..46af5d6 100644
+--- a/vendor/conexus/apps/local-host/test/local-host.test.mjs
++++ b/vendor/conexus/apps/local-host/test/local-host.test.mjs
+@@ -3,19 +3,22 @@ import test from 'node:test'
+ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
++import { createHash, createHmac } from 'node:crypto'
+ import { setTimeout as delay } from 'node:timers/promises'
+ import { compileHarnessWorkspace, createLocalHost, createLocalRuntime, createModelCompletion } from '../src/index.mjs'
++import { openState } from '../src/state.mjs'
+ 
+ const token = 'local-test-credential-1234567890'
+ const headers = { authorization: `Bearer ${token}` }
+ const call = (name, args) => ({ content: null, finish_reason: 'tool_calls', tool_calls: [{
+   id: crypto.randomUUID(), type: 'function', function: { name, arguments: JSON.stringify(args) },
+ }] })
+-function release(model = 'test/local') {
++function release(model = 'test/local', extraNodes = []) {
+   return compileHarnessWorkspace({ harnessNodeId: 'harness', workspace: { nodes: [
+     { id: 'harness', type: 'harness', data: { label: 'Local Agent', defaultExposureId: 'agent' } },
+     { id: 'agent', type: 'agent', parentId: 'harness', data: { label: 'Agent', model,
+       systemPrompt: 'Complete the requested local task.', exposeInHarness: true, exposureId: 'agent' } },
++  ...extraNodes,
+   ], edges: [] } })
+ }
+ async function waitFor(host, run, predicate = row => ['completed', 'failed', 'cancelled'].includes(row.status)) {
+@@ -120,3 +123,301 @@ test('a local model needs no cloud credential and remote configuration fails clo
+   assert.equal(called.url.pathname, '/v1/chat/completions')
+   assert.throws(() => createModelCompletion({ baseUrl: 'https://example.com/v1', model: 'model' }), /API key/)
+ })
++
++
++test('staged state commit persists before replacing live state', async () => {
++  const projectRoot = await mkdtemp(join(tmpdir(), 'conexus-state-test-'))
++
++  const initial = {
++    schema: 'conexus.local-host.v1',
++    runs: [],
++    nodes: [],
++    revision: 0,
++  }
++
++  let store
++
++  try {
++    store = await openState(projectRoot, initial)
++
++    await store.commitState(next => {
++      next.revision = 1
++      next.nodes.push({ id: 'report-1', values: { content: 'Reviewed report' } })
++      return { revision: next.revision }
++    })
++
++    assert.equal(store.state.revision, 1)
++    assert.equal(store.state.nodes.length, 1)
++
++    const saved = JSON.parse(
++      await readFile(join(projectRoot, 'state.json'), 'utf8')
++    )
++
++    assert.equal(saved.revision, 1)
++    assert.equal(saved.nodes[0].id, 'report-1')
++  } finally {
++    await store?.close()
++    await rm(projectRoot, { recursive: true, force: true })
++  }
++})
++
++test('failed staged state commit preserves previous live and persisted state', async () => {
++  const projectRoot = await mkdtemp(join(tmpdir(), 'conexus-state-test-'))
++
++  const initial = {
++    schema: 'conexus.local-host.v1',
++    runs: [],
++    nodes: [],
++    revision: 0,
++  }
++
++  let store
++
++  try {
++    store = await openState(projectRoot, initial)
++    await store.save()
++
++    await assert.rejects(
++      store.commitState(() => {
++        throw new Error('Injected publication failure.')
++      }),
++      /Injected publication failure/
++    )
++
++    assert.equal(store.state.revision, 0)
++    assert.deepEqual(store.state.nodes, [])
++
++    const saved = JSON.parse(
++      await readFile(join(projectRoot, 'state.json'), 'utf8')
++    )
++
++    assert.equal(saved.revision, 0)
++    assert.deepEqual(saved.nodes, [])
++  } finally {
++    await store?.close()
++    await rm(projectRoot, { recursive: true, force: true })
++  }
++})
++
++
++const publicationSecret = 'test-publication-secret-0123456789abcdef0123456789abcdef'
++const outputNodeIds = [
++  'alphalab-decision-notebook-v1',
++  'alphalab-workspace-result-v1',
++  'alphalab-workspace-commands-v1',
++]
++
++function publicationOutputs(requestId, reportId, reportText) {
++  return {
++    summary: reportText,
++    decisionNotebook: {
++      version: 1, classification: 'reviewed', baseCase: reportText,
++      riskCase: 'Synthetic test only.', nextAction: 'Inspect frozen evidence.', candidateExpressions: [],
++    },
++    workspaceResult: {
++      version: 1, requestId, kind: 'document', reportId, title: 'Reviewed report',
++      sources: [], columns: [], rows: [],
++    },
++    workspaceCommands: { version: 1, requestId, commands: [] },
++  }
++}
++
++function publicationEnvelope({ mode = 'create', workspaceRevision = 0, reportRevision = null,
++  requestId = 'request-1', idempotencyKey = 'delivery-1', reportText = '# Reviewed report',
++  intentId = 'intent-1', reportId = 'report-1', requestDigest = 'd'.repeat(64), payloadDigest = 'e'.repeat(64) } = {}) {
++  const reportSha = createHash('sha256').update(reportText, 'utf8').digest('hex')
++  const outputs = publicationOutputs(requestId, reportId, reportText)
++  const operations = [
++    { kind: 'patch', node_id: outputNodeIds[0], set: { content: reportText, data: outputs.decisionNotebook } },
++    { kind: 'patch', node_id: outputNodeIds[1], set: { content: `研究报告：${outputs.workspaceResult.title}`, data: outputs.workspaceResult } },
++    { kind: 'patch', node_id: outputNodeIds[2], set: { content: '本轮无工作台导航请求。', data: outputs.workspaceCommands } },
++  ]
++  const request = {
++    schema_version: 1, task_id: 'task-1', request_id: requestId,
++    idempotency_key: idempotencyKey, expected_task_version: 3,
++    candidate: { candidate_id: 'candidate-1', revision: 1, sha256: 'a'.repeat(64) },
++    manifest: { manifest_id: 'manifest-1', revision: 1, sha256: 'b'.repeat(64) },
++    review_submission_id: 'submission-1', correction_response_id: null,
++    draft_report: { artifact_id: 'report', sha256: reportSha, locator: '' },
++    payload_sha256: payloadDigest,
++    destination: {
++      report_id: reportId, mode,
++      expected_workspace_revision: workspaceRevision,
++      expected_report_revision: reportRevision,
++    },
++    outputs,
++  }
++  const intent = {
++    intent_id: intentId, status: 'pending', task_id: request.task_id,
++    request_id: requestId, idempotency_key: idempotencyKey,
++    request_sha256: requestDigest, request,
++  }
++  return {
++    schema_version: 1, intent, request, report_markdown: reportText,
++    report_sha256: reportSha, prepared_outputs: { status: 'succeeded', operations },
++  }
++}
++
++function signedHeaders(method, path, body = Buffer.alloc(0)) {
++  const timestamp = String(Math.floor(Date.now() / 1000))
++  const message = `${method}\n${path}\n${timestamp}\n`
++  const signature = createHmac('sha256', publicationSecret).update(message).update(body).digest('hex')
++  return {
++    'x-alphalab-publication-timestamp': timestamp,
++    'x-alphalab-publication-signature': signature,
++    ...(method === 'POST' ? { 'content-type': 'application/vnd.alphalab.publication+json' } : {}),
++  }
++}
++
++async function postPublication(host, envelope) {
++  const body = Buffer.from(JSON.stringify(envelope), 'utf8')
++  return host.app.inject({ method: 'POST', url: '/api/alphalab/publications',
++    headers: signedHeaders('POST', '/api/alphalab/publications', body), payload: body })
++}
++
++test('trusted publication atomically commits report, outputs, history and replay receipt', async () => {
++  const projectRoot = await mkdtemp(join(tmpdir(), 'conexus-publication-test-'))
++  const extraNodes = outputNodeIds.map(id => ({
++    id, type: 'note', parentId: 'harness',
++    data: { label: id, description: 'AlphaLab workspace output', content: '', data: {} },
++  }))
++  let host
++  try {
++    host = await createLocalHost({ projectRoot, slug: 'local-agent', token,
++      publicationSecret, release: release('test/local', extraNodes) })
++
++    const unauthorized = await host.app.inject({ method: 'POST', url: '/api/alphalab/publications',
++      headers: { 'content-type': 'application/vnd.alphalab.publication+json' }, payload: '{}' })
++    assert.equal(unauthorized.statusCode, 401)
++
++    const firstEnvelope = publicationEnvelope()
++    const first = await postPublication(host, firstEnvelope)
++    assert.equal(first.statusCode, 200, first.body)
++    const firstReceipt = first.json().receipt
++    assert.equal(firstReceipt.workspace_revision, 1)
++    assert.equal(firstReceipt.report_revision, 1)
++    assert.equal(first.json().replayed, false)
++
++    const workspace1 = (await host.app.inject({ url: '/api/public/harnesses/local-agent/workspace', headers })).json().workspace
++    const report1 = workspace1.nodes.find(node => node.id === 'report-1')
++    assert.equal(report1.values.content, '# Reviewed report')
++    assert.equal(report1.values.revision, 1)
++    for (const id of outputNodeIds) assert(workspace1.nodes.find(node => node.id === id)?.values?.data)
++
++    const secondEnvelope = publicationEnvelope({ mode: 'update', workspaceRevision: 1, reportRevision: 1,
++      requestId: 'request-2', idempotencyKey: 'delivery-2', reportText: '# Corrected reviewed report',
++      intentId: 'intent-2', requestDigest: 'f'.repeat(64), payloadDigest: '9'.repeat(64) })
++    const second = await postPublication(host, secondEnvelope)
++    assert.equal(second.statusCode, 200, second.body)
++    assert.equal(second.json().receipt.workspace_revision, 2)
++    assert.equal(second.json().receipt.report_revision, 2)
++
++    const saved = JSON.parse(await readFile(join(projectRoot, 'state.json'), 'utf8'))
++    assert.equal(saved.revision, 2)
++    assert.equal(saved.nodes.find(node => node.id === 'report-1').values.content, '# Corrected reviewed report')
++    assert.equal(saved.nodes.find(node => node.id === 'report-1').values.revision, 2)
++    assert.equal(saved.reportHistory.length, 1)
++    assert.equal(saved.reportHistory[0].revision, 1)
++    assert.equal(saved.reportHistory[0].content, '# Reviewed report')
++    assert.equal(saved.publicationReceipts.length, 2)
++
++    // Replaying the first committed request returns its original receipt even
++    // after a later report revision has been published.
++    const replay = await postPublication(host, firstEnvelope)
++    assert.equal(replay.statusCode, 200, replay.body)
++    assert.equal(replay.json().replayed, true)
++    assert.deepEqual(replay.json().receipt, firstReceipt)
++    const afterReplay = JSON.parse(await readFile(join(projectRoot, 'state.json'), 'utf8'))
++    assert.equal(afterReplay.revision, 2)
++
++    const receiptPath = '/api/alphalab/publications/delivery-2'
++    const receiptLookup = await host.app.inject({ method: 'GET', url: receiptPath,
++      headers: signedHeaders('GET', receiptPath) })
++    assert.equal(receiptLookup.statusCode, 200, receiptLookup.body)
++    assert.equal(receiptLookup.json().receipt.report_revision, 2)
++  } finally {
++    await host?.close()
++    await rm(projectRoot, { recursive: true, force: true })
++  }
++})
++
++test('publication rejects stale workspace versions without replacing the current report', async () => {
++  const projectRoot = await mkdtemp(join(tmpdir(), 'conexus-publication-stale-test-'))
++  const extraNodes = outputNodeIds.map(id => ({
++    id, type: 'note', parentId: 'harness',
++    data: { label: id, description: 'AlphaLab workspace output', content: '', data: {} },
++  }))
++  let host
++  try {
++    host = await createLocalHost({ projectRoot, slug: 'local-agent', token,
++      publicationSecret, release: release('test/local', extraNodes) })
++    const initial = await postPublication(host, publicationEnvelope())
++    assert.equal(initial.statusCode, 200, initial.body)
++
++    const stale = publicationEnvelope({ mode: 'update', workspaceRevision: 0, reportRevision: 1,
++      requestId: 'request-stale', idempotencyKey: 'delivery-stale', reportText: '# Stale overwrite',
++      intentId: 'intent-stale', requestDigest: '8'.repeat(64), payloadDigest: '7'.repeat(64) })
++    const rejected = await postPublication(host, stale)
++    assert.equal(rejected.statusCode, 409, rejected.body)
++    assert.equal(rejected.json().error.code, 'VERSION_CONFLICT')
++
++    const saved = JSON.parse(await readFile(join(projectRoot, 'state.json'), 'utf8'))
++    assert.equal(saved.revision, 1)
++    assert.equal(saved.nodes.find(node => node.id === 'report-1').values.content, '# Reviewed report')
++  } finally {
++    await host?.close()
++    await rm(projectRoot, { recursive: true, force: true })
++  }
++})
++
++test('publication receipt and report history survive a Local Host restart', async () => {
++  const projectRoot = await mkdtemp(join(tmpdir(), 'conexus-publication-restart-'))
++  const extraNodes = outputNodeIds.map(id => ({
++    id, type: 'note', parentId: 'harness',
++    data: { label: id, description: 'AlphaLab workspace output', content: '', data: {} },
++  }))
++  const candidateRelease = release('test/local', extraNodes)
++  let host
++  try {
++    host = await createLocalHost({ projectRoot, slug: 'local-agent', token,
++      publicationSecret, release: candidateRelease })
++    const firstEnvelope = publicationEnvelope()
++    const first = await postPublication(host, firstEnvelope)
++    assert.equal(first.statusCode, 200, first.body)
++    const firstReceipt = first.json().receipt
++    const secondEnvelope = publicationEnvelope({ mode: 'update', workspaceRevision: 1, reportRevision: 1,
++      requestId: 'request-restart-2', idempotencyKey: 'delivery-restart-2',
++      reportText: '# Reviewed revision two', intentId: 'intent-restart-2',
++      requestDigest: '6'.repeat(64), payloadDigest: '5'.repeat(64) })
++    const second = await postPublication(host, secondEnvelope)
++    assert.equal(second.statusCode, 200, second.body)
++    await host.close()
++    host = undefined
++
++    host = await createLocalHost({ projectRoot, slug: 'local-agent', token,
++      publicationSecret, release: candidateRelease })
++    const workspace = (await host.app.inject({
++      url: '/api/public/harnesses/local-agent/workspace', headers,
++    })).json().workspace
++    assert.equal(workspace.revision, 2)
++    assert.equal(workspace.nodes.find(node => node.id === 'report-1').values.content,
++      '# Reviewed revision two')
++
++    const path = '/api/alphalab/publications/delivery-1'
++    const recovered = await host.app.inject({ method: 'GET', url: path,
++      headers: signedHeaders('GET', path) })
++    assert.equal(recovered.statusCode, 200, recovered.body)
++    assert.deepEqual(recovered.json().receipt, firstReceipt)
++    const replay = await postPublication(host, firstEnvelope)
++    assert.equal(replay.statusCode, 200, replay.body)
++    assert.equal(replay.json().replayed, true)
++    const saved = JSON.parse(await readFile(join(projectRoot, 'state.json'), 'utf8'))
++    assert.equal(saved.revision, 2)
++    assert.equal(saved.reportHistory.length, 1)
++    assert.equal(saved.reportHistory[0].content, '# Reviewed report')
++    assert.equal(saved.publicationReceipts.length, 2)
++  } finally {
++    await host?.close()
++    await rm(projectRoot, { recursive: true, force: true })
++  }
++})

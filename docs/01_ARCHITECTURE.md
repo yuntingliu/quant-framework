@@ -26,7 +26,7 @@ dependencies, generated programs, and persistent user data:
 | `integrations/conexus/` | AlphaLab-owned Agent graph, tools, prompts, and local-host adapter |
 | `vendor/conexus/` | Verified upstream source snapshot; changes enter through the export importer |
 | `build/web/`, `build/electron/` | Generated browser and desktop entrypoints |
-| `build/conexus-source/`, `build/conexus/` | Disposable core compilation workspace and runnable Agent distribution |
+| `build/member-2/conexus-source/`, `build/member-2/conexus-runtime/` | Disposable core compilation workspace and runnable Agent distribution |
 | `data/app/`, `data/runtime/`, `data/cache/` | Persistent application state, downloaded research data, and caches |
 | `data/backups/` | Local migration backups and archived historical workspaces |
 | `artifacts/` | Shareable deployment archives and desktop packages |
@@ -40,7 +40,7 @@ databases, frozen runs, downloaded data, or Agent history.
 
 The local launcher composes the Python workbench with the included Conexus
 `local-host`. `vendor/conexus` is a verified upstream source snapshot;
-`build/conexus` is its generated Node runtime. Agent execution remains in the
+`build/member-2/conexus-runtime` is its generated Node runtime. Agent execution remains in the
 Conexus core; AlphaLab supplies the research graph, Python API tools and optional
 direct search adapter. Reports and Run state persist under the local runtime data
 directory. The included core has no Canvas UI or enterprise application dependency.

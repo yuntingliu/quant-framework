@@ -143,21 +143,183 @@ def test_child_deadline_and_policy_cannot_widen_on_restart(setup):
     assert store.request("task-1", "view")["children"] == []
 
 
-def test_candidate_change_invalidates_previous_approval_without_resetting_rounds(setup):
+
+def test_approved_candidate_cannot_be_replaced_without_new_review(setup):
     store, fixture = setup
-    d = fixture["delegation"]
-    store.request("task-1", "start", delegation=d)
+    task_id = fixture["task_id"]
+    delegation = fixture["delegation"]
+
+    store.request(
+        task_id,
+        "start",
+        delegation=delegation,
+    )
+
     submit(store, fixture)
-    store.request("task-1", "finish_child", child_task_id=d["child_task_id"], status="done")
-    package = store.evidence.candidate("task-1", fixture["candidate"])
+
+    store.request(
+        task_id,
+        "finish_child",
+        child_task_id=delegation["child_task_id"],
+        status="done",
+    )
+
+    # Create a different, immutable candidate revision.
+    package = store.evidence.candidate(
+        task_id,
+        fixture["candidate"],
+    )
+
     package["revision"] = 2
-    package["assumptions"].append("A new candidate requires another review.")
-    next_candidate = store.evidence.save_candidate(package, expected_revision=1)
-    store.request("task-1", "candidate", candidate=next_candidate)
+    package["assumptions"].append(
+        "Candidate changed after an approved review."
+    )
+
+    next_candidate = store.evidence.save_candidate(
+        package,
+        expected_revision=1,
+    )
+
+    # A previously approved candidate must not be silently
+    # replaced by an unreviewed revision.
     with pytest.raises(CollaborationError) as error:
-        store.request("task-1", "finish_root", status="done")
-    assert error.value.code == "FINALIZATION_BLOCKED"
-    with pytest.raises(CollaborationError):
-        store.request("task-1", "candidate", candidate=fixture["candidate"])
-    assert len(store.request("task-1", "view")["children"]) == 1
-    store.request("task-1", "start", delegation={**d, "child_task_id": "next", "attempt_id": "next", "round": 2, "candidate": next_candidate})
+        store.request(
+            task_id,
+            "candidate",
+            candidate=next_candidate,
+        )
+
+    assert error.value.code == "INVALID_STATE"
+
+    # The original approved candidate remains active.
+    state = store.request(task_id, "view")
+
+    assert state["candidate"] == fixture["candidate"]
+    assert state["manifest"] == fixture["delegation"]["manifest"]
+
+    # The original review can still approve its exact version.
+    result = store.request(
+        task_id,
+        "finish_root",
+        status="done",
+    )
+
+    assert result["status"] == "completed"
+
+
+def test_task_version_only_advances_on_publication_state_changes(setup):
+    store, fixture = setup
+    task_id = fixture["task_id"]
+    delegation = fixture["delegation"]
+
+    initial = store.request(task_id, "view")["version"]
+
+    # Starting a reviewer changes task state.
+    store.request(
+        task_id,
+        "start",
+        delegation=delegation,
+    )
+
+    after_start = store.request(task_id, "view")["version"]
+    assert after_start == initial + 1
+
+    # Cancelling the reviewer changes task state.
+    store.request(
+        task_id,
+        "cancel_child",
+        child_task_id=delegation["child_task_id"],
+    )
+
+    after_cancel = store.request(task_id, "view")["version"]
+    assert after_cancel == after_start + 1
+
+    # Repeating the same cancellation is a no-op.
+    store.request(
+        task_id,
+        "cancel_child",
+        child_task_id=delegation["child_task_id"],
+    )
+
+    assert store.request(task_id, "view")["version"] == after_cancel
+
+    # Cancelling the root task changes its state.
+    store.request(task_id, "cancel")
+
+    after_root_cancel = store.request(task_id, "view")["version"]
+    assert after_root_cancel == after_cancel + 1
+
+    # Repeating root cancellation must not advance the version.
+    store.request(task_id, "cancel")
+
+    assert store.request(task_id, "view")["version"] == after_root_cancel
+
+
+
+def test_late_usage_event_does_not_advance_task_version(setup):
+    store, fixture = setup
+    task_id = fixture["task_id"]
+    delegation = fixture["delegation"]
+
+    # Register a reviewer child before recording its late event.
+    store.request(
+        task_id,
+        "start",
+        delegation=delegation,
+    )
+
+    # Cancel the root and its active child.
+    store.request(task_id, "cancel")
+
+    version_before = store.request(task_id, "view")["version"]
+
+    # Record usage from the now-cancelled reviewer.
+    store.request(
+        task_id,
+        "event",
+        event={
+            "kind": "model_settled",
+            "role": "reviewer",
+            "child_task_id": delegation["child_task_id"],
+            "attempt_id": delegation["attempt_id"],
+            "late": True,
+            "usage": {"total_tokens": 25},
+        },
+    )
+
+    state = store.request(task_id, "view")
+
+    # Late accounting must not change publication eligibility.
+    assert state["version"] == version_before
+    assert state["status"] == "cancelled"
+
+    events = store.request(task_id, "events")
+    assert events[-1]["usage"]["total_tokens"] == 25
+    assert events[-1]["late"] is True
+
+def test_automatic_expiry_advances_task_version_once(setup):
+    store, fixture = setup
+    task_id = fixture["task_id"]
+
+    before = store.request(task_id, "view")["version"]
+
+    with store._connect() as db:
+        state = json.loads(
+            db.execute(
+                "SELECT payload FROM controls WHERE task_id=?",
+                (task_id,),
+            ).fetchone()[0]
+        )
+        state["deadline"] = 0
+        db.execute(
+            "UPDATE controls SET payload=? WHERE task_id=?",
+            (encode_json(state), task_id),
+        )
+
+    state = store.request(task_id, "view")
+
+    assert state["status"] == "timed_out"
+    assert state["version"] == before + 1
+
+    # Repeated reads must not increment the version again.
+    assert store.request(task_id, "view")["version"] == before + 1

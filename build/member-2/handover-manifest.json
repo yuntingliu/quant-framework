@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "package": "AlphaLab Quant Framework \u2014 Member 2 handover",
+  "build_directory": "build/member-2",
+  "runtime_build": "build/member-2/conexus-runtime",
+  "runtime_source_workspace": "build/member-2/conexus-source",
+  "upstream_revision": "9cd8c6934b4fac54cc513cba4f6e7960b57688c3",
+  "publication_patch": {
+    "path": "integrations/conexus/patches/member-2-publication.patch",
+    "sha256": "c728b135635d50fb50d767b6450d62b53bc36f4b998b3213deb01c6feef9afd3"
+  },
+  "generated_artifacts_included": false,
+  "excluded": [
+    ".git",
+    ".venv",
+    "node_modules",
+    "build scratch runs",
+    "local runtime databases",
+    "provider credentials",
+    "Python bytecode and test caches"
+  ],
+  "validation_record": {
+    "local_host_tests": "9 passed (developer-reported)",
+    "live_host_acceptance": "2 passed (developer-reported)",
+    "finalization_service_tests": "7 passed (developer-reported)",
+    "publication_python_regressions": "20 passed (developer-reported)",
+    "collaboration_regressions": "47 passed (developer-reported)",
+    "full_suite": "634 passed, 3 skipped, 1 documentation-contract failure; documentation fix passed in isolated check, full suite not rerun afterward"
+  },
+  "next_integration": "Trusted FastAPI finalization route and task-scoped ControlStore/EvidenceStore registry are not yet implemented.",
+  "upstream_export_sha256": "1483a12d887c8d262f278998b0f24f071028ec029ebe8179e21c36605a24365f",
+  "production_finalization_api": {
+    "route": "POST /api/conexus/collaboration/tasks/{task_id}/finalize",
+    "store_layout": "${ALPHALAB_RUNTIME_DIR:-data/runtime}/collaboration/tasks/{task_id}/{control,evidence}",
+    "authentication": "Existing workstation Basic authentication middleware when enabled; route is not covered by the run-token bypass.",
+    "implementation_files": [
+      "apps/api/services/collaboration_storage_service.py",
+      "apps/api/services/collaboration_finalization_service.py",
+      "apps/api/routers/conexus.py",
+      "integrations/conexus/collaboration/host.mjs",
+      "apps/api/services/agent_collaboration_service.py",
+      "tests/api/test_collaboration_finalization_api.py",
+      "tests/collaboration/test_collaboration_finalization_service.py"
+    ],
+    "test_status": "Added; not executed in the assembly environment because pyarrow is unavailable there. Run in the recipient's fully installed project environment."
+  }
+}

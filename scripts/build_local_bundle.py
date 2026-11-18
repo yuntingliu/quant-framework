@@ -22,7 +22,7 @@ SAMPLE_FILES = {
 
 
 def runtime_bundle_files(root: Path) -> set[str]:
-    runtime = root / "build/conexus"
+    runtime = root / "build/member-2/conexus-runtime"
     upstream = json.loads((runtime / "UPSTREAM.json").read_text(encoding="utf-8"))
     lock = json.loads((root / "integrations/conexus/runtime.lock.json").read_text(encoding="utf-8"))
     owners = {"packages/runtime-protocol", "packages/runtime-core", "packages/node-host-runtime", "apps/local-host"}
@@ -49,7 +49,7 @@ def main() -> int:
     frontend = ROOT / "build/web"
     if not (frontend / "index.html").is_file():
         raise SystemExit("Run npm --prefix apps/desktop run build first.")
-    runtime = ROOT / "build/conexus"
+    runtime = ROOT / "build/member-2/conexus-runtime"
     if not (runtime / "UPSTREAM.json").is_file():
         raise SystemExit("Build the pinned Conexus runtime before creating the deployment package.")
     candidates = subprocess.check_output(

@@ -3,3 +3,4 @@ vendor/conexus/** text eol=lf
 
 # Development evidence hashes must survive a Windows or Linux checkout.
 tests/fixtures/collaboration/** text eol=lf
+integrations/conexus/patches/*.patch text eol=lf whitespace=-blank-at-eol

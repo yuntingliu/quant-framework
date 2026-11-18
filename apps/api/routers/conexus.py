@@ -12,7 +12,10 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from alphalab.collaboration import CollaborationError
 from apps.api.services import agent_run_service
+from apps.api.services.collaboration_finalization_service import finalize_collaboration_task
+from apps.api.services.collaboration_storage_service import open_existing_task_stores
 from apps.api.services.agent_conversation_service import (
     MAX_CONVERSATION_BYTES,
 )
@@ -34,9 +37,61 @@ class PrepareOutputsRequest(BaseModel):
     outputs: dict[str, Any]
 
 
+class FinalizeCollaborationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    idempotency_key: str = Field(min_length=1, max_length=200)
+
+
 @router.post("/outputs/prepare")
 def prepare_outputs(request: PrepareOutputsRequest) -> dict[str, Any]:
     return prepare_workspace_outputs(request.request_id, request.outputs)
+
+def _publication_error_status(code: str) -> int:
+    if code == "TASK_MISMATCH":
+        return 404
+    if code == "ACCESS_DENIED":
+        return 403
+    if code in {"STORAGE_UNAVAILABLE", "PUBLICATION_NOT_CONFIGURED"}:
+        return 503
+    if code in {
+        "FINALIZATION_BLOCKED", "STALE_CANDIDATE", "VERSION_CONFLICT",
+        "DUPLICATE_CONFLICT", "INVALID_STATE",
+    }:
+        return 409
+    if code == "INTEGRITY_ERROR":
+        return 500
+    return 422
+
+
+@router.post("/collaboration/tasks/{task_id}/finalize")
+async def finalize_collaboration(task_id: str, request: FinalizeCollaborationRequest) -> Response:
+    """Publish an approved task or reconcile its existing idempotent intent.
+
+    Workstation Basic authentication is applied by HttpBasicAuthMiddleware
+    when enabled. The request accepts no storage paths, review result, evidence
+    references or destination; all of those are loaded from trusted stores.
+    """
+    if not request.idempotency_key.strip():
+        raise HTTPException(status_code=422, detail="A non-empty idempotency key is required.")
+
+    try:
+        control_store, evidence_store = open_existing_task_stores(task_id)
+        result = await finalize_collaboration_task(
+            task_id=task_id,
+            idempotency_key=request.idempotency_key,
+            control_store=control_store,
+            evidence_store=evidence_store,
+        )
+    except CollaborationError as exc:
+        raise HTTPException(
+            status_code=_publication_error_status(exc.code),
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+    status_code = 202 if result.get("status") == "pending" else 200
+    return JSONResponse({"publication": result}, status_code=status_code)
+
 
 class RunConversationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")

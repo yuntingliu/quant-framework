@@ -326,7 +326,7 @@ def test_export_is_consistent_under_same_result_id_replay_and_respects_row_bound
         business.close()
 
 
-@pytest.mark.skipif(not shutil.which("node") or not (ROOT / "build/conexus/node_modules/ajv").exists(), reason="Build the bundled Node runtime first.")
+@pytest.mark.skipif(not shutil.which("node") or not (ROOT / "build/member-2/conexus-runtime/node_modules/ajv").exists(), reason="Build the bundled Node runtime first.")
 def test_node_client_uses_read_only_stdio_with_fixed_scope_and_no_http_or_model_key(tmp_path):
     store = prepared(tmp_path)
     reference = freeze(store)

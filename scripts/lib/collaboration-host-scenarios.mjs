@@ -14,7 +14,7 @@ const use = (node_id, input, capability = 'tool.invoke') => tool('use', { node_i
 const response = calls => ({ content: null, finish_reason: 'tool_calls', tool_calls: calls })
 const complete = status => tool('complete', { status, summary: 'Scripted Host acceptance.', ...(status === 'blocked' ? { blocker: 'Scripted blocked case.' } : {}) })
 const hash = data => createHash('sha256').update(data).digest('hex')
-export const scenarios = ['clean', 'forbidden-write', 'ownership', 'blocked-result', 'cancel', 'timeout', 'root-deadline', 'recovery', 'grants', 'missing-grant', 'root-input']
+export const scenarios = ['clean', 'observe-contract', 'forbidden-write', 'ownership', 'blocked-result', 'cancel', 'timeout', 'root-deadline', 'recovery', 'grants', 'missing-grant', 'root-input', 'parent-escalation']
 const delayedScenarios = new Set(['cancel', 'timeout', 'root-deadline', 'recovery'])
 
 export async function prepareFixture(output, pythonExecutable, lifetimeSeconds = 3600) {
@@ -68,7 +68,12 @@ export async function runScenario({ scenario, output, pythonExecutable }) {
         ])
         if (rootTurns === 2) return response([use(nodes.control, { operation: 'wait', child_task_id: fixture.delegation.child_task_id })])
         if (scenario === 'blocked-result' && rootTurns === 3) return response([complete('done')])
-        return response([complete(['clean', 'grants', 'missing-grant', 'root-input'].includes(scenario) ? 'done' : 'blocked')])
+        if (scenario === 'parent-escalation' && rootTurns === 3) {
+          return response([
+            complete('blocked')
+          ])
+        }
+        return response([complete(['clean', 'observe-contract', 'grants', 'missing-grant', 'root-input'].includes(scenario) ? 'done' : 'blocked')])
       }
       childCalls++; childTurns++
       if (scenario === 'forbidden-write') identity.role = 'researcher' // Mutating the provider's copy cannot change Host authority.
@@ -104,6 +109,55 @@ export async function runScenario({ scenario, output, pythonExecutable }) {
         complete('done'),
       ])
       if (['forbidden-write', 'ownership'].includes(scenario)) return response([complete('blocked')])
+      if (scenario === 'parent-escalation') {
+        if (childTurns === 1) {
+          return response([
+            tool('request_user_input', {
+              prompt: 'Clarification is required before approval.'
+            })
+          ])
+        }
+
+        if (childTurns === 2) {
+          return response([
+            use(nodes.submit, {
+              review: {
+                ...fixture.review,
+                status: 'blocked',
+                reason: 'Parent clarification is required.'
+              }
+            })
+          ])
+        }
+
+        return response([complete('blocked')])
+      }
+      if (scenario === 'observe-contract') {
+        if (childTurns === 1) {
+          return response([
+            // Valid native observe request.
+            tool('observe', {
+              requests: [{
+                node_id: nodes.evidence,
+                detail: 'values'
+              }]
+            }),
+
+            // Invalid node identifier must be denied.
+            tool('observe', {
+              requests: [{
+                node_id: 'unknown-review-node',
+                detail: 'values'
+              }]
+            }),
+
+            // Submit the valid frozen review.
+            use(nodes.submit, { review: scriptedReview })
+          ])
+        }
+
+        return response([complete('done')])
+      }
       if (childTurns === 1) return response([
         ...(scenario === 'grants' ? [use('research-write', { confirm: true })] : []),
         tool('find', { scope: 'current', capabilities: ['tool.invoke'] }),
@@ -154,6 +208,69 @@ export async function runScenario({ scenario, output, pythonExecutable }) {
     assert(childResults.some(item => item.error_code === 'DUPLICATE_CONFLICT'))
     assert(childResults.some(item => typeof item.value === 'string' && item.value.includes('-1%')))
     assert(rootResults.some(item => item.review?.submission_id === fixture.review.submission_id && item.valid_for_progression))
+  } else if (scenario === 'observe-contract') {
+    // The valid observation must succeed.
+    const validObservation = childResults.find(item =>
+      Array.isArray(item.nodes) &&
+      item.nodes.some(node => node.id === nodes.evidence)
+    )
+
+    assert(
+      validObservation,
+      'Valid observe request must return the evidence node'
+    )
+
+    // An unknown node must be denied.
+    assert(
+      childResults.some(item =>
+        item.success === false &&
+        item.error_code === 'ACCESS_DENIED'
+      ),
+      'Unknown observe node must be rejected'
+    )
+
+    // Reviewer must still submit a valid review.
+    assert.equal(state.status, 'completed')
+    assert.equal(state.children[0].review.status, 'pass')
+
+    const receipts = childResults.filter(item =>
+      item.status === 'accepted'
+    )
+
+    assert.equal(receipts.length, 1)
+
+    // Researcher receives the accepted review.
+    assert(
+      rootResults.some(item =>
+        item.review?.submission_id === fixture.review.submission_id &&
+        item.valid_for_progression
+      )
+    )
+
+  } else if (scenario === 'parent-escalation') {
+    assert.equal(state.status, 'blocked')
+
+    const child = state.children[0]
+
+    assert.equal(child.needs_parent_escalation, true)
+    assert.equal(child.review?.status, 'blocked')
+
+    assert(
+      childResults.some(item =>
+        item.error_code === 'NEEDS_PARENT_ESCALATION'
+      ),
+      'Reviewer must not directly request user input'
+    )
+
+    assert(
+      rootResults.some(item =>
+        item.needs_parent_escalation === true
+      ),
+      'Parent must observe the escalation requirement'
+    )
+
+    assert.equal(rootInputs, 0)
+
   } else if (scenario === 'blocked-result') {
     assert.equal(state.status, 'blocked')
     assert.equal(state.children[0].review.status, 'blocked')
@@ -172,7 +289,14 @@ export async function runScenario({ scenario, output, pythonExecutable }) {
     assert.equal(state.children[0].needs_parent_escalation, true)
   }
   if (scenario === 'ownership') assert(childResults.every(item => item.success === false))
-  assert.equal(childCalls, delayedScenarios.has(scenario) ? 1 : 2)
+  assert.equal(
+    childCalls,
+    delayedScenarios.has(scenario)
+      ? 1
+      : scenario === 'parent-escalation'
+        ? 3
+        : 2
+  )
   assert.equal(rootInputs, scenario === 'root-input' ? 1 : 0)
   if (scenario === 'missing-grant') assert(rootResults.some(item => item.error_code === 'ACCESS_DENIED'))
   if (scenario === 'grants') assert(childResults.some(item => item.error_code === 'ACCESS_DENIED'))

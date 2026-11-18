@@ -239,8 +239,8 @@ What each step guarantees:
    matching SHA-256. Files dropped by the new export are removed. It rewrites
    `runtime.lock.json`. It never copies a private checkout.
 2. **`build_conexus_runtime`** re-verifies digests, copies the snapshot into
-   `build/conexus-source`, runs the boundary checker, then `npm ci` and
-   `npm run build`, and assembles `build/conexus` with `*.test.*`, source maps
+   `build/member-2/conexus-source`, runs the boundary checker, then `npm ci` and
+   `npm run build`, and assembles `build/member-2/conexus-runtime` with `*.test.*`, source maps
    and declarations excluded. The vendor tree stays read-only.
 3. **`check_conexus_runtime`** runs the upstream test suites from the build —
    `runtime-core`, `node-host-runtime` and the local Host's own tests — and the

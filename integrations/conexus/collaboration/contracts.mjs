@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
-const requireRuntime = createRequire(new URL('../../../build/conexus/package.json', import.meta.url))
+const requireRuntime = createRequire(new URL('../../../build/member-2/conexus-runtime/package.json', import.meta.url))
 const Ajv = requireRuntime('ajv')
 const addFormats = requireRuntime('ajv-formats')
 const schema = JSON.parse(readFileSync(new URL('../../../alphalab/collaboration/schemas/protocol.v1.json', import.meta.url)))

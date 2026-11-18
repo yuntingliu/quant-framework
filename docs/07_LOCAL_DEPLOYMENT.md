@@ -39,7 +39,7 @@ own Agent child process. A forced launcher exit also closes the child's private
 parent pipe and releases the workspace lock.
 
 The frontend is built into `build/web`. Conexus compilation uses the disposable
-`build/conexus-source` directory and produces `build/conexus`. The builder
+`build/member-2/conexus-source` directory and produces `build/member-2/conexus-runtime`. The builder
 verifies source checksums in `vendor/conexus` before building. It does not need
 access to a private Conexus repository.
 
@@ -50,7 +50,7 @@ separate desktop commands. A source build is not verification of a packaged
 desktop installer.
 
 A complete deployment archive may already contain `build/web/index.html` and
-`build/conexus/UPSTREAM.json`. In that case the builds can be skipped. Node is
+`build/member-2/conexus-runtime/UPSTREAM.json`. In that case the builds can be skipped. Node is
 still required for the Agent; its first launch installs the runtime dependencies
 for the target platform.
 

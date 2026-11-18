@@ -167,6 +167,8 @@ non-loopback `Host` header is rejected with 403 before routing.
 | `POST /api/public/runs/:id/cancel` | run | Abort a non-terminal Run |
 | `POST /api/public/runs/:id/interactions/:interaction/answer` | run | Answer a pending question |
 | `GET /api/public/runs/:id/events` | run | SSE stream, resumable with `Last-Event-ID` |
+| `POST /api/alphalab/publications` | publication HMAC | Atomically commit a reviewed research report, workspace outputs, revision history and durable idempotency receipt |
+| `GET /api/alphalab/publications/:idempotencyKey` | publication HMAC | Retrieve a committed publication receipt for idempotent delivery and recovery |
 | `POST /api/local/shutdown` | workspace | Graceful stop |
 
 Two distinct credentials. The **workspace token** is a long-lived secret in the

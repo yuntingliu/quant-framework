@@ -19,7 +19,7 @@ from alphalab.local_agent import local_agent
 
 ROOT = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.skipif(
-    not (ROOT / "build/conexus/node_modules/.package-lock.json").is_file(),
+    not (ROOT / "build/member-2/conexus-runtime/node_modules/.package-lock.json").is_file(),
     reason="Build the pinned Conexus runtime to run the local Agent integration test.",
 )
 

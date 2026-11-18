@@ -39,7 +39,7 @@ def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[s
     major, minor, *_ = (int(part) for part in version.split("."))
     if (major, minor) < (22, 18):
         raise RuntimeError("The local Agent requires Node.js 22.18+ or 24.")
-    runtime = root / "build/conexus"
+    runtime = root / "build/member-2/conexus-runtime"
     if not (runtime / "UPSTREAM.json").is_file():
         raise RuntimeError(
             "Bundled Conexus runtime is missing. Use the full deployment package, or run "
@@ -50,7 +50,7 @@ def local_agent(root: Path, *, api_port: int, agent_port: int = 0) -> Iterator[s
         print("Installing local Agent dependencies for this platform...", flush=True)
         result = subprocess.run([npm, "ci", "--omit=dev", "--no-fund"], cwd=runtime)
         if result.returncode:
-            raise RuntimeError("Local Agent dependency installation failed; retry npm ci in build/conexus.")
+            raise RuntimeError("Local Agent dependency installation failed; retry npm ci in build/member-2/conexus-runtime.")
     port = agent_port or _free_port()
     if not 1 <= port <= 65535 or port == api_port:
         raise RuntimeError("Agent port must be valid and different from the AlphaLab port.")

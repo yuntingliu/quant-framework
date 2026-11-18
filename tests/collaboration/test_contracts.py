@@ -34,7 +34,7 @@ def test_shared_contract_cases(case):
         validate_contract(case["kind"], case["payload"], case["context"])
 
 
-@pytest.mark.skipif(not (ROOT / "build/conexus/node_modules/ajv").exists() or not shutil.which("node"), reason="Build the bundled Node runtime first.")
+@pytest.mark.skipif(not (ROOT / "build/member-2/conexus-runtime/node_modules/ajv").exists() or not shutil.which("node"), reason="Build the bundled Node runtime first.")
 def test_node_python_accept_reject_and_error_codes_match():
     completed = subprocess.run([sys.executable, str(ROOT / "scripts/check_collaboration_contracts.py"), "--cross-language"],
                                cwd=ROOT, capture_output=True, text=True, timeout=40, check=True)

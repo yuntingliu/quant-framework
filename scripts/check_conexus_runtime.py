@@ -12,7 +12,7 @@ def main() -> int:
     node = shutil.which("node")
     if not node:
         raise SystemExit("Node.js is required.")
-    source = ROOT / "build/conexus-source"
+    source = ROOT / "build/member-2/conexus-source"
     setup = (ROOT / "scripts/conexus-test-setup.mjs").as_uri()
     for relative in ["packages/runtime-core/dist", "packages/node-host-runtime/dist", "apps/local-host/test"]:
         tests = sorted((source / relative).rglob("*.test.js")) + sorted((source / relative).rglob("*.test.mjs"))

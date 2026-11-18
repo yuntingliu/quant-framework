@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { timingSafeEqual } from 'node:crypto'
 
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-const entry = resolve(sourceRoot, 'build/conexus/apps/local-host/src/index.mjs')
+const entry = resolve(sourceRoot, 'build/member-2/conexus-runtime/apps/local-host/src/index.mjs')
 const { createLocalHost, createLocalRuntime, createModelCompletion, compileHarnessWorkspace } = await import(pathToFileURL(entry).href)
 
 const model = 'alphalab/configured-provider'

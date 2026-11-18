@@ -1,7 +1,7 @@
 // Root-pinned adapter over the supported Conexus completion/fetch seam.
 // No credentials, endpoint, messages or provider response text enter the ledger.
 import { createHash } from 'node:crypto'
-import { createModelCompletion } from '../../../build/conexus/apps/local-host/src/index.mjs'
+import { createModelCompletion } from '../../../build/member-2/conexus-runtime/apps/local-host/src/index.mjs'
 import { readActiveProvider } from '../model-providers.mjs'
 import { CollaborationError } from './contracts.mjs'
 

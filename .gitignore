@@ -26,7 +26,11 @@ venv/
 .DS_Store
 Thumbs.db
 
-build/
+build/*
+!build/member-2/
+build/member-2/*
+!build/member-2/README.md
+!build/member-2/handover-manifest.json
 dist/
 *.egg-info/
 *.tsbuildinfo
