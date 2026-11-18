@@ -1,3 +1,4 @@
+import { SourceHistoryDialog } from "@/components/shared/SourceHistoryDialog"
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { CheckCircle2, Code2, Database, History, Play, RefreshCw, Save, ShieldCheck } from "lucide-react"
 
@@ -344,6 +345,7 @@ export function ValidationWorkbenchWidget() {
   if (!project) return <Widget title="验证与回测" loading={sdk.loading} error={sdk.error}><span /></Widget>
   return (
     <Widget headerless className="validation-workbench-widget">
+      <div className="shrink-0 px-3 py-2"><SourceHistoryDialog projectId={project.id} projectName={project.name} strategyId={project.strategy_id} kind="validation" version={validation?.source_sha256} /></div>
       <section className="backtest-authoring">
         <div
           ref={authoringSplit}

@@ -1,3 +1,4 @@
+import { SourceHistoryDialog } from "@/components/shared/SourceHistoryDialog"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Braces, FlaskConical, Library, LineChart, Play, Plus, Save, Search, Trash2 } from "lucide-react"
@@ -578,6 +579,7 @@ export function FactorWorkbenchWidget() {
   return (
     <Widget headerless>
       <div className="factor-workbench-shell">
+        <div className="shrink-0 px-3 py-2"><SourceHistoryDialog projectId={project.id} projectName={project.name} strategyId={project.strategy_id} kind="strategy" version={project.draft_source_sha256} /></div>
         <FactorMarketBrowser fields={fields} />
         <Tabs className="factor-workbench-tabs" value={workspaceView} onValueChange={(value) => setWorkspaceView(value as "build" | "results")}>
           <div className="factor-workbench-toolbar">
