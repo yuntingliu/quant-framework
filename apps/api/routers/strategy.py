@@ -6,12 +6,14 @@ import re
 from datetime import date
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from alphalab.dataio import MissingDataError
+from alphalab.strategy.history import HistoryUnavailableError, SourceHistory
 from alphalab.strategy.sdk_runtime import SdkRuntimeError
 from alphalab.strategy.source import StrategySourceError
+from alphalab.utils.paths import RUNTIME_APP_DIR
 from apps.api.services import strategy_service
 from apps.api.services.data_service import _profile_range, research_dataset_schema
 
@@ -681,3 +683,37 @@ def remove_project(project_id: str, confirm_delete: bool = False) -> Response:
 
 
 __all__ = ["router"]
+
+
+def source_history(kind: Literal["strategy", "validation", "recipe"] = "strategy") -> SourceHistory:
+    filename = "dataio.db" if kind == "recipe" else "alphalab.db"
+    return SourceHistory(RUNTIME_APP_DIR / filename, kind)
+
+
+@router.get("/projects/{project_id}/source-history")
+def source_history_list(
+    project_id: str, strategy_id: str = "main",
+    kind: Literal["strategy", "validation", "recipe"] = "strategy",
+    limit: int = Query(default=20, ge=1, le=100),
+    before: int | None = Query(default=None, ge=1),
+):
+    try:
+        return source_history(kind).list(project_id, strategy_id, limit=limit, before=before)
+    except HistoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.get("/projects/{project_id}/source-comparison")
+def source_history_comparison(
+    project_id: str, from_revision: int = Query(ge=1), to_revision: int = Query(ge=1),
+    strategy_id: str = "main",
+    kind: Literal["strategy", "validation", "recipe"] = "strategy",
+):
+    try:
+        return source_history(kind).compare(project_id, strategy_id, from_revision, to_revision)
+    except HistoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise _translate_error(exc) from exc
