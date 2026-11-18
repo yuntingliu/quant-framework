@@ -40,9 +40,12 @@ task synchronized, wrote, queued or reported is visible to the next one. Do not
 run your own workstation at the same time; `--shared-server` restores the older
 in-place behaviour.
 
-The runner restores fixtures before every task, enforces each task's
-model-call and time budget by cancelling the run (recorded as
-`budget_exhausted`), answers Agent questions with a fixed "no further input"
+The runner restores fixtures before every task, passes each task's
+model-call and time budget to the Agent in `workspaceContext.budget` (the host
+then tells the Agent its usage on every call, asks it to wrap up near the
+limit, and allows only `complete` on the last call; `budget_phase` in the
+results shows how far a run got), still cancels a run that goes over (recorded
+as `budget_exhausted`), answers Agent questions with a fixed "no further input"
 reply and counts them as human effort, and writes automatic check results to
 `build/benchmarks/<label>/results.jsonl`. Grader and output checks remain manual.
 

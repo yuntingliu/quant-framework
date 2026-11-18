@@ -130,6 +130,7 @@ def run_input(task: dict, request_id: str) -> dict:
         "selectedProjectId": project, "selectedStrategyId": "main",
         "workspaceCapabilities": WORKSPACE_CAPABILITIES, "lastWorkspaceCommandReceipts": [],
         "conversationHistory": {"version": 1, "storage": "server-shared", "messages": history},
+        "budget": task["budget"],
     }
     return {"request": json.dumps({"version": 1, "userRequest": _fill(task["request"]), "workspaceContext": context},
                                   ensure_ascii=False)}
@@ -213,6 +214,7 @@ def run_task(client: httpx.Client, exposure_id: str, task: dict, repetition: int
         "cached_tokens_in": sum(row.get("cached_tokens_in") or 0 for row in models),
         "tokens_out": sum(row.get("tokens_out") or 0 for row in models),
         "human_questions": answered, "checks": checks,
+        "budget_phase": next((row["budget_phase"] for row in reversed(models) if row.get("budget_phase")), None),
         "auto_pass": bool(checks) and all(item["pass"] for item in checks.values()) and outcome is None,
         "manual_checks": {key: task["checks"][key] for key in ("grader", "outputs") if key in task.get("checks", {})},
         "summary": str(run.get("summary") or "")[:4000], "error": run.get("error"),

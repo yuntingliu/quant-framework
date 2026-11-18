@@ -85,6 +85,8 @@ def test_completed_run_answers_questions_and_scores_checks(tmp_path, monkeypatch
     assert "conversation" not in submitted
     context = json.loads(submitted["input"]["request"])["workspaceContext"]
     assert context["selectedProjectId"] == "bench-momentum" and context["requestId"].startswith("bench-T99-1-")
+    assert context["budget"] == {"max_model_calls": 3, "max_seconds": 600}
+    assert result["budget_phase"] is None
     tagged = [json.loads(line) for line in (tmp_path / "req-1.jsonl").read_text(encoding="utf-8").splitlines()]
     assert tagged[-1] == {"type": "benchmark.task", "task_id": "T99", "repetition": 1, "label": "test", "run_id": "run-1"}
 
