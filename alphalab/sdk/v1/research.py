@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import math
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -12,6 +13,24 @@ import pandas as pd
 from scipy.cluster.hierarchy import leaves_list, linkage
 from scipy.optimize import minimize
 from scipy.spatial.distance import squareform
+
+from alphalab.sdk.v1.constraint_math import (
+    evaluate_constraints,
+)
+from alphalab.sdk.v1.constraint_math import (
+    risk_contributions as calculate_risk_contributions,
+)
+from alphalab.sdk.v1.constraints import (
+    BenchmarkDeviationConstraint,
+    ConstraintCheck,
+    GroupWeightConstraint,
+    PortfolioConstraintData,
+    PortfolioConstraintError,
+    PortfolioConstraintSet,
+    RiskBudgetConstraint,
+    RiskModelSpec,
+    validate_constraint_data,
+)
 
 
 class PortfolioOptimizationError(ValueError):
@@ -126,6 +145,8 @@ def optimize_portfolio(
     risk_free_rate: float = 0.0,
     periods_per_year: int = 252,
     minimum_observations: int = 60,
+    constraints: PortfolioConstraintSet | None = None,
+    constraint_data: PortfolioConstraintData | None = None,
 ) -> PortfolioOptimizationResult:
     """Construct a deterministic long-only portfolio under core-compatible limits.
 
@@ -133,6 +154,8 @@ def optimize_portfolio(
     ``risk_parity``, ``hrp``, and ``max_sharpe``.  ``max_sharpe`` deliberately
     requires explicit expected returns; the helper never invents an alpha
     forecast from an in-sample mean or silently falls back to another method.
+    ``constraints`` and ``constraint_data`` are optional as a pair; when
+    supplied, every returned target is rechecked before it is returned.
     """
 
     method = str(method).strip().lower()
@@ -154,11 +177,30 @@ def optimize_portfolio(
     if int(minimum_observations) < 2:
         raise PortfolioOptimizationError("minimum_observations must be at least 2")
 
+    constraint_set, data = _constraint_inputs(constraints, constraint_data)
+    requires_constraint_covariance = bool(
+        constraint_set
+        and any(isinstance(item, RiskBudgetConstraint) for item in constraint_set.constraints)
+    )
+    required_history = int(minimum_observations)
+    if method == "equal_weight" and constraint_set is not None:
+        risk_minimums = [
+            item.risk_model.minimum_observations
+            for item in constraint_set.constraints
+            if isinstance(item, RiskBudgetConstraint)
+        ]
+        if risk_minimums:
+            required_history = min(risk_minimums)
+    if constraint_set is not None and (
+        method != "equal_weight" or requires_constraint_covariance
+    ):
+        assert data is not None
+        returns = _returns_available_as_of(returns, data.as_of)
     frame, asset_names, dropped = _prepare_returns(
         returns,
         symbols=symbols,
-        require_history=method != "equal_weight",
-        minimum_observations=int(minimum_observations),
+        require_history=method != "equal_weight" or requires_constraint_covariance,
+        minimum_observations=required_history,
     )
     asset_count = len(asset_names)
     if not asset_count:
@@ -170,6 +212,13 @@ def optimize_portfolio(
     current = _aligned_current_weights(current_weights, asset_names)
     bounds = [(0.0, max_weight) for _ in asset_names]
     initial = np.full(asset_count, target_gross / asset_count, dtype=float)
+    constraint_problem = _build_constraint_problem(
+        constraint_set,
+        data,
+        asset_names,
+        frame,
+        periods_per_year=int(periods_per_year),
+    )
     covariance = None
     covariance_diagnostics: dict[str, Any] = {
         "covariance_adjusted": False,
@@ -179,7 +228,7 @@ def optimize_portfolio(
     if method == "equal_weight":
         candidate = initial
         solver = "closed_form"
-        if max_turnover is not None:
+        if max_turnover is not None or constraint_problem.solver_constraints:
             candidate = _project_weights(
                 candidate,
                 asset_names,
@@ -187,8 +236,9 @@ def optimize_portfolio(
                 target_gross,
                 bounds,
                 max_turnover,
+                portfolio_constraints=constraint_problem.solver_constraints,
             )
-            solver = "SLSQP"
+            solver = "SLSQP_projection"
     else:
         covariance, covariance_diagnostics = _regularized_covariance(
             frame, int(periods_per_year)
@@ -202,6 +252,7 @@ def optimize_portfolio(
                 target_gross,
                 bounds,
                 max_turnover,
+                portfolio_constraints=constraint_problem.solver_constraints,
             )
             solver = "hierarchical_clustering+SLSQP_projection"
         else:
@@ -238,6 +289,7 @@ def optimize_portfolio(
                 target_gross,
                 bounds,
                 max_turnover,
+                portfolio_constraints=constraint_problem.solver_constraints,
             )
             solver = "SLSQP"
 
@@ -248,12 +300,24 @@ def optimize_portfolio(
         raise PortfolioOptimizationError(
             "portfolio solution violates the requested turnover limit"
         )
-    risk_contributions = _risk_contributions(candidate, covariance, asset_names)
+    full_weights = {
+        symbol: float(weight) for symbol, weight in zip(asset_names, candidate)
+    }
     weights = {
         symbol: float(weight)
         for symbol, weight in zip(asset_names, candidate)
         if weight > 1e-12
     }
+    checks = _evaluate_optimizer_constraints(
+        constraint_problem, full_weights
+    )
+    failures = [check for check in checks if check.status != "pass"]
+    if failures:
+        subjects = ", ".join(f"{check.constraint_id}:{check.subject}" for check in failures)
+        raise PortfolioOptimizationError(
+            f"portfolio constraints are infeasible or solver solution violates: {subjects}"
+        )
+    risk_contributions = _risk_contributions(candidate, covariance, asset_names)
     return PortfolioOptimizationResult(
         weights=weights,
         diagnostics={
@@ -268,8 +332,246 @@ def optimize_portfolio(
             "max_turnover": max_turnover,
             "expected_turnover": turnover,
             "risk_contributions": risk_contributions,
+            "constraint_checks": [check.to_dict() for check in checks],
             **covariance_diagnostics,
         },
+    )
+
+
+@dataclass(frozen=True)
+class _ConstraintProblem:
+    constraint_set: PortfolioConstraintSet | None
+    data: PortfolioConstraintData | None
+    covariance_by_model: Mapping[RiskModelSpec, pd.DataFrame]
+    solver_constraints: tuple[dict[str, Any], ...]
+
+
+def _constraint_inputs(
+    constraints: PortfolioConstraintSet | None,
+    constraint_data: PortfolioConstraintData | None,
+) -> tuple[PortfolioConstraintSet | None, PortfolioConstraintData | None]:
+    if constraints is None and constraint_data is None:
+        return None, None
+    if not isinstance(constraints, PortfolioConstraintSet) or not isinstance(
+        constraint_data, PortfolioConstraintData
+    ):
+        raise TypeError(
+            "constraints and constraint_data must be supplied together as "
+            "PortfolioConstraintSet and PortfolioConstraintData"
+        )
+    return constraints, constraint_data
+
+
+def _build_constraint_problem(
+    constraint_set: PortfolioConstraintSet | None,
+    data: PortfolioConstraintData | None,
+    asset_names: Sequence[str],
+    returns: pd.DataFrame | None,
+    *,
+    periods_per_year: int,
+) -> _ConstraintProblem:
+    if constraint_set is None:
+        return _ConstraintProblem(None, None, {}, ())
+    assert data is not None
+    validate_constraint_data(constraint_set, data, asset_names)
+    covariances: dict[RiskModelSpec, pd.DataFrame] = {}
+    for constraint in constraint_set.constraints:
+        if not isinstance(constraint, RiskBudgetConstraint):
+            continue
+        if constraint.risk_model not in covariances:
+            if returns is None:
+                raise PortfolioConstraintError(
+                    "CONSTRAINT_DATA_MISSING",
+                    "risk-budget constraints require a returns matrix",
+                    constraint_id=constraint.id,
+                )
+            covariances[constraint.risk_model] = _risk_model_covariance(
+                returns, asset_names, constraint.risk_model, periods_per_year, constraint.id
+            )
+    return _ConstraintProblem(
+        constraint_set,
+        data,
+        covariances,
+        tuple(_solver_constraint_functions(constraint_set, data, asset_names, covariances)),
+    )
+
+
+def _risk_model_covariance(
+    returns: pd.DataFrame,
+    asset_names: Sequence[str],
+    risk_model: RiskModelSpec,
+    periods_per_year: int,
+    constraint_id: str,
+) -> pd.DataFrame:
+    window = returns.loc[:, list(asset_names)].tail(risk_model.lookback).dropna(how="any")
+    if len(window) < risk_model.minimum_observations:
+        raise PortfolioConstraintError(
+            "CONSTRAINT_DATA_MISSING",
+            f"risk model requires {risk_model.minimum_observations} complete observations; got {len(window)}",
+            constraint_id=constraint_id,
+        )
+    covariance, _ = _regularized_covariance(window, periods_per_year)
+    return pd.DataFrame(covariance, index=asset_names, columns=asset_names)
+
+
+def _solver_constraint_functions(
+    constraint_set: PortfolioConstraintSet,
+    data: PortfolioConstraintData,
+    asset_names: Sequence[str],
+    covariances: Mapping[RiskModelSpec, pd.DataFrame],
+) -> list[dict[str, Any]]:
+    """Translate the public constraint objects into SLSQP inequalities.
+
+    Each function returns a non-negative value when satisfied.  The same dated
+    classification, benchmark, and covariance inputs are passed to the final
+    shared evaluator, so enforcement and reported checks use one definition.
+    """
+
+    index = {symbol: position for position, symbol in enumerate(asset_names)}
+    functions: list[dict[str, Any]] = []
+    for constraint in constraint_set.constraints:
+        if isinstance(constraint, GroupWeightConstraint):
+            group_map = data.group_map(
+                constraint.classification,
+                asset_names,
+                missing_policy=constraint.missing_policy,
+                constraint_id=constraint.id,
+            )
+            subjects = _group_subjects(constraint, data)
+            for subject in subjects:
+                positions = np.array(
+                    [index[symbol] for symbol, group in group_map.items() if group == subject],
+                    dtype=int,
+                )
+                functions.extend(_bounded_weight_functions(positions, 0.0, constraint.lower, constraint.upper))
+            continue
+
+        if isinstance(constraint, BenchmarkDeviationConstraint):
+            benchmark = data.benchmarks[constraint.benchmark]
+            if constraint.classification is None:
+                subjects = constraint.groups or tuple(sorted(set(asset_names) | set(benchmark.weights)))
+                for subject in subjects:
+                    position = index.get(subject)
+                    benchmark_weight = benchmark.weights.get(subject, 0.0)
+                    functions.extend(
+                        _bounded_weight_functions(
+                            np.array([] if position is None else [position]),
+                            -benchmark_weight,
+                            -constraint.max_abs_deviation,
+                            constraint.max_abs_deviation,
+                        )
+                    )
+            else:
+                relevant = list(asset_names) + [
+                    symbol for symbol, weight in benchmark.weights.items() if weight > 0
+                ]
+                group_map = data.group_map(
+                    constraint.classification,
+                    relevant,
+                    missing_policy=constraint.missing_policy,
+                    constraint_id=constraint.id,
+                )
+                subjects = constraint.groups or tuple(sorted(set(group_map.values())))
+                for subject in subjects:
+                    positions = np.array(
+                        [index[symbol] for symbol in asset_names if group_map[symbol] == subject],
+                        dtype=int,
+                    )
+                    benchmark_weight = sum(
+                        weight
+                        for symbol, weight in benchmark.weights.items()
+                        if group_map.get(symbol) == subject
+                    )
+                    functions.extend(
+                        _bounded_weight_functions(
+                            positions,
+                            -benchmark_weight,
+                            -constraint.max_abs_deviation,
+                            constraint.max_abs_deviation,
+                        )
+                    )
+            continue
+
+        if isinstance(constraint, RiskBudgetConstraint):
+            covariance = covariances[constraint.risk_model].to_numpy(dtype=float)
+            if constraint.classification is None:
+                subjects = constraint.groups or tuple(asset_names)
+                position_sets = {
+                    subject: np.array([] if subject not in index else [index[subject]], dtype=int)
+                    for subject in subjects
+                }
+            else:
+                group_map = data.group_map(
+                    constraint.classification,
+                    asset_names,
+                    missing_policy=constraint.missing_policy,
+                    constraint_id=constraint.id,
+                )
+                subjects = _group_subjects(constraint, data)
+                position_sets = {
+                    subject: np.array(
+                        [index[symbol] for symbol, group in group_map.items() if group == subject],
+                        dtype=int,
+                    )
+                    for subject in subjects
+                }
+            for positions in position_sets.values():
+                functions.append(_risk_budget_function(positions, covariance, constraint.upper))
+    return functions
+
+
+def _group_subjects(
+    constraint: GroupWeightConstraint | RiskBudgetConstraint,
+    data: PortfolioConstraintData,
+) -> Sequence[str]:
+    if constraint.groups is not None:
+        return constraint.groups
+    return tuple(sorted(set(data.classifications[constraint.classification].groups.values())))
+
+
+def _bounded_weight_functions(
+    positions: np.ndarray,
+    offset: float,
+    lower: float | None,
+    upper: float | None,
+) -> list[dict[str, Any]]:
+    def actual(weights: np.ndarray) -> float:
+        return float(weights[positions].sum() + offset)
+
+    functions: list[dict[str, Any]] = []
+    if lower is not None:
+        functions.append({"type": "ineq", "fun": lambda weights, bound=lower: actual(weights) - bound})
+    if upper is not None:
+        functions.append({"type": "ineq", "fun": lambda weights, bound=upper: bound - actual(weights)})
+    return functions
+
+
+def _risk_budget_function(
+    positions: np.ndarray, covariance: np.ndarray, upper: float
+) -> dict[str, Any]:
+    def remaining(weights: np.ndarray) -> float:
+        variance = float(weights @ covariance @ weights)
+        if variance <= 1e-20:
+            return -1.0
+        contribution = float(weights[positions] @ (covariance @ weights)[positions] / variance)
+        return upper - contribution
+
+    return {"type": "ineq", "fun": remaining}
+
+
+def _evaluate_optimizer_constraints(
+    problem: _ConstraintProblem, weights: Mapping[str, float]
+) -> tuple[ConstraintCheck, ...]:
+    if problem.constraint_set is None:
+        return ()
+    assert problem.data is not None
+    return evaluate_constraints(
+        problem.constraint_set,
+        problem.data,
+        weights,
+        layer="strategy",
+        stage="optimizer",
+        covariance_by_model=problem.covariance_by_model,
     )
 
 
@@ -308,6 +610,39 @@ def _prepare_returns(
             f"portfolio requires at least {minimum_observations} complete return observations; got {len(numeric)}"
         )
     return numeric, list(numeric.columns), dropped
+
+
+def _returns_available_as_of(
+    returns: pd.DataFrame | None, as_of: dt.date
+) -> pd.DataFrame | None:
+    """Keep only returns known on the constraint decision date.
+
+    Constraint-aware covariance estimates must be reproducible from the
+    decision-date snapshot, so an undated return matrix is not sufficient.
+    Rows after ``as_of`` are excluded rather than treated as usable history.
+    """
+
+    if returns is None:
+        return None
+    frame = pd.DataFrame(returns)
+    index = frame.index
+    if isinstance(index, pd.DatetimeIndex):
+        dates = index
+    elif all(isinstance(value, (dt.date, dt.datetime, pd.Timestamp)) for value in index):
+        dates = pd.DatetimeIndex(index)
+    else:
+        raise PortfolioConstraintError(
+            "CONSTRAINT_DATA_INVALID",
+            "constraint-aware optimization requires returns with a date index",
+        )
+    if dates.isna().any():
+        raise PortfolioConstraintError(
+            "CONSTRAINT_DATA_INVALID",
+            "constraint-aware optimization returns index contains missing dates",
+        )
+    if dates.tz is not None:
+        dates = dates.tz_localize(None)
+    return frame.loc[dates.normalize() <= pd.Timestamp(as_of)].copy()
 
 
 def _normalized_symbols(values: Sequence[str]) -> list[str]:
@@ -373,12 +708,20 @@ def _solve_weights(
     target_gross: float,
     bounds: list[tuple[float, float]],
     max_turnover: float | None,
+    *,
+    portfolio_constraints: Sequence[dict[str, Any]] = (),
 ) -> np.ndarray:
     count = len(asset_names)
     start = np.asarray(initial, dtype=float)
     solver_bounds = list(bounds)
     equality_gradient = np.ones(count)
-    constraints: list[dict[str, Any]] = []
+    constraints: list[dict[str, Any]] = [
+        {
+            "type": constraint["type"],
+            "fun": lambda value, function=constraint["fun"]: function(value[:count]),
+        }
+        for constraint in portfolio_constraints
+    ]
     if max_turnover is not None:
         held = current.reindex(asset_names, fill_value=0.0).to_numpy(dtype=float)
         outside = float(current.loc[~current.index.isin(asset_names)].sum())
@@ -432,6 +775,8 @@ def _project_weights(
     target_gross: float,
     bounds: list[tuple[float, float]],
     max_turnover: float | None,
+    *,
+    portfolio_constraints: Sequence[dict[str, Any]] = (),
 ) -> np.ndarray:
     target = np.asarray(candidate, dtype=float)
     return _solve_weights(
@@ -442,6 +787,7 @@ def _project_weights(
         target_gross,
         bounds,
         max_turnover,
+        portfolio_constraints=portfolio_constraints,
     )
 
 
@@ -516,11 +862,14 @@ def _risk_contributions(
 ) -> dict[str, float | None]:
     if covariance is None:
         return {symbol: None for symbol in asset_names}
-    variance = float(weights @ covariance @ weights)
-    if variance <= 1e-20:
+    labelled_covariance = pd.DataFrame(covariance, index=asset_names, columns=asset_names)
+    contributions = calculate_risk_contributions(
+        {symbol: float(weight) for symbol, weight in zip(asset_names, weights)},
+        labelled_covariance,
+    )
+    if contributions is None:
         return {symbol: None for symbol in asset_names}
-    values = weights * (covariance @ weights) / variance
-    return {symbol: float(value) for symbol, value in zip(asset_names, values)}
+    return contributions
 
 
 def _validate_solution(weights: np.ndarray, target_gross: float, max_weight: float) -> None:
