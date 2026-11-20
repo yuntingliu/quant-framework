@@ -12,6 +12,7 @@ from alphalab.sdk.v1 import (
     BenchmarkDeviationConstraint,
     GroupWeightConstraint,
     PortfolioConstraintData,
+    PortfolioConstraintError,
     PortfolioConstraintSet,
     PortfolioOptimizationError,
     RiskBudgetConstraint,
@@ -31,7 +32,8 @@ def _returns() -> pd.DataFrame:
             "B": common + rng.normal(0, 0.008, len(common)),
             "C": common + rng.normal(0, 0.012, len(common)),
             "D": common + rng.normal(0, 0.016, len(common)),
-        }
+        },
+        index=pd.bdate_range(end="2026-06-30", periods=len(common)),
     )
 
 
@@ -338,6 +340,37 @@ def test_constraint_enforcement_respects_turnover_and_reports_infeasibility() ->
             max_weight=0.60,
             max_turnover=0.01,
             minimum_observations=60,
+            constraints=constraint_set,
+            constraint_data=data,
+        )
+
+
+def test_constraint_covariance_uses_only_returns_available_on_decision_date() -> None:
+    constraint_set, data = _constraint_inputs()
+    historical = _returns()
+    future = pd.DataFrame(
+        {symbol: [0.20, -0.20] for symbol in historical.columns},
+        index=pd.bdate_range("2026-07-01", periods=2),
+    )
+    arguments = {
+        "method": "equal_weight",
+        "max_weight": 0.60,
+        "constraints": constraint_set,
+        "constraint_data": data,
+    }
+    baseline = optimize_portfolio(historical, **arguments)
+    with_future_rows = optimize_portfolio(pd.concat([historical, future]), **arguments)
+    assert with_future_rows.weights == pytest.approx(baseline.weights)
+    assert with_future_rows.diagnostics["constraint_checks"] == baseline.diagnostics["constraint_checks"]
+
+
+def test_constraint_aware_covariance_requires_dated_returns() -> None:
+    constraint_set, data = _constraint_inputs()
+    with pytest.raises(PortfolioConstraintError, match="requires returns with a date index"):
+        optimize_portfolio(
+            _returns().reset_index(drop=True),
+            method="minimum_variance",
+            max_weight=0.60,
             constraints=constraint_set,
             constraint_data=data,
         )

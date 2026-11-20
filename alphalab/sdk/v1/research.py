@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import math
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -190,6 +191,11 @@ def optimize_portfolio(
         ]
         if risk_minimums:
             required_history = min(risk_minimums)
+    if constraint_set is not None and (
+        method != "equal_weight" or requires_constraint_covariance
+    ):
+        assert data is not None
+        returns = _returns_available_as_of(returns, data.as_of)
     frame, asset_names, dropped = _prepare_returns(
         returns,
         symbols=symbols,
@@ -604,6 +610,39 @@ def _prepare_returns(
             f"portfolio requires at least {minimum_observations} complete return observations; got {len(numeric)}"
         )
     return numeric, list(numeric.columns), dropped
+
+
+def _returns_available_as_of(
+    returns: pd.DataFrame | None, as_of: dt.date
+) -> pd.DataFrame | None:
+    """Keep only returns known on the constraint decision date.
+
+    Constraint-aware covariance estimates must be reproducible from the
+    decision-date snapshot, so an undated return matrix is not sufficient.
+    Rows after ``as_of`` are excluded rather than treated as usable history.
+    """
+
+    if returns is None:
+        return None
+    frame = pd.DataFrame(returns)
+    index = frame.index
+    if isinstance(index, pd.DatetimeIndex):
+        dates = index
+    elif all(isinstance(value, (dt.date, dt.datetime, pd.Timestamp)) for value in index):
+        dates = pd.DatetimeIndex(index)
+    else:
+        raise PortfolioConstraintError(
+            "CONSTRAINT_DATA_INVALID",
+            "constraint-aware optimization requires returns with a date index",
+        )
+    if dates.isna().any():
+        raise PortfolioConstraintError(
+            "CONSTRAINT_DATA_INVALID",
+            "constraint-aware optimization returns index contains missing dates",
+        )
+    if dates.tz is not None:
+        dates = dates.tz_localize(None)
+    return frame.loc[dates.normalize() <= pd.Timestamp(as_of)].copy()
 
 
 def _normalized_symbols(values: Sequence[str]) -> list[str]:
