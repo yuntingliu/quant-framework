@@ -1,0 +1,22 @@
+{
+  "fixture_id": "CONF-PIT-01",
+  "question": "Check whether the data item was available before the historical portfolio decision.",
+  "candidate": {
+    "candidate_id": "confirmation-pit-01",
+    "revision": 1,
+    "report": "The 2025-02-03 decision used information available at the time."
+  },
+  "evidence": {
+    "timing": {
+      "observation_date": "2024-12-31",
+      "published_at": "2025-02-04T08:00:00+08:00",
+      "available_at": "2025-02-04T08:00:00+08:00",
+      "ingested_at": "2025-02-04T08:07:00+08:00",
+      "decision_at": "2025-02-03T09:30:00+08:00",
+      "market_timezone": "Asia/Shanghai"
+    }
+  },
+  "required_evidence_ids": [
+    "timing"
+  ]
+}

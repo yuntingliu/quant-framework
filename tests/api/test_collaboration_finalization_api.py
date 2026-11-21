@@ -4,11 +4,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from alphalab.collaboration import CollaborationError
-from alphalab.collaboration import EvidenceStore
-from alphalab.collaboration import ControlStore
-from apps.api.services import collaboration_storage_service as storage
+from alphalab.collaboration import CollaborationError, ControlStore, EvidenceStore
 from apps.api.routers import conexus
+from apps.api.services import collaboration_storage_service as storage
 
 
 def test_task_store_paths_are_deterministic_and_task_scoped(tmp_path, monkeypatch):

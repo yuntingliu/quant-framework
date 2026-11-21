@@ -15,7 +15,6 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any
 from urllib.parse import quote, urlsplit
 
 import httpx

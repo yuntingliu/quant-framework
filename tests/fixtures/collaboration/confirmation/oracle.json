@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "scope": "Scoring-only holdout. Never include in Agent prompts, evidence stores or run workspaces. Qualitative decisions require independent adjudication.",
+  "cases": {
+    "CONF-FORMULA-01": {
+      "expected_status": "findings",
+      "categories": [
+        "formulas"
+      ],
+      "facts": {
+        "compound_return": "0.064"
+      },
+      "citations": [
+        "/evidence/returns/rows/0/return",
+        "/evidence/returns/rows/1/return",
+        "/candidate/report"
+      ],
+      "rationale": "(1 + 0.12) × (1 − 0.05) − 1 = 0.064, or 6.4%, not 10.0%."
+    },
+    "CONF-PIT-01": {
+      "expected_status": "findings",
+      "categories": [
+        "pit"
+      ],
+      "facts": {
+        "available_after_decision": true
+      },
+      "citations": [
+        "/evidence/timing/decision_at",
+        "/evidence/timing/available_at"
+      ],
+      "rationale": "The information became available on February 4, after the February 3 decision. The December observation date does not establish historical availability."
+    },
+    "CONF-RETURNS-01": {
+      "expected_status": "findings",
+      "categories": [
+        "returns",
+        "report_consistency"
+      ],
+      "facts": {
+        "net_total_return": "0.12",
+        "report_minus_result": "0.03",
+        "fees_included": true
+      },
+      "citations": [
+        "/candidate/reported_net_return",
+        "/evidence/result/net_total_return",
+        "/evidence/result/definition"
+      ],
+      "rationale": "The report says 15% net while the archived net result is 12%, a 3 percentage-point difference; the result definition says fees are included."
+    },
+    "CONF-SUPPORT-01": {
+      "expected_status": "findings",
+      "categories": [
+        "support"
+      ],
+      "facts": {
+        "missing_evidence_ids": []
+      },
+      "citations": [
+        "/candidate/report",
+        "/evidence/study/scope",
+        "/evidence/study/independent_out_of_sample_trials"
+      ],
+      "rationale": "Eighteen in-sample sessions and no independent out-of-sample trials cannot establish a guarantee of future outperformance."
+    },
+    "CONF-CLEAN-01": {
+      "expected_status": "pass",
+      "categories": [],
+      "facts": {
+        "available_after_decision": false,
+        "report_minus_result": "0",
+        "fees_included": true,
+        "missing_evidence_ids": []
+      },
+      "citations": [
+        "/evidence/result/definition",
+        "/evidence/timing/available_at",
+        "/evidence/timing/decision_at"
+      ],
+      "rationale": "The report agrees with the archived net result and the data was available before the decision. Pass applies only to the declared required categories."
+    },
+    "CONF-FALSE-ALARM-01": {
+      "expected_status": "pass",
+      "categories": [],
+      "facts": {
+        "fees_included": true,
+        "report_minus_result": "0"
+      },
+      "citations": [
+        "/candidate/reviewer_allegation",
+        "/evidence/result/definition/fees_included",
+        "/evidence/result/net_total_return"
+      ],
+      "rationale": "The frozen result definition explicitly identifies the return as net and fees-inclusive. The allegation that fees were excluded is unsupported."
+    },
+    "CONF-MISSING-01": {
+      "expected_status": "incomplete",
+      "categories": [
+        "missing_evidence"
+      ],
+      "facts": {
+        "missing_evidence_ids": [
+          "timing"
+        ]
+      },
+      "citations": [
+        "/required_evidence_ids",
+        "/evidence/result"
+      ],
+      "rationale": "The return result does not establish when the underlying information became available. PIT must remain unverified without timing evidence."
+    },
+    "CONF-STALE-01": {
+      "expected_status": "blocked",
+      "categories": [],
+      "facts": {
+        "net_total_return": "0.054"
+      },
+      "citations": [
+        "/candidate/revision",
+        "/candidate/prior_review/candidate_revision"
+      ],
+      "rationale": "A review tied to candidate revision 1 cannot approve candidate revision 2, even though the numeric result is unchanged.",
+      "blockers": [
+        "stale_candidate_version"
+      ]
+    }
+  }
+}

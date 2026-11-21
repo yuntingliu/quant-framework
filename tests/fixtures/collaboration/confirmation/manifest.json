@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "fixture_set_id": "issue-24-confirmation",
+  "version": 1,
+  "set_kind": "confirmation",
+  "purpose": "Frozen confirmation set for Member 3 benchmark. Do not use for prompt development or tuning.",
+  "agent_boundary": "Only one inputs/{fixture_id}.json payload may be provided to a run. Never send this manifest or oracle to an Agent.",
+  "cases": [
+    {
+      "fixture_id": "CONF-FORMULA-01",
+      "input_file": "inputs/CONF-FORMULA-01.json",
+      "sha256": "b40c7af849be2c20954195fd856104a2d278d11151778a344b3219e741f94722",
+      "allowed_evidence_ids": [
+        "returns"
+      ],
+      "coverage": [
+        "formulas",
+        "returns"
+      ]
+    },
+    {
+      "fixture_id": "CONF-PIT-01",
+      "input_file": "inputs/CONF-PIT-01.json",
+      "sha256": "ef9a424d3ae712aee66196fe5db8c3302f67d185d817d21e0eed1e4a003e8ead",
+      "allowed_evidence_ids": [
+        "timing"
+      ],
+      "coverage": [
+        "pit"
+      ]
+    },
+    {
+      "fixture_id": "CONF-RETURNS-01",
+      "input_file": "inputs/CONF-RETURNS-01.json",
+      "sha256": "92ca06c5271b4028c89cba74689d01bd65a11878462eca4bf4ca7b13668765c5",
+      "allowed_evidence_ids": [
+        "result"
+      ],
+      "coverage": [
+        "returns",
+        "report_consistency"
+      ]
+    },
+    {
+      "fixture_id": "CONF-SUPPORT-01",
+      "input_file": "inputs/CONF-SUPPORT-01.json",
+      "sha256": "c59da083103feabbc8a6323ce4ac968466fcd5796454a7ef702eca87026b99d9",
+      "allowed_evidence_ids": [
+        "study"
+      ],
+      "coverage": [
+        "support"
+      ]
+    },
+    {
+      "fixture_id": "CONF-CLEAN-01",
+      "input_file": "inputs/CONF-CLEAN-01.json",
+      "sha256": "b55a3e6414d736cd990d5d04bed8ac78025c4be34fa0aedd96a6e481d4694382",
+      "allowed_evidence_ids": [
+        "result",
+        "timing"
+      ],
+      "coverage": [
+        "returns",
+        "pit",
+        "report_consistency"
+      ]
+    },
+    {
+      "fixture_id": "CONF-FALSE-ALARM-01",
+      "input_file": "inputs/CONF-FALSE-ALARM-01.json",
+      "sha256": "85ff37cf9100552d334be690fd3736ba5ad6e61f033b5e396024dd1cabb2e7cb",
+      "allowed_evidence_ids": [
+        "result"
+      ],
+      "coverage": [
+        "returns"
+      ]
+    },
+    {
+      "fixture_id": "CONF-MISSING-01",
+      "input_file": "inputs/CONF-MISSING-01.json",
+      "sha256": "0868fb503aab485e5cbf12fb8fc1c6a59f247a43a7742285fa99bf8b12c12032",
+      "allowed_evidence_ids": [
+        "result"
+      ],
+      "coverage": [
+        "pit"
+      ]
+    },
+    {
+      "fixture_id": "CONF-STALE-01",
+      "input_file": "inputs/CONF-STALE-01.json",
+      "sha256": "30fd857d7f6c8ebb7494500511ce00419e09c682f8f901d6ddbde1e9a70515b4",
+      "allowed_evidence_ids": [
+        "result"
+      ],
+      "coverage": [
+        "returns"
+      ]
+    }
+  ],
+  "oracle": {
+    "file": "oracle.json",
+    "sha256": "598cb4776b6229fc9e68e38c4d7e280d876d85e854af26e86b2e383aa0eb57da"
+  }
+}

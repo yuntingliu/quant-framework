@@ -210,7 +210,9 @@ async def test_real_host_receipt_reconciles_after_python_commit_interruption(tmp
     store, state, package, publication = _approved(tmp_path / "research")
     connection = _connection(tmp_path, origin)
     from apps.api.services.collaboration_publication_service import (
-        _report_bytes, _signed_headers, PUBLICATION_PATH,
+        PUBLICATION_PATH,
+        _report_bytes,
+        _signed_headers,
     )
     from apps.api.services.workspace_output_service import prepare_workspace_outputs
     async with httpx.AsyncClient(timeout=10, trust_env=False) as client:

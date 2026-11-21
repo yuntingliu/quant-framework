@@ -1,0 +1,27 @@
+{
+  "fixture_id": "CONF-MISSING-01",
+  "question": "Check the point-in-time claim and state clearly whether the supplied evidence is sufficient.",
+  "candidate": {
+    "candidate_id": "confirmation-missing-01",
+    "revision": 1,
+    "report": "Every input was available before the corresponding decision."
+  },
+  "evidence": {
+    "result": {
+      "net_total_return": "0.041",
+      "definition": {
+        "unit": "fraction",
+        "currency": "SGD",
+        "return_basis": "net",
+        "fees_included": true,
+        "period_start": "2025-05-01",
+        "period_end": "2025-05-30",
+        "compounding": "geometric"
+      }
+    }
+  },
+  "required_evidence_ids": [
+    "result",
+    "timing"
+  ]
+}

@@ -11,12 +11,10 @@ from alphalab.collaboration import (
     sha256,
 )
 from scripts.prepare_collaboration_acceptance import prepare
-
 from tests.collaboration.correction_fixture import (
-    prepare_corrected_candidate,
     make_correction,
+    prepare_corrected_candidate,
 )
-
 
 SCOPES = [
     "model.invoke",
