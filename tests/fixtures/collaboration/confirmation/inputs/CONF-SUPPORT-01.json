@@ -1,0 +1,24 @@
+{
+  "fixture_id": "CONF-SUPPORT-01",
+  "question": "Assess whether the supplied study supports the strength of the report conclusion.",
+  "candidate": {
+    "candidate_id": "confirmation-support-01",
+    "revision": 1,
+    "report": "This factor is guaranteed to outperform the market in future periods."
+  },
+  "evidence": {
+    "study": {
+      "scope": "in_sample",
+      "sessions": 18,
+      "independent_out_of_sample_trials": 0,
+      "past_results_only": true,
+      "limitations": [
+        "The study contains no independent out-of-sample trials.",
+        "Historical performance does not establish guaranteed future outcomes."
+      ]
+    }
+  },
+  "required_evidence_ids": [
+    "study"
+  ]
+}

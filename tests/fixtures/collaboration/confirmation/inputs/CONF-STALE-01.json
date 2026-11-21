@@ -1,0 +1,32 @@
+{
+  "fixture_id": "CONF-STALE-01",
+  "question": "Review candidate revision 2. The attached review record refers to revision 1.",
+  "candidate": {
+    "candidate_id": "confirmation-stale-01",
+    "revision": 2,
+    "report": "The net return is 5.4%.",
+    "reported_net_return": "0.054",
+    "prior_review": {
+      "candidate_revision": 1,
+      "submission_id": "prior-review-r1",
+      "delivery_id": "prior-delivery-r1"
+    }
+  },
+  "evidence": {
+    "result": {
+      "net_total_return": "0.054",
+      "definition": {
+        "unit": "fraction",
+        "currency": "SGD",
+        "return_basis": "net",
+        "fees_included": true,
+        "period_start": "2025-06-02",
+        "period_end": "2025-06-30",
+        "compounding": "geometric"
+      }
+    }
+  },
+  "required_evidence_ids": [
+    "result"
+  ]
+}
