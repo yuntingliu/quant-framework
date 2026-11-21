@@ -96,3 +96,69 @@ fact.
 Kept on the branch, not accepted (2026-11-18). The explicit budget stop is
 built on top of it and compared against `opt-waiting`; both are judged again
 against the baseline once the budget stop is measured.
+
+## 2. Explicit budget stop (`opt-budget-stop`), on top of waiting
+
+| | |
+|---|---|
+| Change | The runner passes each task's budget in `workspaceContext.budget`; the host adds a usage note to every model call, asks for wrap-up in the last 4 calls or 120 s, and offers only `complete` on the last call (`integrations/conexus/run-budget.mjs`) |
+| Code | commit `be0bc99`; 31 runs were flagged dirty because of an uncommitted benchmark-runner change (provider refusal stop); the agent bundle and prompt digest are identical in all 33 |
+| Dates | 2026-11-18 (2 runs) and 2026-11-21 (31 runs), all off-peak |
+| Pilot | T12 × 3 under `pilot-budget-stop`: 3/3 completed with reports, not counted |
+
+**Excluded and rerun.** 33 runs failed with HTTP 402 (provider account out of
+balance) and measured nothing; they are kept in
+`build/benchmarks/opt-budget-stop/excluded.jsonl`. The runner now stops at the
+first HTTP 401/402/403 instead of recording such runs.
+
+**Defect found.** The three runs that reached the last allowed call (T03 rep 2,
+T09 rep 3, T12 rep 2) all failed with HTTP 400: DeepSeek thinking mode rejects
+any forced `tool_choice`. They are counted as failures here. The fix offers only
+`complete` without forcing it (probed against the provider: accepted, and the
+model calls `complete`).
+
+### Totals (33 runs each)
+
+| Measure | Baseline | Waiting | Budget stop |
+|---|---|---|---|
+| Outcomes | 27 completed, 1 blocked, 4 budget exhausted, 1 failed | 28 completed, 2 blocked, 3 budget exhausted | 28 completed, 2 blocked, 3 failed (the defect), 0 budget exhausted |
+| Automatic checks | 26 / 33 | 28 / 33 | 26 / 33 |
+| Permission violations | 0 | 0 | 0 |
+| Human questions | 1 | 0 | 0 |
+| Wall time | 154.1 min | 218.7 min | 185.9 min |
+| Cost | $0.521 | $0.460 | $0.604 |
+| Model calls | 609 | 479 | 487 |
+| Input / output tokens | 31.0M / 0.50M | 19.0M / 0.48M | 21.6M / 0.63M |
+| Budget phase reached | — | — | 26 normal, 4 wrap-up, 3 last call |
+
+### Per task (median of 3: baseline / waiting / budget stop)
+
+| Task | Wall s | Model calls | Cost (m$) | Auto |
+|---|---|---|---|---|
+| T01 | 48 / 38 / 37 | 9 / 9 / 9 | 5.4 / 4.0 / 5.2 | 2 / 2 / 2 |
+| T02 | 30 / 19 / 18 | 8 / 5 / 5 | 4.0 / 2.2 / 2.4 | 3 / 3 / 3 |
+| T03 | 71 / 102 / 106 | 8 / 12 / 10 | 8.8 / 12.8 / 14.4 | 2 / 3 / 2 |
+| T04 | 299 / 358 / 287 | 20 / 20 / 17 | 17.5 / 18.5 / 19.6 | 2 / 2 / 2 |
+| T05 | 690 / 834 / 643 | 37 / 18 / 16 | 22.7 / 18.4 / 24.4 | 3 / 3 / 3 |
+| T06 | 146 / 179 / 126 | 16 / 13 / 11 | 11.6 / 9.1 / 10.5 | 3 / 3 / 3 |
+| T07 | 1179 / 1184 / 1217 | 58 / 33 / 33 | 63.0 / 44.8 / 56.4 | 2 / 3 / 1 |
+| T09 | 86 / 116 / 278 | 14 / 11 / 15 | 10.7 / 9.5 / 11.3 | 3 / 3 / 2 |
+| T10 | 28 / 44 / 28 | 6 / 9 / 7 | 3.4 / 6.0 / 4.1 | 3 / 3 / 3 |
+| T11 | 39 / 42 / 31 | 7 / 7 / 5 | 3.9 / 3.8 / 3.7 | 3 / 3 / 3 |
+| T12 | 431 / 1298 / 1096 | 26 / 19 / 16 | 18.4 / 22.7 / 33.0 | 0 / 0 / 2 |
+
+### Reading
+
+- No run was cancelled by the runner any more: every run either finished or
+  stopped itself. T12 completed with a report in 2 of 3 runs (the third hit the
+  defect). T07 rep 2 shows the intended stop: it reached wrap-up at call 69 of
+  70 and ended `blocked`, listing the work done and what was not delivered.
+- Cost rose against waiting (+31%), mostly output tokens (+31%): runs that used
+  to be cut off now finish and write their reports (T12, T07).
+- T07 rep 3 failed its automatic check by running 4 backtests (limit 3);
+  T09 rep 3 and T03 rep 2 are the defect.
+- With the defect, the automatic check rate equals the baseline (26/33).
+
+### Decision
+
+Pending: the defect means the last-call path was not measured as designed.

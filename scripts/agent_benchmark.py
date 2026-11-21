@@ -91,6 +91,26 @@ def set_aside_interrupted(trace_dir: Path) -> int:
     return moved
 
 
+# The provider rejected the account (key, balance or access), not the request:
+# every later run would fail the same way and measure nothing.
+PROVIDER_REFUSALS = ("HTTP 401", "HTTP 402", "HTTP 403")
+
+
+def provider_refusal(result: dict) -> str | None:
+    error = result.get("error") or {}
+    message = str(error.get("message") or "")
+    if error.get("code") == "model_provider_error":
+        return next((code for code in PROVIDER_REFUSALS if code in message), None)
+    return None
+
+
+def set_aside_refused(trace_dir: Path, result: dict) -> None:
+    if result.get("trace_file") and (trace_dir / result["trace_file"]).exists():
+        target = trace_dir / "provider-refused" / result["trace_file"]
+        target.parent.mkdir(exist_ok=True)
+        (trace_dir / result["trace_file"]).replace(target)
+
+
 def reset_fixtures(client: httpx.Client, task: dict) -> None:
     """Restore the state a task's fixture promises before it runs."""
 
@@ -287,6 +307,12 @@ def main() -> int:
                     if workstation is not None:
                         workstation.stop()
                 result["isolated"] = workstation is not None
+                refused = provider_refusal(result)
+                if refused:
+                    set_aside_refused(trace_dir, result)
+                    raise SystemExit(f"Stopped: the model provider refused {task['id']} (rep {repetition}) with "
+                                     f"{refused}. Check the account balance and API key, then rerun with --resume; "
+                                     "this run was not recorded.")
                 with results_path.open("a", encoding="utf-8") as output:
                     output.write(json.dumps(result, ensure_ascii=False) + "\n")
                 failed = [name for name, item in result["checks"].items() if not item["pass"]]

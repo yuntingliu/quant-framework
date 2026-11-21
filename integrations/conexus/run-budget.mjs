@@ -72,10 +72,10 @@ export function budgetedCompletion(completion, { clock = Date.now } = {}) {
     const phase = budgetPhase(budget, calls, elapsed)
     const messages = [...(input.messages ?? []), { role: 'user', content: note(budget, phase, calls, elapsed) }]
     const final = phase === 'final' && input.tools?.some(tool => tool.function?.name === 'complete')
+    // No tool_choice: DeepSeek thinking mode rejects any forced choice with HTTP 400.
     return completion({
       ...input, messages,
-      ...(final ? { tools: input.tools.filter(tool => tool.function?.name === 'complete'),
-        toolChoice: { type: 'function', function: { name: 'complete' } } } : {}),
+      ...(final ? { tools: input.tools.filter(tool => tool.function?.name === 'complete') } : {}),
       runBudget: { phase, call: calls, elapsed_s: elapsed, ...budget },
     })
   }

@@ -213,6 +213,19 @@ def test_resume_skips_recorded_runs_and_sets_aside_interrupted_traces(tmp_path):
     assert (traces / "interrupted" / "b.jsonl").exists()
 
 
+def test_a_refused_provider_account_stops_the_benchmark_without_a_result(tmp_path):
+    refused = {"error": {"code": "model_provider_error", "message": "Model endpoint returned HTTP 402."},
+               "trace_file": "r.jsonl"}
+    assert bench.provider_refusal(refused) == "HTTP 402"
+    assert bench.provider_refusal({"error": {"code": "model_provider_error", "message": "Model endpoint returned HTTP 429."}}) is None
+    assert bench.provider_refusal({"error": {"code": "run_cancelled", "message": "Run cancelled."}}) is None
+    assert bench.provider_refusal({"error": None}) is None
+
+    (tmp_path / "r.jsonl").write_text("{}\n", encoding="utf-8")
+    bench.set_aside_refused(tmp_path, refused)
+    assert not (tmp_path / "r.jsonl").exists() and (tmp_path / "provider-refused" / "r.jsonl").exists()
+
+
 def test_default_trace_folder_is_per_label_not_the_working_directory(tmp_path, monkeypatch):
     monkeypatch.delenv("ALPHALAB_AGENT_TRACE_DIR", raising=False)
     monkeypatch.setattr(bench, "ROOT", tmp_path)

@@ -41,7 +41,7 @@ test('budgeted runs get a status note per call and only complete on the last cal
   assert.match(seen[4].messages.at(-1).content, /last model call/)
   assert.deepEqual(seen[3].tools.map(tool => tool.function.name), ['find', 'use', 'edit', 'complete'])
   assert.deepEqual(seen[4].tools.map(tool => tool.function.name), ['complete'])
-  assert.equal(seen[4].toolChoice.function.name, 'complete')
+  assert.ok(seen.every(input => input.toolChoice === undefined), 'thinking-mode providers reject a forced tool_choice')
   assert.equal(messages.length, 2, 'the stored conversation is not changed')
 })
 
