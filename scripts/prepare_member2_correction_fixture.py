@@ -18,9 +18,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from alphalab.collaboration import EvidenceStore, validate_contract
-from scripts.prepare_collaboration_acceptance import prepare
-from tests.collaboration.correction_fixture import (
+from alphalab.collaboration import EvidenceStore, validate_contract  # noqa: E402
+from scripts.prepare_collaboration_acceptance import prepare  # noqa: E402
+from tests.collaboration.correction_fixture import (  # noqa: E402
     make_correction,
     prepare_corrected_candidate,
 )
