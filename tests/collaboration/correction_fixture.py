@@ -8,6 +8,7 @@ from alphalab.collaboration import (
     sha256,
 )
 
+
 def prepare_corrected_candidate(store, fixture):
     task_id = fixture["task_id"]
     version = fixture["versions"][0]

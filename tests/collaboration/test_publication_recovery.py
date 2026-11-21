@@ -16,7 +16,8 @@ import pytest
 
 from alphalab.collaboration import CollaborationError, ControlStore, encode_json, sha256
 from apps.api.services.collaboration_publication_service import (
-    publish_final_output, reconcile_publication,
+    publish_final_output,
+    reconcile_publication,
 )
 from scripts.prepare_collaboration_host import prepare
 

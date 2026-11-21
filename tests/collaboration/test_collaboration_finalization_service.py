@@ -15,7 +15,6 @@ import pytest
 from alphalab.collaboration import CollaborationError
 from apps.api.services import collaboration_finalization_service as finalization
 
-
 CANDIDATE = {
     "candidate_id": "candidate-1",
     "revision": 2,
