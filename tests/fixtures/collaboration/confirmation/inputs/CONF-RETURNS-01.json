@@ -1,0 +1,27 @@
+{
+  "fixture_id": "CONF-RETURNS-01",
+  "question": "Check whether the net return in the report agrees with the archived result definition and value.",
+  "candidate": {
+    "candidate_id": "confirmation-returns-01",
+    "revision": 1,
+    "report": "The net total return after fees for the evaluation window was 15%.",
+    "reported_net_return": "0.15"
+  },
+  "evidence": {
+    "result": {
+      "net_total_return": "0.12",
+      "definition": {
+        "unit": "fraction",
+        "currency": "SGD",
+        "return_basis": "net",
+        "fees_included": true,
+        "period_start": "2025-01-02",
+        "period_end": "2025-02-28",
+        "compounding": "geometric"
+      }
+    }
+  },
+  "required_evidence_ids": [
+    "result"
+  ]
+}

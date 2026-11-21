@@ -1,0 +1,36 @@
+{
+  "fixture_id": "CONF-CLEAN-01",
+  "question": "Verify the return figure and point-in-time availability without inventing additional findings.",
+  "candidate": {
+    "candidate_id": "confirmation-clean-01",
+    "revision": 1,
+    "report": "The net return is 7.5%; the information was available before the decision.",
+    "reported_net_return": "0.075"
+  },
+  "evidence": {
+    "result": {
+      "net_total_return": "0.075",
+      "definition": {
+        "unit": "fraction",
+        "currency": "SGD",
+        "return_basis": "net",
+        "fees_included": true,
+        "period_start": "2025-01-02",
+        "period_end": "2025-01-31",
+        "compounding": "geometric"
+      }
+    },
+    "timing": {
+      "observation_date": "2024-12-31",
+      "published_at": "2025-01-02T08:00:00+08:00",
+      "available_at": "2025-01-02T08:00:00+08:00",
+      "ingested_at": "2025-01-02T08:05:00+08:00",
+      "decision_at": "2025-01-03T09:30:00+08:00",
+      "market_timezone": "Asia/Singapore"
+    }
+  },
+  "required_evidence_ids": [
+    "result",
+    "timing"
+  ]
+}

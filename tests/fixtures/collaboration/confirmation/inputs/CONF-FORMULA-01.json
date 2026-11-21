@@ -1,0 +1,29 @@
+{
+  "fixture_id": "CONF-FORMULA-01",
+  "question": "Independently verify the reported compounded return using the two period returns.",
+  "candidate": {
+    "candidate_id": "confirmation-formula-01",
+    "revision": 1,
+    "report": "The compounded net return across the two sessions is 10.00%.",
+    "reported_net_return": "0.10"
+  },
+  "evidence": {
+    "returns": {
+      "rows": [
+        {
+          "date": "2025-03-03",
+          "return": "0.12"
+        },
+        {
+          "date": "2025-03-04",
+          "return": "-0.05"
+        }
+      ],
+      "unit": "fraction",
+      "return_basis": "net"
+    }
+  },
+  "required_evidence_ids": [
+    "returns"
+  ]
+}

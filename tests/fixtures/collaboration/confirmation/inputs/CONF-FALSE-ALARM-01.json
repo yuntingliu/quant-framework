@@ -1,0 +1,28 @@
+{
+  "fixture_id": "CONF-FALSE-ALARM-01",
+  "question": "Evaluate the reviewer allegation against the frozen return definition and report.",
+  "candidate": {
+    "candidate_id": "confirmation-false-alarm-01",
+    "revision": 1,
+    "report": "The reported 6.2% net return includes fees.",
+    "reported_net_return": "0.062",
+    "reviewer_allegation": "The 6.2% result excludes fees."
+  },
+  "evidence": {
+    "result": {
+      "net_total_return": "0.062",
+      "definition": {
+        "unit": "fraction",
+        "currency": "SGD",
+        "return_basis": "net",
+        "fees_included": true,
+        "period_start": "2025-04-01",
+        "period_end": "2025-04-30",
+        "compounding": "geometric"
+      }
+    }
+  },
+  "required_evidence_ids": [
+    "result"
+  ]
+}

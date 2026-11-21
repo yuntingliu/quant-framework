@@ -8,3 +8,11 @@ Never open it as a writable application store or regenerate it during tests.
 
 New installations initialize an empty, ignored `data/app/alphalab.db` from the
 schema and built-in source templates on first use.
+
+### Member 3 collaboration confirmation set
+
+`collaboration/confirmation/` is a separate frozen eight-case holdout for the
+Issue #24 paired benchmark. Only individual files in its `inputs/` directory
+are Agent inputs. Its manifest and oracle are scoring-only. Verify the corpus
+with `python scripts/verify_member3_confirmation.py`; do not copy oracle data
+into Agent requests or development prompts.
