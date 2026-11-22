@@ -140,7 +140,8 @@ export function createTraceRecorder({ dir, meta = {}, clock = Date.now }) {
           model, provider_host: host, messages: input.messages?.length ?? 0, prompt_chars: prompt.length,
           prompt_growth_chars: prompt.length - state.lastPromptChars, system_chars: system.length, tool_schema_chars: toolsText.length,
           est_tokens_in: estimateTokens(prompt) + estimateTokens(toolsText),
-          ...(input.runBudget ? { budget_phase: input.runBudget.phase, budget_call: input.runBudget.call } : {}) }
+          ...(input.runBudget ? { budget_phase: input.runBudget.phase, budget_call: input.runBudget.call } : {}),
+          ...(input.compaction ? { compacted_messages: input.compaction.messages, compacted_saved_chars: input.compaction.saved_chars } : {}) }
         state.lastPromptChars = prompt.length
         try {
           const result = await complete(input)

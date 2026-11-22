@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { compactedCompletion } from './context-compaction.mjs'
 import { budgetedCompletion } from './run-budget.mjs'
 
 export async function readActiveProvider(path, env = process.env) {
@@ -29,11 +30,12 @@ export function configuredCompletion(path, createModelCompletion, env = process.
       // These tools contain conditional optional fields (for example,
       // complete.blocker only applies to blocked runs). Preserve those semantics
       // when a provider routes Chat Completions through a strict Responses API.
-      completion = ({ runBudget, ...input }) => complete({ ...input, model: profile.model,
+      completion = ({ runBudget, compaction, ...input }) => complete({ ...input, model: profile.model,
         ...(input.tools ? { tools: input.tools.map(tool => tool.type === 'function'
           ? { ...tool, function: { strict: false, ...tool.function } } : tool) } : {}),
       })
       if (meter) completion = meter.wrap(completion)
+      if (env.ALPHALAB_AGENT_CONTEXT_COMPACTION === '1') completion = compactedCompletion(completion)
       completion = budgetedCompletion(completion)
       completions.set(request.signal, completion)
     }

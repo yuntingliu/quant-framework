@@ -161,4 +161,82 @@ model calls `complete`).
 
 ### Decision
 
-Pending: the defect means the last-call path was not measured as designed.
+Superseded by `opt-budget-stop-v2` (section 3): the defect means the last-call
+path was not measured as designed. Kept as the record of the defect.
+
+## 3. Budget stop with the last-call fix (`opt-budget-stop-v2`) — final run
+
+| | |
+|---|---|
+| Change | As section 2, but the last call offers only `complete` without forcing `tool_choice` |
+| Code | commit `240884a`, clean tree and identical prompt digest in all 33 runs |
+| Dates | 2026-11-21, all off-peak; one run interrupted by a restart and set aside by `--resume` |
+
+**Failures counted, not excluded.** T07 reps 1 and 2 failed on network errors
+between the workstation and the provider (`fetch failed`, `terminated`). The
+baseline counted its own `fetch failed` run as a failure, so these count too.
+They shorten T07 and flatter the totals; figures without T07 are given below.
+
+### Totals (33 runs each)
+
+| Measure | Baseline | Waiting | Budget stop v2 | v2 vs baseline |
+|---|---|---|---|---|
+| Outcomes | 27 completed, 1 blocked, 4 budget exhausted, 1 failed | 28 completed, 2 blocked, 3 budget exhausted | 28 completed, 2 blocked, 2 failed (network), 1 budget exhausted | |
+| Automatic checks | 26 / 33 | 28 / 33 | 26 / 33 | equal |
+| Permission violations | 0 | 0 | 0 | |
+| Human questions | 1 | 0 | 0 | |
+| Wall time | 154.1 min | 218.7 min | 186.9 min | +21% |
+| Cost | $0.521 | $0.460 | $0.394 | −24% |
+| Model calls | 609 | 479 | 361 | −41% |
+| Input / output tokens | 31.0M / 0.50M | 19.0M / 0.48M | 10.1M / 0.42M | −67% / −16% |
+| Calls only to poll | 158 | 30 | 23 | |
+| Budget phase reached | — | — | 28 normal, 3 wrap-up, 2 last call | |
+
+Without T07 (30 runs each), baseline → v2: automatic checks 24 → 25, wall
+time 92.1 → 139.6 min (+52%), cost $0.324 → $0.324 (0%), model calls
+427 → 315 (−26%), input tokens 14.3M → 8.3M (−42%).
+
+### Per task (median of 3: baseline / waiting / v2)
+
+| Task | Wall s | Model calls | Cost (m$) | Auto |
+|---|---|---|---|---|
+| T01 | 48 / 38 / 37 | 9 / 9 / 6 | 5.4 / 4.0 / 4.0 | 2 / 2 / 1 |
+| T02 | 30 / 19 / 24 | 8 / 5 / 7 | 4.0 / 2.2 / 3.1 | 3 / 3 / 3 |
+| T03 | 71 / 102 / 73 | 8 / 12 / 9 | 8.8 / 12.8 / 11.0 | 2 / 3 / 3 |
+| T04 | 299 / 358 / 304 | 20 / 20 / 15 | 17.5 / 18.5 / 16.0 | 2 / 2 / 1 |
+| T05 | 690 / 834 / 716 | 37 / 18 / 17 | 22.7 / 18.4 / 19.2 | 3 / 3 / 3 |
+| T06 | 146 / 179 / 127 | 16 / 13 / 9 | 11.6 / 9.1 / 7.4 | 3 / 3 / 3 |
+| T07 | 1179 / 1184 / 667 | 58 / 33 / 17 | 63.0 / 44.8 / 28.8 | 2 / 3 / 1 |
+| T09 | 86 / 116 / 242 | 14 / 11 / 14 | 10.7 / 9.5 / 7.5 | 3 / 3 / 3 |
+| T10 | 28 / 44 / 24 | 6 / 9 / 5 | 3.4 / 6.0 / 3.0 | 3 / 3 / 3 |
+| T11 | 39 / 42 / 37 | 7 / 7 / 6 | 3.9 / 3.8 / 3.9 | 3 / 3 / 3 |
+| T12 | 431 / 1298 / 1145 | 26 / 19 / 15 | 18.4 / 22.7 / 29.7 | 0 / 0 / 2 |
+
+T07's v2 medians include the two network failures.
+
+### Gates, v2 against the baseline
+
+| Gate | Result |
+|---|---|
+| Automatic check pass rate ≥ baseline | Pass: 26/33 vs 26/33 |
+| No permission violations | Pass: 0 |
+| Human questions ≤ baseline | Pass: 0 vs 1 |
+| Explicit stop on budget | Mostly: T01 rep 1 and T11 rep 3 reached the last call and ended through `complete`; T07, T09 and T12 runs stopped in wrap-up. T12 rep 1 was still cancelled by the runner: the time limit passed during a 200 s backtest wait, and the budget only acts at model calls |
+| Grader pass rate ≥ baseline; no fabrication | Pass, proposed (`GRADING.md`, to be confirmed): 28/33 vs 25/33, 28–30 vs 25–27 counting the review rows; no fabricated number found |
+| At least one −20% target on applicable tasks | Met: model calls on T05 (−54%), T06 (−44%), T12 (−42%); cost on T06 (−36%) |
+| No other metric worse by more than 10% | **Fails**: wall time on T09 (+181%) and T12 (+166%); cost on T12 (+61%) |
+
+### Reading
+
+- T12 now produces a report in 2 of 3 runs where the baseline produced none;
+  its higher time and cost are the price of doing the work. Comparing it with
+  baseline runs that were cut off with no answer is not an equal-quality
+  comparison.
+- T09 is slower because the agent now tries the documented recovery: one run
+  synced data and waited 186 s with `sync.wait` before rerunning, where the
+  baseline mostly stopped early.
+- Wall time is dominated by backtest run time (69% of v2 time is waiting); the
+  changes cut model calls and input tokens, not backtest duration.
+- Known limitation: a blocking wait can carry a run past its time budget
+  because the budget is checked only at model calls. Capping `wait_seconds` by
+  the remaining time inside the tool would close it.
