@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 from datetime import date
 from typing import Any, Literal
 
@@ -688,6 +689,51 @@ __all__ = ["router"]
 def source_history(kind: Literal["strategy", "validation", "recipe"] = "strategy") -> SourceHistory:
     filename = "dataio.db" if kind == "recipe" else "alphalab.db"
     return SourceHistory(RUNTIME_APP_DIR / filename, kind)
+
+
+class FactorRestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=1)
+    token: str = Field(pattern="^[a-f0-9]{64}$")
+    request_id: str = Field(min_length=1, max_length=100)
+    confirm_write: bool
+    confirm_python_execution: bool
+
+
+@router.get("/projects/{project_id}/factors/{factor_id}/revisions")
+def factor_revisions(project_id: str, factor_id: str, strategy_id: str = "main", before: int | None = Query(None, ge=1)):
+    try:
+        return source_history().factor_revisions(project_id, strategy_id, factor_id, before)
+    except HistoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.get("/projects/{project_id}/factors/{factor_id}/restore-preview")
+def factor_restore_preview(project_id: str, factor_id: str, revision: int = Query(ge=1), strategy_id: str = "main"):
+    try:
+        return source_history().factor_restore_preview(project_id, strategy_id, factor_id, revision)
+    except HistoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/factors/{factor_id}/restore")
+def restore_factor(project_id: str, factor_id: str, request: FactorRestoreRequest, strategy_id: str = "main"):
+    _confirmed(request.confirm_write, "restoring source requires confirmation")
+    _confirmed(request.confirm_python_execution, "validating a restore executes trusted local Python")
+    repo = strategy_service.repository()
+    try:
+        return repo.select_strategy(strategy_id).restore_factor(
+            project_id, factor_id, request.revision, request.token, request.request_id)
+    except sqlite3.DatabaseError as exc:
+        raise HTTPException(status_code=500, detail="factor restore could not be saved") from exc
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+    finally:
+        repo.close()
 
 
 @router.get("/projects/{project_id}/source-history")

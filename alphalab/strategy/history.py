@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
 
+from alphalab.strategy import factor_restore
 from alphalab.strategy.project_strategies import strategy_id as validate_strategy_id
 from alphalab.strategy.repository import normalize_project_id
 
@@ -85,6 +86,14 @@ class SourceHistory:
     @property
     def _table(self):
         return 'validation_source_packages' if self.kind == 'validation' else 'data_recipe_history'
+
+    def factor_revisions(self, project_id, strategy_id, factor_id, before=None):
+        with self._read(project_id, strategy_id) as (db, project, _):
+            return factor_restore.revisions(db, project, f'factors/{factor_id}.py', before)
+
+    def factor_restore_preview(self, project_id, strategy_id, factor_id, revision):
+        with self._read(project_id, strategy_id) as (db, project, strategy):
+            return factor_restore.preview(db, project, strategy, f'factors/{factor_id}.py', revision)
 
     def list(self, project_id: str, strategy_id: str = 'main', *, limit: int = 20, before: int | None = None):
         """Keyset pagination; strategy packages are not an edit-event timeline."""

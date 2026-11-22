@@ -119,11 +119,25 @@ python scripts/check_source_history_ui.py --python /path/to/backend/python
 Optionally pass `--output /path/to/local/screenshots`. The script mounts the real
 dialog against the real history API with disposable stores. It checks all source
 types, pagination, identical comparisons, error/retry, an independent unsaved text
-buffer, absence of write requests, and unchanged database bytes. This is component
-acceptance, not a full Electron/Monaco or pending-visual-form restoration test.
+buffer, absence of write requests, and unchanged database bytes during inspection.
+It then exercises a confirmed shared-factor restore against the isolated API.
 
-Safe restoration, persistent factor lineage, factor evidence/status, report
-revision retention, and #15/#18 integrations remain later implementation work.
+## Restoring a shared factor
+
+In the factor editor, select an editable project's factor and choose **恢复因子版本**.
+Choose a factor revision to see its diff against the current file and the strategy
+packages that share it. Apply pending form edits and save open editor changes before
+confirming. Confirmation runs the usual trusted local strategy probes and saves the
+factor and affected packages together. A stale preview must be refreshed. The
+receipt records the new factor revision, its source revision and the resulting
+package IDs. Retries of the same request return the original receipt.
+
+Factor revision numbers are independent of package numbers. Tracking starts with
+the first observed current version of an existing factor. Renaming or removing
+its path ends that history for restoration, even if a new factor reuses the name.
+Older packages remain accessible in the comparison panel. Strategy, recipe and
+validation restores, cross-rename ancestry, factor evidence and report management
+remain separate work.
 
 For an interactive local review page using the same component and isolated example
 stores, add `--serve`. Open the printed URL; stop the process with Ctrl+C. This

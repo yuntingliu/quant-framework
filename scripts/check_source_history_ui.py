@@ -27,7 +27,7 @@ repo.clone_project('sdk-v1-default', 'history-demo')
 repo.create_strategy('history-demo', 'copy', name='Comparison strategy')
 repo.select_strategy('main')
 factor = repo.get_factor_source('history-demo', 'momentum_20d')
-repo.replace_factor_source('history-demo', 'momentum_20d', factor['source'].replace(' - 1.0', ' - 0.9'))
+repo.replace_factor_source('history-demo', 'momentum_20d', factor['source'].replace('] = 20,', '] = 60,'))
 repo.close()
 validation = ValidationRepository()
 initial = validation.get_or_create('history-demo')
@@ -41,6 +41,7 @@ HARNESS = '''
 import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { SourceHistoryDialog } from '/src/components/shared/SourceHistoryDialog'
+import { FactorRestoreDialog } from '/src/widgets/factors/FactorRestoreDialog'
 import { LanguageProvider } from '/src/contexts/LanguageContext'
 import '/src/index.css'
 function Demo() {
@@ -53,6 +54,8 @@ function Demo() {
     </select></label>
     <textarea aria-label="Unsaved editor" value={text} onChange={e => setText(e.target.value)} />
     <SourceHistoryDialog projectId="history-demo" strategyId="main" kind={kind} />
+    <FactorRestoreDialog project="history-demo" strategy="main" factor="momentum_20d"
+      blocked={Boolean(text)} refresh={async () => {}} />
   </main></LanguageProvider>
 }
 createRoot(document.getElementById('root')).render(<Demo />)
@@ -81,6 +84,7 @@ def ready(url, process):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--python', required=True, help='Python with AlphaLab app/dev dependencies')
+    parser.add_argument('--chromium', help='Optional path to an installed Chromium executable')
     parser.add_argument('--output', type=Path, help='Optional local screenshot directory')
     parser.add_argument('--serve', action='store_true', help='Keep the interactive preview running until interrupted')
     args = parser.parse_args()
@@ -127,7 +131,7 @@ def main():
                     while True:
                         time.sleep(1)
                 with sync_playwright() as browser_api:
-                    browser = browser_api.chromium.launch(headless=True)
+                    browser = browser_api.chromium.launch(headless=True, executable_path=args.chromium)
                     page = browser.new_page(viewport={'width': 1280, 'height': 900})
                     errors, mutations = [], []
                     page.on('pageerror', lambda error: errors.append(str(error)))
@@ -177,9 +181,26 @@ def main():
                     expect(page.get_by_label('Unsaved editor')).to_have_value('do not overwrite me')
                     assert not errors, errors
                     assert not mutations, mutations
+                    assert all(p.read_bytes() == content for p, content in before.items()), 'History UI changed a database'
+                    restore = page.get_by_role('button', name='恢复因子版本')
+                    restore.click()
+                    apply = dialog.get_by_role('button', name='确认校验并恢复')
+                    expect(dialog.locator('.sh-line-added code')).to_contain_text('] = 20,')
+                    expect(apply).to_be_disabled()
+                    page.keyboard.press('Escape')
+                    expect(page.get_by_label('Unsaved editor')).to_have_value('do not overwrite me')
+                    page.get_by_label('Unsaved editor').fill('')
+                    restore.click()
+                    expect(apply).to_be_enabled()
+                    if args.output:
+                        page.screenshot(path=str(args.output / 'factor-restore-preview.png'))
+                    apply.click()
+                    expect(dialog.get_by_role('status')).to_contain_text('已恢复为新修订', timeout=30000)
+                    expect(dialog.locator('option').first).to_contain_text('恢复自')
+                    assert len(mutations) == 1 and '/restore?' in mutations[0], mutations
+                    assert not errors, errors
                     browser.close()
-                assert all(p.read_bytes() == content for p, content in before.items()), 'History UI changed a database'
-                print('PASS: real API/UI strategy/factor, validation, recipe, pagination, identical comparison, error/retry, unsaved buffer, no writes')
+                print('PASS: read-only comparison, guarded restore preview, confirmed restore and revision receipt')
     finally:
         for process in reversed(processes):
             process.terminate()

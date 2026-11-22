@@ -10,7 +10,7 @@ import "./SourceHistoryDialog.css"
 type Kind = "strategy" | "validation" | "recipe"
 interface Revision { revision: number; created_at: string; summary: string; origin?: string }
 interface HistoryPage { items: Revision[]; next_before: number | null; history_kind: string }
-interface Change { path: string; kind: string; change: string; diff: string; diff_truncated: boolean }
+export interface Change { path: string; kind: string; change: string; diff: string; diff_truncated: boolean }
 interface Comparison {
   summary: string
   changes: Change[]
@@ -61,7 +61,7 @@ function formatDate(value: string, zh: boolean) {
   }).format(date)
 }
 
-function DiffView({ change, zh }: { change: Change; zh: boolean }) {
+export function DiffView({ change, zh }: { change: Change; zh: boolean }) {
   let oldLine = 0, newLine = 0
   let inHunk = false
   const rows = change.diff.split("\n").filter((line, index, lines) => !(index === lines.length - 1 && line === "")).map((line) => {

@@ -492,7 +492,7 @@ export function StrategyWorkbenchWidget() {
   return (
     <Widget headerless className="strategy-workbench-widget">
       <div className="strategy-business-workbench">
-        <div className="shrink-0 px-3 py-2"><SourceHistoryDialog projectId={project.id} projectName={project.name} strategyId={project.strategy_id} kind="strategy" version={project.current_revision} /></div>
+        <div data-unsaved-project={hasUnsavedChanges || busy ? project.id : undefined} className="shrink-0 px-3 py-2"><SourceHistoryDialog projectId={project.id} projectName={project.name} strategyId={project.strategy_id} kind="strategy" version={project.current_revision} /></div>
         <ProjectStrategies key={project.id} locked={busy || hasUnsavedChanges} onError={setError} onBusy={setBusy} />
         {error ? <div className="workbench-message error strategy-workbench-error">{error}</div> : null}
         <main className="strategy-authoring-main strategy-authoring-main-single">

@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Code2, Database, FlaskConical, GitBranch, Layers } from 'lucide-react'
 import { SourceHistoryPanel } from '/src/components/shared/SourceHistoryDialog'
+import { FactorRestoreDialog } from '/src/widgets/factors/FactorRestoreDialog'
 import { LanguageProvider } from '/src/contexts/LanguageContext'
 import '/src/index.css'
 
@@ -30,6 +31,7 @@ body { margin: 0; background: #f5f6f8; color: #202631; -webkit-font-smoothing: a
 `
 export function Demo() {
   const [kind, setKind] = useState<'strategy' | 'recipe' | 'validation'>('strategy')
+  const [version, setVersion] = useState(0)
   const tabs = [{id:'strategy', label:'策略与因子', icon:Code2}, {id:'recipe',label:'数据采集',icon:Database}, {id:'validation',label:'回测验证',icon:FlaskConical}] as const
   return <LanguageProvider>
     <style>{css}</style>
@@ -37,7 +39,9 @@ export function Demo() {
     <main className="preview-main">
       <div className="preview-intro"><div><h1>研究源码</h1><p>从一个版本到下一个版本，清楚了解每一处变化。</p></div><span className="preview-project"><GitBranch size={14} />动量策略研究 · 示例项目</span></div>
       <nav className="preview-tabs" aria-label="源码类型">{tabs.map(({id,label,icon:Icon})=><button type="button" key={id} aria-pressed={kind === id} onClick={()=>setKind(id)}><Icon size={15}/>{label}</button>)}</nav>
-      <div className="preview-card"><SourceHistoryPanel projectId="history-demo" projectName="动量策略研究" strategyId="main" kind={kind}/></div>
+      {kind === 'strategy' && <FactorRestoreDialog project="history-demo" strategy="main" factor="momentum_20d" blocked={false}
+        refresh={async () => setVersion(n => n + 1)} />}
+      <div className="preview-card"><SourceHistoryPanel projectId="history-demo" projectName="动量策略研究" strategyId="main" kind={kind} version={version}/></div>
       <p className="preview-footnote">示例数据 · 使用与工作台相同的版本历史组件</p>
     </main>
   </LanguageProvider>
