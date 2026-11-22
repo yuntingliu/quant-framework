@@ -112,7 +112,9 @@ individual project file.
 - `sync.status`: `job_id`.
 - `sync.wait`: `job_id`; optional `wait_seconds` from 1 to 300, default 240.
   Blocks until the sync job ends or the wait passes. Use it instead of repeated
-  `sync.status` calls; each poll costs a full model turn.
+  `sync.status` calls; each poll costs a full model turn. When a run budget is
+  set, the host may shorten `wait_seconds` so the wait cannot outrun the remaining
+  work time.
 - `sync.cancel`: `job_id`, plus top-level `confirm_cancel=true` after an
   explicit cancellation request.
 - `data.catalog`, `data.status`: no args.
@@ -145,7 +147,8 @@ individual project file.
 - `backtest.wait`: `job_id`; optional `wait_seconds` from 1 to 300, default 240.
   Returns at the next status change (queued to running, or finished) or when the
   wait passes. Use it while a job is active instead of status polling; a typical
-  backtest needs one or two waits.
+  backtest needs one or two waits. When a run budget is set, the host may shorten
+  `wait_seconds` so the wait cannot outrun the remaining work time.
 - `backtest.summary`: `backtest_id`.
 - `backtest.events`: `backtest_id`; optional `kind` (`events` or
   `executions`), `offset`, `limit` up to 20. Only page details when the user or a

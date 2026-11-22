@@ -237,9 +237,10 @@ T07's v2 medians include the two network failures.
   baseline mostly stopped early.
 - Wall time is dominated by backtest run time (69% of v2 time is waiting); the
   changes cut model calls and input tokens, not backtest duration.
-- Known limitation: a blocking wait can carry a run past its time budget
-  because the budget is checked only at model calls. Capping `wait_seconds` by
-  the remaining time inside the tool would close it.
+- Follow-up (not re-benchmarked): `budgetAwareExecuteTool` now caps
+  `backtest.wait` / `sync.wait` to the remaining work time on the same run
+  signal, so a blocking wait can no longer outrun the runner's wall budget.
+  See section 5.
 
 ### Decision
 
@@ -330,9 +331,10 @@ accepted waiting and budget-stop changes.
 | (1) Publish baseline and bottleneck breakdown, including failures | Done (`BASELINE.md`, sections 1–4) |
 | (2) Compression preserves numerical, PIT, authorization, completion and output evidence; quality thresholds; cache invalidation and cross-task isolation | **Partial**: implemented with tests (`context-compaction.mjs`, `conexus-context-compaction.test.mjs`); evidence / cache / isolation covered in tests; **benchmarked and rejected** for efficiency (section 4). Switch off by default |
 | (3) Quality under equal budgets; cost, time and human effort for equal quality; thresholds registered before evaluation | Done (`thresholds.json` before formal baseline; sections 1–3; `GRADING.md` proposed 28/33 vs 25/33 for v2 vs baseline, no fabrication). Wall-time rule fails on T09/T12 for the accepted stack |
-| (4) Explicit stop when a budget is exhausted; no fabrication; failed optimizations rolled back while keeping records | Done: budget stop in code (sections 2–3); fabrication not observed; compaction measured, not accepted, left off (section 4); waiting kept despite wall-time miss |
+| (4) Explicit stop when a budget is exhausted; no fabrication; failed optimizations rolled back while keeping records | Done: budget stop in code (sections 2–3); fabrication not observed; compaction measured, not accepted, left off (section 4); waiting kept despite wall-time miss; wait cap added after the final suite so a blocking wait cannot outrun the wall budget (unit-tested, not re-benchmarked) |
 
 **Accepted on the branch:** server-side waiting + budget stop (with last-call
-fix). **Not accepted:** context compaction (off by default). **Known open
-limitation:** blocking waits can overrun the time budget because the budget is
-checked only at model calls.
+fix). **Not accepted:** context compaction (off by default). **Wait cap:**
+`backtest.wait` / `sync.wait` are shortened to the remaining work time when a
+run budget is set (`budgetAwareExecuteTool`); covered by unit tests, not by a
+new 33-run suite.

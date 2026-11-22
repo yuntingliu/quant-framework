@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { budgetPhase, budgetedCompletion, readRunBudget } from '../integrations/conexus/run-budget.mjs'
+import {
+  budgetAwareExecuteTool, budgetPhase, budgetedCompletion, capWaitSeconds, readRunBudget, workSecondsLeft,
+} from '../integrations/conexus/run-budget.mjs'
 
 const request = budget => ({ role: 'user', content: JSON.stringify({
   version: 1, userRequest: 'Find the best of five factors.', workspaceContext: { requestId: 'r1', ...(budget ? { budget } : {}) },
@@ -51,4 +53,35 @@ test('runs without a budget pass through unchanged', async () => {
   const input = { messages: [request()], tools }
   await complete(input)
   assert.equal(seen, input)
+})
+
+test('wait caps leave the wrap-up reserve and clamp to 1–300', () => {
+  const budget = { max_model_calls: 25, max_seconds: 1200 }
+  assert.equal(workSecondsLeft(budget, 100), 980)
+  assert.equal(workSecondsLeft(budget, 1100), 0)
+  assert.equal(workSecondsLeft({ max_model_calls: 5 }, 10), null)
+  assert.equal(capWaitSeconds(240, 50), 50)
+  assert.equal(capWaitSeconds(999, 500), 300)
+  assert.equal(capWaitSeconds(240, 0), 1)
+  assert.equal(capWaitSeconds(undefined, null), 240)
+})
+
+test('budgeted waits are shortened on the same run signal and left alone otherwise', async () => {
+  let now = 0
+  const signal = new AbortController().signal
+  const complete = budgetedCompletion(async () => ({ content: 'ok' }), { clock: () => now })
+  await complete({ messages: [request({ max_model_calls: 25, max_seconds: 1200 })], tools, signal })
+
+  const seen = []
+  const execute = budgetAwareExecuteTool(async params => { seen.push(params); return { success: true } }, { clock: () => now })
+  now = 1_100_000 // 1100s elapsed → 0s work left → wait capped to 1
+  await execute({ signal, args: { command: 'backtest.wait', args: { job_id: 'j1', wait_seconds: 240 } } })
+  await execute({ signal, args: { command: 'sync.wait', args: { job_id: 's1' } } })
+  await execute({ signal, args: { command: 'backtest.status', args: { job_id: 'j1', wait_seconds: 240 } } })
+  await execute({ args: { command: 'backtest.wait', args: { job_id: 'j2', wait_seconds: 240 } } })
+
+  assert.equal(seen[0].args.args.wait_seconds, 1)
+  assert.equal(seen[1].args.args.wait_seconds, 1)
+  assert.equal(seen[2].args.args.wait_seconds, 240, 'non-wait commands are not rewritten')
+  assert.equal(seen[3].args.args.wait_seconds, 240, 'no budget signal means no cap')
 })
