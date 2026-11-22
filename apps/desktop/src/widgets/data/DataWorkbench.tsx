@@ -1,3 +1,4 @@
+import { SourceReviewWorkspace } from "@/components/shared/SourceReviewWorkspace"
 import { useEffect, useMemo, useState } from "react"
 import {
   Braces,
@@ -344,6 +345,9 @@ export function DataWorkbenchWidget() {
 
   return (
     <Widget headerless error={error} bodyClassName="overflow-auto">
+      <SourceReviewWorkspace projectId={project.id} projectName={project.name} strategyId={project.strategy_id}
+        kind="recipe" version={workspace.draft.source_sha256} dirty={dirty || busy ||
+          !recipeParametersEqual(workspace.draft.inspection, syncStart, syncEnd, splitSymbols(syncSymbols))}>
       <div className="space-y-4">
         <section className="rounded border border-border p-3">
           <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
@@ -438,6 +442,7 @@ export function DataWorkbenchWidget() {
           )}
         </section>
       </div>
+      </SourceReviewWorkspace>
     </Widget>
   )
 }

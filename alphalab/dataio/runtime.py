@@ -105,6 +105,16 @@ CREATE TABLE IF NOT EXISTS data_recipe_drafts (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS data_recipe_history (
+    project_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    selected_template_id TEXT,
+    created_at TEXT NOT NULL,
+    origin TEXT NOT NULL CHECK(origin IN ('migration_baseline', 'save')),
+    PRIMARY KEY (project_id, revision)
+);
 CREATE TABLE IF NOT EXISTS data_recipe_templates (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -199,6 +209,18 @@ class OperationsStore:
                 connection.execute(
                     "ALTER TABLE data_recipe_drafts ADD COLUMN selected_template_id TEXT"
                 )
+
+            # Preserve only the draft that actually exists at migration time. Never
+            # invent older edit history or label this as acquisition provenance.
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """INSERT INTO data_recipe_history
+                   (project_id, revision, source, source_sha256, selected_template_id, created_at, origin)
+                   SELECT d.project_id, 1, d.source, d.source_sha256, d.selected_template_id, ?, 'migration_baseline'
+                   FROM data_recipe_drafts d
+                   WHERE NOT EXISTS (SELECT 1 FROM data_recipe_history h WHERE h.project_id=d.project_id)""",
+                (_now(),),
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self.path), timeout=30)
@@ -488,6 +510,7 @@ class OperationsStore:
         digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
         now = _now()
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             current = connection.execute(
                 "SELECT source_sha256, selected_template_id "
                 "FROM data_recipe_drafts WHERE project_id=?",
@@ -503,6 +526,18 @@ class OperationsStore:
                 selected = current["selected_template_id"] if current is not None else None
             else:
                 selected = str(selected_template_id).strip() if selected_template_id else None
+            latest = connection.execute(
+                "SELECT source_sha256, selected_template_id FROM data_recipe_history "
+                "WHERE project_id=? ORDER BY revision DESC LIMIT 1", (project,),
+            ).fetchone()
+            if latest is None or latest["source_sha256"] != digest or latest["selected_template_id"] != selected:
+                connection.execute(
+                    """INSERT INTO data_recipe_history
+                       (project_id, revision, source, source_sha256, selected_template_id, created_at, origin)
+                       VALUES (?, (SELECT COALESCE(MAX(revision), 0)+1 FROM data_recipe_history WHERE project_id=?),
+                               ?, ?, ?, ?, 'save')""",
+                    (project, project, source, digest, selected, now),
+                )
             connection.execute(
                 """INSERT INTO data_recipe_drafts
                    (project_id, source, source_sha256, selected_template_id, created_at, updated_at)
