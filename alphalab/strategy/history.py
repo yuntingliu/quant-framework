@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
 
-from alphalab.strategy import factor_restore
+from alphalab.strategy import factor_restore, module_restore
 from alphalab.strategy.project_strategies import strategy_id as validate_strategy_id
 from alphalab.strategy.repository import normalize_project_id
 
@@ -23,6 +23,7 @@ def source_changes(left, right, from_revision, to_revision):
     """Bound diff work/output and retain metadata for omitted/large units."""
     changes = []
     remaining = 100_000
+    context_budget = 200_000
     for path in sorted(left.keys() | right.keys()):
         old, new = left.get(path), right.get(path)
         if old and new and old['source'] == new['source']:
@@ -45,6 +46,11 @@ def source_changes(left, right, from_revision, to_revision):
                         'from_sha256': old['source_sha256'] if old else None,
                         'to_sha256': new['source_sha256'] if new else None,
                         'diff': patch, 'diff_truncated': truncated})
+        # Give the editor exact line numbers and unchanged context within a bounded response.
+        context_size = len(old_source) + len(new_source)
+        if not truncated and context_size <= context_budget:
+            changes[-1].update(before_source=old_source, after_source=new_source)
+            context_budget -= context_size
     return changes
 
 
@@ -90,6 +96,14 @@ class SourceHistory:
     def factor_revisions(self, project_id, strategy_id, factor_id, before=None):
         with self._read(project_id, strategy_id) as (db, project, _):
             return factor_restore.revisions(db, project, f'factors/{factor_id}.py', before)
+
+    def module_revisions(self, project_id, strategy_id, before=None):
+        with self._read(project_id, strategy_id) as (db, project, strategy):
+            return module_restore.revisions(db, project, strategy, before)
+
+    def module_restore_preview(self, project_id, strategy_id, revision):
+        with self._read(project_id, strategy_id) as (db, project, strategy):
+            return module_restore.preview(db, project, strategy, revision)
 
     def factor_restore_preview(self, project_id, strategy_id, factor_id, revision):
         with self._read(project_id, strategy_id) as (db, project, strategy):

@@ -2,13 +2,16 @@
 
 Open **Source history & comparison** from the Strategy, Factor, Data, or
 Validation workbench. Select two saved versions, then choose **Compare versions**.
+The editor aligns the two Python files side by side on wide screens, with character-level highlights and synchronized scrolling. Narrow panes use an inline diff. The arrows in the editor header move between changes.
 The latest two retained versions are compared automatically on opening.
 Use **Load earlier versions** for older history. The Factor workbench shows the
 selected strategy package, including the project's shared factors.
 
-The dialog is read-only. Opening it, paging, and comparing do not save editor
-contents, execute saved Python, start research jobs, or restore source. The
-existing editor and visual-form buffers remain separate from the dialog.
+History and restoration use the workbench's main content area. Select **Workbench**
+to return to your mounted editor and its pending visual parameters. The diff
+wraps long lines by default; clear **Wrap lines** for horizontal scrolling.
+Scroll the workbench to read the last hunk. Opening history, paging and comparing
+are read-only. The API labels any diff truncated by its server-side size limit.
 A version sidebar and a comparison pane separate navigation from the code.
 Changes are shown with line numbers and green/red added/removed lines, followed
 by related strategies. Narrow screens use a horizontal version list.
@@ -61,7 +64,7 @@ rebuild missing units or initialize stores.
 
 Comparisons return per-unit changes, before/after digests, automatic change
 summaries, and unified text diffs. Diff output has a shared 100,000-character
-budget. A unit exceeding 100,000 source characters skips diff calculation;
+budget. The server may also send up to 200,000 characters of complete original and modified source across files for the editor. Where full context is unavailable, the view shows the bounded patch. A unit exceeding 100,000 source characters skips diff calculation;
 `diff_truncated` marks omitted/truncated output. Metadata remains available.
 There is no editable change-note field or invented legacy actor information.
 
@@ -117,7 +120,7 @@ python scripts/check_source_history_ui.py --python /path/to/backend/python
 ```
 
 Optionally pass `--output /path/to/local/screenshots`. The script mounts the real
-dialog against the real history API with disposable stores. It checks all source
+workbench review views against the real history API with disposable stores. It checks all source
 types, pagination, identical comparisons, error/retry, an independent unsaved text
 buffer, absence of write requests, and unchanged database bytes during inspection.
 It then exercises a confirmed shared-factor restore against the isolated API.
@@ -135,9 +138,23 @@ package IDs. Retries of the same request return the original receipt.
 Factor revision numbers are independent of package numbers. Tracking starts with
 the first observed current version of an existing factor. Renaming or removing
 its path ends that history for restoration, even if a new factor reuses the name.
-Older packages remain accessible in the comparison panel. Strategy, recipe and
-validation restores, cross-rename ancestry, factor evidence and report management
-remain separate work.
+Older packages remain accessible in the comparison panel.
+
+## Restoring one strategy module
+
+In the strategy workbench, select the strategy and choose **恢复策略版本**.
+The preview compares its current Python file with the frozen strategy unit in
+an owned revision. Confirmation assembles that file with the **current** shared
+factors and probes the selected strategy. Success records a new module revision
+with its historical source revision, previous package and resulting package.
+Other strategies keep their existing package pointers and old runs keep their
+frozen inputs. Source edits or pending visual parameters block applying a restore.
+
+Existing projects start with their known per-strategy package associations.
+These choices represent retained snapshots. Subsequent strategy edits and
+restores are recorded individually, including restores that reuse a package.
+A failed probe or stale preview leaves the restore unapplied. Retrying the same
+confirmed request returns its original receipt.
 
 For an interactive local review page using the same component and isolated example
 stores, add `--serve`. Open the printed URL; stop the process with Ctrl+C. This

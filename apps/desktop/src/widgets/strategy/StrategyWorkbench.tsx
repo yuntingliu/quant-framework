@@ -1,4 +1,4 @@
-import { SourceHistoryDialog } from "@/components/shared/SourceHistoryDialog"
+import { SourceReviewWorkspace } from "@/components/shared/SourceReviewWorkspace"
 import { Fragment, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import {
   CalendarDays,
@@ -348,7 +348,7 @@ function PreviewPanel({ preview }: { preview: Record<string, unknown> | null }) 
   )
 }
 
-export function StrategyWorkbenchWidget() {
+export function StrategyWorkbenchWidget({ initialSourceView }: { initialSourceView?: "editor" | "restore" } = {}) {
   const sdk = useStrategySdk()
   const confirm = useConfirm()
   const project = sdk.project
@@ -491,8 +491,10 @@ export function StrategyWorkbenchWidget() {
 
   return (
     <Widget headerless className="strategy-workbench-widget">
+      <SourceReviewWorkspace initialView={initialSourceView} projectId={project.id} projectName={project.name} strategyId={selectedStrategyId}
+        kind="strategy" version={project.current_revision} dirty={hasUnsavedChanges || busy}
+        restore={project.editable ? { blocked: hasUnsavedChanges || busy, refresh: () => sdk.refresh(project.id) } : undefined}>
       <div className="strategy-business-workbench">
-        <div data-unsaved-project={hasUnsavedChanges || busy ? project.id : undefined} className="shrink-0 px-3 py-2"><SourceHistoryDialog projectId={project.id} projectName={project.name} strategyId={project.strategy_id} kind="strategy" version={project.current_revision} /></div>
         <ProjectStrategies key={project.id} locked={busy || hasUnsavedChanges} onError={setError} onBusy={setBusy} />
         {error ? <div className="workbench-message error strategy-workbench-error">{error}</div> : null}
         <main className="strategy-authoring-main strategy-authoring-main-single">
@@ -572,6 +574,7 @@ export function StrategyWorkbenchWidget() {
           </div>
         </main>
       </div>
+      </SourceReviewWorkspace>
     </Widget>
   )
 }

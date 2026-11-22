@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 
-from alphalab.strategy import factor_restore
+from alphalab.strategy import factor_restore, module_restore
 from alphalab.strategy.sdk_runtime import SdkRuntimeError
 from alphalab.strategy.source import StrategySourceError, assemble_strategy_source
 
@@ -66,6 +66,19 @@ class ProjectStrategies:
                            WHERE r.project_id=u.project_id AND r.path=u.path)""",
                     (row["current_revision"], row["id"]),
                 )
+
+            # Import only known package associations. Package order is not a
+            # complete legacy edit timeline; put the current pointer last.
+            owners = self._conn.execute(
+                """SELECT project_id,id,current_revision FROM project_strategies s WHERE NOT EXISTS
+                   (SELECT 1 FROM strategy_module_revisions r WHERE r.project_id=s.project_id AND r.strategy_id=s.id)"""
+            ).fetchall()
+            for owner in owners:
+                self._conn.execute(
+                    """INSERT INTO strategy_module_revisions(project_id,strategy_id,package_revision)
+                       SELECT project_id,strategy_id,revision FROM project_strategy_packages
+                       WHERE project_id=? AND strategy_id=? ORDER BY (revision=?), revision""",
+                    (owner["project_id"], owner["id"], owner["current_revision"]))
 
     def has_strategy_package(self, project_id: str, revision: int) -> bool:
         return self._conn.execute(
@@ -146,6 +159,9 @@ class ProjectStrategies:
                 )
                 self._conn.execute("INSERT INTO project_strategy_packages VALUES (?,?,?)",
                                    (project_id, value, original["current_revision"]))
+                self._conn.execute(
+                    "INSERT INTO strategy_module_revisions(project_id,strategy_id,package_revision) VALUES (?,?,?)",
+                    (project_id, value, original["current_revision"]))
                 self._conn.commit()
             except Exception:
                 self._conn.rollback()
@@ -160,6 +176,41 @@ class ProjectStrategies:
             self._conn.execute("UPDATE project_strategies SET name = ? WHERE project_id = ? AND id = ?",
                                (name.strip(), project_id, self._strategy_id))
         return self.get_project(project_id)
+
+    def restore_strategy_module(self, project_id, revision, token, request_id):
+        return module_restore.restore(self, project_id, revision, token, request_id)
+
+    def _advance_source_generation(self, project_id):
+        self._conn.execute(
+            """INSERT INTO project_source_generation VALUES (?,1) ON CONFLICT(project_id)
+               DO UPDATE SET generation=generation+1""", (project_id,))
+
+    def _save_strategy_package(self, project_id, key, source, previous, bundled, inspection):
+        package = self._conn.execute(
+            "SELECT revision FROM strategy_source_packages WHERE project_id = ? AND source_sha256 = ?",
+            (project_id, inspection.source_sha256),
+        ).fetchone()
+        if package:
+            revision = int(package["revision"])
+        else:
+            revision = self._conn.execute(
+                "SELECT COALESCE(MAX(revision), 0) + 1 FROM strategy_source_packages WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()[0]
+            self._insert_package(project_id, revision, previous, bundled, inspection)
+        self._conn.execute(
+            "UPDATE project_strategies SET source = ?, current_revision = ? WHERE project_id = ? AND id = ?",
+            (source, revision, project_id, key),
+        )
+        self._conn.execute("INSERT OR IGNORE INTO project_strategy_packages VALUES (?,?,?)",
+                           (project_id, key, revision))
+        if key == "main":
+            self._conn.execute(
+                """UPDATE strategy_projects SET current_revision = ?, draft_parent_revision = ?,
+                   draft_source = ?, draft_source_sha256 = ?, updated_at = datetime('now') WHERE id = ?""",
+                (revision, revision, bundled, inspection.source_sha256, project_id),
+            )
+        return revision
 
     def restore_factor(self, project_id, factor_id, revision, token, request_id):
         path = f"factors/{factor_id}.py"
@@ -225,41 +276,22 @@ class ProjectStrategies:
                 packages = {}
                 for key, (bundled, inspection) in prepared.items():
                     old = next(row for row in catalog if row["id"] == key)
-                    package = self._conn.execute(
-                        "SELECT revision FROM strategy_source_packages WHERE project_id = ? AND source_sha256 = ?",
-                        (project_id, inspection.source_sha256),
-                    ).fetchone()
-                    if package:
-                        revision = int(package["revision"])
-                    else:
-                        revision = self._conn.execute(
-                            "SELECT COALESCE(MAX(revision), 0) + 1 FROM strategy_source_packages WHERE project_id = ?",
-                            (project_id,),
-                        ).fetchone()[0]
-                        self._insert_package(project_id, revision, old["current_revision"], bundled, inspection)
-                    self._conn.execute(
-                        "UPDATE project_strategies SET source = ?, current_revision = ? WHERE project_id = ? AND id = ?",
-                        (sources[key], revision, project_id, key),
-                    )
-                    self._conn.execute("INSERT OR IGNORE INTO project_strategy_packages VALUES (?,?,?)",
-                                       (project_id, key, revision))
+                    revision = self._save_strategy_package(
+                        project_id, key, sources[key], old["current_revision"], bundled, inspection)
                     packages[key] = revision
-                    if key == "main":
+                    if old["source"] != sources[key]:
                         self._conn.execute(
-                            """UPDATE strategy_projects SET current_revision = ?, draft_parent_revision = ?,
-                               draft_source = ?, draft_source_sha256 = ?, updated_at = datetime('now') WHERE id = ?""",
-                            (revision, revision, bundled, inspection.source_sha256, project_id),
-                        )
+                            "INSERT INTO strategy_module_revisions(project_id,strategy_id,package_revision) VALUES (?,?,?)",
+                            (project_id, key, revision))
                 previous = {u["path"]: u["source"] for u in self._source_unit_rows(project_id) if u["kind"] == "factor"}
                 self._write_source_units(project_id, sources["main"], factors, factor_ids)
                 current = {f"factors/{key}.py": value for key, value in zip(factor_ids, factors, strict=True)}
                 if restore:
                     restore["affected_json"] = json.dumps(packages)
                 factor_restore.record_changes(self._conn, project_id, previous, current, packages["main"], restore)
-                if any(packages[r["id"]] != r["current_revision"] for r in catalog if not r["archived"]):
-                    self._conn.execute(
-                        """INSERT INTO project_source_generation VALUES (?,1) ON CONFLICT(project_id)
-                           DO UPDATE SET generation=generation+1""", (project_id,))
+                if any(packages[r["id"]] != r["current_revision"] or sources[r["id"]] != r["source"]
+                       for r in catalog if not r["archived"]):
+                    self._advance_source_generation(project_id)
                 result = factor_restore.receipt(self._conn, project_id, restore) if restore else None
                 self._conn.commit()
                 if result:

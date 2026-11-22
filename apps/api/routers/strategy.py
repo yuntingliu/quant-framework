@@ -691,13 +691,17 @@ def source_history(kind: Literal["strategy", "validation", "recipe"] = "strategy
     return SourceHistory(RUNTIME_APP_DIR / filename, kind)
 
 
-class FactorRestoreRequest(BaseModel):
+class SourceRestoreRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: int = Field(ge=1)
     token: str = Field(pattern="^[a-f0-9]{64}$")
     request_id: str = Field(min_length=1, max_length=100)
     confirm_write: bool
     confirm_python_execution: bool
+
+
+class FactorRestoreRequest(SourceRestoreRequest):
+    """Keep the existing factor endpoint's OpenAPI model name."""
 
 
 @router.get("/projects/{project_id}/factors/{factor_id}/revisions")
@@ -730,6 +734,42 @@ def restore_factor(project_id: str, factor_id: str, request: FactorRestoreReques
             project_id, factor_id, request.revision, request.token, request.request_id)
     except sqlite3.DatabaseError as exc:
         raise HTTPException(status_code=500, detail="factor restore could not be saved") from exc
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+    finally:
+        repo.close()
+
+
+@router.get("/projects/{project_id}/strategy-module/revisions")
+def module_revisions(project_id: str, strategy_id: str, before: int | None = Query(None, ge=1)):
+    try:
+        return source_history().module_revisions(project_id, strategy_id, before)
+    except HistoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.get("/projects/{project_id}/strategy-module/restore-preview")
+def module_restore_preview(project_id: str, strategy_id: str, revision: int = Query(ge=1)):
+    try:
+        return source_history().module_restore_preview(project_id, strategy_id, revision)
+    except HistoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/strategy-module/restore")
+def restore_module(project_id: str, strategy_id: str, request: SourceRestoreRequest):
+    _confirmed(request.confirm_write, "restoring source requires confirmation")
+    _confirmed(request.confirm_python_execution, "validating a restore executes trusted local Python")
+    repo = strategy_service.repository()
+    try:
+        return repo.select_strategy(strategy_id).restore_strategy_module(
+            project_id, request.revision, request.token, request.request_id)
+    except sqlite3.DatabaseError as exc:
+        raise HTTPException(status_code=500, detail="strategy restore could not be saved") from exc
     except Exception as exc:
         raise _translate_error(exc) from exc
     finally:

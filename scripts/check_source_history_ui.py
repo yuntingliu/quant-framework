@@ -1,4 +1,4 @@
-"""Exercise the actual history dialog against an isolated real API.
+"""Exercise the inline workbench views against an isolated real API.
 
 Requires Playwright + Chromium, installed frontend dependencies and a Python
 interpreter with AlphaLab's app/dev dependencies. Never opens a user's store.
@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -28,6 +29,8 @@ repo.create_strategy('history-demo', 'copy', name='Comparison strategy')
 repo.select_strategy('main')
 factor = repo.get_factor_source('history-demo', 'momentum_20d')
 repo.replace_factor_source('history-demo', 'momentum_20d', factor['source'].replace('] = 20,', '] = 60,'))
+copy = repo.select_strategy('copy').get_project('history-demo')
+repo.update_strategy_source('history-demo', copy['strategy_source'].replace('top_n: int = 10', 'top_n: int = 3'))
 repo.close()
 validation = ValidationRepository()
 initial = validation.get_or_create('history-demo')
@@ -40,23 +43,27 @@ for i in range(24):
 HARNESS = '''
 import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { SourceHistoryDialog } from '/src/components/shared/SourceHistoryDialog'
-import { FactorRestoreDialog } from '/src/widgets/factors/FactorRestoreDialog'
+import { SourceReviewWorkspace } from '/src/components/shared/SourceReviewWorkspace'
+import { ThemeProvider } from '/src/contexts/ThemeContext'
 import { LanguageProvider } from '/src/contexts/LanguageContext'
 import '/src/index.css'
-function Demo() {
-  const [kind, setKind] = useState('strategy')
+export function Demo() {
+  const [kind, setKind] = useState('factor')
   const [text, setText] = useState('unsaved editor buffer')
-  return <LanguageProvider><main style={{padding: 24}}>
+  const [pending, setPending] = useState(false)
+  return <LanguageProvider><ThemeProvider><main style={{height: "100dvh", padding: 12, display: "flex", flexDirection: "column"}}>
     <h1>Source history — isolated component acceptance</h1>
     <label>Source type<select aria-label="Source type" value={kind} onChange={e => setKind(e.target.value)}>
-      <option value="strategy">Strategy / factors</option><option value="validation">Validation</option><option value="recipe">Recipe</option>
+      <option value="strategy">Strategy</option><option value="factor">Factors</option><option value="validation">Validation</option><option value="recipe">Recipe</option>
     </select></label>
+    <SourceReviewWorkspace projectId="history-demo" strategyId={kind === 'strategy' ? 'copy' : 'main'}
+      kind={kind === 'factor' ? 'strategy' : kind} dirty={Boolean(text) || pending}
+      restore={['strategy', 'factor'].includes(kind) ? { factor: kind === 'factor' ? 'momentum_20d' : undefined,
+        blocked: Boolean(text) || pending, refresh: async () => {} } : undefined}>
     <textarea aria-label="Unsaved editor" value={text} onChange={e => setText(e.target.value)} />
-    <SourceHistoryDialog projectId="history-demo" strategyId="main" kind={kind} />
-    <FactorRestoreDialog project="history-demo" strategy="main" factor="momentum_20d"
-      blocked={Boolean(text)} refresh={async () => {}} />
-  </main></LanguageProvider>
+    <label>Pending visual edits<input type="checkbox" checked={pending} onChange={e => setPending(e.target.checked)} /></label>
+    </SourceReviewWorkspace>
+  </main></ThemeProvider></LanguageProvider>
 }
 createRoot(document.getElementById('root')).render(<Demo />)
 '''
@@ -101,7 +108,17 @@ def main():
             state = Path(temp)
             env = {**os.environ, 'PYTHONPATH': str(root), 'ALPHALAB_RUNTIME_DIR': str(state / 'runtime'),
                    'ALPHALAB_APP_DATA_DIR': str(state / 'app'), 'ALPHALAB_CACHE_DIR': str(state / 'cache')}
-            subprocess.run([args.python, '-c', SEED], cwd=root, env=env, check=True)
+            seed = SEED
+            if not args.serve:
+                # A real saved module with many changed lines and one unbroken long line.
+                seed += """
+repo = StrategyRepository().select_strategy('copy')
+code = repo.get_project('history-demo')['strategy_source']
+repo.update_strategy_source('history-demo', code + '\\n' + '\\n'.join(f'# review line {i}' for i in range(160))
+                           + '\\n# ' + 'x' * 900 + '\\n# end-of-review\\n')
+repo.close()
+"""
+            subprocess.run([args.python, '-c', seed], cwd=root, env=env, check=True)
             databases = list((state / 'runtime' / 'app').glob('*.db'))
             assert {p.name for p in databases} >= {'alphalab.db', 'dataio.db'}, 'Missing isolated stores'
             before = {p: p.read_bytes() for p in databases}
@@ -111,7 +128,7 @@ def main():
                 code = "from fastapi import FastAPI; from apps.api.routers.strategy import router; import uvicorn; app=FastAPI(); app.include_router(router); uvicorn.run(app,host='127.0.0.1',port=" + str(api_port) + ")"
                 processes.append(subprocess.Popen([args.python, '-c', code], cwd=root, env=env, stdout=log, stderr=log))
                 ready(api_url + '/openapi.json', processes[-1])
-                html.write_text(f'<html><head><title>History acceptance</title></head><body><div id="root"></div><script type="module" src="/{name}.tsx"></script></body></html>')
+                html.write_text(f'<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>源码比较 · AlphaLab</title></head><body><div id="root"></div><script type="module" src="/{name}.tsx"></script></body></html>')
                 tsx.write_text((root / 'scripts/fixtures/source-history-preview.tsx').read_text() if args.serve else HARNESS)
                 if args.serve:
                     html.write_text(html.read_text().replace('<head>', '<head><script>localStorage.setItem("alphalab-language","zh");localStorage.setItem("alphalab-language-default-version","3");</script>'))
@@ -140,54 +157,105 @@ def main():
                     page.get_by_label('Unsaved editor').fill('do not overwrite me')
                     opener = page.get_by_role('button', name='Source history & comparison', exact=True)
                     opener.click()
-                    dialog = page.get_by_role('dialog')
-                    expect(dialog.get_by_label('From revision')).to_have_value('1')
-                    dialog.get_by_role('button', name='Compare versions', exact=True).click()
-                    expect(dialog.get_by_role('heading', name='modified · factors/momentum_20d.py')).to_be_visible()
-                    expect(dialog.locator('.sh-line-added')).to_have_count(1)
-                    expect(dialog.locator('.sh-line-removed')).to_have_count(1)
-                    expect(dialog.locator('.sh-impact li').filter(has_text='Comparison strategy').filter(has_text='copy')).to_be_visible()
+                    panel = page.get_by_role('region', name='Source diff', exact=True)
+                    editor = page.get_by_role('button', name='Workbench', exact=True)
+                    expect(page.get_by_role('dialog')).to_have_count(0)
+                    expect(panel.get_by_label('From revision')).to_have_value('1')
+                    panel.get_by_role('button', name='Compare versions', exact=True).click()
+                    expect(panel.get_by_role('heading', name='modified · factors/momentum_20d.py')).to_be_visible()
+                    diff = panel.locator('.monaco-diff-editor')
+                    expect(diff.locator('.char-insert').first).to_be_visible(timeout=45000)
+                    expect(diff.locator('.char-delete').first).to_be_visible()
+                    expect(panel.locator('.sh-impact li').filter(has_text='Comparison strategy').filter(has_text='copy')).to_be_visible()
                     if args.output:
                         args.output.mkdir(parents=True, exist_ok=True)
                         page.screenshot(path=str(args.output / 'source-history-strategy.png'))
                     # Identical versions produce no changes, without stale previous output.
-                    target = dialog.get_by_label('To revision').input_value()
-                    dialog.get_by_label('From revision').select_option(target)
-                    expect(dialog.get_by_role('region', name='Comparison results')).to_have_count(0)
-                    dialog.get_by_role('button', name='Compare versions', exact=True).click()
-                    expect(dialog.get_by_text('These versions are identical')).to_be_visible()
-                    page.keyboard.press('Escape')
+                    target = panel.get_by_label('To revision').input_value()
+                    panel.get_by_label('From revision').select_option(target)
+                    expect(panel.get_by_role('region', name='Comparison results')).to_have_count(0)
+                    panel.get_by_role('button', name='Compare versions', exact=True).click()
+                    expect(panel.get_by_text('These versions are identical')).to_be_visible()
+                    editor.click()
                     expect(page.get_by_label('Unsaved editor')).to_have_value('do not overwrite me')
                     for kind, path in [('validation', 'validation.py'), ('recipe', 'recipe.py')]:
                         page.get_by_label('Source type').select_option(kind)
                         opener.click()
-                        expect(dialog.get_by_label('To revision')).not_to_have_value('')
+                        expect(panel.get_by_label('To revision')).not_to_have_value('')
                         if kind == 'recipe':
-                            dialog.get_by_role('button', name='Load earlier versions').click()
-                            expect(dialog.get_by_label('From revision').locator('option')).to_have_count(24)
-                        dialog.get_by_role('button', name='Compare versions', exact=True).click()
-                        expect(dialog.get_by_role('heading', name=f'modified · {path}')).to_be_visible()
-                        page.keyboard.press('Escape')
+                            panel.get_by_role('button', name='Load earlier versions').click()
+                            expect(panel.get_by_label('From revision').locator('option')).to_have_count(24)
+                        panel.get_by_role('button', name='Compare versions', exact=True).click()
+                        expect(panel.get_by_role('heading', name=f'modified · {path}')).to_be_visible()
+                        editor.click()
                     # A real unavailable-store response must appear as an error, not empty success.
                     def unavailable(route):
                         route.fulfill(status=503, content_type='application/json', body=json.dumps({'detail': 'Source history is unavailable'}))
                     page.route('**/source-history?**', unavailable)
                     opener.click()
-                    expect(dialog.get_by_role('alert')).to_contain_text('Source history is unavailable')
+                    expect(panel.get_by_role('alert')).to_contain_text('Source history is unavailable')
                     page.unroute('**/source-history?**', unavailable)
-                    dialog.get_by_role('button', name='Retry', exact=True).click()
-                    expect(dialog.get_by_label('To revision')).to_have_value('24')
-                    page.keyboard.press('Escape')
+                    panel.get_by_role('button', name='Retry', exact=True).click()
+                    expect(panel.get_by_label('To revision')).to_have_value('24')
+                    editor.click()
                     expect(page.get_by_label('Unsaved editor')).to_have_value('do not overwrite me')
                     assert not errors, errors
                     assert not mutations, mutations
                     assert all(p.read_bytes() == content for p, content in before.items()), 'History UI changed a database'
+                    page.get_by_label('Source type').select_option('strategy')
+                    module = page.get_by_role('button', name='恢复策略版本')
+                    apply = panel.get_by_role('button', name='确认校验并恢复')
+                    module.click()
+                    # Pick the earliest strategy revision, prior to the parameter edit.
+                    revisions = panel.get_by_label('历史修订')
+                    expect(revisions.locator('option')).to_have_count(3)
+                    revisions.select_option(revisions.locator('option').last.get_attribute('value'))
+                    expect(diff.locator('.modified .view-lines')).to_contain_text('top_n: int = 10')
+                    expect(panel.locator('.sh-file')).to_have_count(1)
+                    expect(panel.locator('.sh-file h4')).to_have_text('strategies/copy.py')
+                    expect(apply).to_be_disabled()
+                    editor.click()
+                    expect(page.get_by_label('Unsaved editor')).to_have_value('do not overwrite me')
+                    page.get_by_label('Unsaved editor').fill('')
+                    page.get_by_label('Pending visual edits').check()
+                    module.click()
+                    expect(diff.locator('.line-delete').first).to_be_visible()
+                    expect(apply).to_be_disabled()
+                    editor.click()
+                    expect(page.get_by_label('Pending visual edits')).to_be_checked()
+                    page.get_by_label('Pending visual edits').uncheck()
+                    module.click()
+                    expect(apply).to_be_enabled()
+                    for width in (1280, 390):
+                        page.set_viewport_size({'width': width, 'height': 800})
+                        if width == 1280:
+                            expect(diff).to_have_class(re.compile('side-by-side'))
+                        else:
+                            expect(diff).not_to_have_class(re.compile('side-by-side'))
+                        assert diff.bounding_box()['width'] > width * 0.85
+                        pane = diff.locator('.original' if width == 1280 else '.modified')
+                        pane.get_by_role('textbox').focus()
+                        page.keyboard.press('Control+End')
+                        expect(diff.get_by_text('end-of-review', exact=False).first).to_be_in_viewport()
+                        wrap = page.get_by_label('Wrap lines')
+                        wrap.uncheck()
+                        wrap.check()
+                        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                    page.set_viewport_size({'width': 1280, 'height': 900})
+                    if args.output:
+                        page.screenshot(path=str(args.output / 'strategy-restore-preview.png'))
+                    apply.click()
+                    expect(panel.get_by_role('status')).to_contain_text('已恢复为新修订', timeout=30000)
+                    expect(panel.locator('option').first).to_contain_text('恢复自')
+                    editor.click()
+                    page.get_by_label('Unsaved editor').fill('do not overwrite me')
+                    page.get_by_label('Source type').select_option('factor')
                     restore = page.get_by_role('button', name='恢复因子版本')
                     restore.click()
-                    apply = dialog.get_by_role('button', name='确认校验并恢复')
-                    expect(dialog.locator('.sh-line-added code')).to_contain_text('] = 20,')
+                    apply = panel.get_by_role('button', name='确认校验并恢复')
+                    expect(diff.locator('.modified .view-lines')).to_contain_text('] = 20,')
                     expect(apply).to_be_disabled()
-                    page.keyboard.press('Escape')
+                    editor.click()
                     expect(page.get_by_label('Unsaved editor')).to_have_value('do not overwrite me')
                     page.get_by_label('Unsaved editor').fill('')
                     restore.click()
@@ -195,9 +263,9 @@ def main():
                     if args.output:
                         page.screenshot(path=str(args.output / 'factor-restore-preview.png'))
                     apply.click()
-                    expect(dialog.get_by_role('status')).to_contain_text('已恢复为新修订', timeout=30000)
-                    expect(dialog.locator('option').first).to_contain_text('恢复自')
-                    assert len(mutations) == 1 and '/restore?' in mutations[0], mutations
+                    expect(panel.get_by_role('status')).to_contain_text('已恢复为新修订', timeout=30000)
+                    expect(panel.locator('option').first).to_contain_text('恢复自')
+                    assert len(mutations) == 2 and '/strategy-module/restore?' in mutations[0] and '/factors/' in mutations[1], mutations
                     assert not errors, errors
                     browser.close()
                 print('PASS: read-only comparison, guarded restore preview, confirmed restore and revision receipt')

@@ -111,7 +111,9 @@ def test_source_is_text_only_and_large_diff_is_explicit(history, tmp_path):
     })
     assert response.status_code == 200
     assert response.json()['diff_truncated'] is True
-    assert response.json()['changes'][0]['diff'] == ''
+    change = response.json()['changes'][0]
+    assert change['diff'] == ''
+    assert 'before_source' not in change and 'after_source' not in change
     assert not marker.exists()
 
 

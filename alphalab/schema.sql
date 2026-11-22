@@ -103,6 +103,23 @@ CREATE TABLE IF NOT EXISTS project_strategy_packages (
     FOREIGN KEY(project_id, revision) REFERENCES strategy_source_packages(project_id, revision) ON DELETE CASCADE
 ) WITHOUT ROWID;
 
+-- A strategy module revision points at its frozen strategy.py inside a package.
+CREATE TABLE IF NOT EXISTS strategy_module_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    strategy_id TEXT NOT NULL,
+    package_revision INTEGER NOT NULL,
+    restored_from INTEGER,
+    previous_package INTEGER,
+    request_id TEXT,
+    preview_token TEXT,
+    UNIQUE(project_id, strategy_id, request_id),
+    FOREIGN KEY(project_id,strategy_id,package_revision)
+        REFERENCES project_strategy_packages(project_id,strategy_id,revision) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_strategy_module_revisions_owner
+    ON strategy_module_revisions(project_id,strategy_id,id);
+
 -- Project-owned validation.py. The mutable row is the current editor model;
 -- packages are immutable run inputs pinned alongside strategy packages.
 CREATE TABLE IF NOT EXISTS validation_sources (
