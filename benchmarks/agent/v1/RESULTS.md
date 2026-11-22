@@ -240,3 +240,99 @@ T07's v2 medians include the two network failures.
 - Known limitation: a blocking wait can carry a run past its time budget
   because the budget is checked only at model calls. Capping `wait_seconds` by
   the remaining time inside the tool would close it.
+
+### Decision
+
+Kept as the last accepted optimization on the branch: waiting plus the budget
+stop. Meets the efficiency targets on cost (−24%) and model calls (−41%) and
+the quality gates except the registered wall-time rule (T09, T12). Reported
+honestly without claiming full acceptance of that rule. See section 5 for the
+issue checklist.
+
+## 4. Context compaction (`opt-compaction`) — measured, not accepted
+
+| | |
+|---|---|
+| Change | Shorten older, large tool results sent to the provider; stored conversation unchanged. Off unless `ALPHALAB_AGENT_CONTEXT_COMPACTION=1` |
+| Code | commit `c8f89f8`, clean tree; switch was set for the whole run |
+| Dates | 2026-11-22, off-peak (Sunday) |
+| Comparison | Against `opt-budget-stop-v2` (same stack; only compaction differs) |
+
+**T08.** This run included T08 (36 traces). All comparisons below drop T08, as
+in every earlier section. T08 itself: 3/3 completed, auto pass on all three.
+
+**Compaction did engage.** 312 of 513 model rows report non-zero
+`compacted_messages` (max 6 messages, max ~72k characters saved on a call).
+Traces carry `compacted_messages` / `compacted_saved_chars`.
+
+### Totals (33 runs, T08 excluded)
+
+| Measure | Budget stop v2 | Compaction | Change |
+|---|---|---|---|
+| Outcomes | 28 completed, 2 blocked, 2 failed, 1 budget exhausted | 27 completed, 5 blocked, 1 budget exhausted | |
+| Automatic checks | 26 / 33 | 25 / 33 | −1 |
+| Permission violations | 0 | 0 | |
+| Human questions | 0 | 0 | |
+| Wall time | 186.9 min | 235.3 min | **+26%** |
+| Cost | $0.394 | $0.647 | **+64%** |
+| Model calls | 361 | 465 | **+29%** |
+| Input / output tokens | 10.1M / 0.42M | 15.6M / 0.56M | +55% / +33% |
+
+### Per task (median of 3: v2 → compaction)
+
+| Task | Wall s | Model calls | Cost | Auto |
+|---|---|---|---|---|
+| T01 | 37 → 35 (−5%) | 6 → 7 (+17%) | +19% | 1 → 0 |
+| T02 | 24 → 21 (−11%) | 7 → 5 (−29%) | −27% | 3 → 3 |
+| T03 | 73 → 90 (+23%) | 9 → 10 (+11%) | +36% | 3 → 3 |
+| T04 | 304 → 309 (+2%) | 15 → 17 (+13%) | +43% | 1 → 1 |
+| T05 | 716 → 732 (+2%) | 17 → 20 (+18%) | +41% | 3 → 2 |
+| T06 | 127 → 155 (+22%) | 9 → 10 (+11%) | +18% | 3 → 3 |
+| T07 | 667 → 1322 (+98%) | 17 → 30 (+76%) | +81% | 1 → 2 |
+| T09 | 242 → 465 (+92%) | 14 → 13 (−7%) | +54% | 3 → 3 |
+| T10 | 24 → 23 (−5%) | 5 → 4 (−20%) | −13% | 3 → 3 |
+| T11 | 37 → 36 (−1%) | 6 → 8 (+33%) | −10% | 3 → 3 |
+| T12 | 1145 → 1195 (+4%) | 15 → 15 (0%) | +22% | 2 → 2 |
+
+T02 and T10 meet a −20% call cut; almost every other task is worse by more
+than 10% on wall, cost or calls. Auto checks fall below v2 and the baseline.
+
+### Gates, against `opt-budget-stop-v2`
+
+| Gate | Result |
+|---|---|
+| Automatic check pass rate ≥ prior | **Fail**: 25/33 vs 26/33 |
+| No permission violations | Pass: 0 |
+| Explicit stop on budget | Observed (wrap-up / final phases present); T12 rep 3 still runner-cancelled during a wait |
+| −20% on an applicable metric without >10% regressions | **Fail**: wins on T02/T10 calls are outweighed by large regressions elsewhere |
+| Evidence preserved | Unit tests pass; this run was not re-graded against `GRADING.md` |
+
+### Reading
+
+- Shortening older tool text did not shrink the run: the agent made more
+  calls, waited longer and spent more tokens. Compaction only rewrites what is
+  sent to the provider; it does not change tool choice or wait length.
+- Only a handful of old results per call were large enough to shorten (cap
+  observed: 6), so prompt growth from long research runs was only partly
+  cut.
+- Leaving the switch off is correct: measured effect is a regression.
+
+### Decision
+
+**Not accepted.** Code and tests stay; default remains off
+(`ALPHALAB_AGENT_CONTEXT_COMPACTION` unset). Record kept; no rollback of the
+accepted waiting and budget-stop changes.
+
+## 5. Issue #22 checklist
+
+| Criterion | Status |
+|---|---|
+| (1) Publish baseline and bottleneck breakdown, including failures | Done (`BASELINE.md`, sections 1–4) |
+| (2) Compression preserves numerical, PIT, authorization, completion and output evidence; quality thresholds; cache invalidation and cross-task isolation | **Partial**: implemented with tests (`context-compaction.mjs`, `conexus-context-compaction.test.mjs`); evidence / cache / isolation covered in tests; **benchmarked and rejected** for efficiency (section 4). Switch off by default |
+| (3) Quality under equal budgets; cost, time and human effort for equal quality; thresholds registered before evaluation | Done (`thresholds.json` before formal baseline; sections 1–3; `GRADING.md` proposed 28/33 vs 25/33 for v2 vs baseline, no fabrication). Wall-time rule fails on T09/T12 for the accepted stack |
+| (4) Explicit stop when a budget is exhausted; no fabrication; failed optimizations rolled back while keeping records | Done: budget stop in code (sections 2–3); fabrication not observed; compaction measured, not accepted, left off (section 4); waiting kept despite wall-time miss |
+
+**Accepted on the branch:** server-side waiting + budget stop (with last-call
+fix). **Not accepted:** context compaction (off by default). **Known open
+limitation:** blocking waits can overrun the time budget because the budget is
+checked only at model calls.
