@@ -1,3 +1,4 @@
+import { SourceHistoryDialog } from "@/components/shared/SourceHistoryDialog"
 import { useEffect, useMemo, useState } from "react"
 import {
   Braces,
@@ -345,6 +346,8 @@ export function DataWorkbenchWidget() {
   return (
     <Widget headerless error={error} bodyClassName="overflow-auto">
       <div className="space-y-4">
+        <div data-unsaved-project={dirty || busy || !recipeParametersEqual(workspace.draft.inspection, syncStart, syncEnd, splitSymbols(syncSymbols))
+          ? project.id : undefined} className="shrink-0 px-3 py-2"><SourceHistoryDialog projectId={project.id} projectName={project.name} strategyId={project.strategy_id} kind="recipe" version={workspace.draft.source_sha256} /></div>
         <section className="rounded border border-border p-3">
           <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
             <div>
