@@ -1,0 +1,2 @@
+# The evaluation lock verifies the frozen fixture's file bytes.
+/benchmark/data/**/evidence.json text eol=lf

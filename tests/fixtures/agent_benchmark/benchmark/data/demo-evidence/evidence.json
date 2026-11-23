@@ -1,0 +1,39 @@
+{
+  "disclosures": [
+    {
+      "symbol": "600000.SH",
+      "quarter": "2024q2",
+      "available_date": "2024-07-05",
+      "disclosure_date": "2024-08-04"
+    },
+    {
+      "symbol": "600000.SH",
+      "quarter": "2024q3",
+      "available_date": "2024-10-05",
+      "disclosure_date": "2024-11-06"
+    },
+    {
+      "symbol": "600000.SH",
+      "quarter": "2024q4",
+      "available_date": "2025-02-06",
+      "disclosure_date": "2025-02-06"
+    }
+  ],
+  "strategy_summary": {
+    "period": {
+      "start_date": "2025-02-03",
+      "end_date": "2026-12-31"
+    },
+    "metrics": {
+      "sharpe": 0.84
+    },
+    "execution_fidelity": {
+      "maximum_target_weight_deviation": 0.025
+    },
+    "execution_reliable": true,
+    "attempted_trade_count": 5,
+    "successful_trade_count": 5,
+    "cash_rejection_count": 1
+  },
+  "authorization_to_run": false
+}

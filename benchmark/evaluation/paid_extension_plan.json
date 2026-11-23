@@ -1,0 +1,88 @@
+{
+  "cache": "cold",
+  "comparisons": [
+    {
+      "id": "B-vs-C-same-model",
+      "kind": "same_model",
+      "left": "B",
+      "right": "C"
+    },
+    {
+      "id": "A-vs-C-products",
+      "kind": "product",
+      "left": "A",
+      "right": "C"
+    }
+  ],
+  "configurations": {
+    "A": {
+      "base_config": "A",
+      "features": {
+        "context_compression": false,
+        "financial_tools": false,
+        "multi_agent": false,
+        "recovery": false,
+        "skills": false
+      },
+      "limits": {
+        "cost_usd": 1.25,
+        "steps": 60,
+        "time_s": 720,
+        "tokens": 25000
+      }
+    },
+    "B": {
+      "base_config": "B",
+      "features": {
+        "context_compression": false,
+        "financial_tools": true,
+        "multi_agent": false,
+        "recovery": false,
+        "skills": true
+      },
+      "limits": {
+        "cost_usd": 1.25,
+        "steps": 60,
+        "time_s": 720,
+        "tokens": 25000
+      }
+    },
+    "C": {
+      "base_config": "C",
+      "features": {
+        "context_compression": false,
+        "financial_tools": true,
+        "multi_agent": false,
+        "recovery": false,
+        "skills": true
+      },
+      "limits": {
+        "cost_usd": 1.25,
+        "steps": 60,
+        "time_s": 720,
+        "tokens": 25000
+      }
+    }
+  },
+  "execution_mode": "automated",
+  "experiment_id": "issue9-paid-smoke-plan",
+  "repetitions": 1,
+  "seed": 26,
+  "source_class": "live",
+  "split": "dev",
+  "task_ids": [
+    "audit-return-convention",
+    "data-pit-leak-crosscheck",
+    "factor-rank-ic-evidence",
+    "recovery-stale-data-retry",
+    "risk-derived-series-claim",
+    "strategy-backtest-pinned-metrics"
+  ],
+  "thresholds": {
+    "bootstrap_samples": 1000,
+    "confidence": 0.95,
+    "equivalence_margin": 0.05,
+    "minimum_human_score": 0.75,
+    "quality_floor": 0.8
+  }
+}

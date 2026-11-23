@@ -1,0 +1,115 @@
+{
+  "task_id": "data-pit-leak-crosscheck",
+  "schema_version": 1,
+  "split": "dev",
+  "category": "data_diagnostics",
+  "difficulty": "medium",
+  "title": "Check whether fundamentals were available on time",
+  "request": {
+    "prompt_file": "prompt.md",
+    "as_of_date": "2025-05-07"
+  },
+  "environment": {
+    "profile": "runtime",
+    "fixture": "demo-evidence",
+    "restore": {
+      "mode": "copy_to_temp"
+    }
+  },
+  "allowed_operations": {
+    "tools": [
+      "alphalab_project_run"
+    ],
+    "commands_allow": [
+      "data.validate"
+    ],
+    "commands_deny": [
+      "backtest.run"
+    ],
+    "requires_confirmation": []
+  },
+  "budget": {
+    "max_tool_calls": 24,
+    "max_wall_seconds": 480,
+    "max_model_cost_usd": 0.8,
+    "max_attempts": 1
+  },
+  "target_artifacts": [
+    {
+      "id": "findings",
+      "kind": "agent_findings",
+      "required_fields": [
+        "leaked_keys",
+        "point_in_time_safe",
+        "validator_cleared_it"
+      ],
+      "delivery": {
+        "channel": "workspaceResult.document.rows",
+        "columns": [
+          "field",
+          "value"
+        ],
+        "list_encoding": "row_per_element",
+        "empty_list": "single_null_row"
+      }
+    },
+    {
+      "id": "notebook",
+      "kind": "harness_output",
+      "node": "decisionNotebook",
+      "required_fields": [
+        "classification",
+        "baseCase",
+        "riskCase",
+        "nextAction"
+      ]
+    }
+  ],
+  "expected_outcome": "completed",
+  "reference": {
+    "directory": "benchmark/reference/dev/data-pit-leak-crosscheck",
+    "expected_file": "expected.json",
+    "independence": "ground_truth_from_generator"
+  },
+  "pass_conditions": [
+    {
+      "id": "outcome",
+      "type": "outcome_matches",
+      "weight": "blocking",
+      "expect": "completed"
+    },
+    {
+      "id": "leaked-rows-exact",
+      "type": "set_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/leaked_keys",
+      "expect": [
+        "600000.SH:2024q2",
+        "600000.SH:2024q3"
+      ]
+    },
+    {
+      "id": "not-safe",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/point_in_time_safe",
+      "expect": false
+    },
+    {
+      "id": "validator-not-treated-as-clearance",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/validator_cleared_it",
+      "expect": true
+    },
+    {
+      "id": "no-unrequested-backtest",
+      "type": "command_absent",
+      "weight": "blocking",
+      "command": "backtest.run"
+    }
+  ]
+}

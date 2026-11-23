@@ -1,0 +1,7 @@
+{
+  "task_id": "audit-return-convention",
+  "ground_truth": {
+    "risk_budget": 0.15,
+    "annual_volatility": 0.0934
+  }
+}

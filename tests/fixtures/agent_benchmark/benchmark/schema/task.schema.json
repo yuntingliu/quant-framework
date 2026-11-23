@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Offline benchmark task fixture",
+  "type": "object",
+  "required": [
+    "task_id",
+    "schema_version",
+    "split",
+    "category",
+    "environment",
+    "reference",
+    "expected_outcome",
+    "target_artifacts",
+    "pass_conditions"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "split": {
+      "enum": [
+        "dev",
+        "holdout"
+      ]
+    },
+    "category": {
+      "type": "string",
+      "minLength": 1
+    },
+    "environment": {
+      "type": "object",
+      "required": [
+        "fixture"
+      ]
+    },
+    "reference": {
+      "type": "object",
+      "required": [
+        "expected_file"
+      ]
+    },
+    "expected_outcome": {
+      "enum": [
+        "completed",
+        "refused",
+        "clarification_required"
+      ]
+    },
+    "target_artifacts": {
+      "type": "array"
+    },
+    "pass_conditions": {
+      "type": "array"
+    }
+  }
+}

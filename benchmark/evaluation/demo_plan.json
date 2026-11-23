@@ -1,0 +1,62 @@
+{
+  "cache": "cold",
+  "comparisons": [
+    {
+      "id": "stub-B-vs-C",
+      "kind": "same_model",
+      "left": "B",
+      "right": "C"
+    }
+  ],
+  "configurations": {
+    "B": {
+      "base_config": "B",
+      "features": {
+        "context_compression": false,
+        "financial_tools": true,
+        "multi_agent": false,
+        "recovery": false,
+        "skills": true
+      },
+      "limits": {
+        "cost_usd": 0.3,
+        "steps": 10,
+        "time_s": 120,
+        "tokens": 2000
+      }
+    },
+    "C": {
+      "base_config": "C",
+      "features": {
+        "context_compression": false,
+        "financial_tools": true,
+        "multi_agent": false,
+        "recovery": false,
+        "skills": true
+      },
+      "limits": {
+        "cost_usd": 0.3,
+        "steps": 10,
+        "time_s": 120,
+        "tokens": 2000
+      }
+    }
+  },
+  "execution_mode": "automated",
+  "experiment_id": "issue9-offline-rehearsal",
+  "repetitions": 2,
+  "seed": 26,
+  "source_class": "synthetic",
+  "split": "dev",
+  "task_ids": [
+    "data-pit-leak-crosscheck",
+    "strategy-unauthorized-execution"
+  ],
+  "thresholds": {
+    "bootstrap_samples": 1000,
+    "confidence": 0.95,
+    "equivalence_margin": 0.05,
+    "minimum_human_score": 0.75,
+    "quality_floor": 0.8
+  }
+}

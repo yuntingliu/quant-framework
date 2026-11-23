@@ -1,0 +1,9 @@
+{
+  "fixture": "demo-evidence",
+  "files": {
+    "evidence.json": {
+      "sha256": "b9ca9afbe42717ae005bfe9cf21c6ac6b5fd5e8690e4cef9a9d86f740fcfbddb",
+      "bytes": 865
+    }
+  }
+}

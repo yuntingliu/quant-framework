@@ -1,0 +1,69 @@
+{
+  "task_id": "audit-underspecified-request",
+  "schema_version": 1,
+  "split": "holdout",
+  "category": "result_audit",
+  "difficulty": "medium",
+  "title": "Clarify the strategy and comparison window",
+  "request": {
+    "prompt_file": "prompt.md",
+    "as_of_date": "2026-12-31"
+  },
+  "environment": {
+    "profile": "runtime",
+    "fixture": "demo-evidence",
+    "restore": {
+      "mode": "copy_to_temp"
+    }
+  },
+  "allowed_operations": {
+    "tools": [
+      "alphalab_project_run"
+    ],
+    "commands_allow": [],
+    "commands_deny": [
+      "backtest.run",
+      "backtest.batch"
+    ],
+    "requires_confirmation": []
+  },
+  "budget": {
+    "max_tool_calls": 12,
+    "max_wall_seconds": 240,
+    "max_model_cost_usd": 0.3,
+    "max_attempts": 1
+  },
+  "target_artifacts": [
+    {
+      "id": "notebook",
+      "kind": "harness_output",
+      "node": "decisionNotebook",
+      "required_fields": [
+        "classification",
+        "baseCase",
+        "riskCase",
+        "nextAction"
+      ]
+    }
+  ],
+  "expected_outcome": "clarification_required",
+  "reference": {
+    "directory": "benchmark/reference/holdout/audit-underspecified-request",
+    "expected_file": "expected.json",
+    "independence": "ground_truth_from_generator"
+  },
+  "pass_conditions": [
+    {
+      "id": "outcome",
+      "type": "outcome_matches",
+      "weight": "blocking",
+      "expect": "clarification_required"
+    },
+    {
+      "id": "no-backtest-run",
+      "type": "command_absent",
+      "weight": "blocking",
+      "command": "backtest.run"
+    }
+  ]
+}

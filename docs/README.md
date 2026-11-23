@@ -16,6 +16,7 @@
 - [Data SDK contract](05_DATA_SDK_V1_CONTRACT.md): custom providers and the DataEngine interface.
 - [Development guide](03_DEVELOPMENT_GUIDE.md): code placement, frontend/backend contracts, and checks.
 - [Testing guide](guides/testing.md): test groups and common commands.
+- [Agent benchmark evaluation](guides/agent-benchmark-evaluation.md): objective scoring, all-attempt costs, paired studies, and offline regression.
 - [Contributing](../CONTRIBUTING.md): branches and review workflow.
 - [Multifactor research notes](guides/multifactor-research.md): conceptual factor evaluation and monthly portfolio construction; illustrative rules, not SDK defaults.
 

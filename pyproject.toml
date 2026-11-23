@@ -39,6 +39,7 @@ dev = [
     "black",
     "pyrefly>=0.30.0",
     "ruff>=0.5.3",
+    "setuptools>=61.0",
 ]
 app = [
     "jsonschema>=4.20.0,<5",
