@@ -215,3 +215,22 @@ def test_confirmation_rejects_unregistered_digest_and_keeps_unmatched_failed_tri
     record["reproducibility"].update(interleaved_order=0, plan_size=1)
     checked = validate_trial_for_plan(record, tasks[task_id], plan, order={(task_id, "B", 0): 1})
     assert checked["conditions"]["conditions_not_matched"] == ["interleaved_order"]
+
+
+def test_freeze_enforces_the_declared_task_schema(tmp_path):
+    suite = tmp_path / "suite"
+    shutil.copytree(_SUITE, suite)
+    task_file = suite / "benchmark" / "tasks" / "dev" / "data-pit-leak-crosscheck" / "task.json"
+    task = read_json(task_file)
+    task["expected_outcome"] = "maybe"
+    task_file.write_text(json.dumps(task), encoding="utf-8")
+    with pytest.raises(ValueError, match="task.schema.json"):
+        freeze_protocol(_plan(), suite)
+
+
+def test_freeze_requires_the_task_schema(tmp_path):
+    suite = tmp_path / "suite"
+    shutil.copytree(_SUITE, suite)
+    (suite / "benchmark" / "schema" / "task.schema.json").unlink()
+    with pytest.raises(ValueError, match="task.schema.json"):
+        freeze_protocol(_plan(), suite)

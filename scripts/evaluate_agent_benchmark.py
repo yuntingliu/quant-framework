@@ -37,6 +37,29 @@ def _write_json(path: Path, payload: Any) -> None:
         temp.unlink(missing_ok=True)
 
 
+def _paid_trial_cost_caps(plan: dict) -> list[float]:
+    """Return one cost cap per planned trial for an explicitly paid plan."""
+    if plan.get("source_class") != "live":
+        raise ValueError("A paid extension plan must declare source_class 'live'")
+    task_ids = plan.get("task_ids")
+    repetitions = plan.get("repetitions")
+    configurations = plan.get("configurations")
+    if not isinstance(task_ids, list) or not task_ids:
+        raise ValueError("A paid extension plan needs a non-empty task_ids array")
+    if type(repetitions) is not int or repetitions < 1:
+        raise ValueError("A paid extension plan needs a positive repetition count")
+    if not isinstance(configurations, dict) or not configurations:
+        raise ValueError("A paid extension plan needs configurations")
+    caps = []
+    for variant, config in configurations.items():
+        limits = config.get("limits") if isinstance(config, dict) else None
+        cost = limits.get("cost_usd") if isinstance(limits, dict) else None
+        if type(cost) not in (int, float) or cost <= 0:
+            raise ValueError(f"Configuration {variant} needs a positive cost_usd limit")
+        caps.extend([float(cost)] * len(task_ids) * repetitions)
+    return caps
+
+
 def _parameters() -> argparse.ArgumentParser:
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument(
@@ -62,6 +85,14 @@ def _parameters() -> argparse.ArgumentParser:
     regress.add_argument("--baseline", type=Path, required=True)
     regress.add_argument("--candidate", type=Path, required=True)
     regress.add_argument("--out", type=Path, required=True)
+
+    preflight = actions.add_parser(
+        "preflight-paid", help="Preflight an explicitly enabled paid extension without provider access"
+    )
+    preflight.add_argument("--plan", type=Path)
+    preflight.add_argument("--total-budget-usd", type=float)
+    preflight.add_argument("--runner-supports-paid", action="store_true")
+    preflight.add_argument("--enable", action="store_true")
     return cli
 
 
@@ -80,6 +111,25 @@ def main(argv: list[str] | None = None) -> int:
             result = compare_regression_snapshots(_object_file(args.baseline), _object_file(args.candidate))
             _write_json(args.out, result)
             return int(result["has_regression"] or result["requires_rebaseline"])
+        if args.action == "preflight-paid":
+            if not args.enable:
+                print("Paid extension disabled. Pass --enable to preflight a requested paid plan.")
+                return 0
+            from apps.api.services.comparison.regression import check_paid_extension
+
+            caps = _paid_trial_cost_caps(_object_file(args.plan))
+            try:
+                approved = check_paid_extension(
+                    enabled=True, total_budget_usd=args.total_budget_usd,
+                    trial_cost_caps_usd=caps, runner_supports_paid=args.runner_supports_paid,
+                )
+            except RuntimeError as exc:
+                raise ValueError(str(exc)) from exc
+            print(
+                f"Paid extension preflight approved: {len(caps)} trials, "
+                f"{sum(caps):.2f} USD of caps within {args.total_budget_usd:.2f} USD"
+            )
+            return 0 if approved else 2
 
         from apps.api.services.comparison.benchmark_evaluation import (
             evaluate_records,

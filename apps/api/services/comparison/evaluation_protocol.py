@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from jsonschema import Draft202012Validator
+
 EVALUATOR_VERSION = "1.0.0"
 PUBLIC_TASK_SET = "alphalab-financial-agent-benchmark"
 SYNTHETIC_TASK_SET = "issue9-offline-fixtures"
@@ -255,6 +257,13 @@ def freeze_protocol(plan: dict, root: Path) -> tuple[dict, dict[str, FrozenTask]
     indexed = {entry["task_id"]: entry for entry in manifest["tasks"]}
     if len(indexed) != len(manifest["tasks"]):
         raise ValueError("Repeated task IDs in suite manifest")
+    schema_path = benchmark / "schema" / "task.schema.json"
+    if not schema_path.is_file():
+        raise ValueError(
+            f"Missing benchmark/schema/task.schema.json under {root}. "
+            "Set --suite-root to a complete Issue #7 task set."
+        )
+    validator = Draft202012Validator(_object(read_json(schema_path), "task schema"))
     tasks = {}
     verified_fixtures = {}
     for task_id in plan["task_ids"]:
@@ -263,10 +272,20 @@ def freeze_protocol(plan: dict, root: Path) -> tuple[dict, dict[str, FrozenTask]
             raise ValueError("Selected task is absent from the specified split")
         task_dir = _safe_path(benchmark / "tasks", f"{plan['split']}/{task_id}")
         task = read_json(task_dir / "task.json")
+        problems = sorted(validator.iter_errors(task), key=lambda error: list(error.path))
+        if problems:
+            first = problems[0]
+            location = "/".join(str(part) for part in first.path) or "<root>"
+            raise ValueError(
+                f"Task {task_id} violates benchmark/schema/task.schema.json "
+                f"at {location}: {first.message}"
+            )
         if task["task_id"] != task_id or task["split"] != plan["split"] or task["schema_version"] != 1:
             raise ValueError("Task manifest identity mismatch")
         reference_dir = _safe_path(benchmark / "reference", f"{plan['split']}/{task_id}")
-        ref = read_json(_safe_path(reference_dir, task["reference"]["expected_file"]))
+        ref = _object(
+            read_json(_safe_path(reference_dir, task["reference"]["expected_file"])), "reference"
+        )
         fixture = _id(task["environment"]["fixture"], "fixture")
         if fixture != item["fixture"]:
             raise ValueError("Task fixture does not match the task set index")

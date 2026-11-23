@@ -9,16 +9,30 @@
 
 The evaluator can read the task directory and recorded results from independent checkouts. When the task suite is in the evaluator checkout, `--suite-root` defaults to that checkout. The checked-in offline example uses a small synthetic suite and JSON records on the base project. Issue #7 and #8 implementations can develop and land separately. Formal evaluation still requires real task data and genuine, attributable run records from the agreed contracts. [Issue #7 task inputs](https://github.com/yuntingliu/quant-framework/pull/26) · [Issue #8 run records](https://github.com/yuntingliu/quant-framework/pull/39)
 
+## Dependency status and known gaps
+
+Issue #9 depends on Issue #7 (task set) and Issue #8 (common runner). Neither is merged into `main` yet, so this evaluator consumes their **file contracts** and exercises them with a synthetic suite. The following are intentionally left as gaps until those inputs land:
+
+- **Issue #7 task set**: `benchmark/manifest.json`, `benchmark/tasks/`, `benchmark/reference/`, `benchmark/schema/task.schema.json` and the frozen `benchmark/data/` fixtures. Until it is merged, `--suite-root tests/fixtures/agent_benchmark` supplies a synthetic development suite only. A missing manifest or schema fails `freeze` with a message pointing at the Issue #7 layout.
+- **Issue #8 records**: real neutral `TrialRecord` exports and trusted `--observations` sidecars. Until they are merged, the demo uses scripted records; absent cells appear in `protocol.missing_trials` and never count as qualified.
+- **Paid adapters**: `preflight-paid` refuses `runner_supports_paid=False` stub adapters, so the default CI path performs no real calls or charges.
+- **Human review samples**: without real blinded reviews, `human_argument_score` stays unassessed and confirmation thresholds do not pass.
+
+Development reports keep `protocol.claim_status = development_evidence_only`. No comparison or speedup conclusion is claimed. After Issue #7 and #8 merge into `main`, point `--suite-root` at the real task set, evaluate the real records, re-freeze and regenerate the regression baseline, then raise the version and claim status.
+
 ## Run the offline regression
 
 Install `.[app,dev]` and run these commands from the repository root.
 
 ```sh
-python -m scripts.evaluate_agent_benchmark --suite-root tests/fixtures/agent_benchmark freeze --plan benchmark/evaluation/demo_plan.json --out build/evaluation/lock.json
-python -m scripts.evaluate_agent_benchmark --suite-root tests/fixtures/agent_benchmark evaluate --lock build/evaluation/lock.json --records benchmark/evaluation/demo_records.json --observations benchmark/evaluation/demo_observations.json --out build/evaluation/report.json --regression-out build/evaluation/snapshot.json --system-version issue9-demo
-python -m scripts.evaluate_agent_benchmark regress --baseline benchmark/evaluation/demo_regression_baseline.json --candidate build/evaluation/snapshot.json --out build/evaluation/diff.json
+python -m scripts.evaluate_agent_benchmark --suite-root tests/fixtures/agent_benchmark freeze --plan benchmark/evaluation/demo_plan.json --out build/benchmark-evaluation/lock.json
+python -m scripts.evaluate_agent_benchmark --suite-root tests/fixtures/agent_benchmark evaluate --lock build/benchmark-evaluation/lock.json --records benchmark/evaluation/demo_records.json --observations benchmark/evaluation/demo_observations.json --out build/benchmark-evaluation/report.json --regression-out build/benchmark-evaluation/snapshot.json --system-version issue9-demo
+python -m scripts.evaluate_agent_benchmark regress --baseline benchmark/evaluation/demo_regression_baseline.json --candidate build/benchmark-evaluation/snapshot.json --out build/benchmark-evaluation/diff.json
+python -m scripts.evaluate_agent_benchmark preflight-paid --enable --plan benchmark/evaluation/paid_extension_plan.json --total-budget-usd 100 --runner-supports-paid
 python -m pytest tests/comparison -q
 ```
+
+`preflight-paid` never contacts a provider or consumes a plan until `--enable` is passed. Without it the command prints `disabled` and exits `0`. With `--enable` it requires `source_class: live`, a positive `cost_usd` cap for every configuration, a finite total budget covering every scheduled trial, and verified real adapters (`--runner-supports-paid`); any missing gate exits `2`.
 
 The scripted example has eight trials. Five qualify, one misses a planted PIT-leak row, one attempts a forbidden backtest, and one is interrupted by a simulated provider failure. Reported times are scripted fixture values. CI compares the eight task, configuration and repeat outcomes to the checked-in baseline and runs the independent grader tests. The regression command exits `1` for a regression or a changed task/grader contract that needs a new baseline. It exits `2` on input or processing errors.
 
@@ -55,4 +69,4 @@ Public regression snapshots allow development tasks and select only task/configu
 
 ## Opt-in extension
 
-`benchmark/evaluation/paid_extension_plan.json` lists a development smoke task from each of the six financial categories and the A/B/C variants. Freeze this plan against the Issue #7 task set. `regression.check_paid_extension` requires explicit enablement, a finite positive total budget, a cap for every scheduled trial and verified runner support for real adapters and aggregate enforcement. Caps cover failed attempts, retries, search and all roles. Set `runner_supports_paid=False` for the scripted PR #39 adapters. The evaluator scores recorded inputs offline. A real comparison needs provider-enabled adapters, the verified reset, complete instrumentation, independently registered confirmation samples and blinded review.
+`benchmark/evaluation/paid_extension_plan.json` lists a development smoke task from each of the six financial categories and the A/B/C variants. Freeze this plan against the Issue #7 task set. Run `python -m scripts.evaluate_agent_benchmark preflight-paid --enable ...` or call `regression.check_paid_extension` directly. It requires explicit enablement, a finite positive total budget, a cap for every scheduled trial and verified runner support for real adapters and aggregate enforcement. Caps cover failed attempts, retries, search and all roles. Set `runner_supports_paid=False` for the scripted PR #39 adapters. The evaluator scores recorded inputs offline. A real comparison needs provider-enabled adapters, the verified reset, complete instrumentation, independently registered confirmation samples and blinded review.

@@ -420,6 +420,7 @@ and cannot create a second authoritative result.
 | `apps/api/routers/python_editor.py` | Fixed Pyrefly/Ruff WebSocket bridge and editor document endpoints |
 | `apps/api/routers/sdk_docs.py` | Read-only topic API backed by the canonical SDK guide |
 | `apps/api/services/python_editor_service.py` | Local server discovery, ignored source mirrors, framing, and SDK diagnostics |
+| `apps/api/services/comparison/` | Offline Agent benchmark evaluation: protocol freeze, artifact grading, cost/latency metrics, paired ablation, and versioned regression |
 | `apps/desktop/src/contexts/StrategySdkContext.tsx` | Shared project, draft, revision, and hash state |
 | `apps/desktop/src/components/python/` | Lazy shared Monaco model, LSP runtime, AlphaLab completion, and Problems UI |
 | `apps/desktop/src/components/shared/SdkDocumentation.tsx` | Single sidebar documentation drawer, opened to the current workbench's chapter |
