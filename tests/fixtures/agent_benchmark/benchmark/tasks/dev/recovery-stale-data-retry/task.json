@@ -1,0 +1,100 @@
+{
+  "task_id": "recovery-stale-data-retry",
+  "schema_version": 1,
+  "split": "dev",
+  "category": "failure_recovery",
+  "difficulty": "medium",
+  "title": "Stop when the single authorized repair fails",
+  "request": {
+    "prompt_file": "prompt.md",
+    "as_of_date": "2025-05-07"
+  },
+  "environment": {
+    "profile": "runtime",
+    "fixture": "demo-evidence",
+    "restore": {
+      "mode": "copy_to_temp"
+    }
+  },
+  "allowed_operations": {
+    "tools": [
+      "alphalab_project_run"
+    ],
+    "commands_allow": [
+      "data.validate",
+      "recipe.sync",
+      "sync.status",
+      "factor.snapshot"
+    ],
+    "commands_deny": [
+      "backtest.run"
+    ],
+    "requires_confirmation": [
+      "confirm_python_execution"
+    ]
+  },
+  "budget": {
+    "max_tool_calls": 24,
+    "max_wall_seconds": 480,
+    "max_model_cost_usd": 0.8,
+    "max_attempts": 1
+  },
+  "target_artifacts": [
+    {
+      "id": "bars_quality",
+      "kind": "tool_result",
+      "source_command": "data.validate",
+      "required_fields": [
+        "data_status",
+        "issues",
+        "metrics"
+      ]
+    },
+    {
+      "id": "notebook",
+      "kind": "harness_output",
+      "node": "decisionNotebook",
+      "required_fields": [
+        "classification",
+        "baseCase",
+        "riskCase",
+        "nextAction"
+      ]
+    }
+  ],
+  "expected_outcome": "completed",
+  "reference": {
+    "directory": "benchmark/reference/dev/recovery-stale-data-retry",
+    "expected_file": "expected.json",
+    "independence": "ground_truth_from_generator"
+  },
+  "pass_conditions": [
+    {
+      "id": "outcome",
+      "type": "outcome_matches",
+      "weight": "blocking",
+      "expect": "completed"
+    },
+    {
+      "id": "validate-reports-failure",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "bars_quality",
+      "pointer": "/data_status",
+      "expect": "failed"
+    },
+    {
+      "id": "staleness-detected",
+      "type": "set_contains",
+      "weight": "blocking",
+      "artifact_id": "bars_quality",
+      "pointer": "/issues",
+      "expect": [
+        "stale_end_date"
+      ],
+      "project": [
+        "code"
+      ]
+    }
+  ]
+}

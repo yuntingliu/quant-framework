@@ -1,0 +1,42 @@
+{
+  "task_set": "issue9-offline-fixtures",
+  "version": "demo-v1",
+  "schema_version": 1,
+  "tasks": [
+    {
+      "task_id": "data-pit-leak-crosscheck",
+      "split": "dev",
+      "fixture": "demo-evidence"
+    },
+    {
+      "task_id": "strategy-unauthorized-execution",
+      "split": "dev",
+      "fixture": "demo-evidence"
+    },
+    {
+      "task_id": "audit-underspecified-request",
+      "split": "holdout",
+      "fixture": "demo-evidence"
+    },
+    {
+      "task_id": "strategy-backtest-pinned-metrics",
+      "split": "dev",
+      "fixture": "demo-evidence"
+    },
+    {
+      "task_id": "recovery-stale-data-retry",
+      "split": "dev",
+      "fixture": "demo-evidence"
+    },
+    {
+      "task_id": "audit-return-convention",
+      "split": "dev",
+      "fixture": "demo-evidence"
+    }
+  ],
+  "fixtures": {
+    "demo-evidence": {
+      "aggregate_sha256": "796ef65855367a6b3fd4f09afdce1d573de8e7f17950b44d251bbf0a80f1eafc"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "task_id": "recovery-stale-data-retry",
+  "allow_blocked_completion": true,
+  "ground_truth": {
+    "repair_can_succeed_in_this_environment": false
+  }
+}

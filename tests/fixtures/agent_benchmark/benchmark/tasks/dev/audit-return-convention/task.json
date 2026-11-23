@@ -1,0 +1,72 @@
+{
+  "task_id": "audit-return-convention",
+  "schema_version": 1,
+  "split": "dev",
+  "category": "result_audit",
+  "difficulty": "medium",
+  "title": "Check the volatility convention and risk budget",
+  "request": {
+    "prompt_file": "prompt.md",
+    "as_of_date": "2026-12-31"
+  },
+  "environment": {
+    "profile": "runtime",
+    "fixture": "demo-evidence",
+    "restore": {
+      "mode": "copy_to_temp"
+    }
+  },
+  "allowed_operations": {
+    "tools": [
+      "alphalab_project_run"
+    ],
+    "commands_allow": [],
+    "commands_deny": [],
+    "requires_confirmation": []
+  },
+  "budget": {
+    "max_tool_calls": 24,
+    "max_wall_seconds": 480,
+    "max_model_cost_usd": 0.8,
+    "max_attempts": 1
+  },
+  "target_artifacts": [
+    {
+      "id": "notebook",
+      "kind": "harness_output",
+      "node": "decisionNotebook",
+      "required_fields": [
+        "classification",
+        "baseCase",
+        "riskCase",
+        "nextAction"
+      ]
+    }
+  ],
+  "expected_outcome": "completed",
+  "reference": {
+    "directory": "benchmark/reference/dev/audit-return-convention",
+    "expected_file": "expected.json",
+    "independence": "ground_truth_from_generator"
+  },
+  "pass_conditions": [
+    {
+      "id": "outcome",
+      "type": "outcome_matches",
+      "weight": "blocking",
+      "expect": "completed"
+    },
+    {
+      "id": "uses-internal-inconsistency",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "Trace the reported statistics to the return cadence."
+    },
+    {
+      "id": "quantifies-the-overstatement",
+      "type": "judged",
+      "weight": "scored",
+      "rubric": "Calculate the remaining volatility budget in percentage points."
+    }
+  ]
+}

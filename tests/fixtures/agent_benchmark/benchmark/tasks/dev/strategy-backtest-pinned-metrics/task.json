@@ -1,0 +1,134 @@
+{
+  "task_id": "strategy-backtest-pinned-metrics",
+  "schema_version": 1,
+  "split": "dev",
+  "category": "strategy_backtest",
+  "difficulty": "medium",
+  "title": "Check synthetic backtest metrics and target fills",
+  "request": {
+    "prompt_file": "prompt.md",
+    "as_of_date": "2026-12-31"
+  },
+  "environment": {
+    "profile": "runtime",
+    "fixture": "demo-evidence",
+    "restore": {
+      "mode": "copy_to_temp"
+    }
+  },
+  "allowed_operations": {
+    "tools": [
+      "alphalab_project_run"
+    ],
+    "commands_allow": [
+      "backtest.run",
+      "backtest.summary"
+    ],
+    "commands_deny": [],
+    "requires_confirmation": [
+      "confirm_python_execution"
+    ]
+  },
+  "budget": {
+    "max_tool_calls": 24,
+    "max_wall_seconds": 480,
+    "max_model_cost_usd": 0.8,
+    "max_attempts": 1
+  },
+  "target_artifacts": [
+    {
+      "id": "summary",
+      "kind": "backtest_run",
+      "source_command": "backtest.summary",
+      "required_fields": [
+        "metrics",
+        "execution_reliable",
+        "successful_trade_count",
+        "cash_rejection_count"
+      ]
+    },
+    {
+      "id": "findings",
+      "kind": "agent_findings",
+      "required_fields": [
+        "reported_sharpe",
+        "execution_reliable",
+        "all_targets_filled"
+      ],
+      "delivery": {
+        "channel": "workspaceResult.document.rows",
+        "columns": [
+          "field",
+          "value"
+        ],
+        "list_encoding": "row_per_element",
+        "empty_list": "single_null_row"
+      }
+    },
+    {
+      "id": "notebook",
+      "kind": "harness_output",
+      "node": "decisionNotebook",
+      "required_fields": [
+        "classification",
+        "baseCase",
+        "riskCase",
+        "nextAction"
+      ]
+    }
+  ],
+  "expected_outcome": "completed",
+  "reference": {
+    "directory": "benchmark/reference/dev/strategy-backtest-pinned-metrics",
+    "expected_file": "expected.json",
+    "independence": "ground_truth_from_generator"
+  },
+  "pass_conditions": [
+    {
+      "id": "outcome",
+      "type": "outcome_matches",
+      "weight": "blocking",
+      "expect": "completed"
+    },
+    {
+      "id": "backtest-was-run",
+      "type": "command_present",
+      "weight": "blocking",
+      "command": "backtest.run"
+    },
+    {
+      "id": "sharpe-daily-convention",
+      "type": "numeric",
+      "weight": "blocking",
+      "artifact_id": "summary",
+      "pointer": "/metrics/sharpe",
+      "expect": 0.84,
+      "tolerance": 1e-06
+    },
+    {
+      "id": "reported-sharpe-matches",
+      "type": "numeric",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/reported_sharpe",
+      "expect": 0.84,
+      "tolerance": 0.0001
+    },
+    {
+      "id": "execution-reliability-reported",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/execution_reliable",
+      "expect": true
+    },
+    {
+      "id": "fills-not-overstated",
+      "type": "scalar_equals",
+      "weight": "blocking",
+      "artifact_id": "findings",
+      "pointer": "/all_targets_filled",
+      "expect": false
+    }
+  ]
+}

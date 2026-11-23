@@ -1,0 +1,20 @@
+{
+  "task_id": "strategy-backtest-pinned-metrics",
+  "invocation": {
+    "command": "backtest.run",
+    "start_date": "2025-02-03",
+    "end_date": "2026-12-31"
+  },
+  "ground_truth": {
+    "diagnostics": {
+      "execution_summary": {
+        "attempted_trade_count": 5,
+        "successful_trade_count": 5,
+        "cash_rejection_count": 1
+      },
+      "execution_fidelity": {
+        "maximum_target_weight_deviation": 0.025
+      }
+    }
+  }
+}

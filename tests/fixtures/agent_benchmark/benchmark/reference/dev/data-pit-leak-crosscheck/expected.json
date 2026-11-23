@@ -1,0 +1,10 @@
+{
+  "task_id": "data-pit-leak-crosscheck",
+  "ground_truth": {
+    "leaked_keys": [
+      "600000.SH:2024q2",
+      "600000.SH:2024q3"
+    ],
+    "point_in_time_safe": false
+  }
+}

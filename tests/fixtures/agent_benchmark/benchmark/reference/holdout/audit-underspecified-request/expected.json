@@ -1,0 +1,10 @@
+{
+  "task_id": "audit-underspecified-request",
+  "ground_truth": {
+    "missing_specifics": [
+      "strategy",
+      "window",
+      "criterion"
+    ]
+  }
+}
