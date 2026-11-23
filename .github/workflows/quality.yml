@@ -41,6 +41,22 @@ jobs:
           python -m compileall -q alphalab apps/api scripts
           git diff --check
           git diff --exit-code
+      - name: Offline Agent benchmark regression
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python -m scripts.evaluate_agent_benchmark --suite-root tests/fixtures/agent_benchmark freeze \
+            --plan benchmark/evaluation/demo_plan.json \
+            --out build/benchmark-evaluation/lock.json
+          python -m scripts.evaluate_agent_benchmark --suite-root tests/fixtures/agent_benchmark evaluate \
+            --lock build/benchmark-evaluation/lock.json \
+            --records benchmark/evaluation/demo_records.json \
+            --observations benchmark/evaluation/demo_observations.json \
+            --out build/benchmark-evaluation/report.json \
+            --regression-out build/benchmark-evaluation/snapshot.json --system-version issue9-demo
+          python -m scripts.evaluate_agent_benchmark regress \
+            --baseline benchmark/evaluation/demo_regression_baseline.json \
+            --candidate build/benchmark-evaluation/snapshot.json \
+            --out build/benchmark-evaluation/regression.json
 
   frontend:
     runs-on: ubuntu-latest
