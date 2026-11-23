@@ -368,3 +368,10 @@ def test_report_rubric_does_not_reward_the_seeded_drawdown_or_headroom_error():
     rubric = review_rubric(task)
     assert "do not prove a contradiction" in rubric["uses-internal-inconsistency"]
     assert "5.66 percentage points" in rubric["quantifies-the-overstatement"]
+
+
+def test_invalid_task_cutoff_date_is_rejected_instead_of_skipping_the_check():
+    task, reference = _load("data-pit-leak-crosscheck")
+    task["request"]["as_of_date"] = "2024-02-30"
+    with pytest.raises(ValueError, match="as_of_date"):
+        _grade(task, reference, _trial(task))

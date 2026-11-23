@@ -519,8 +519,13 @@ def _reference_checks(
         )
         checks.append(_check("reference:requested-window", "retrieval", True, bool(relevant) and matches))
 
-    as_of = _iso_date(_map(task.get("request")).get("as_of_date"))
-    if as_of is not None:
+    raw_as_of = _map(task.get("request")).get("as_of_date")
+    if raw_as_of is not None:
+        as_of = _iso_date(raw_as_of)
+        if as_of is None:
+            raise ValueError(
+                f"Task {task['task_id']} has an invalid request.as_of_date: {raw_as_of!r}"
+            )
         dates = [
             value for call in calls if _executed(call)
             for name, value in _map(call.get("args")).items()

@@ -7,6 +7,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,22 @@ def _id(value: Any, name: str) -> str:
     if not isinstance(value, str) or not _IDENTIFIER.fullmatch(value):
         raise ValueError(f"{name} must be a short identifier")
     return value
+
+
+def _iso_date(value: Any) -> date | None:
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _manifest_index(manifest: dict) -> dict:
+    indexed = {entry["task_id"]: entry for entry in manifest["tasks"]}
+    if len(indexed) != len(manifest["tasks"]):
+        raise ValueError("Repeated task IDs in suite manifest")
+    return indexed
 
 
 def _range(value: Any, name: str, lo: float, hi: float) -> float:
@@ -178,6 +195,29 @@ def normalize_plan(document: dict) -> dict:
     return json.loads(json.dumps(plan, allow_nan=False))
 
 
+def verify_plan_tasks(plan: dict, root: Path) -> dict:
+    """Confirm every planned task exists in the task-set manifest for its split."""
+    plan = normalize_plan(plan)
+    root = root.resolve()
+    manifest_path = root / "benchmark" / "manifest.json"
+    if not manifest_path.is_file():
+        raise ValueError(
+            f"Missing benchmark/manifest.json under {root}. "
+            "Set --suite-root to the task set used by this plan."
+        )
+    manifest = _object(read_json(manifest_path), "task set manifest")
+    if manifest.get("schema_version") != 1:
+        raise ValueError("Unsupported task set schema")
+    indexed = _manifest_index(manifest)
+    for task_id in plan["task_ids"]:
+        item = indexed.get(task_id)
+        if item is None or item["split"] != plan["split"]:
+            raise ValueError(
+                f"Planned task {task_id!r} is absent from the {plan['split']} split of the task set"
+            )
+    return plan
+
+
 @dataclass(frozen=True)
 class FrozenTask:
     task: dict
@@ -254,9 +294,7 @@ def freeze_protocol(plan: dict, root: Path) -> tuple[dict, dict[str, FrozenTask]
     manifest = _object(read_json(manifest_path), "task set manifest")
     if manifest.get("schema_version") != 1:
         raise ValueError("Unsupported task set schema")
-    indexed = {entry["task_id"]: entry for entry in manifest["tasks"]}
-    if len(indexed) != len(manifest["tasks"]):
-        raise ValueError("Repeated task IDs in suite manifest")
+    indexed = _manifest_index(manifest)
     schema_path = benchmark / "schema" / "task.schema.json"
     if not schema_path.is_file():
         raise ValueError(
@@ -282,6 +320,13 @@ def freeze_protocol(plan: dict, root: Path) -> tuple[dict, dict[str, FrozenTask]
             )
         if task["task_id"] != task_id or task["split"] != plan["split"] or task["schema_version"] != 1:
             raise ValueError("Task manifest identity mismatch")
+        request = task.get("request")
+        if request is not None and not isinstance(request, dict):
+            raise ValueError(f"Task {task_id} request must be an object")
+        if isinstance(request, dict) and request.get("as_of_date") is not None:
+            raw_as_of = request["as_of_date"]
+            if _iso_date(raw_as_of) is None:
+                raise ValueError(f"Task {task_id} has an invalid request.as_of_date: {raw_as_of!r}")
         reference_dir = _safe_path(benchmark / "reference", f"{plan['split']}/{task_id}")
         ref = _object(
             read_json(_safe_path(reference_dir, task["reference"]["expected_file"])), "reference"

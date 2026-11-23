@@ -234,3 +234,14 @@ def test_freeze_requires_the_task_schema(tmp_path):
     (suite / "benchmark" / "schema" / "task.schema.json").unlink()
     with pytest.raises(ValueError, match="task.schema.json"):
         freeze_protocol(_plan(), suite)
+
+
+def test_freeze_rejects_an_invalid_task_cutoff_date(tmp_path):
+    suite = tmp_path / "suite"
+    shutil.copytree(_SUITE, suite)
+    task_file = suite / "benchmark" / "tasks" / "dev" / "data-pit-leak-crosscheck" / "task.json"
+    task = read_json(task_file)
+    task["request"]["as_of_date"] = "2024-02-30"
+    task_file.write_text(json.dumps(task), encoding="utf-8")
+    with pytest.raises(ValueError, match="as_of_date"):
+        freeze_protocol(_plan(), suite)

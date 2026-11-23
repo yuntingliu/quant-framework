@@ -10,7 +10,12 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from apps.api.services.comparison.evaluation_protocol import freeze_protocol, read_json
+from apps.api.services.comparison.evaluation_protocol import (
+    freeze_protocol,
+    normalize_plan,
+    read_json,
+    verify_plan_tasks,
+)
 
 _REPOSITORY = Path(__file__).resolve().parents[1]
 
@@ -39,21 +44,15 @@ def _write_json(path: Path, payload: Any) -> None:
 
 def _paid_trial_cost_caps(plan: dict) -> list[float]:
     """Return one cost cap per planned trial for an explicitly paid plan."""
-    if plan.get("source_class") != "live":
+    plan = normalize_plan(plan)
+    if plan["source_class"] != "live":
         raise ValueError("A paid extension plan must declare source_class 'live'")
-    task_ids = plan.get("task_ids")
-    repetitions = plan.get("repetitions")
-    configurations = plan.get("configurations")
-    if not isinstance(task_ids, list) or not task_ids:
-        raise ValueError("A paid extension plan needs a non-empty task_ids array")
-    if type(repetitions) is not int or repetitions < 1:
-        raise ValueError("A paid extension plan needs a positive repetition count")
-    if not isinstance(configurations, dict) or not configurations:
-        raise ValueError("A paid extension plan needs configurations")
+    task_ids = plan["task_ids"]
+    repetitions = plan["repetitions"]
+    configurations = plan["configurations"]
     caps = []
     for variant, config in configurations.items():
-        limits = config.get("limits") if isinstance(config, dict) else None
-        cost = limits.get("cost_usd") if isinstance(limits, dict) else None
+        cost = config["limits"]["cost_usd"]
         if type(cost) not in (int, float) or cost <= 0:
             raise ValueError(f"Configuration {variant} needs a positive cost_usd limit")
         caps.extend([float(cost)] * len(task_ids) * repetitions)
@@ -117,7 +116,13 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             from apps.api.services.comparison.regression import check_paid_extension
 
-            caps = _paid_trial_cost_caps(_object_file(args.plan))
+            if args.plan is None:
+                raise ValueError("--plan is required with --enable")
+            if args.total_budget_usd is None:
+                raise ValueError("--total-budget-usd is required with --enable")
+            plan = _object_file(args.plan)
+            verify_plan_tasks(plan, args.suite_root)
+            caps = _paid_trial_cost_caps(plan)
             try:
                 approved = check_paid_extension(
                     enabled=True, total_budget_usd=args.total_budget_usd,
@@ -125,11 +130,13 @@ def main(argv: list[str] | None = None) -> int:
                 )
             except RuntimeError as exc:
                 raise ValueError(str(exc)) from exc
+            if not approved:
+                raise ValueError("Paid extension preflight was not approved")
             print(
                 f"Paid extension preflight approved: {len(caps)} trials, "
                 f"{sum(caps):.2f} USD of caps within {args.total_budget_usd:.2f} USD"
             )
-            return 0 if approved else 2
+            return 0
 
         from apps.api.services.comparison.benchmark_evaluation import (
             evaluate_records,
