@@ -331,10 +331,36 @@ accepted waiting and budget-stop changes.
 | (1) Publish baseline and bottleneck breakdown, including failures | Done (`BASELINE.md`, sections 1–4) |
 | (2) Compression preserves numerical, PIT, authorization, completion and output evidence; quality thresholds; cache invalidation and cross-task isolation | **Partial**: implemented with tests (`context-compaction.mjs`, `conexus-context-compaction.test.mjs`); evidence / cache / isolation covered in tests; **benchmarked and rejected** for efficiency (section 4). Switch off by default |
 | (3) Quality under equal budgets; cost, time and human effort for equal quality; thresholds registered before evaluation | Done (`thresholds.json` before formal baseline; sections 1–3; `GRADING.md` proposed 28/33 vs 25/33 for v2 vs baseline, no fabrication). Wall-time rule fails on T09/T12 for the accepted stack |
-| (4) Explicit stop when a budget is exhausted; no fabrication; failed optimizations rolled back while keeping records | Done: budget stop in code (sections 2–3); fabrication not observed; compaction measured, not accepted, left off (section 4); waiting kept despite wall-time miss; wait cap added after the final suite so a blocking wait cannot outrun the wall budget (unit-tested, not re-benchmarked) |
+| (4) Explicit stop when a budget is exhausted; no fabrication; failed optimizations rolled back while keeping records | Done: budget stop in code (sections 2–3); fabrication not observed; compaction measured, not accepted, left off (section 4); waiting kept despite wall-time miss; wait cap added and T12-piloted (section 6) |
 
 **Accepted on the branch:** server-side waiting + budget stop (with last-call
-fix). **Not accepted:** context compaction (off by default). **Wait cap:**
-`backtest.wait` / `sync.wait` are shortened to the remaining work time when a
-run budget is set (`budgetAwareExecuteTool`); covered by unit tests, not by a
-new 33-run suite.
+fix) + wait cap. **Not accepted:** context compaction (off by default).
+Full narrative: `REPORT.md`.
+
+## 6. Wait cap pilot (`opt-wait-cap`, T12 × 3)
+
+| | |
+|---|---|
+| Change | `budgetAwareExecuteTool` caps `backtest.wait` / `sync.wait` to remaining work time |
+| Code | commit `ff53c0b`, clean tree |
+| Scope | T12 only (the task that was runner-cancelled mid-wait under v2) |
+| Caveat | This shell still had `ALPHALAB_AGENT_CONTEXT_COMPACTION=1` from the prior run (nonzero `compacted_messages` in traces). Outcome comparison still holds; not a pure single-variable A/B on tokens |
+
+### Outcomes vs `opt-budget-stop-v2` T12
+
+| Rep | v2 | Wait cap |
+|---|---|---|
+| 1 | `budget_exhausted` (runner cancel during a wait), auto fail | `blocked` via `complete`, auto pass, phase `final` |
+| 2 | `completed`, auto pass | `blocked` via `complete`, auto pass, phase `wrap_up` |
+| 3 | `completed`, auto pass | `blocked` via `complete`, auto pass, phase `final` |
+
+Wall ~1112–1167 s (under the 1200 s budget). Cost for 3 runs ≈ $0.13.
+Early waits still 170–300 s while budget remained; late waits include short
+returns (2–50 s) consistent with the cap. Every summary states what was done,
+which candidates were not evaluated, and avoids unsupported “best strategy”
+claims.
+
+### Decision
+
+**Accepted** as a fix for criterion (4): no runner cancel on T12 in this pilot;
+the agent stops explicitly. Kept with waiting + budget stop.
