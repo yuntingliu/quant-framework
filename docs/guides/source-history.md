@@ -123,7 +123,7 @@ Optionally pass `--output /path/to/local/screenshots`. The script mounts the rea
 workbench review views against the real history API with disposable stores. It checks all source
 types, pagination, identical comparisons, error/retry, an independent unsaved text
 buffer, absence of write requests, and unchanged database bytes during inspection.
-It then exercises a confirmed shared-factor restore against the isolated API.
+It then exercises confirmed strategy, shared-factor, validation, and recipe restores against the isolated APIs, including confirmation cancellation, template-only restoration, stale-preview rejection, and the post-restore refresh-failure lock.
 
 ## Restoring a shared factor
 
@@ -155,6 +155,40 @@ These choices represent retained snapshots. Subsequent strategy edits and
 restores are recorded individually, including restores that reuse a package.
 A failed probe or stale preview leaves the restore unapplied. Retrying the same
 confirmed request returns its original receipt.
+
+## Restoring validation or a data recipe
+
+Validation uses `GET /api/validation/projects/{project_id}/restore-preview` and
+`POST /api/validation/projects/{project_id}/restore`. Recipe uses the matching
+`/api/data-sync/recipes/{project_id}/restore-preview` and `/restore` endpoints.
+Both POST bodies contain `revision`, `token`, `request_id`, and `confirm_write`.
+Unlike strategy/factor restoration, these operations do not request Python
+execution confirmation: they statically inspect source but never execute it.
+
+Each preview is read-only and binds the target revision, current revision/hash,
+and owner. Recipe tokens also bind the latest revision and both template IDs, so
+source and template-only concurrent edits invalidate the preview. Apply performs
+static inspection outside the write lock, then rechecks the token under
+`BEGIN IMMEDIATE`. A successful write appends a new revision with
+`restored_from`, `previous_revision`, `request_id`, and `preview_token`; receipt
+lookup precedes stale-token checks so retries never undo later edits. A no-op is
+rejected rather than creating a duplicate restore revision.
+
+Validation commits only its current row and immutable package in `alphalab.db`.
+Recipe commits its draft and history row in `dataio.db`. There is no cross-store
+whole-project restore. Old runs, jobs, data partitions, and packages remain
+unchanged, and no validation, backtest, recipe, or sync job starts.
+
+A recipe restore may change only `selected_template_id`, with an empty source
+diff. A deleted historical template fails explicitly instead of being silently
+replaced. After an explicit restore, reopening the workbench does not
+immediately rewrite the restored source through built-in migration or template
+selection repair; a later ordinary edit resumes normal migration behavior.
+
+If the restore commits but the workbench refresh fails, the parent workbench
+stays in a refresh-required state. Saving and running remain blocked until a
+retry successfully reloads the canonical source. Switching projects clears this
+project-scoped lock because the new project is loaded independently.
 
 For an interactive local review page using the same component and isolated example
 stores, add `--serve`. Open the printed URL; stop the process with Ctrl+C. This

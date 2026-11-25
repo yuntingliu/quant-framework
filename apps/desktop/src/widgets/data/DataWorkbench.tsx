@@ -1,5 +1,5 @@
 import { SourceReviewWorkspace } from "@/components/shared/SourceReviewWorkspace"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   Braces,
   CheckCircle2,
@@ -102,13 +102,17 @@ export function DataWorkbenchWidget() {
   const [switchingTemplateId, setSwitchingTemplateId] = useState<string | null>(null)
   const [parameterSaving, setParameterSaving] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [restoreRefreshFailed, setRestoreRefreshFailed] = useState(false)
   const [error, setError] = useState("")
   const projectId = project?.id
+  const currentProjectId = useRef(projectId)
+  currentProjectId.current = projectId
 
   useEffect(() => {
     if (!projectId) return
     let current = true
     setWorkspace(null)
+    setRestoreRefreshFailed(false)
     setError("")
     setHealth(null)
     setHealthError("")
@@ -160,6 +164,7 @@ export function DataWorkbenchWidget() {
     return workspace.templates.some((item) => item.id === declared) ? declared : null
   }, [workspace])
   const dirty = Boolean(workspace && source !== workspace.draft.source)
+  const restoreBlocked = dirty || busy || restoreRefreshFailed
   const selectedTemplateItem = workspace?.templates.find((item) => item.id === selectedTemplate)
   const draftMatchesSelectedTemplate = selectedTemplateItem?.kind === "built_in"
     ? workspace?.draft.inspection.matched_template_id === selectedTemplateItem.id
@@ -182,8 +187,19 @@ export function DataWorkbenchWidget() {
     setSyncSymbols(Array.isArray(symbols) ? symbols.join(", ") : "")
   }
 
+  async function refreshRecipeWorkspace() {
+    if (!project) return
+    const owner = project.id
+    const refreshed = await api.get<RecipeWorkspace>(`/data-sync/recipes/${owner}`)
+    if (currentProjectId.current !== owner) return
+    setWorkspace(refreshed)
+    adoptRecipeDraft(refreshed.draft, refreshed)
+  }
+
   async function persistSource(nextSource = source): Promise<RecipeDraft> {
+    if (restoreRefreshFailed) throw new Error("恢复已提交，但工作台尚未刷新。请先刷新，避免基于旧源码保存或运行。")
     if (!project || !workspace) throw new Error("数据配方尚未加载")
+    if (workspace.draft.project_id !== project.id) throw new Error("工作台项目已切换，请重新加载后再保存。")
     if (nextSource === workspace.draft.source) return workspace.draft
     const draft = await api.put<RecipeDraft>(`/data-sync/recipes/${project.id}`, {
       source: nextSource,
@@ -322,7 +338,15 @@ export function DataWorkbenchWidget() {
   }
 
   async function runRecipe() {
+    if (restoreRefreshFailed) {
+      setError("恢复已提交，但工作台尚未刷新。请先刷新，避免运行与界面不一致的源码。")
+      return
+    }
     if (!project || !workspace) return
+    if (workspace.draft.project_id !== project.id) {
+      setError("工作台项目已切换，请重新加载后再运行。")
+      return
+    }
     if (!await confirm({
       title: "运行当前 Python 数据配方",
       description: "将在本机 Python 中执行编辑器里的源码，并把结果写入统一研究数据仓库。",
@@ -346,8 +370,16 @@ export function DataWorkbenchWidget() {
   return (
     <Widget headerless error={error} bodyClassName="overflow-auto">
       <SourceReviewWorkspace projectId={project.id} projectName={project.name} strategyId={project.strategy_id}
-        kind="recipe" version={workspace.draft.source_sha256} dirty={dirty || busy ||
-          !recipeParametersEqual(workspace.draft.inspection, syncStart, syncEnd, splitSymbols(syncSymbols))}>
+        kind="recipe" version={workspace.draft.source_sha256} dirty={restoreBlocked ||
+          !recipeParametersEqual(workspace.draft.inspection, syncStart, syncEnd, splitSymbols(syncSymbols))}
+        restore={{ kind: "recipe", blocked: restoreBlocked ||
+          !recipeParametersEqual(workspace.draft.inspection, syncStart, syncEnd, splitSymbols(syncSymbols)),
+          refresh: refreshRecipeWorkspace,
+          onRefreshError: (message) => {
+            setRestoreRefreshFailed(true)
+            setError(`恢复已提交，但工作台刷新失败：${message}。刷新前禁止保存或运行。`)
+          },
+          onRefreshSuccess: () => { setRestoreRefreshFailed(false); setError("") } }}>
       <div className="space-y-4">
         <section className="rounded border border-border p-3">
           <div className="mb-3 flex flex-wrap items-start justify-between gap-3">

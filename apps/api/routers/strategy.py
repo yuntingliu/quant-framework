@@ -144,6 +144,24 @@ class AddFactorSourceRequest(BaseModel):
     confirm_python_execution: bool
 
 
+class FactorCopyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_factor_id: str = Field(min_length=1, max_length=64)
+    expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    confirm_write: bool
+    confirm_python_execution: bool
+
+
+class FactorStatusTransitionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    to_status: Literal["candidate", "observation", "adopted", "retired"]
+    reason: str = Field(min_length=1, max_length=2000)
+    expected_status_revision: int = Field(ge=1)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=50)
+    request_id: str = Field(min_length=1, max_length=200)
+    confirm_write: bool
+
+
 class StructuredEditItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
     operation: Literal["parameter", "schedule", "factor_blend"]
@@ -252,6 +270,7 @@ class FactorHistoryRequest(BaseModel):
 
 
 class FactorResearchRequest(FactorHistoryRequest):
+    factor_revision_id: int | None = Field(default=None, ge=1)
     quantiles: int = Field(default=5, ge=3, le=10)
     horizons: list[int] = Field(default_factory=lambda: [1, 3, 6], min_length=1, max_length=12)
 
@@ -649,6 +668,89 @@ def history(project_id: str, factor_id: str, request: FactorHistoryRequest, stra
         raise _translate_error(exc) from exc
 
 
+@router.get("/projects/{project_id}/factor-assets")
+def factor_assets(project_id: str, strategy_id: str = "main") -> dict[str, Any]:
+    try:
+        return strategy_service.list_factor_assets(project_id, strategy_id=strategy_id)
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.get("/projects/{project_id}/factor-assets/{asset_id}")
+def factor_asset_detail(project_id: str, asset_id: str, strategy_id: str = "main") -> dict[str, Any]:
+    try:
+        return strategy_service.get_factor_asset(project_id, asset_id, strategy_id=strategy_id)
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/factors/{factor_id}/copy", status_code=201)
+def copy_factor(project_id: str, factor_id: str, request: FactorCopyRequest, strategy_id: str = "main") -> dict[str, Any]:
+    _confirmed(request.confirm_write, "factor copy requires confirmation")
+    _confirmed(request.confirm_python_execution, "factor copy validates trusted local Python")
+    try:
+        return strategy_service.copy_factor(
+            project_id,
+            factor_id,
+            request.new_factor_id,
+            expected_source_sha256=request.expected_source_sha256,
+            strategy_id=strategy_id,
+        )
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/factor-assets/{asset_id}/transitions")
+def transition_factor_asset(
+    project_id: str,
+    asset_id: str,
+    request: FactorStatusTransitionRequest,
+    strategy_id: str = "main",
+) -> dict[str, Any]:
+    _confirmed(request.confirm_write, "factor status transition requires confirmation")
+    try:
+        return strategy_service.transition_factor_asset(
+            project_id,
+            asset_id,
+            request.to_status,
+            reason=request.reason,
+            expected_status_revision=request.expected_status_revision,
+            evidence_ids=request.evidence_ids,
+            request_id=request.request_id,
+            strategy_id=strategy_id,
+        )
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.get("/projects/{project_id}/factor-assets/{asset_id}/evidence")
+def factor_evidence_page(
+    project_id: str,
+    asset_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    before: str | None = None,
+    strategy_id: str = "main",
+) -> dict[str, Any]:
+    try:
+        return strategy_service.list_factor_evidence(
+            project_id,
+            asset_id,
+            limit=limit,
+            before=before,
+            strategy_id=strategy_id,
+        )
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.get("/projects/{project_id}/factor-evidence/{evidence_id}")
+def factor_evidence_detail(project_id: str, evidence_id: str, strategy_id: str = "main") -> dict[str, Any]:
+    try:
+        return strategy_service.get_factor_evidence(project_id, evidence_id, strategy_id=strategy_id)
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
 @router.post("/projects/{project_id}/factors/{factor_id}/research")
 def research(project_id: str, factor_id: str, request: FactorResearchRequest, strategy_id: str = "main") -> dict[str, Any]:
     _confirmed(request.confirm_python_execution, "factor research executes trusted local Python")
@@ -664,6 +766,7 @@ def research(project_id: str, factor_id: str, request: FactorResearchRequest, st
             frequency=request.frequency,
             quantiles=request.quantiles,
             horizons=request.horizons,
+            factor_revision_id=request.factor_revision_id,
             strategy_id=strategy_id,
         )
     except Exception as exc:

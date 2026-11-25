@@ -16,12 +16,16 @@ import { useAgentPrompt } from "@/contexts/AgentPromptContext"
 import { useLanguage } from "@/contexts/LanguageContext"
 import { usePanel } from "@/contexts/PanelContext"
 import { cn } from "@/lib/utils"
+import { api } from "@/lib/api"
 import {
   researchResultToCsv,
   type ResearchResultCell,
   type ResearchResultColumn,
 } from "@/workspace/researchResults"
 import { ResearchResultCharts } from "./ResearchResultCharts"
+import { ReportEvidencePanel } from "./ReportEvidencePanel"
+import { ReportComparePanel } from "./ReportComparePanel"
+import { reportEvidence, reportFilterStatus } from "@/workspace/reportEvidence"
 
 interface SortState {
   key: string
@@ -73,19 +77,34 @@ export function ReportWorkbenchWidget() {
   }, [refreshReports])
   const requestedReportId = typeof panel?.params.resultId === "string" ? panel.params.resultId : undefined
   const [selectedReportId, setSelectedReportId] = useState<string | undefined>(requestedReportId)
+  const [activeView, setActiveView] = useState<"document" | "table" | "charts" | "evidence" | "compare">("document")
+  const [query, setQuery] = useState("")
+  const [reportQuery, setReportQuery] = useState("")
+  const [referenceFilter, setReferenceFilter] = useState<"all" | "linked" | "unlinked" | "manifest_unavailable">("all")
+  const [projectFilter, setProjectFilter] = useState("all")
+  const [typeFilter, setTypeFilter] = useState("all")
+  const [factorStatusFilter, setFactorStatusFilter] = useState("all")
+  const [sort, setSort] = useState<SortState | null>(null)
+  const visibleReports = useMemo(() => researchResults.filter(item => {
+    if (referenceFilter !== "all" && reportFilterStatus(item) !== referenceFilter) return false
+    const evidence = reportEvidence(item)
+    if (projectFilter !== "all" && evidence.projectId !== projectFilter) return false
+    if (typeFilter !== "all" && !evidence.references.some(reference => reference.kind === typeFilter)) return false
+    if (factorStatusFilter !== "all" && !evidence.references.some(reference => reference.factor_status === factorStatusFilter)) return false
+    const needle = reportQuery.trim().toLocaleLowerCase()
+    const metadata = `${evidence.projectId ?? ""} ${evidence.references.map(reference => `${reference.kind} ${reference.id ?? ""} ${reference.factor_status ?? ""} ${reference.factor_path ?? ""}`).join(" ")}`
+    return !needle || `${item.title} ${item.markdown} ${item.id} ${metadata}`.toLocaleLowerCase().includes(needle)
+  }), [researchResults, referenceFilter, projectFilter, typeFilter, factorStatusFilter, reportQuery])
+  const result = visibleReports.find((item) => item.id === selectedReportId)
   useEffect(() => {
-    if (requestedReportId && researchResults.some((item) => item.id === requestedReportId)) {
+    if (requestedReportId && visibleReports.some((item) => item.id === requestedReportId)) {
       setSelectedReportId(requestedReportId)
       return
     }
-    if (!selectedReportId || !researchResults.some((item) => item.id === selectedReportId)) {
-      setSelectedReportId(researchResults[0]?.id)
+    if (!selectedReportId || !visibleReports.some((item) => item.id === selectedReportId)) {
+      setSelectedReportId(visibleReports[0]?.id)
     }
-  }, [researchResults, requestedReportId, selectedReportId])
-  const result = researchResults.find((item) => item.id === selectedReportId)
-  const [activeView, setActiveView] = useState<"document" | "table" | "charts">("document")
-  const [query, setQuery] = useState("")
-  const [sort, setSort] = useState<SortState | null>(null)
+  }, [visibleReports, requestedReportId, selectedReportId])
 
   const copy = language === "zh" ? {
     emptyTitle: "暂无研究结果",
@@ -101,6 +120,17 @@ export function ReportWorkbenchWidget() {
     history: "报告历史",
     count: "份工作区报告",
     refresh: "刷新报告历史",
+    searchReports: "搜索报告正文或 ID…",
+    allReferences: "全部引用",
+    linked: "已关联",
+    unlinked: "未关联",
+    manifestUnavailable: "清单不可用",
+    allProjects: "全部项目",
+    allTypes: "全部资产类型",
+    allFactorStatuses: "全部因子状态",
+    evidence: "证据",
+    compare: "比较",
+    exportEvidence: "导出证据",
   } : {
     emptyTitle: "No research result",
     emptyDetail: "Ask the Agent to create a research report and open it in the workspace.",
@@ -115,6 +145,17 @@ export function ReportWorkbenchWidget() {
     history: "Report history",
     count: "workspace reports",
     refresh: "Refresh report history",
+    searchReports: "Search reports or IDs…",
+    allReferences: "All references",
+    linked: "Linked",
+    unlinked: "Unlinked",
+    manifestUnavailable: "Manifest unavailable",
+    allProjects: "All projects",
+    allTypes: "All asset types",
+    allFactorStatuses: "All factor statuses",
+    evidence: "Evidence",
+    compare: "Compare",
+    exportEvidence: "Export evidence",
   }
 
   const table = result?.table
@@ -138,7 +179,7 @@ export function ReportWorkbenchWidget() {
         <div className="min-w-0">
           <div className="text-xs font-semibold text-foreground">{copy.history}</div>
           <div className="mt-0.5 text-[10px] text-muted-foreground">
-            {researchResults.length} {copy.count}
+            {visibleReports.length} {copy.count}
           </div>
         </div>
         <button
@@ -151,8 +192,23 @@ export function ReportWorkbenchWidget() {
           <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
         </button>
       </div>
+      <div className="report-history-tools">
+        <input aria-label={copy.searchReports} value={reportQuery} onChange={event => setReportQuery(event.target.value)} placeholder={copy.searchReports} />
+        <select aria-label={copy.allReferences} value={referenceFilter} onChange={event => setReferenceFilter(event.target.value as typeof referenceFilter)}>
+          <option value="all">{copy.allReferences}</option><option value="linked">{copy.linked}</option><option value="unlinked">{copy.unlinked}</option><option value="manifest_unavailable">{copy.manifestUnavailable}</option>
+        </select>
+        <select aria-label={copy.allProjects} value={projectFilter} onChange={event => setProjectFilter(event.target.value)}>
+          <option value="all">{copy.allProjects}</option>{Array.from(new Set(researchResults.map(item => reportEvidence(item).projectId).filter(Boolean))).map(project => <option key={project} value={project}>{project}</option>)}
+        </select>
+        <select aria-label={copy.allTypes} value={typeFilter} onChange={event => setTypeFilter(event.target.value)}>
+          <option value="all">{copy.allTypes}</option><option value="strategy_package">{language === "zh" ? "策略包" : "Strategy package"}</option><option value="factor_evidence">{language === "zh" ? "因子证据" : "Factor evidence"}</option><option value="validation_package">{language === "zh" ? "验证包" : "Validation package"}</option><option value="recipe_revision">{language === "zh" ? "配方修订" : "Recipe revision"}</option><option value="backtest">{language === "zh" ? "回测" : "Backtest"}</option><option value="data_manifest">{language === "zh" ? "数据清单" : "Data manifest"}</option><option value="experiment">{language === "zh" ? "实验" : "Experiment"}</option><option value="trial">{language === "zh" ? "试验" : "Trial"}</option>
+        </select>
+        <select aria-label={copy.allFactorStatuses} value={factorStatusFilter} onChange={event => setFactorStatusFilter(event.target.value)}>
+          <option value="all">{copy.allFactorStatuses}</option><option value="candidate">candidate</option><option value="observation">observation</option><option value="adopted">adopted</option><option value="retired">retired</option>
+        </select>
+      </div>
       <div className="min-h-0 flex-1 overflow-auto p-2">
-        {researchResults.map((item) => {
+        {visibleReports.map((item) => {
           const timestamp = item.persistedAt ?? item.generatedAt ?? item.updatedAt
           return (
             <button
@@ -181,7 +237,7 @@ export function ReportWorkbenchWidget() {
 
   if (!result) {
     return (
-      <div className="flex h-full min-h-0 bg-card">
+      <div className="report-workbench flex h-full min-h-0 bg-card">
         {historySidebar}
         <div className="flex min-w-0 flex-1 items-center justify-center p-6 text-center">
           <div className="max-w-sm">
@@ -200,6 +256,30 @@ export function ReportWorkbenchWidget() {
       : { key, direction: "asc" })
   }
 
+  const downloadEvidence = async () => {
+    if (!result) return
+    const evidence = reportEvidence(result)
+    const validation = evidence.projectId && evidence.references.length
+      ? await api.post("/conexus/reports/validate-references", {
+        project_id: evidence.projectId,
+        references: evidence.references,
+      }).catch((reason: Error) => ({ status: "validation_failed", error: reason.message }))
+      : null
+    const payload = {
+      report: result,
+      validation,
+      self_contained_reproduction: false,
+      limitation: "Issue #15 data snapshots are unavailable; this export is not a self-contained reproduction package.",
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = `${result.title.replace(/[\\/:*?"<>|]+/g, "-") || "research-report"}-evidence.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
   const downloadCsv = () => {
     if (!table) return
     const blob = new Blob([researchResultToCsv(table)], { type: "text/csv;charset=utf-8" })
@@ -212,10 +292,10 @@ export function ReportWorkbenchWidget() {
   }
 
   return (
-    <div className="flex h-full min-h-0 bg-card">
+    <div className="report-workbench flex h-full min-h-0 bg-card">
       {historySidebar}
       <div className="flex min-w-0 flex-1 flex-col bg-card">
-        <div className="shrink-0 border-b border-border px-4 py-3">
+        <div className="report-document-header shrink-0 border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-primary/25 bg-primary/10 text-primary">
             <FileText className="h-4 w-4" />
@@ -224,6 +304,9 @@ export function ReportWorkbenchWidget() {
             <div className="truncate text-sm font-semibold text-foreground">{result.title}</div>
             {result.description ? <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{result.description}</div> : null}
           </div>
+          <button type="button" className="flex h-8 shrink-0 items-center gap-1.5 rounded border border-border bg-background px-2.5 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground" onClick={() => void downloadEvidence()} title={copy.exportEvidence}>
+            <Download className="h-3.5 w-3.5" />{copy.exportEvidence}
+          </button>
           {table ? (
             <button
               type="button"
@@ -245,8 +328,8 @@ export function ReportWorkbenchWidget() {
         </div>
         </div>
 
-        {table || charts ? (
-          <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-2">
+        {result ? (
+          <div className="report-view-tabs flex shrink-0 items-center gap-1 border-b border-border px-3 py-2">
           <button
             type="button"
             className={cn("flex h-7 items-center gap-1.5 rounded px-2 text-xs", activeView === "document" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")}
@@ -275,10 +358,16 @@ export function ReportWorkbenchWidget() {
               {copy.charts}
             </button>
           ) : null}
+          <button type="button" className={cn("flex h-7 items-center gap-1.5 rounded px-2 text-xs", activeView === "evidence" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")} onClick={() => setActiveView("evidence")}>
+            <FileText className="h-3.5 w-3.5" />{copy.evidence}
+          </button>
+          <button type="button" className={cn("flex h-7 items-center gap-1.5 rounded px-2 text-xs", activeView === "compare" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")} onClick={() => setActiveView("compare")}>
+            <ArrowUpDown className="h-3.5 w-3.5" />{copy.compare}
+          </button>
           </div>
         ) : null}
 
-        {activeView === "document" || (activeView === "table" && !table) || (activeView === "charts" && !charts) ? (
+        {activeView === "evidence" ? <ReportEvidencePanel result={result} /> : activeView === "compare" ? <ReportComparePanel key={result.id} reports={visibleReports} initialLeft={selectedReportId} initialRight={visibleReports.find(item => item.id !== selectedReportId)?.id} /> : activeView === "document" || (activeView === "table" && !table) || (activeView === "charts" && !charts) ? (
           <div className="min-h-0 flex-1 overflow-auto p-5">
             <SafeMarkdown className="mx-auto max-w-5xl">{result.markdown}</SafeMarkdown>
           </div>

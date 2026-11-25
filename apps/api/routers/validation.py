@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import sqlite3
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
+from alphalab.strategy.history import HistoryUnavailableError
 from alphalab.validation.source import ValidationSourceError
 from apps.api.services import validation_service
 
@@ -17,6 +19,14 @@ class ValidationSourceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source: str = Field(min_length=1, max_length=300_000)
     expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    confirm_write: bool
+
+
+class ValidationRestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=1)
+    token: str = Field(min_length=64, max_length=64)
+    request_id: str = Field(min_length=1, max_length=200)
     confirm_write: bool
 
 
@@ -46,6 +56,10 @@ class ValidationMigrationRequest(BaseModel):
 
 
 def _raise_error(exc: Exception) -> None:
+    if isinstance(exc, HistoryUnavailableError):
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if isinstance(exc, sqlite3.Error):
+        raise HTTPException(status_code=500, detail="validation source restore failed") from exc
     if isinstance(exc, KeyError):
         raise HTTPException(status_code=404, detail="strategy project not found") from exc
     if isinstance(exc, PermissionError):
@@ -60,6 +74,33 @@ def validation_workspace(project_id: str) -> dict:
     try:
         return validation_service.get_workspace(project_id)
     except (KeyError, ValueError, ValidationSourceError) as exc:
+        _raise_error(exc)
+
+
+@router.get("/projects/{project_id}/restore-preview")
+def validation_restore_preview(project_id: str, revision: int = Query(ge=1)) -> dict:
+    try:
+        return validation_service.restore_preview(project_id, revision)
+    except (KeyError, PermissionError, RuntimeError, ValueError, ValidationSourceError) as exc:
+        _raise_error(exc)
+
+
+@router.post("/projects/{project_id}/restore")
+def restore_validation_source(project_id: str, request: ValidationRestoreRequest) -> dict:
+    if request.confirm_write is not True:
+        raise HTTPException(status_code=409, detail="validation source restore requires confirmation")
+    try:
+        return validation_service.restore_source(
+            project_id, request.revision, request.token, request.request_id
+        )
+    except (
+        KeyError,
+        PermissionError,
+        RuntimeError,
+        ValueError,
+        ValidationSourceError,
+        sqlite3.Error,
+    ) as exc:
         _raise_error(exc)
 
 

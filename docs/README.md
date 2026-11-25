@@ -17,6 +17,8 @@
 - [Development guide](03_DEVELOPMENT_GUIDE.md): code placement, frontend/backend contracts, and checks.
 - [Testing guide](guides/testing.md): test groups and common commands.
 - [Source history and comparison](guides/source-history.md): saved source versions, read-only diffs, recipe migration, and package-impact boundaries.
+- [Factor assets and version-bound evidence](guides/factor-assets.md): stable factor identity, lifecycle, lineage, research evidence, and manifest limits.
+- [Report evidence and Issue #17 demo](guides/report-evidence.md): validated report references, search, comparison, export, and the deterministic 20 → 60 → restore flow.
 - [Contributing](../CONTRIBUTING.md): branches and review workflow.
 - [Multifactor research notes](guides/multifactor-research.md): conceptual factor evaluation and monthly portfolio construction; illustrative rules, not SDK defaults.
 

@@ -233,7 +233,9 @@ class ProjectStrategies:
             factors = [target["source"] if u["path"] == path else u["source"] for u in units if u["kind"] == "factor"]
         return self._commit_all_sources(project_id, source, factors, restore=info)
 
-    def _commit_all_sources(self, project_id, source, factors, *, expected_source_sha256=None, restore=None):
+    def _commit_all_sources(
+        self, project_id, source, factors, *, expected_source_sha256=None, restore=None, copy=None, rename=None
+    ):
         observed = self._editable_row(project_id)
         project_id = str(observed["id"])
         if expected_source_sha256 and observed["draft_source_sha256"] != expected_source_sha256:
@@ -289,6 +291,7 @@ class ProjectStrategies:
                 if restore:
                     restore["affected_json"] = json.dumps(packages)
                 factor_restore.record_changes(self._conn, project_id, previous, current, packages["main"], restore)
+                self._sync_factor_assets(project_id, previous, current, packages["main"], copy=copy, rename=rename)
                 if any(packages[r["id"]] != r["current_revision"] or sources[r["id"]] != r["source"]
                        for r in catalog if not r["archived"]):
                     self._advance_source_generation(project_id)

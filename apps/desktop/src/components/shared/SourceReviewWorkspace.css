@@ -132,3 +132,67 @@
   .sh-editor-labels > span + span::before { content: "→"; margin-right: 8px; }
   .source-restore-controls { padding: 5px 7px; }
 }
+
+/* Compact research-review hierarchy shared by all four source owners. */
+.sh-heading, .sh-restore-heading {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 7px 12px; border-bottom: 1px solid var(--review-rule);
+}
+.sh-heading h2, .sh-restore-heading h2 { margin-top: 1px; color: hsl(var(--foreground)); font-size: 13px; font-weight: 600; }
+.sh-restore-heading > div { min-width: 0; }
+.sh-eyebrow { display: flex; align-items: center; gap: 5px; color: hsl(var(--muted-foreground)); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+.sh-readonly-badge {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  padding: 2px 6px; border: 1px solid var(--review-rule); border-radius: 4px;
+  color: hsl(var(--muted-foreground)); background: var(--review-chrome); font-size: 10px;
+}
+.source-restore-controls label { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.source-restore-controls select { min-width: 0; max-width: min(360px, 44vw); }
+.sh-state { display: flex; align-items: center; gap: 7px; padding: 7px 12px; border-bottom: 1px solid var(--review-rule); overflow-wrap: anywhere; }
+.sh-state > span { flex: 1; }
+.sh-state-warning { color: #795300; background: #fff8e5; }
+.sh-state-error { color: #8c2f32; background: #fff0ef; }
+.sh-state-success { color: #23643a; background: #edf8ef; }
+.sh-restore-impact { display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--review-rule); background: hsl(var(--primary) / .045); }
+.sh-restore-impact svg { flex: none; margin-top: 2px; color: hsl(var(--primary)); }
+.sh-restore-impact strong { color: hsl(var(--foreground)); font-size: 12px; }
+.sh-restore-impact p { color: hsl(var(--muted-foreground)); }
+.sh-version-badges { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px; }
+.sh-version-tag-target { color: hsl(var(--primary)); background: hsl(var(--primary) / .08); }
+.sh-results-heading h3 { color: hsl(var(--foreground)); font-weight: 600; }
+.sh-results-heading p { color: hsl(var(--muted-foreground)); }
+.sh-impact { border-bottom: 1px solid var(--review-rule); background: hsl(var(--muted) / .18); }
+.sh-impact-heading h4 { color: hsl(var(--foreground)); }
+.sh-impact li, .sh-metadata p { flex-wrap: wrap; overflow-wrap: anywhere; }
+.sh-metadata code { font-family: ui-monospace, Consolas, monospace; }
+.sh-editor-actions button { min-width: 26px; min-height: 26px; }
+.source-history-panel select:focus-visible, .sh-history-note summary:focus-visible, .sh-diff-scroll:focus-visible {
+  outline: 2px solid hsl(var(--primary)); outline-offset: 1px;
+}
+.dark .sh-line-added { background: #173b29; color: #d5eedb; }
+.dark .sh-line-removed { background: #492528; color: #f4d9d9; }
+.dark .sh-plus { color: #75d99a; }
+.dark .sh-minus { color: #f09595; }
+.dark .sh-state-warning { color: #f3cf78; background: #392f18; }
+.dark .sh-state-error { color: #f3aaaa; background: #402425; }
+.dark .sh-state-success { color: #9bddae; background: #1d3526; }
+
+@container (max-width: 680px) {
+  .source-restore-controls { align-items: stretch; }
+  .source-restore-controls label { flex: 1 0 100%; margin-right: 0; justify-content: space-between; }
+  .source-restore-controls select { flex: 1; max-width: 100%; }
+  .source-restore-controls button { flex: 1 1 auto; min-height: 30px; }
+  .sh-heading, .sh-restore-heading { padding-inline: 8px; }
+  .sh-readonly-badge { font-size: 9px; }
+  .sh-state, .sh-restore-impact { padding-inline: 8px; }
+  .sh-version-selectors { width: 100%; }
+  .sh-version-selectors label { flex: 1; }
+  .sh-version-selectors select { width: 100%; }
+  .sh-compare-button { flex: 1 0 100%; }
+  .sh-version { min-width: 118px; }
+  .sh-version-badges { max-width: 64px; }
+  .sh-metadata p { align-items: flex-start; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .source-history-panel .animate-spin, .source-review-nav .animate-spin { animation: none; }
+}

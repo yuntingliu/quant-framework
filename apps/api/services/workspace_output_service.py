@@ -9,6 +9,8 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from apps.api.services import report_reference_service
+
 _OUTPUT_SCHEMA = Path(__file__).resolve().parents[3] / "integrations/conexus/alphalab-research-agent/workspace-output.schema.json"
 _OUTPUT_NODES = {
     "decisionNotebook": "alphalab-decision-notebook-v1",
@@ -25,7 +27,12 @@ def _validator() -> Draft202012Validator:
     return Draft202012Validator(schema)
 
 
-def prepare_workspace_outputs(request_id: str, outputs: dict[str, Any]) -> dict[str, Any]:
+def prepare_workspace_outputs(
+    request_id: str,
+    outputs: dict[str, Any],
+    *,
+    reserve_references: bool = True,
+) -> dict[str, Any]:
     """Return a complete atomic edit batch, or a bounded error the Agent can correct."""
 
     try:
@@ -43,6 +50,7 @@ def prepare_workspace_outputs(request_id: str, outputs: dict[str, Any]) -> dict[
         ])
     result = outputs["workspaceResult"]
     batch = outputs["workspaceCommands"]
+    reference_validation = None
     if result["requestId"] != request_id or batch["requestId"] != request_id:
         return _invalid(["workspaceResult and workspaceCommands must use the current request_id"])
     semantic_errors = []
@@ -77,19 +85,51 @@ def prepare_workspace_outputs(request_id: str, outputs: dict[str, Any]) -> dict[
             semantic_errors.append("set_focus requires a project, backtest, symbol, or date")
     if semantic_errors:
         return _invalid(list(dict.fromkeys(semantic_errors)))
+    if result["kind"] == "document" and result.get("references"):
+        project_id = result.get("projectId")
+        if not project_id:
+            return _invalid(["projectId is required when a report contains evidence references"])
+        try:
+            if reserve_references:
+                reference_validation = report_reference_service.store().reserve(
+                    result["reportId"], request_id, project_id, result["references"]
+                )
+            else:
+                reference_validation = report_reference_service.store().validate(
+                    project_id, result["references"]
+                )
+        except (KeyError, ValueError) as exc:
+            return _invalid([str(exc)])
     content = {
         "decisionNotebook": outputs["decisionNotebook"]["baseCase"][:600],
         "workspaceResult": f"研究报告：{result['title']}" if result["kind"] == "document" else "本轮未交付研究报告。",
         "workspaceCommands": "工作台请求：" + " → ".join(command["type"] for command in commands) if commands else "本轮无工作台导航请求。",
     }
+    operations = [
+        {"kind": "patch", "node_id": node_id, "set": {"content": content[key], "data": outputs[key]}}
+        for key, node_id in _OUTPUT_NODES.items()
+    ]
+    if reference_validation:
+        metadata = {
+            key: value
+            for key, value in result.items()
+            if key not in {"version", "requestId", "kind", "reportId", "title", "description", "generatedAt", "columns", "rows", "charts"}
+        }
+        metadata["provenance"] = {
+            "projectId": reference_validation["project_id"],
+            "references": reference_validation["references"],
+        }
+        operations.append({
+            "kind": "patch",
+            "node_id": result["reportId"],
+            "set": {"data": metadata},
+        })
     return {
         "status": "succeeded",
         "request_id": request_id,
         "summary": outputs["summary"],
-        "operations": [
-            {"kind": "patch", "node_id": node_id, "set": {"content": content[key], "data": outputs[key]}}
-            for key, node_id in _OUTPUT_NODES.items()
-        ],
+        "reference_validation": reference_validation,
+        "operations": operations,
     }
 
 
@@ -114,7 +154,7 @@ def validate_workspace_delivery(workspace: dict[str, Any]) -> dict[str, Any]:
         return workspace  # Unused template outputs have no current request to deliver.
     outputs["summary"] = "Workspace delivery"
     request_id = batch.get("requestId", "") if isinstance(batch, dict) else ""
-    prepared = prepare_workspace_outputs(request_id, outputs)
+    prepared = prepare_workspace_outputs(request_id, outputs, reserve_references=False)
     output_runs = {nodes[node_id].get("updatedByRunId") for node_id in _OUTPUT_NODES.values()}
     if len(output_runs) != 1 or not all(output_runs):
         prepared = _invalid(["The three Harness outputs must be committed by the same run"])
@@ -123,6 +163,15 @@ def validate_workspace_delivery(workspace: dict[str, Any]) -> dict[str, Any]:
         report = nodes.get(result["reportId"])
         if not report or report.get("type") not in {"note", "document"} or report.get("description") != "AlphaLab quantitative report" or not report.get("values", {}).get("content"):
             prepared = _invalid(["workspaceResult must reference an existing AlphaLab report Document"])
+        elif prepared.get("reference_validation"):
+            values = report.get("values", {})
+            data = dict(values.get("data") or {})
+            provenance = dict(data.get("provenance") or {})
+            provenance["projectId"] = prepared["reference_validation"]["project_id"]
+            provenance["references"] = prepared["reference_validation"]["references"]
+            data["provenance"] = provenance
+            values["data"] = data
+            report["values"] = values
     workspace["outputValidation"] = {key: value for key, value in prepared.items() if key in {"status", "error_code", "error_summary", "errors"}}
     if prepared["status"] == "failed":
         nodes[_OUTPUT_NODES["workspaceCommands"]]["values"]["data"] = {
@@ -130,5 +179,6 @@ def validate_workspace_delivery(workspace: dict[str, Any]) -> dict[str, Any]:
         }
     else:
         for operation in prepared["operations"]:
-            nodes[operation["node_id"]]["values"]["content"] = operation["set"]["content"]
+            if "content" in operation["set"]:
+                nodes[operation["node_id"]]["values"]["content"] = operation["set"]["content"]
     return workspace

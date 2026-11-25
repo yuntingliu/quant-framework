@@ -60,11 +60,11 @@ export function SourceDiffEditor({ before, after, labels, wrap, zh, fallback }: 
   return <div className="sh-editor-document">
     <div className="sh-editor-labels"><span>{labels[0]}</span><span>{labels[1]}</span>
       <div className="sh-editor-actions">
-        <button type="button" title={zh ? "上一处改动" : "Previous change"} onClick={() => diff.current?.goToDiff("previous")}><ArrowUp size={14} /></button>
-        <button type="button" title={zh ? "下一处改动" : "Next change"} onClick={() => diff.current?.goToDiff("next")}><ArrowDown size={14} /></button>
+        <button type="button" aria-label={zh ? "上一处改动" : "Previous change"} title={zh ? "上一处改动" : "Previous change"} onClick={() => diff.current?.goToDiff("previous")}><ArrowUp size={14} /></button>
+        <button type="button" aria-label={zh ? "下一处改动" : "Next change"} title={zh ? "下一处改动" : "Next change"} onClick={() => diff.current?.goToDiff("next")}><ArrowDown size={14} /></button>
       </div>
     </div>
     <div className="sh-monaco" ref={container} />
-    {!runtime.initialized && <p className="sh-editor-loading">{zh ? "正在打开编辑器…" : "Opening editor…"}</p>}
+    {!runtime.initialized && <p className="sh-editor-loading" role="status">{zh ? "正在打开编辑器…" : "Opening editor…"}</p>}
   </div>
 }

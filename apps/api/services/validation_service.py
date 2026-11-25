@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Iterable
 
+from alphalab.strategy.history import SourceHistory
+from alphalab.utils.paths import RUNTIME_APP_DIR
 from alphalab.validation.builtins import DEFAULT_VALIDATION_SOURCE
 from alphalab.validation.repository import ValidationRepository
 from alphalab.validation.source import inspect_validation_source
@@ -12,6 +14,22 @@ from alphalab.validation.source import inspect_validation_source
 
 def repository(db_path: str | Path | None = None) -> ValidationRepository:
     return ValidationRepository(db_path)
+
+
+def source_history() -> SourceHistory:
+    return SourceHistory(RUNTIME_APP_DIR / "alphalab.db", "validation")
+
+
+def restore_preview(project_id: str, revision: int) -> dict[str, Any]:
+    return source_history().validation_restore_preview(project_id, revision)
+
+
+def restore_source(project_id: str, revision: int, token: str, request_id: str) -> dict[str, Any]:
+    repo = repository()
+    try:
+        return repo.restore_source(project_id, revision, token, request_id)
+    finally:
+        repo.close()
 
 
 def get_workspace(project_id: str) -> dict[str, Any]:
@@ -82,6 +100,9 @@ __all__ = [
     "get_workspace",
     "migrate_to_default",
     "repository",
+    "restore_preview",
+    "restore_source",
+    "source_history",
     "update_parameters",
     "update_source",
     "validate_source",

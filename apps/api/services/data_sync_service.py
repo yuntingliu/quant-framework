@@ -31,9 +31,11 @@ from alphalab.dataio.rq_templates import (
     list_rq_sync_templates,
 )
 from alphalab.dataio.sync import SyncJobManager, SyncRequest, build_sync_plan
+from alphalab.strategy.history import SourceHistory
 from alphalab.strategy.repository import normalize_project_id
 from alphalab.tools import create_data_tool_registry
 from alphalab.utils.env import load_env_files
+from alphalab.utils.paths import RUNTIME_APP_DIR
 from apps.api.services import strategy_service
 
 _RQ_KEYS = ("RQ_USER", "RQ_PASSWORD", "RQ_HOST")
@@ -183,6 +185,10 @@ def recipe_workspace(project_id: str) -> dict:
     ]
     migration_applied = False
     draft = manager.operations.get_recipe_draft(project)
+    latest_history = manager.operations.get_latest_recipe_history(project)
+    explicitly_restored = bool(
+        latest_history and latest_history.get("restored_from") is not None
+    )
     if draft is None:
         source = render_builtin_recipe(
             DEFAULT_RQ_SYNC_TEMPLATE_ID,
@@ -194,7 +200,7 @@ def recipe_workspace(project_id: str) -> dict:
             source,
             selected_template_id=DEFAULT_RQ_SYNC_TEMPLATE_ID,
         )
-    else:
+    elif not explicitly_restored:
         migrated = migrate_legacy_builtin_recipe(draft["source"])
         migrated_inspection = inspect_data_recipe_source(migrated)
         upgrade_default = (
@@ -229,7 +235,7 @@ def recipe_workspace(project_id: str) -> dict:
         built_in_templates=built_in_templates,
         custom_templates=custom_templates,
     )
-    if selected_template_id != draft.get("selected_template_id"):
+    if not explicitly_restored and selected_template_id != draft.get("selected_template_id"):
         draft = manager.operations.save_recipe_draft(
             project,
             draft["source"],
@@ -247,6 +253,21 @@ def recipe_workspace(project_id: str) -> dict:
         "docs_url": RQDATA_PYTHON_DOCS_URL,
         "execution": "trusted_local_python",
     }
+
+
+def source_history() -> SourceHistory:
+    return SourceHistory(RUNTIME_APP_DIR / "dataio.db", "recipe")
+
+
+def restore_preview(project_id: str, revision: int) -> dict:
+    return source_history().recipe_restore_preview(normalize_project_id(project_id), revision)
+
+
+def restore_recipe(project_id: str, revision: int, token: str, request_id: str) -> dict:
+    project = _project_id(project_id)
+    return get_job_manager().operations.restore_recipe_revision(
+        project, revision, token, request_id
+    )
 
 
 def save_recipe_source(

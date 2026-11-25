@@ -109,6 +109,18 @@ class SourceHistory:
         with self._read(project_id, strategy_id) as (db, project, strategy):
             return factor_restore.preview(db, project, strategy, f'factors/{factor_id}.py', revision)
 
+    def validation_restore_preview(self, project_id, revision):
+        from alphalab.validation import restore as validation_restore
+
+        with self._read(project_id, 'main') as (db, project, _):
+            return validation_restore.preview(db, project, revision)
+
+    def recipe_restore_preview(self, project_id, revision):
+        from alphalab.dataio import recipe_restore
+
+        with self._read(project_id, 'main') as (db, project, _):
+            return recipe_restore.preview(db, project, revision)
+
     def list(self, project_id: str, strategy_id: str = 'main', *, limit: int = 20, before: int | None = None):
         """Keyset pagination; strategy packages are not an edit-event timeline."""
         if not 1 <= limit <= 100 or (before is not None and before < 1):
@@ -123,7 +135,10 @@ class SourceHistory:
                        ORDER BY p.revision DESC LIMIT ?''', (project, strategy, before, before, limit + 1),
                 ).fetchall()
             else:
-                extra = ', origin, selected_template_id' if self.kind == 'recipe' else ''
+                extra = (
+                    ', origin, selected_template_id, restored_from'
+                    if self.kind == 'recipe' else ', restored_from'
+                )
                 rows = db.execute(
                     f'''SELECT revision, source_sha256, created_at{extra} FROM {self._table}
                         WHERE project_id=? AND (? IS NULL OR revision < ?) ORDER BY revision DESC LIMIT ?''',
@@ -131,9 +146,13 @@ class SourceHistory:
                 ).fetchall()
             items = [dict(row) for row in rows[:limit]]
             for item in items:
-                item['summary'] = ('Existing draft preserved at migration; earlier edits unknown'
-                                   if item.get('origin') == 'migration_baseline'
-                                   else f'Saved {self.kind} source revision {item["revision"]}')
+                item['summary'] = (
+                    'Existing draft preserved at migration; earlier edits unknown'
+                    if item.get('origin') == 'migration_baseline'
+                    else f'Restored {self.kind} source from revision {item["restored_from"]}'
+                    if item.get('restored_from') is not None
+                    else f'Saved {self.kind} source revision {item["revision"]}'
+                )
             return {'project_id': project, 'strategy_id': strategy if self.kind == 'strategy' else None,
                     'kind': self.kind, 'items': items,
                     'next_before': items[-1]['revision'] if len(rows) > limit else None,

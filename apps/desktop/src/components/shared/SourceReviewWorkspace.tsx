@@ -1,4 +1,4 @@
-import { useState, type ComponentProps, type ReactNode } from "react"
+import { useEffect, useState, type ComponentProps, type ReactNode } from "react"
 import { Code2, GitCompareArrows, History } from "lucide-react"
 import { useLanguage } from "@/contexts/LanguageContext"
 import { SourceHistoryPanel } from "./SourceHistoryPanel"
@@ -17,9 +17,22 @@ export function SourceReviewWorkspace({ children, restore, dirty, initialView = 
   const [selected, select] = useState<"editor" | "history" | "restore">(initialView)
   const [wrap, setWrap] = useState(true)
   const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    const open = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectId: string; kind: string }>).detail
+      if (detail.projectId === history.projectId && detail.kind === history.kind) select("history")
+    }
+    window.addEventListener("alphalab:openSourceRevision", open)
+    return () => window.removeEventListener("alphalab:openSourceRevision", open)
+  }, [history.projectId, history.kind])
   const view = selected === "restore" && !restore ? "editor" : selected
   const strategy = history.strategyId ?? "main"
-  const restoreLabel = restore?.factor ? "恢复因子版本" : "恢复策略版本"
+  const restoreLabel = restore ? ({
+    strategy: zh ? "恢复策略版本" : "Restore strategy version",
+    factor: zh ? "恢复因子版本" : "Restore factor version",
+    recipe: zh ? "恢复配方版本" : "Restore recipe version",
+    validation: zh ? "恢复验证版本" : "Restore validation version",
+  }[restore.kind]) : ""
   return <div className="source-review-workspace" data-unsaved-project={dirty ? history.projectId : undefined}>
     <nav className="source-review-nav" aria-label={zh ? "工作台视图" : "Workbench views"}>
       <button type="button" disabled={saving} aria-pressed={view === "editor"} onClick={() => select("editor")}><Code2 size={14} />{zh ? "工作台" : "Workbench"}</button>
@@ -31,7 +44,7 @@ export function SourceReviewWorkspace({ children, restore, dirty, initialView = 
     <div hidden={view !== "editor"} className="source-review-editor">{children}</div>
     {view !== "editor" && <section aria-label={zh ? "源码差异" : "Source diff"} className="source-review-content" data-wrap={wrap}>
       {view === "history" ? <SourceHistoryPanel {...history} wrap={wrap} /> : restore &&
-        <SourceRestorePanel key={JSON.stringify([history.projectId, strategy, restore.factor])}
+        <SourceRestorePanel key={JSON.stringify([history.projectId, strategy, restore.kind, restore.factor])}
           project={history.projectId} strategy={strategy} {...restore} wrap={wrap} onSaving={setSaving} />}
     </section>}
   </div>

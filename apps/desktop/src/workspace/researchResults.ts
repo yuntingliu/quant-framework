@@ -301,7 +301,13 @@ export function parseAgentResearchResult(
   if (value.generatedAt !== undefined && generatedAt === undefined) return null
   if (generatedAt && Number.isNaN(Date.parse(generatedAt))) return null
   const profile = value.profile === "runtime" ? value.profile : undefined
-  const provenance = isRecord(value.provenance) ? value.provenance : undefined
+  const provenance = isRecord(value.provenance) ? { ...value.provenance } : {}
+  if (typeof value.projectId === "string" && provenance.projectId === undefined) {
+    provenance.projectId = value.projectId
+  }
+  if (Array.isArray(value.references) && provenance.references === undefined) {
+    provenance.references = value.references
+  }
   const persistedAt = value.persistedAt === undefined ? undefined : text(value.persistedAt, 100)
   if (value.persistedAt !== undefined && !persistedAt) return null
   const backtestId = value.backtestId === undefined ? undefined : text(value.backtestId, 200)
@@ -348,16 +354,18 @@ export function parseWorkspaceReportNode(value: unknown): AgentResearchResult | 
   const reportId = text(value.id, 200)
   const title = text(value.label, 200)
   const updatedAt = text(value.updatedAt, 100)
+  const data = values && isRecord(values.data) ? values.data : {}
   if (!markdown || !reportId || !title) return null
-  return parseAgentResearchResult({
-    version: 1,
+  const base = {
+    version: 1 as const,
     reportId,
-    kind: "document",
+    kind: "document" as const,
     title,
     markdown,
-    sources: [],
+    sources: Array.isArray(data.sources) ? data.sources : [],
     ...(updatedAt ? { updatedAt } : {}),
-  })
+  }
+  return parseAgentResearchResult({ ...data, ...base }) ?? parseAgentResearchResult(base)
 }
 
 function csvCell(value: ResearchResultCell): string {

@@ -111,11 +111,14 @@ export function ValidationWorkbenchWidget() {
   const [robustness, setRobustness] = useState<BacktestRobustness | null>(null)
   const [frozenValidation, setFrozenValidation] = useState<BacktestValidation | null>(null)
   const [busy, setBusy] = useState(false)
+  const [restoreRefreshFailed, setRestoreRefreshFailed] = useState(false)
   const [loadingResult, setLoadingResult] = useState(false)
   const [error, setError] = useState("")
   const authoringSplit = useRef<HTMLDivElement>(null)
   const resultsSection = useRef<HTMLElement>(null)
   const projectId = project?.id
+  const currentProjectId = useRef(projectId)
+  currentProjectId.current = projectId
   const projectProfile = project?.profile
   const selectedBacktestRef = useRef(selectedBacktest)
   const strategySelectionRef = useRef(project?.strategy_id ?? "main")
@@ -125,7 +128,7 @@ export function ValidationWorkbenchWidget() {
 
   useEffect(() => {
     let current = true
-    setValidation(null); setSource(""); setValidationParameters({})
+    setValidation(null); setSource(""); setValidationParameters({}); setRestoreRefreshFailed(false)
     setAnalysis(null); setSignals(null); setAttribution(null); setRobustness(null); setFrozenValidation(null)
     setRuns([]); setJobs([]); setBatchId(null); setComparisonIds([]); setError("")
     setSelectedStrategies([strategySelectionRef.current])
@@ -236,7 +239,7 @@ export function ValidationWorkbenchWidget() {
       }]
     })) ?? [], [validation, validationParameters])
   const visualDirty = visualEdits.length > 0
-  const hasUnsavedChanges = Boolean(project?.dirty || localDirty || visualDirty)
+  const hasUnsavedChanges = Boolean(project?.dirty || localDirty || visualDirty || restoreRefreshFailed)
   const equityData = useMemo(() => analysis?.dates.map((date, index) => ({
     date,
     strategy: analysis.equity_curve[index] ?? 1,
@@ -286,6 +289,16 @@ export function ValidationWorkbenchWidget() {
       setJobs((current) => [...batch.jobs, ...current.filter((item) => !batch.jobs.some((job) => job.id === item.id))])
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setBusy(false) }
+  }
+
+  async function refreshValidationWorkspace() {
+    if (!project) return
+    const owner = project.id
+    const updated = await api.get<ValidationWorkspace>(`/validation/projects/${owner}`)
+    if (currentProjectId.current !== owner) return
+    setValidation(updated)
+    setSource(updated.source)
+    setValidationParameters(parameterValues(updated))
   }
 
   async function saveValidationSource(nextSource = source) {
@@ -346,7 +359,14 @@ export function ValidationWorkbenchWidget() {
   return (
     <Widget headerless className="validation-workbench-widget">
       <SourceReviewWorkspace projectId={project.id} projectName={project.name} strategyId={project.strategy_id}
-        kind="validation" version={validation?.source_sha256} dirty={hasUnsavedChanges || busy}>
+        kind="validation" version={validation?.source_sha256} dirty={hasUnsavedChanges || busy}
+        restore={validation?.editable ? { kind: "validation", blocked: hasUnsavedChanges || busy,
+          refresh: refreshValidationWorkspace,
+          onRefreshError: (message) => {
+            setRestoreRefreshFailed(true)
+            setError(`恢复已提交，但工作台刷新失败：${message}。刷新前禁止保存或运行回测。`)
+          },
+          onRefreshSuccess: () => { setRestoreRefreshFailed(false); setError("") } } : undefined}>
       <section className="backtest-authoring">
         <div
           ref={authoringSplit}

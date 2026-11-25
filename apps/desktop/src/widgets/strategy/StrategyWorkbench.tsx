@@ -359,7 +359,9 @@ export function StrategyWorkbenchWidget({ initialSourceView }: { initialSourceVi
   const [loadingSourcePreview, setLoadingSourcePreview] = useState(false)
   const [visualPaneWidth, setVisualPaneWidth] = useState(42)
   const [busy, setBusy] = useState(false)
+  const [restoreRefreshFailed, setRestoreRefreshFailed] = useState(false)
   const [error, setError] = useState("")
+  useEffect(() => { setRestoreRefreshFailed(false) }, [project?.id])
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null)
   const splitPane = useRef<HTMLDivElement>(null)
 
@@ -378,7 +380,7 @@ export function StrategyWorkbenchWidget({ initialSourceView }: { initialSourceVi
   const moduleDirty = Boolean(project && source !== project.strategy_source)
   const visualDirty = visualDraft.edits.length > 0
   const visualDraftKey = JSON.stringify(visualDraft.edits)
-  const hasUnsavedChanges = Boolean(project?.dirty || moduleDirty || visualDirty)
+  const hasUnsavedChanges = Boolean(project?.dirty || moduleDirty || visualDirty || restoreRefreshFailed)
   const editLocked = moduleDirty
   const needsDefaultMigration = Boolean(
     project?.editable
@@ -493,7 +495,13 @@ export function StrategyWorkbenchWidget({ initialSourceView }: { initialSourceVi
     <Widget headerless className="strategy-workbench-widget">
       <SourceReviewWorkspace initialView={initialSourceView} projectId={project.id} projectName={project.name} strategyId={selectedStrategyId}
         kind="strategy" version={project.current_revision} dirty={hasUnsavedChanges || busy}
-        restore={project.editable ? { blocked: hasUnsavedChanges || busy, refresh: () => sdk.refresh(project.id) } : undefined}>
+        restore={project.editable ? { kind: "strategy", blocked: hasUnsavedChanges || busy,
+          refresh: async () => { await sdk.openProject(project.id) },
+          onRefreshError: (message) => {
+            setRestoreRefreshFailed(true)
+            setError(`恢复已提交，但工作台刷新失败：${message}。刷新前禁止保存或运行预览。`)
+          },
+          onRefreshSuccess: () => { setRestoreRefreshFailed(false); setError("") } } : undefined}>
       <div className="strategy-business-workbench">
         <ProjectStrategies key={project.id} locked={busy || hasUnsavedChanges} onError={setError} onBusy={setBusy} />
         {error ? <div className="workbench-message error strategy-workbench-error">{error}</div> : null}

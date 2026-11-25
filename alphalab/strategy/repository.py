@@ -17,6 +17,7 @@ import pandas as pd
 
 from alphalab.store import ResultStore
 from alphalab.strategy.builtins import DEFAULT_STRATEGY_SOURCE
+from alphalab.strategy.factor_assets import FactorAssets
 from alphalab.strategy.factor_templates import get_factor_template
 from alphalab.strategy.project_strategies import ProjectStrategies
 from alphalab.strategy.sdk_runtime import load_strategy_module, probe_sdk_operation
@@ -51,7 +52,7 @@ def normalize_project_id(value: str) -> str:
     return normalized
 
 
-class StrategyRepository(ProjectStrategies):
+class StrategyRepository(FactorAssets, ProjectStrategies):
     """Own mutable source units, their runtime bundle, and immutable packages."""
 
     def __init__(self, db_path: str | Path | None = None) -> None:
@@ -64,6 +65,7 @@ class StrategyRepository(ProjectStrategies):
         self._conn.execute("PRAGMA busy_timeout = 30000")
         self._lock = threading.RLock()
         self._conn.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
+        self._ensure_factor_asset_schema()
         self._seed_default()
         self._migrate_pipeline_projects()
         self._repair_legacy_factor_migrations()
@@ -73,6 +75,7 @@ class StrategyRepository(ProjectStrategies):
         self._refresh_builtin_default()
         self._ensure_source_units()
         self._ensure_strategies()
+        self._ensure_factor_assets()
 
     def close(self) -> None:
         self._conn.close()
@@ -285,6 +288,7 @@ class StrategyRepository(ProjectStrategies):
                 self._conn.rollback()
                 raise
         self._ensure_strategies()
+        self._initialize_factor_assets(normalized)
         return self.get_project(normalized) or {}
 
     def clone_project(
@@ -297,7 +301,7 @@ class StrategyRepository(ProjectStrategies):
         source = self.get_project(source_id)
         if source is None:
             raise KeyError(source_id)
-        return self.create_project(
+        project = self.create_project(
             target_id,
             name=name or f"{source['name']} 副本",
             description=source["description"],
@@ -305,6 +309,8 @@ class StrategyRepository(ProjectStrategies):
             profile="runtime",
             settings=source["settings"],
         )
+        self._record_clone_origins(normalize_project_id(source_id), target_id)
+        return project
 
     def update_draft(
         self,
@@ -408,6 +414,7 @@ class StrategyRepository(ProjectStrategies):
             strategy,
             factors,
             expected_source_sha256=str(row["draft_source_sha256"]),
+            rename=f"factors/{factor_id}.py",
         )
 
     def delete_factor_source(
@@ -611,10 +618,12 @@ class StrategyRepository(ProjectStrategies):
         factor_sources: list[str],
         *,
         expected_source_sha256: str | None = None,
+        rename: str | None = None,
     ) -> dict[str, Any]:
         return self._commit_all_sources(
             project_id, strategy_source, factor_sources,
             expected_source_sha256=expected_source_sha256,
+            rename=rename,
         )
 
     def _insert_package_units(self, project_id: str, revision: int, bundled_source: str) -> None:

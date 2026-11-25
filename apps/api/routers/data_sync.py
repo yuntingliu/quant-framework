@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
@@ -9,6 +11,7 @@ from alphalab.dataio.errors import DataLoadError, MissingDataError
 from alphalab.dataio.recipes import DataRecipeError
 from alphalab.dataio.rq_templates import DEFAULT_RQ_SYNC_TEMPLATE_ID
 from alphalab.dataio.sync import SyncRequest
+from alphalab.strategy.history import HistoryUnavailableError
 from apps.api.services import data_sync_service
 
 router = APIRouter(prefix="/api/data-sync", tags=["data-sync"])
@@ -29,6 +32,13 @@ class ConnectionTestRequest(BaseModel):
 class RecipeSourceRequest(BaseModel):
     source: str = Field(min_length=1, max_length=300_000)
     expected_source_sha256: str | None = None
+    confirm_write: bool = False
+
+
+class RecipeRestoreRequest(BaseModel):
+    revision: int = Field(ge=1)
+    token: str = Field(min_length=64, max_length=64)
+    request_id: str = Field(min_length=1, max_length=200)
     confirm_write: bool = False
 
 
@@ -92,6 +102,37 @@ def delete_recipe_template(
     if not deleted:
         raise HTTPException(status_code=404, detail="data recipe template not found")
     return {"deleted": True, "id": template_id}
+
+
+@router.get("/recipes/{project_id}/restore-preview")
+def recipe_restore_preview(project_id: str, revision: int = Query(ge=1)) -> dict:
+    try:
+        return data_sync_service.restore_preview(project_id, revision)
+    except HistoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="data recipe revision not found") from exc
+    except (ValueError, DataRecipeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/recipes/{project_id}/restore")
+def restore_recipe(project_id: str, request: RecipeRestoreRequest) -> dict:
+    _confirmed(request.confirm_write, "Restoring Python data recipe source requires confirmation")
+    try:
+        return data_sync_service.restore_recipe(
+            project_id, request.revision, request.token, request.request_id
+        )
+    except HistoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="data recipe revision not found") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=500, detail="data recipe restore failed") from exc
+    except (ValueError, DataRecipeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/recipes/{project_id}")

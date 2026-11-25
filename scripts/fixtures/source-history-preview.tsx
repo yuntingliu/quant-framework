@@ -8,8 +8,10 @@ import { StrategySdkProvider, useStrategySdk } from '/src/contexts/StrategySdkCo
 import { ConfirmProvider } from '/src/hooks/useConfirm'
 import { StrategyWorkbenchWidget } from '/src/widgets/strategy/StrategyWorkbench'
 import { FactorWorkbenchWidget } from '/src/widgets/factors/FactorWorkbench'
-import { SourceHistoryPanel } from '/src/components/shared/SourceHistoryPanel'
+import { DataWorkbenchWidget } from '/src/widgets/data/DataWorkbench'
+import { ValidationWorkbenchWidget } from '/src/widgets/backtest/BacktestWorkbench'
 import '/src/index.css'
+import '/src/styles.css'
 
 const labels = { strategy: '策略', factor: '共享因子', recipe: '数据配方', validation: '回测验证' } as const
 const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -33,9 +35,8 @@ export function Demo() {
     <div className="min-h-0 flex-1 overflow-auto">
       {kind === 'strategy' && sdk.project?.id === 'history-demo' && <StrategyWorkbenchWidget initialSourceView="restore" />}
       {kind === 'factor' && <FactorWorkbenchWidget />}
-      {(kind === 'recipe' || kind === 'validation') && <section className="source-review-workspace"><div className="source-review-content" data-wrap="true">
-          <SourceHistoryPanel projectId="history-demo" projectName="动量策略研究" kind={kind} />
-        </div></section>}
+      {kind === 'recipe' && <DataWorkbenchWidget />}
+      {kind === 'validation' && <ValidationWorkbenchWidget />}
     </div>
   </main>
 }
