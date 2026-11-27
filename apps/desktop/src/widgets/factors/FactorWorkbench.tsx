@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { SourceReviewWorkspace } from "@/components/shared/SourceReviewWorkspace"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Braces, FlaskConical, Library, LineChart, Play, Plus, Save, Search, Trash2 } from "lucide-react"
 
@@ -14,6 +15,7 @@ import { useConfirm } from "@/hooks/useConfirm"
 import { api, type MarketBar, type MarketInstrument } from "@/lib/api"
 import { normalizeMarketSymbol } from "@/lib/marketSymbols"
 import { Widget } from "@/widgets/Widget"
+import { FactorAssetPanel, type FactorAsset } from "./FactorAssetPanel"
 
 interface FieldCatalog {
   profile: "runtime"
@@ -65,6 +67,7 @@ interface FactorResearchResult {
     average_top_turnover: number | null
     bootstrap_mean_ic_95: { lower: number | null; upper: number | null }
     long_short: Record<string, number | null>
+    quantile_returns?: Record<string, number | null>
   }
   stability: {
     split_date: string | null
@@ -82,6 +85,14 @@ interface FactorResearchResult {
     long_short: number
   }>
   warnings: string[]
+  evidence_id?: string
+  factor_revision_id?: number
+  factor_source_sha256?: string
+  sample?: { universe?: string; start_date?: string; end_date?: string }
+  assumptions?: Record<string, unknown>
+  parameters?: Record<string, unknown>
+  data_manifest?: { status: string; reason?: string }
+  decay?: Record<string, { mean_rank_ic: number | null; observations?: number }>
 }
 
 interface FactorTemplate {
@@ -349,6 +360,15 @@ function FactorResultPanels({ snapshot, history, research }: {
             <div><span>开发期 IC</span><strong>{displayValue(research.stability.development.mean_rank_ic)}</strong></div>
             <div><span>验证期 IC</span><strong>{displayValue(research.stability.validation.mean_rank_ic)}</strong></div>
           </div>
+          {research.evidence_id ? <div className="factor-research-provenance">
+            <span>因子修订 r{research.factor_revision_id} · 证据 {research.evidence_id.slice(0, 8)}</span>
+            <span>{research.sample?.start_date} → {research.sample?.end_date} · {research.sample?.universe}</span>
+            <span>数据清单：不可用（#15 未实现）；结论不代表投资有效。</span>
+            {research.parameters ? <span>参数：{JSON.stringify(research.parameters)}</span> : null}
+            {research.assumptions ? <span>假设：{Object.entries(research.assumptions).map(([key, value]) => `${key}=${String(value)}`).join(" · ")}</span> : null}
+          </div> : null}
+          {research.decay && Object.keys(research.decay).length ? <div className="analytics-table-wrap mt-3"><table className="analytics-table compact"><thead><tr><th>持有期</th><th>平均 Rank IC</th><th>观测</th></tr></thead><tbody>{Object.entries(research.decay).map(([horizon, row]) => <tr key={horizon}><td>{horizon}</td><td>{displayValue(row.mean_rank_ic)}</td><td>{row.observations ?? "—"}</td></tr>)}</tbody></table></div> : null}
+          {research.summary.quantile_returns && Object.keys(research.summary.quantile_returns).length ? <div className="analytics-table-wrap mt-3"><table className="analytics-table compact"><thead><tr><th>分组</th><th>平均收益</th></tr></thead><tbody>{Object.entries(research.summary.quantile_returns).map(([bucket, value]) => <tr key={bucket}><td>Q{bucket}</td><td>{typeof value === "number" ? `${(value * 100).toFixed(2)}%` : "—"}</td></tr>)}</tbody></table></div> : null}
           <div className="analytics-table-wrap mt-3"><table className="analytics-table compact"><thead><tr><th>信号日</th><th>入场/退出</th><th>覆盖</th><th>Rank IC</th><th>多空收益</th></tr></thead><tbody>{research.rows.slice(-12).reverse().map((row) => <tr key={row.signal_date}><td>{row.signal_date}</td><td>{row.entry_date} → {row.exit_date}</td><td>{(row.coverage * 100).toFixed(1)}%（n={row.observations}）</td><td>{displayValue(row.rank_ic)}</td><td>{(row.long_short * 100).toFixed(2)}%</td></tr>)}</tbody></table></div>
         </div>
       </section> : null}
@@ -370,10 +390,14 @@ export function FactorWorkbenchWidget() {
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [busy, setBusy] = useState(false)
+  const [restoreRefreshFailed, setRestoreRefreshFailed] = useState(false)
   const [error, setError] = useState("")
+  useEffect(() => { setRestoreRefreshFailed(false) }, [project?.id])
   const [snapshot, setSnapshot] = useState<FactorSnapshotResult | null>(null)
   const [history, setHistory] = useState<FactorHistoryResult | null>(null)
   const [research, setResearch] = useState<FactorResearchResult | null>(null)
+  const [factorAssets, setFactorAssets] = useState<FactorAsset[]>([])
+  const [evidenceVersion, setEvidenceVersion] = useState(0)
   const [templateQuery, setTemplateQuery] = useState("")
   const [templateCategory, setTemplateCategory] = useState<"all" | "technical" | "fundamental">("all")
   const [installingTemplate, setInstallingTemplate] = useState("")
@@ -386,6 +410,26 @@ export function FactorWorkbenchWidget() {
   const factorSourceUrl = sdk.strategyUrl(`/entrypoints/${encodeURIComponent(activeFactorId)}/source`)
   const factorDirty = Boolean(activeFactor && factorSource !== savedFactorSource)
   const localDirty = factorDirty
+  const assetsSequence = useRef(0)
+  const reloadAssets = useCallback(async () => {
+    const sequence = ++assetsSequence.current
+    if (!projectId) {
+      setFactorAssets([])
+      return
+    }
+    const result = await api.get<{ items: FactorAsset[] }>(`/strategy/projects/${projectId}/factor-assets`)
+    if (sequence === assetsSequence.current) setFactorAssets(result.items)
+  }, [projectId])
+  useEffect(() => {
+    void reloadAssets().catch((reason: Error) => setError(reason.message))
+  }, [reloadAssets, projectHash])
+
+  async function handleCopied(factorId: string) {
+    await sdk.openProject(projectId)
+    setSelectedFactor(factorId)
+    await reloadAssets()
+  }
+
   const templatesQuery = useQuery({
     queryKey: ["sdk-factor-templates"],
     queryFn: () => api.get<FactorTemplateCatalog>("/strategy/factor-templates"),
@@ -426,6 +470,13 @@ export function FactorWorkbenchWidget() {
     return () => { current = false }
   }, [activeFactorId, projectHash, projectId, factorSourceUrl])
   useEffect(() => { if (activeFactor && activeFactor.id !== selectedFactor) setSelectedFactor(activeFactor.id) }, [activeFactor, selectedFactor])
+  useEffect(() => {
+    const stored = sessionStorage.getItem("alphalab:factor-evidence-intent")
+    if (!stored) return
+    const detail = JSON.parse(stored) as { projectId: string; factorPath?: string }
+    if (detail.projectId !== projectId || !detail.factorPath) return
+    setSelectedFactor(detail.factorPath.replace(/^factors\//, "").replace(/\.py$/, ""))
+  }, [projectId])
 
   function insertAtFactorCursor(text: string) {
     if (!activeFactor) return
@@ -557,10 +608,18 @@ export function FactorWorkbenchWidget() {
     setBusy(true); setError("")
     try {
       const endpoint = sdk.strategyUrl(`/factors/${activeFactor.id}/${mode}`)
-      if (mode === "research") setResearch(await api.post<FactorResearchResult>(endpoint, {
-        profile: project.profile, start_date: startDate, end_date: endDate, revision: project.current_revision,
-        frequency: "monthly", quantiles: 5, horizons: [1, 3, 6], parameters: {}, confirm_python_execution: true,
-      }))
+      if (mode === "research") {
+        const result = await api.post<FactorResearchResult>(endpoint, {
+          profile: project.profile, start_date: startDate, end_date: endDate, revision: project.current_revision,
+          frequency: "monthly", quantiles: 5, horizons: [1, 3, 6],
+          parameters: Object.fromEntries(activeFactor.parameters.map(parameter => [parameter.name, parameter.default])),
+          factor_revision_id: factorAssets.find(item => item.factor_id === activeFactor.id && item.current_revision_id !== null && item.package_revision === project.current_revision)?.current_revision_id ?? undefined,
+          confirm_python_execution: true,
+        })
+        setResearch(result)
+        setEvidenceVersion(value => value + 1)
+        await reloadAssets()
+      }
       else if (mode === "history") setHistory(await api.post<FactorHistoryResult>(endpoint, {
         profile: project.profile, start_date: startDate, end_date: endDate, revision: project.current_revision,
         frequency: "monthly", parameters: {}, confirm_python_execution: true,
@@ -574,9 +633,19 @@ export function FactorWorkbenchWidget() {
   }
 
   if (!project) return <Widget title="因子研究" loading={sdk.loading} error={sdk.error}><span /></Widget>
-  const hasUnsavedChanges = project.dirty || localDirty
+  const hasUnsavedChanges = project.dirty || localDirty || restoreRefreshFailed
   return (
     <Widget headerless>
+      <SourceReviewWorkspace projectId={project.id} projectName={project.name} strategyId={project.strategy_id}
+        kind="strategy" version={project.draft_source_sha256} dirty={hasUnsavedChanges || busy}
+        restore={project.editable && activeFactor ? { kind: "factor", factor: activeFactor.id,
+          refresh: async () => { await sdk.openProject(project.id) },
+          blocked: hasUnsavedChanges || busy || loadingFactorSource || Boolean(installingTemplate),
+          onRefreshError: (message) => {
+            setRestoreRefreshFailed(true)
+            setError(`恢复已提交，但工作台刷新失败：${message}。刷新前禁止保存或运行检验。`)
+          },
+          onRefreshSuccess: () => { setRestoreRefreshFailed(false); setError("") } } : undefined}>
       <div className="factor-workbench-shell">
         <FactorMarketBrowser fields={fields} />
         <Tabs className="factor-workbench-tabs" value={workspaceView} onValueChange={(value) => setWorkspaceView(value as "build" | "results")}>
@@ -594,7 +663,11 @@ export function FactorWorkbenchWidget() {
               <div className="factor-template-controls"><label><Search size={12} /><input value={templateQuery} onChange={(event) => setTemplateQuery(event.target.value)} placeholder={`搜索 ${templatesQuery.data?.templates.length ?? 0} 个默认因子`} /></label><div>{(["all", "technical", "fundamental"] as const).map((category) => <button type="button" key={category} className={templateCategory === category ? "active" : ""} onClick={() => setTemplateCategory(category)}>{category === "all" ? "全部" : category === "technical" ? "技术" : "基本面"}</button>)}</div></div>
               <div className="factor-panel-scroll">
                 <div className="factor-section-heading"><span>项目因子</span><strong>{factors.length}</strong></div>
-                <div className="factor-project-list">{factors.map((factor) => <button type="button" key={factor.id} className={activeFactor?.id === factor.id ? "active" : ""} onClick={() => selectProjectFactor(factor.id)}><span><strong>{factor.id}</strong><small>{factor.label ? `${factor.label} · ` : ""}{factor.function}</small></span></button>)}</div>
+                <div className="factor-project-list">{factors.map((factor) => {
+                  const asset = factorAssets.find(item => item.factor_id === factor.id && item.current_revision_id !== null)
+                  const status = asset ? { candidate: "候选", observation: "观察", adopted: "采用", retired: "退役" }[asset.status] : null
+                  return <button type="button" key={factor.id} className={activeFactor?.id === factor.id ? "active" : ""} onClick={() => selectProjectFactor(factor.id)}><span><strong>{factor.id}</strong><small>{factor.label ? `${factor.label} · ` : ""}{factor.function}</small></span>{status ? <Badge variant="outline">{status}</Badge> : null}</button>
+                })}</div>
                 <div className="factor-section-heading mt-4"><span>默认因子库</span><strong>{templates.length}</strong></div>
                 {templatesQuery.isLoading ? <div className="analytics-empty">正在读取因子模板…</div> : null}
                 {templatesQuery.error instanceof Error ? <div className="workbench-message error">{templatesQuery.error.message}</div> : null}
@@ -620,6 +693,9 @@ export function FactorWorkbenchWidget() {
                 onSave={(nextSource) => saveActiveFactor(nextSource)}
               /> : <div className="analytics-empty">当前模块没有 @factor</div>}</div>
             </section>
+            {activeFactor ? <FactorAssetPanel projectId={project.id} factorId={activeFactor.id} assets={factorAssets}
+              editable={project.editable} blocked={hasUnsavedChanges || busy} evidenceVersion={evidenceVersion}
+              reloadAssets={reloadAssets} onCopied={handleCopied} /> : null}
           </div></TabsContent>
 
           <TabsContent className="factor-workbench-content" value="results"><div className="factor-final-validation">
@@ -628,6 +704,7 @@ export function FactorWorkbenchWidget() {
           </div></TabsContent>
         </Tabs>
       </div>
+      </SourceReviewWorkspace>
     </Widget>
   )
 }

@@ -33,6 +33,27 @@ class ValidationRepository:
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.RLock()
         self._conn.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
+        self._ensure_restore_schema()
+
+    def _ensure_restore_schema(self) -> None:
+        columns = {
+            row["name"] for row in self._conn.execute("PRAGMA table_info(validation_source_packages)")
+        }
+        for name, kind in (
+            ("restored_from", "INTEGER"),
+            ("previous_revision", "INTEGER"),
+            ("request_id", "TEXT"),
+            ("preview_token", "TEXT"),
+        ):
+            if name not in columns:
+                self._conn.execute(
+                    f"ALTER TABLE validation_source_packages ADD COLUMN {name} {kind}"
+                )
+        self._conn.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS idx_validation_restore_request
+               ON validation_source_packages(project_id, request_id) WHERE request_id IS NOT NULL"""
+        )
+        self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()
@@ -150,31 +171,44 @@ class ValidationRepository:
         if expected_source_sha256 and current["source_sha256"] != expected_source_sha256:
             raise RuntimeError("validation source changed since it was inspected")
         inspection = inspect_validation_source(source)
-        if inspection.source_sha256 == current["source_sha256"]:
-            return current
-        revision = int(current["current_revision"]) + 1
-        with self._lock:
-            self._conn.execute(
-                """INSERT INTO validation_source_packages
-                   (project_id, revision, source, source_sha256, inspection_json)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (
-                    normalized,
-                    revision,
-                    source,
-                    inspection.source_sha256,
-                    json.dumps(inspection.to_dict(), sort_keys=True),
-                ),
-            )
-            self._conn.execute(
-                """UPDATE validation_sources
-                   SET source = ?, source_sha256 = ?, current_revision = ?,
-                       updated_at = datetime('now')
-                   WHERE project_id = ?""",
-                (source, inspection.source_sha256, revision, normalized),
-            )
-            self._conn.commit()
+        with self._lock, self._conn:
+            self._conn.execute("BEGIN IMMEDIATE")
+            locked = self._conn.execute(
+                "SELECT * FROM validation_sources WHERE project_id = ?", (normalized,)
+            ).fetchone()
+            if locked is None:
+                raise KeyError(normalized)
+            if expected_source_sha256 and locked["source_sha256"] != expected_source_sha256:
+                raise RuntimeError("validation source changed since it was inspected")
+            if inspection.source_sha256 != locked["source_sha256"]:
+                revision = int(locked["current_revision"]) + 1
+                self._conn.execute(
+                    """INSERT INTO validation_source_packages
+                       (project_id, revision, source, source_sha256, inspection_json)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        normalized,
+                        revision,
+                        source,
+                        inspection.source_sha256,
+                        json.dumps(inspection.to_dict(), sort_keys=True),
+                    ),
+                )
+                self._conn.execute(
+                    """UPDATE validation_sources
+                       SET source = ?, source_sha256 = ?, current_revision = ?,
+                           updated_at = datetime('now')
+                       WHERE project_id = ?""",
+                    (source, inspection.source_sha256, revision, normalized),
+                )
         return self.get_or_create(normalized)
+
+    def restore_source(
+        self, project_id: str, revision: int, token: str, request_id: str
+    ) -> dict[str, Any]:
+        from alphalab.validation.restore import restore
+
+        return restore(self, normalize_project_id(project_id), revision, token, request_id)
 
     def update_parameters(
         self,

@@ -92,6 +92,28 @@
               "type": "string",
               "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,199}$"
             },
+            "projectId": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 64
+            },
+            "references": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind"],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["strategy_package", "validation_package", "factor_evidence", "recipe_revision", "backtest", "data_manifest", "experiment", "trial"]
+                  },
+                  "id": {"type": "string", "maxLength": 200},
+                  "revision": {"type": "integer", "minimum": 1}
+                }
+              }
+            },
             "requestId": {
               "type": "string",
               "minLength": 1,

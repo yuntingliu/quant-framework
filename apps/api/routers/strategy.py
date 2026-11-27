@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 from datetime import date
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from alphalab.dataio import MissingDataError
+from alphalab.strategy.history import HistoryUnavailableError, SourceHistory
 from alphalab.strategy.sdk_runtime import SdkRuntimeError
 from alphalab.strategy.source import StrategySourceError
+from alphalab.utils.paths import RUNTIME_APP_DIR
 from apps.api.services import strategy_service
 from apps.api.services.data_service import _profile_range, research_dataset_schema
 
@@ -141,6 +144,24 @@ class AddFactorSourceRequest(BaseModel):
     confirm_python_execution: bool
 
 
+class FactorCopyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_factor_id: str = Field(min_length=1, max_length=64)
+    expected_source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    confirm_write: bool
+    confirm_python_execution: bool
+
+
+class FactorStatusTransitionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    to_status: Literal["candidate", "observation", "adopted", "retired"]
+    reason: str = Field(min_length=1, max_length=2000)
+    expected_status_revision: int = Field(ge=1)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=50)
+    request_id: str = Field(min_length=1, max_length=200)
+    confirm_write: bool
+
+
 class StructuredEditItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
     operation: Literal["parameter", "schedule", "factor_blend"]
@@ -249,6 +270,7 @@ class FactorHistoryRequest(BaseModel):
 
 
 class FactorResearchRequest(FactorHistoryRequest):
+    factor_revision_id: int | None = Field(default=None, ge=1)
     quantiles: int = Field(default=5, ge=3, le=10)
     horizons: list[int] = Field(default_factory=lambda: [1, 3, 6], min_length=1, max_length=12)
 
@@ -646,6 +668,89 @@ def history(project_id: str, factor_id: str, request: FactorHistoryRequest, stra
         raise _translate_error(exc) from exc
 
 
+@router.get("/projects/{project_id}/factor-assets")
+def factor_assets(project_id: str, strategy_id: str = "main") -> dict[str, Any]:
+    try:
+        return strategy_service.list_factor_assets(project_id, strategy_id=strategy_id)
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.get("/projects/{project_id}/factor-assets/{asset_id}")
+def factor_asset_detail(project_id: str, asset_id: str, strategy_id: str = "main") -> dict[str, Any]:
+    try:
+        return strategy_service.get_factor_asset(project_id, asset_id, strategy_id=strategy_id)
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/factors/{factor_id}/copy", status_code=201)
+def copy_factor(project_id: str, factor_id: str, request: FactorCopyRequest, strategy_id: str = "main") -> dict[str, Any]:
+    _confirmed(request.confirm_write, "factor copy requires confirmation")
+    _confirmed(request.confirm_python_execution, "factor copy validates trusted local Python")
+    try:
+        return strategy_service.copy_factor(
+            project_id,
+            factor_id,
+            request.new_factor_id,
+            expected_source_sha256=request.expected_source_sha256,
+            strategy_id=strategy_id,
+        )
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/factor-assets/{asset_id}/transitions")
+def transition_factor_asset(
+    project_id: str,
+    asset_id: str,
+    request: FactorStatusTransitionRequest,
+    strategy_id: str = "main",
+) -> dict[str, Any]:
+    _confirmed(request.confirm_write, "factor status transition requires confirmation")
+    try:
+        return strategy_service.transition_factor_asset(
+            project_id,
+            asset_id,
+            request.to_status,
+            reason=request.reason,
+            expected_status_revision=request.expected_status_revision,
+            evidence_ids=request.evidence_ids,
+            request_id=request.request_id,
+            strategy_id=strategy_id,
+        )
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.get("/projects/{project_id}/factor-assets/{asset_id}/evidence")
+def factor_evidence_page(
+    project_id: str,
+    asset_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    before: str | None = None,
+    strategy_id: str = "main",
+) -> dict[str, Any]:
+    try:
+        return strategy_service.list_factor_evidence(
+            project_id,
+            asset_id,
+            limit=limit,
+            before=before,
+            strategy_id=strategy_id,
+        )
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.get("/projects/{project_id}/factor-evidence/{evidence_id}")
+def factor_evidence_detail(project_id: str, evidence_id: str, strategy_id: str = "main") -> dict[str, Any]:
+    try:
+        return strategy_service.get_factor_evidence(project_id, evidence_id, strategy_id=strategy_id)
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+
+
 @router.post("/projects/{project_id}/factors/{factor_id}/research")
 def research(project_id: str, factor_id: str, request: FactorResearchRequest, strategy_id: str = "main") -> dict[str, Any]:
     _confirmed(request.confirm_python_execution, "factor research executes trusted local Python")
@@ -661,6 +766,7 @@ def research(project_id: str, factor_id: str, request: FactorResearchRequest, st
             frequency=request.frequency,
             quantiles=request.quantiles,
             horizons=request.horizons,
+            factor_revision_id=request.factor_revision_id,
             strategy_id=strategy_id,
         )
     except Exception as exc:
@@ -681,3 +787,122 @@ def remove_project(project_id: str, confirm_delete: bool = False) -> Response:
 
 
 __all__ = ["router"]
+
+
+def source_history(kind: Literal["strategy", "validation", "recipe"] = "strategy") -> SourceHistory:
+    filename = "dataio.db" if kind == "recipe" else "alphalab.db"
+    return SourceHistory(RUNTIME_APP_DIR / filename, kind)
+
+
+class SourceRestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=1)
+    token: str = Field(pattern="^[a-f0-9]{64}$")
+    request_id: str = Field(min_length=1, max_length=100)
+    confirm_write: bool
+    confirm_python_execution: bool
+
+
+class FactorRestoreRequest(SourceRestoreRequest):
+    """Keep the existing factor endpoint's OpenAPI model name."""
+
+
+@router.get("/projects/{project_id}/factors/{factor_id}/revisions")
+def factor_revisions(project_id: str, factor_id: str, strategy_id: str = "main", before: int | None = Query(None, ge=1)):
+    try:
+        return source_history().factor_revisions(project_id, strategy_id, factor_id, before)
+    except HistoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.get("/projects/{project_id}/factors/{factor_id}/restore-preview")
+def factor_restore_preview(project_id: str, factor_id: str, revision: int = Query(ge=1), strategy_id: str = "main"):
+    try:
+        return source_history().factor_restore_preview(project_id, strategy_id, factor_id, revision)
+    except HistoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/factors/{factor_id}/restore")
+def restore_factor(project_id: str, factor_id: str, request: FactorRestoreRequest, strategy_id: str = "main"):
+    _confirmed(request.confirm_write, "restoring source requires confirmation")
+    _confirmed(request.confirm_python_execution, "validating a restore executes trusted local Python")
+    repo = strategy_service.repository()
+    try:
+        return repo.select_strategy(strategy_id).restore_factor(
+            project_id, factor_id, request.revision, request.token, request.request_id)
+    except sqlite3.DatabaseError as exc:
+        raise HTTPException(status_code=500, detail="factor restore could not be saved") from exc
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+    finally:
+        repo.close()
+
+
+@router.get("/projects/{project_id}/strategy-module/revisions")
+def module_revisions(project_id: str, strategy_id: str, before: int | None = Query(None, ge=1)):
+    try:
+        return source_history().module_revisions(project_id, strategy_id, before)
+    except HistoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.get("/projects/{project_id}/strategy-module/restore-preview")
+def module_restore_preview(project_id: str, strategy_id: str, revision: int = Query(ge=1)):
+    try:
+        return source_history().module_restore_preview(project_id, strategy_id, revision)
+    except HistoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/strategy-module/restore")
+def restore_module(project_id: str, strategy_id: str, request: SourceRestoreRequest):
+    _confirmed(request.confirm_write, "restoring source requires confirmation")
+    _confirmed(request.confirm_python_execution, "validating a restore executes trusted local Python")
+    repo = strategy_service.repository()
+    try:
+        return repo.select_strategy(strategy_id).restore_strategy_module(
+            project_id, request.revision, request.token, request.request_id)
+    except sqlite3.DatabaseError as exc:
+        raise HTTPException(status_code=500, detail="strategy restore could not be saved") from exc
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+    finally:
+        repo.close()
+
+
+@router.get("/projects/{project_id}/source-history")
+def source_history_list(
+    project_id: str, strategy_id: str = "main",
+    kind: Literal["strategy", "validation", "recipe"] = "strategy",
+    limit: int = Query(default=20, ge=1, le=100),
+    before: int | None = Query(default=None, ge=1),
+):
+    try:
+        return source_history(kind).list(project_id, strategy_id, limit=limit, before=before)
+    except HistoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.get("/projects/{project_id}/source-comparison")
+def source_history_comparison(
+    project_id: str, from_revision: int = Query(ge=1), to_revision: int = Query(ge=1),
+    strategy_id: str = "main",
+    kind: Literal["strategy", "validation", "recipe"] = "strategy",
+):
+    try:
+        return source_history(kind).compare(project_id, strategy_id, from_revision, to_revision)
+    except HistoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise _translate_error(exc) from exc

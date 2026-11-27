@@ -120,6 +120,7 @@ export function strategyApiPath(projectId: string, strategyId = "main", suffix =
 
 export function StrategySdkProvider({ children }: { children: ReactNode }) {
   const strategySelection = useRef<Record<string, string>>({})
+  const openProjectSequence = useRef(0)
   const {
     selectedStrategy,
     setSelectedStrategy,
@@ -148,16 +149,19 @@ export function StrategySdkProvider({ children }: { children: ReactNode }) {
   }, [setSelectedStrategy, setSelectedStrategyEditable, setSelectedStrategyRevision])
 
   const openProject = useCallback(async (projectId: string, strategyId?: string) => {
+    const sequence = ++openProjectSequence.current
     setLoading(true)
     setError("")
     try {
-      return adopt(await api.get<StrategyProject>(strategyApiPath(projectId, strategyId ?? strategySelection.current[projectId])))
+      const value = await api.get<StrategyProject>(strategyApiPath(projectId, strategyId ?? strategySelection.current[projectId]))
+      // A late response from a previous project must not replace the current one.
+      return sequence === openProjectSequence.current ? adopt(value) : value
     } catch (reason) {
       // Failed navigation must not replace the still-valid current workbench.
-      if (!project) setError(reason instanceof Error ? reason.message : String(reason))
+      if (sequence === openProjectSequence.current && !project) setError(reason instanceof Error ? reason.message : String(reason))
       throw reason
     } finally {
-      setLoading(false)
+      if (sequence === openProjectSequence.current) setLoading(false)
     }
   }, [adopt, project])
 

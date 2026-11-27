@@ -105,6 +105,20 @@ CREATE TABLE IF NOT EXISTS data_recipe_drafts (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS data_recipe_history (
+    project_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    selected_template_id TEXT,
+    created_at TEXT NOT NULL,
+    origin TEXT NOT NULL CHECK(origin IN ('migration_baseline', 'save')),
+    restored_from INTEGER,
+    previous_revision INTEGER,
+    request_id TEXT,
+    preview_token TEXT,
+    PRIMARY KEY (project_id, revision)
+);
 CREATE TABLE IF NOT EXISTS data_recipe_templates (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -199,6 +213,36 @@ class OperationsStore:
                 connection.execute(
                     "ALTER TABLE data_recipe_drafts ADD COLUMN selected_template_id TEXT"
                 )
+            history_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(data_recipe_history)")
+            }
+            for name, kind in (
+                ("restored_from", "INTEGER"),
+                ("previous_revision", "INTEGER"),
+                ("request_id", "TEXT"),
+                ("preview_token", "TEXT"),
+            ):
+                if name not in history_columns:
+                    connection.execute(
+                        f"ALTER TABLE data_recipe_history ADD COLUMN {name} {kind}"
+                    )
+            connection.execute(
+                """CREATE UNIQUE INDEX IF NOT EXISTS idx_recipe_restore_request
+                   ON data_recipe_history(project_id, request_id) WHERE request_id IS NOT NULL"""
+            )
+
+            # Preserve only the draft that actually exists at migration time. Never
+            # invent older edit history or label this as acquisition provenance.
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """INSERT INTO data_recipe_history
+                   (project_id, revision, source, source_sha256, selected_template_id, created_at, origin)
+                   SELECT d.project_id, 1, d.source, d.source_sha256, d.selected_template_id, ?, 'migration_baseline'
+                   FROM data_recipe_drafts d
+                   WHERE NOT EXISTS (SELECT 1 FROM data_recipe_history h WHERE h.project_id=d.project_id)""",
+                (_now(),),
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self.path), timeout=30)
@@ -488,6 +532,7 @@ class OperationsStore:
         digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
         now = _now()
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             current = connection.execute(
                 "SELECT source_sha256, selected_template_id "
                 "FROM data_recipe_drafts WHERE project_id=?",
@@ -503,6 +548,18 @@ class OperationsStore:
                 selected = current["selected_template_id"] if current is not None else None
             else:
                 selected = str(selected_template_id).strip() if selected_template_id else None
+            latest = connection.execute(
+                "SELECT source_sha256, selected_template_id FROM data_recipe_history "
+                "WHERE project_id=? ORDER BY revision DESC LIMIT 1", (project,),
+            ).fetchone()
+            if latest is None or latest["source_sha256"] != digest or latest["selected_template_id"] != selected:
+                connection.execute(
+                    """INSERT INTO data_recipe_history
+                       (project_id, revision, source, source_sha256, selected_template_id, created_at, origin)
+                       VALUES (?, (SELECT COALESCE(MAX(revision), 0)+1 FROM data_recipe_history WHERE project_id=?),
+                               ?, ?, ?, ?, 'save')""",
+                    (project, project, source, digest, selected, now),
+                )
             connection.execute(
                 """INSERT INTO data_recipe_drafts
                    (project_id, source, source_sha256, selected_template_id, created_at, updated_at)
@@ -517,6 +574,22 @@ class OperationsStore:
         result = self.get_recipe_draft(project)
         assert result is not None
         return result
+
+    def get_latest_recipe_history(self, project_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT revision, restored_from, selected_template_id FROM data_recipe_history
+                   WHERE project_id=? ORDER BY revision DESC LIMIT 1""",
+                (str(project_id),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def restore_recipe_revision(
+        self, project_id: str, revision: int, token: str, request_id: str
+    ) -> dict[str, Any]:
+        from alphalab.dataio.recipe_restore import restore
+
+        return restore(self, str(project_id), revision, token, request_id)
 
     def delete_recipe_draft(self, project_id: str) -> bool:
         with self._connect() as connection:

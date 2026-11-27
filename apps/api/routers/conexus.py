@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from apps.api.services import agent_run_service
+from apps.api.services import agent_run_service, report_reference_service
 from apps.api.services.agent_conversation_service import (
     MAX_CONVERSATION_BYTES,
 )
@@ -37,6 +37,23 @@ class PrepareOutputsRequest(BaseModel):
 @router.post("/outputs/prepare")
 def prepare_outputs(request: PrepareOutputsRequest) -> dict[str, Any]:
     return prepare_workspace_outputs(request.request_id, request.outputs)
+
+
+@router.post("/reports/validate-references")
+def validate_report_references(request: ReportReferencesRequest) -> dict[str, Any]:
+    try:
+        return report_reference_service.store().validate(request.project_id, request.references)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="strategy project not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+class ReportReferencesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str = Field(min_length=2, max_length=64)
+    references: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+
 
 class RunConversationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")

@@ -247,7 +247,11 @@ def test_harness_outputs_allow_explicit_strategy_focus():
     assert "workspaceDocument" not in outputs
     document_result = outputs["workspaceResult"]["oneOf"][1]
     assert "reportId" in document_result["required"]
-    assert "projectId" not in document_result["properties"]
+    assert "projectId" in document_result["properties"]
+    assert "references" in document_result["properties"]
+    prompt = _load(BUNDLE / "agents/AlphaLab-Research-Agent.agent.json")["systemPrompt"]
+    assert "projectId、references" in prompt
+    assert "不得虚构清单 ID" in prompt
     commands = outputs["workspaceCommands"]
     assert commands["required"] == ["version", "requestId", "commands"]
     properties = commands["properties"]["commands"]["items"]["properties"]

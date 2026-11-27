@@ -103,6 +103,23 @@ CREATE TABLE IF NOT EXISTS project_strategy_packages (
     FOREIGN KEY(project_id, revision) REFERENCES strategy_source_packages(project_id, revision) ON DELETE CASCADE
 ) WITHOUT ROWID;
 
+-- A strategy module revision points at its frozen strategy.py inside a package.
+CREATE TABLE IF NOT EXISTS strategy_module_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    strategy_id TEXT NOT NULL,
+    package_revision INTEGER NOT NULL,
+    restored_from INTEGER,
+    previous_package INTEGER,
+    request_id TEXT,
+    preview_token TEXT,
+    UNIQUE(project_id, strategy_id, request_id),
+    FOREIGN KEY(project_id,strategy_id,package_revision)
+        REFERENCES project_strategy_packages(project_id,strategy_id,revision) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_strategy_module_revisions_owner
+    ON strategy_module_revisions(project_id,strategy_id,id);
+
 -- Project-owned validation.py. The mutable row is the current editor model;
 -- packages are immutable run inputs pinned alongside strategy packages.
 CREATE TABLE IF NOT EXISTS validation_sources (
@@ -120,6 +137,10 @@ CREATE TABLE IF NOT EXISTS validation_source_packages (
     source TEXT NOT NULL,
     source_sha256 TEXT NOT NULL,
     inspection_json TEXT NOT NULL,
+    restored_from INTEGER,
+    previous_revision INTEGER,
+    request_id TEXT,
+    preview_token TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     PRIMARY KEY(project_id, revision)
 ) WITHOUT ROWID;
@@ -139,6 +160,106 @@ CREATE TABLE IF NOT EXISTS strategy_source_units (
 
 CREATE INDEX IF NOT EXISTS idx_strategy_source_units_kind
     ON strategy_source_units(project_id, kind, position);
+
+-- Factor edit revisions reference frozen units in the main strategy package.
+-- A NULL package ends a path's lifetime (including renames).
+CREATE TABLE IF NOT EXISTS factor_source_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL REFERENCES strategy_projects(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    package_revision INTEGER,
+    restored_from INTEGER,
+    request_id TEXT,
+    preview_token TEXT,
+    strategy_id TEXT,
+    affected_json TEXT,
+    asset_id TEXT REFERENCES factor_assets(id),
+    UNIQUE(project_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS idx_factor_source_revisions_path
+    ON factor_source_revisions(project_id, path, id);
+
+-- Stable research identity survives public-ID renames. A NULL current revision
+-- retains a deleted lifetime without making its path available to that asset.
+CREATE TABLE IF NOT EXISTS factor_assets (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES strategy_projects(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    current_revision_id INTEGER REFERENCES factor_source_revisions(id),
+    status TEXT NOT NULL DEFAULT 'candidate'
+        CHECK(status IN ('candidate', 'observation', 'adopted', 'retired')),
+    status_revision INTEGER NOT NULL DEFAULT 1,
+    copied_from_asset_id TEXT REFERENCES factor_assets(id),
+    copied_from_revision_id INTEGER REFERENCES factor_source_revisions(id),
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_factor_assets_active_path
+    ON factor_assets(project_id, path) WHERE current_revision_id IS NOT NULL;
+-- Results are stored only after the canonical research evaluator returns. The
+-- request and frozen package metadata are kept alongside the complete result.
+CREATE TABLE IF NOT EXISTS factor_evidence (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES strategy_projects(id) ON DELETE CASCADE,
+    asset_id TEXT NOT NULL REFERENCES factor_assets(id) ON DELETE CASCADE,
+    factor_revision_id INTEGER NOT NULL REFERENCES factor_source_revisions(id),
+    factor_unit_sha256 TEXT NOT NULL,
+    strategy_id TEXT NOT NULL,
+    package_revision INTEGER NOT NULL,
+    package_sha256 TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    sample_json TEXT NOT NULL,
+    assumptions_json TEXT NOT NULL,
+    data_requirements_json TEXT NOT NULL,
+    data_manifest_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_factor_evidence_asset
+    ON factor_evidence(project_id, asset_id, created_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS factor_status_transitions (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES strategy_projects(id) ON DELETE CASCADE,
+    asset_id TEXT NOT NULL REFERENCES factor_assets(id) ON DELETE CASCADE,
+    from_status TEXT NOT NULL,
+    to_status TEXT NOT NULL,
+    factor_revision_id INTEGER NOT NULL REFERENCES factor_source_revisions(id),
+    reason TEXT NOT NULL,
+    origin TEXT NOT NULL CHECK(origin IN ('user', 'system_definition_reset')),
+    expected_status_revision INTEGER,
+    request_id TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_factor_transition_request
+    ON factor_status_transitions(asset_id, request_id) WHERE request_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_factor_transition_asset
+    ON factor_status_transitions(asset_id, created_at, id);
+
+CREATE TABLE IF NOT EXISTS factor_status_transition_evidence (
+    transition_id TEXT NOT NULL REFERENCES factor_status_transitions(id) ON DELETE CASCADE,
+    evidence_id TEXT NOT NULL REFERENCES factor_evidence(id),
+    PRIMARY KEY (transition_id, evidence_id)
+) WITHOUT ROWID;
+
+-- Report publication reservations protect referenced evidence without storing report bodies.
+CREATE TABLE IF NOT EXISTS report_reference_reservations (
+    id TEXT PRIMARY KEY,
+    report_id TEXT NOT NULL,
+    request_id TEXT,
+    reference_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('reserved', 'confirmed')),
+    created_at TEXT DEFAULT (datetime('now')),
+    confirmed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_report_reference_reservations_report
+    ON report_reference_reservations(report_id, status);
+
+-- Detect edits even if every strategy returns to the same deduplicated package.
+CREATE TABLE IF NOT EXISTS project_source_generation (
+    project_id TEXT PRIMARY KEY REFERENCES strategy_projects(id) ON DELETE CASCADE,
+    generation INTEGER NOT NULL
+) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS strategy_source_package_units (
     project_id TEXT NOT NULL,

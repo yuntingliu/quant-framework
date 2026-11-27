@@ -30,6 +30,7 @@ from alphalab.strategy.engine import (
     preview_strategy,
     run_strategy_backtest,
 )
+from alphalab.strategy.factor_readers import FactorAssetReader
 from alphalab.strategy.factor_templates import (
     get_factor_template,
     install_factor_template,
@@ -58,6 +59,7 @@ from alphalab.strategy.source import (
     update_signal_factor_blend,
     update_signal_schedule,
 )
+from alphalab.utils.paths import RUNTIME_APP_DIR
 from alphalab.validation.repository import ValidationRepository
 from alphalab.validation.runtime import execute_validation
 from alphalab.validation.source import (
@@ -78,6 +80,10 @@ def _strategy_repository(strategy_id: str) -> StrategyRepository:
     except Exception:
         repo.close()
         raise
+
+
+def factor_asset_reader() -> FactorAssetReader:
+    return FactorAssetReader(RUNTIME_APP_DIR / "alphalab.db")
 
 
 def operations_store() -> OperationsStore:
@@ -351,6 +357,79 @@ def add_project_factor_source(
         if item["kind"] == "factor" and item["id"] not in before
     )
     return {"project": updated, "factor": factor}
+
+
+def list_factor_assets(project_id: str, *, strategy_id: str = "main") -> dict[str, Any]:
+    with factor_asset_reader() as assets:
+        return {"items": assets.list_factor_assets(project_id)}
+
+
+def get_factor_asset(project_id: str, asset_id: str, *, strategy_id: str = "main") -> dict[str, Any]:
+    with factor_asset_reader() as assets:
+        return assets.get_factor_asset_detail(project_id, asset_id)
+
+
+def copy_factor(
+    project_id: str,
+    factor_id: str,
+    new_factor_id: str,
+    *,
+    expected_source_sha256: str | None,
+    strategy_id: str = "main",
+) -> dict[str, Any]:
+    repo = _strategy_repository(strategy_id)
+    try:
+        return repo.copy_factor(
+            project_id,
+            factor_id,
+            new_factor_id,
+            expected_source_sha256=expected_source_sha256,
+        )
+    finally:
+        repo.close()
+
+
+def transition_factor_asset(
+    project_id: str,
+    asset_id: str,
+    to_status: str,
+    *,
+    reason: str,
+    expected_status_revision: int,
+    evidence_ids: list[str],
+    request_id: str,
+    strategy_id: str = "main",
+) -> dict[str, Any]:
+    repo = _strategy_repository(strategy_id)
+    try:
+        return repo.transition_factor_asset(
+            project_id,
+            asset_id,
+            to_status,
+            reason=reason,
+            expected_status_revision=expected_status_revision,
+            evidence_ids=evidence_ids,
+            request_id=request_id,
+        )
+    finally:
+        repo.close()
+
+
+def list_factor_evidence(
+    project_id: str,
+    asset_id: str,
+    *,
+    limit: int,
+    before: str | None,
+    strategy_id: str = "main",
+) -> dict[str, Any]:
+    with factor_asset_reader() as assets:
+        return assets.list_factor_evidence(project_id, asset_id, limit=limit, before=before)
+
+
+def get_factor_evidence(project_id: str, evidence_id: str, *, strategy_id: str = "main") -> dict[str, Any]:
+    with factor_asset_reader() as assets:
+        return assets.get_factor_evidence(project_id, evidence_id)
 
 
 def update_metadata(project_id: str, payload: Mapping[str, Any], strategy_id: str = "main") -> dict[str, Any]:
@@ -749,13 +828,14 @@ def factor_research(
     frequency: str,
     quantiles: int,
     horizons: Sequence[int],
+    factor_revision_id: int | None = None,
     strategy_id: str = "main",
 ) -> dict[str, Any]:
     if profile != "runtime":
         raise ValueError("factor evaluations use the runtime data profile")
     repo = _strategy_repository(strategy_id)
     try:
-        return evaluate_factor_research(
+        result = evaluate_factor_research(
             repo,
             project_id,
             factor_id,
@@ -768,6 +848,55 @@ def factor_research(
             quantiles=quantiles,
             horizons=horizons,
         )
+        request = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "frequency": frequency,
+            "quantiles": quantiles,
+            "horizons": list(horizons),
+            "parameters": dict(parameters or {}),
+        }
+        package = repo.get_package(project_id, result["revision"])
+        universe = next(
+            (
+                item["id"]
+                for item in package["manifest"]
+                if item.get("kind") == "universe" and item.get("id")
+            ),
+            "unavailable",
+        )
+        sample = {
+            "universe": universe,
+            "strategy_id": strategy_id,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+        assumptions = {
+            "forward_return": "next_open_to_open",
+            "missing": "not_zero_filled",
+            "frequency": frequency,
+        }
+        saved = repo.record_factor_evidence(
+            project_id,
+            factor_id,
+            strategy_id,
+            result,
+            request,
+            sample,
+            assumptions,
+            dict(package["data_requirements"], scope="strategy_package"),
+            factor_revision_id=factor_revision_id,
+        )
+        return {
+            **result,
+            "evidence_id": saved["id"],
+            "factor_revision_id": saved["factor_revision_id"],
+            "factor_source_sha256": saved["factor_unit_sha256"],
+            "sample": saved["sample"],
+            "parameters": saved["request"]["parameters"],
+            "assumptions": saved["assumptions"],
+            "data_manifest": saved["data_manifest"],
+        }
     finally:
         repo.close()
 
