@@ -78,8 +78,14 @@ export function ReportEvidencePanel({ result }: { result: AgentResearchResult })
       const status = reference.status ?? "not_linked"
       return <article key={reportReferenceKey(reference)}>
         <div className="report-evidence-icon">{status === "verified" ? <CheckCircle2 size={15} /> : status === "unavailable" ? <Database size={15} /> : <AlertTriangle size={15} />}</div>
-        <div><strong>{reportReferenceLabel(reference, zh)}</strong><p><code>{reference.kind}{reference.id ? ` · ${reference.id}` : ""}</code></p></div>
-        <Badge variant="outline">{status === "verified" ? (zh ? "已验证" : "Verified") : status === "missing" ? (zh ? "缺失" : "Missing") : status === "unavailable" ? (zh ? "不可用" : "Unavailable") : (zh ? "未关联" : "Not linked")}</Badge>
+        <div><strong>{reportReferenceLabel(reference, zh)}</strong><p><code>{reference.kind}{reference.id ? ` · ${reference.id}` : ""}</code></p>
+          {reference.kind === "data_manifest" && reference.status === "verified" && reference.details?.datasets && <p>
+            {reference.details.datasets.join(" · ")} · {reference.details.partition_count} {zh ? "个数据分区" : "data partitions"}
+          </p>}
+          {reference.issues?.map(issue => <p key={issue.kind}>{zh
+            ? `回测冻结的${issue.kind === "strategy_package" ? "策略" : "验证"}版本为 ${issue.actual_revision ? `v${issue.actual_revision}` : "未知"}，请核对报告的版本引用。`
+            : issue.message}</p>)}</div>
+        <Badge variant="outline">{status === "verified" ? (zh ? "已验证" : "Verified") : status === "mismatch" ? (zh ? "版本不匹配" : "Version mismatch") : status === "missing" ? (zh ? "缺失" : "Missing") : status === "unavailable" ? (zh ? "不可用" : "Unavailable") : (zh ? "未关联" : "Not linked")}</Badge>
         {["strategy_package", "validation_package", "factor_evidence", "recipe_revision", "backtest"].includes(reference.kind) ? <button type="button" className="report-evidence-open" onClick={() => openReference(reference.kind, reference.revision, reference.id, reference.factor_path)}>{zh ? "打开" : "Open"}</button> : null}
       </article>
     })}</div>

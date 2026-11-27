@@ -4,7 +4,7 @@ import { ArrowLeftRight, Info } from "lucide-react"
 import { SafeMarkdown } from "@/components/shared/SafeMarkdown"
 import { useLanguage } from "@/contexts/LanguageContext"
 import { api } from "@/lib/api"
-import { reportEvidence, reportReferenceKey, reportReferenceLabel, type ReportEvidenceValidation } from "@/workspace/reportEvidence"
+import { reportEvidence, reportReferenceKey, reportReferenceLabel, reportReferenceSignature, type ReportEvidenceValidation } from "@/workspace/reportEvidence"
 import type { AgentResearchResult } from "@/workspace/researchResults"
 
 export function ReportComparePanel({ reports, initialLeft, initialRight }: { reports: AgentResearchResult[]; initialLeft?: string; initialRight?: string }) {
@@ -54,18 +54,29 @@ export function ReportComparePanel({ reports, initialLeft, initialRight }: { rep
     const leftReferences = validations[left.id]?.references ?? []
     const rightReferences = validations[right.id]?.references ?? []
     if (!leftReferences.length || !rightReferences.length) return zh ? "一方或双方没有已验证的结构化证据；不能直接比较结论。" : "Verified structured evidence is missing on one or both sides; conclusions are not directly comparable."
-    const code = (references: typeof leftReferences) => JSON.stringify(references.map(reference => [reference.kind, reference.revision, reference.source_sha256]))
-    if (code(leftReferences) !== code(rightReferences)) return zh ? "策略、验证或因子代码版本不同；请分别解读结果。" : "Strategy, validation, or factor code versions differ; interpret results separately."
-    if ([...leftReferences, ...rightReferences].some(reference => reference.status && reference.status !== "verified")) {
-      return zh ? "存在缺失、未验证或不可用引用；请先核对差异，不能直接比较结论。" : "Some references are missing, unverified, or unavailable; review differences before comparing conclusions."
+    if ([...leftReferences, ...rightReferences].some(reference => reference.status !== "verified")) {
+      return zh ? "存在版本不匹配、缺失或不可用引用；请先核对证据。" : "Some references conflict, are missing, or are unavailable. Check the evidence first."
     }
-    const leftSamples = JSON.stringify(leftReferences.map(reference => reference.details?.sample))
-    const rightSamples = JSON.stringify(rightReferences.map(reference => reference.details?.sample))
-    if (leftSamples !== rightSamples) return zh ? "样本股票池或日期不同；请分别解读结果。" : "Universe or sample dates differ; interpret results separately."
-    const leftCosts = JSON.stringify(leftReferences.map(reference => reference.details?.config_yaml))
-    const rightCosts = JSON.stringify(rightReferences.map(reference => reference.details?.config_yaml))
-    if (leftCosts !== rightCosts) return zh ? "回测成本或执行设置不同；结果不具直接可比性。" : "Costs or execution settings differ; results are not directly comparable."
-    return zh ? "代码版本、样本和设置已并列；数据清单不可用时仍不能视为完整复现比较。" : "Code, samples, and settings are aligned where available; unavailable manifests still prevent full reproduction comparison."
+    if (reportReferenceSignature(leftReferences, "code") !== reportReferenceSignature(rightReferences, "code")) {
+      return zh ? "引用的源码版本不同，请分别解读结果。" : "Referenced source versions differ. Interpret results separately."
+    }
+    if (reportReferenceSignature(leftReferences, "sample") !== reportReferenceSignature(rightReferences, "sample")) {
+      return zh ? "样本股票池或日期不同，请分别解读结果。" : "Universe or sample dates differ. Interpret results separately."
+    }
+    if (reportReferenceSignature(leftReferences, "settings") !== reportReferenceSignature(rightReferences, "settings")) {
+      return zh ? "回测成本或执行设置不同，请分别解读结果。" : "Costs or execution settings differ. Interpret results separately."
+    }
+    const manifests = (refs: typeof leftReferences) => Array.from(new Set(refs
+      .filter(ref => ref.kind === "data_manifest" && ref.status === "verified").map(ref => ref.id))).sort()
+    const leftManifests = manifests(leftReferences)
+    const rightManifests = manifests(rightReferences)
+    if (!leftManifests.length || !rightManifests.length) {
+      return zh ? "一方或双方缺少已验证的数据清单。" : "One or both reports lack a verified data manifest."
+    }
+    if (JSON.stringify(leftManifests) !== JSON.stringify(rightManifests)) {
+      return zh ? "数据快照不同，请分别解读结果。" : "Data snapshots differ. Interpret results separately."
+    }
+    return zh ? "已核对双方的代码版本、样本、设置和数据快照。" : "Recorded code versions, samples, settings, and snapshots match."
   }, [left, right, validations, validationState, zh])
 
   function downloadComparison() {

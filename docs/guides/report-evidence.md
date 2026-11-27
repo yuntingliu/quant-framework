@@ -16,7 +16,10 @@ server-validation snapshot.
 - `data_manifest`, `experiment`, and `trial` for dependency-aware links.
 
 The server checks ownership and fixed records. Status is `verified`, `missing`,
-`unavailable`, or `not_linked`; an Agent-provided status or ID alone is not evidence.
+`unavailable`, `not_linked`, or `mismatch`. Backtest references that conflict with
+the stated strategy or validation versions show the frozen backtest revision.
+An empty reference list is incomplete. Recipe history is only opened for recipe
+references.
 Preparation also patches the current Document's `data.provenance` in the same
 operation batch, so each report retains its own references after later reports and
 reloads. The read-only delivery path can validate and project metadata but never
@@ -27,8 +30,11 @@ Markdown. Reservations are created only after semantic validation, are rebound t
 report request ID, and are revalidated under `BEGIN IMMEDIATE`. A confirmed reservation
 keeps its status when retried.
 
-Issue #15 is unavailable: data manifests always display an explicit unavailable state,
-and exports are marked as not self-contained reproduction packages. Issue #18 remains
+Before Issue #15 is integrated, new runs on this branch cannot pin a data snapshot.
+When a linked backtest contains Issue #15 snapshot provenance, its recorded manifest
+can be verified against the manifest ID and shown in the report. This check covers
+the recorded manifest. Replaying the stored data requires the snapshot objects,
+which are kept separately from the export. Issue #18 remains
 optional: experiment/trial references are `not_linked` or `unavailable`.
 
 ## Search, comparison, and navigation
@@ -46,8 +52,9 @@ Viewing any of them never starts a backtest, recipe, validation, or factor evalu
 
 ## Declared limits
 
-- Immutable report revision publication and the real local Conexus Host commit/restart
-  contract are **not implemented or verified** in this increment.
+- A local run against the pinned Conexus Host rejected the prepared report edit batch.
+  Its Document node rejects `data` updates. Durable publication of these references
+  requires storage supported by the Host and a successful restart test.
 - Production post-commit reservation confirmation is not wired. The local store's
   confirm method is tested, but no production confirmation lifecycle is claimed.
 - The browser check uses isolated Documents and real stores/APIs; it is not a real

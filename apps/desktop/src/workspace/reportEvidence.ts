@@ -5,16 +5,24 @@ export interface ReportReference {
   kind: ReportReferenceKind
   id?: string
   revision?: number
-  status?: "verified" | "missing" | "unavailable" | "not_linked"
+  status?: "verified" | "missing" | "unavailable" | "not_linked" | "mismatch"
   label?: string
   source_sha256?: string
   factor_status?: string
   factor_path?: string
+  reason?: string
+  issues?: { kind: string; actual_revision: number | null; message: string }[]
   details?: {
+    datasets?: string[]
+    captured_at?: string
+    partition_count?: number
+    backtest_id?: string
     sample?: { universe?: string; start_date?: string; end_date?: string }
     summary?: { mean_rank_ic?: number | null }
     strategy_revision?: number
     validation_revision?: number
+    strategy_source_sha256?: string
+    validation_source_sha256?: string
     config_yaml?: string
   }
 }
@@ -64,6 +72,30 @@ export function reportReferenceKey(reference: ReportReference): string {
 
 export function reportFilterStatus(result: AgentResearchResult): "linked" | "unlinked" | "manifest_unavailable" {
   const { references } = reportEvidence(result)
-  if (references.some(item => item.kind === "data_manifest")) return "manifest_unavailable"
+  if (references.some(item => item.kind === "data_manifest" && !item.id)) return "manifest_unavailable"
   return references.length ? "linked" : "unlinked"
+}
+
+export function reportReferenceSignature(
+  references: ReportReference[],
+  category: "code" | "sample" | "settings",
+): string {
+  const values = references.flatMap(reference => {
+    if (category === "sample") {
+      const sample = reference.details?.sample
+      return sample ? [[sample.universe, sample.start_date, sample.end_date]] : []
+    }
+    if (category === "settings") {
+      return reference.kind === "backtest" ? [[reference.details?.config_yaml]] : []
+    }
+    if (reference.kind === "backtest") {
+      return [
+        ["run_strategy", reference.details?.strategy_revision, reference.details?.strategy_source_sha256],
+        ["run_validation", reference.details?.validation_revision, reference.details?.validation_source_sha256],
+      ]
+    }
+    return ["strategy_package", "validation_package", "factor_evidence", "recipe_revision"].includes(reference.kind)
+      ? [[reference.kind, reference.revision, reference.source_sha256]] : []
+  })
+  return JSON.stringify([...new Set(values.map(value => JSON.stringify(value)))].sort())
 }

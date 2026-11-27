@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -33,7 +36,7 @@ def stores(tmp_path):
     validation.close()
     with repo._conn as connection:
         connection.execute(
-            "INSERT INTO backtests(id, config_yaml, strategy_project_id, strategy_revision, strategy_source_sha256) VALUES (?, '', 'research', ?, ?)",
+            "INSERT INTO backtests(id, config_yaml, strategy_project_id, strategy_revision, strategy_source_sha256, validation_revision) VALUES (?, '', 'research', ?, ?, 1)",
             ("run-1", package["revision"], package["source_sha256"]),
         )
     repo.close()
@@ -89,6 +92,66 @@ def test_validation_api_is_read_only(stores, monkeypatch):
     })
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "verified"
+
+
+def test_backtest_reports_mismatched_frozen_revisions(stores):
+    store, _ = stores
+    repo = StrategyRepository(store.alphalab_path)
+    try:
+        factor = repo.get_factor_source("research", "momentum_20d")["source"]
+        repo.replace_factor_source("research", "momentum_20d", factor.replace("] = 20,", "] = 60,"))
+        revision = repo.get_package("research")["revision"]
+    finally:
+        repo.close()
+    result = store.validate("research", [
+        {"kind": "strategy_package", "revision": revision},
+        {"kind": "backtest", "id": "run-1"},
+    ])
+    assert result["status"] == "incomplete"
+    package, backtest = result["references"]
+    assert package["status"] == "verified"
+    assert backtest["status"] == "mismatch"
+    assert backtest["issues"][0]["actual_revision"] == 1
+
+
+def test_missing_recipe_store_does_not_break_other_evidence(stores, tmp_path):
+    existing, _ = stores
+    absent = tmp_path / "uninitialized.db"
+    store = report_reference_service.ReportReferenceStore(existing.alphalab_path, absent)
+    assert store.validate("research", [])["status"] == "incomplete"
+    strategy = {"kind": "strategy_package", "revision": 1}
+    assert store.validate("research", [strategy])["status"] == "verified"
+    result = store.validate("research", [strategy, {"kind": "recipe_revision", "revision": 1}])
+    assert [item["status"] for item in result["references"]] == ["verified", "unavailable"]
+    assert not absent.exists()
+
+
+def test_manifest_must_match_provenance_of_a_linked_backtest(stores):
+    import sqlite3
+
+    store, _ = stores
+    payload = {"version": 1, "datasets": ["rq.bars"], "files": [], "captured_at": "2026-11-27T00:00:00Z"}
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    manifest_id = hashlib.sha256(encoded).hexdigest()
+    provenance = {
+        "data_manifest_id": manifest_id,
+        "data": {"kind": "data_snapshot", "manifest": {"id": manifest_id, **payload}},
+    }
+
+    def save_provenance():
+        with sqlite3.connect(store.alphalab_path) as database:
+            database.execute("UPDATE backtests SET provenance_json=? WHERE id='run-1'", (json.dumps(provenance),))
+
+    save_provenance()
+    backtest = {"kind": "backtest", "id": "run-1"}
+    manifest = {"kind": "data_manifest", "id": manifest_id}
+    result = store.validate("research", [manifest, backtest])
+    assert result["status"] == "verified"
+    assert result["references"][0]["details"]["backtest_id"] == "run-1"
+    assert store.validate("research", [manifest])["status"] == "incomplete"
+    provenance["data"]["manifest"]["datasets"] = ["rq.instruments"]
+    save_provenance()
+    assert store.validate("research", [manifest, backtest])["status"] == "incomplete"
 
 
 def test_prepare_outputs_reserves_verified_references(stores, monkeypatch):

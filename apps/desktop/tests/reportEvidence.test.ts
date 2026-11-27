@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import { reportEvidence, reportFilterStatus, reportReferenceKey, reportReferenceLabel } from "../src/workspace/reportEvidence.ts"
+import { reportEvidence, reportFilterStatus, reportReferenceKey, reportReferenceLabel, reportReferenceSignature, type ReportReference } from "../src/workspace/reportEvidence.ts"
 import { parseWorkspaceReportNode, type AgentResearchResult } from "../src/workspace/researchResults.ts"
 
 const result: AgentResearchResult = {
@@ -38,4 +38,18 @@ test("workspace report nodes preserve evidence metadata", () => {
   assert.ok(parsed)
   assert.equal(reportEvidence(parsed).projectId, "research")
   assert.equal(reportEvidence(parsed).references.length, 3)
+})
+
+test("report comparison distinguishes frozen code and execution settings from run IDs", () => {
+  const strategy: ReportReference = { kind: "strategy_package", revision: 3 }
+  const first: ReportReference = {
+    kind: "backtest", id: "run-1", details: { strategy_revision: 3, validation_revision: 2, config_yaml: "cost: 0.01" },
+  }
+  const second: ReportReference = {
+    ...first, id: "run-2", details: { ...first.details, config_yaml: "cost: 0.02" },
+  }
+  assert.equal(reportReferenceSignature([strategy, first], "code"), reportReferenceSignature([second, strategy], "code"))
+  assert.notEqual(reportReferenceSignature([first], "settings"), reportReferenceSignature([second], "settings"))
+  const changed = { ...second, details: { ...second.details, strategy_revision: 4 } }
+  assert.notEqual(reportReferenceSignature([first], "code"), reportReferenceSignature([changed], "code"))
 })

@@ -116,7 +116,7 @@ def run(root: Path) -> dict:
 
     with repo._conn as connection:
         connection.execute(
-            "INSERT INTO backtests(id, config_yaml, strategy_project_id, strategy_revision, strategy_source_sha256) VALUES (?, '', 'research', ?, ?)",
+            "INSERT INTO backtests(id, config_yaml, strategy_project_id, strategy_revision, strategy_source_sha256, validation_revision) VALUES (?, '', 'research', ?, ?, 1)",
             ("demo-run", first_package["revision"], first_package["source_sha256"]),
         )
     references = ReportReferenceStore(alphalab_path, operations.path)
